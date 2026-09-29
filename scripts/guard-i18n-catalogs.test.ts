@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
@@ -6,9 +7,21 @@ import {
   checkLocalizedDocsCoverage,
   checkRawVisibleLiteralFile,
   checkStaleBaselineEntries,
+  findCatalogDirs,
   findCorruptedLocalizedDocsIdentifiers,
   normalizeLocalizedDocSlug,
 } from "./guard-i18n-catalogs";
+
+describe("i18n catalog locations", () => {
+  it("checks Toolkit app catalogs instead of the removed Core UI catalog", () => {
+    const catalogDirs = new Set(
+      findCatalogDirs().map((dir) => path.relative(process.cwd(), dir)),
+    );
+
+    assert.ok(catalogDirs.has("packages/toolkit/src/app/i18n/catalogs"));
+    assert.ok(!catalogDirs.has("packages/core/src/localization/core-messages"));
+  });
+});
 
 describe("localized documentation identifiers", () => {
   it("does not match a prefix of a legitimate API identifier", () => {

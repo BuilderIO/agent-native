@@ -1,0 +1,360 @@
+import { readFileSync } from "node:fs";
+
+import { getOnboardingHtml as getCoreOnboardingHtml } from "@agent-native/core/server/onboarding-html";
+import { renderToString } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import {
+  AuthPage,
+  isAuthenticatedAuthSession,
+  isConfirmedAnonymousAuthSession,
+  isVerificationLinkInvalid,
+  oauthReturnTarget,
+  resolveGoogleAuthUrlPath,
+  shouldUseIdentitySsoForGoogle,
+  shouldAutoFederateIdentitySso,
+  shouldHideAuthSubtitle,
+  shouldStartWithLocalDev,
+  type AuthPageProps,
+} from "./AuthPage.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(<AuthPage {...props} />)),
+  });
+
+function propsFromHtml(html: string): AuthPageProps {
+  const match = html.match(
+    /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+  );
+  if (!match) throw new Error("auth page data is missing");
+  return JSON.parse(match[1]!) as AuthPageProps;
+}
+
+describe("AuthPage", () => {
+  it("does not show raw Google OAuth exceptions to users", () => {
+    const source = readFileSync(
+      new URL("./AuthPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const startGoogle = React.useCallback");
+    const end = source.indexOf(
+      "  }, [\n    apiPath,\n    googleAuthUrlPath",
+      start,
+    );
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const googleOAuthCatch = source.slice(start, end);
+
+    expect(googleOAuthCatch).toContain('text: t("failedToConnect")');
+    expect(googleOAuthCatch).not.toContain("error.message");
+  });
+
+  it("recognizes Better Auth invalid-token redirects as expired verification links", () => {
+    expect(isVerificationLinkInvalid("verification_link_invalid")).toBe(true);
+    expect(isVerificationLinkInvalid("INVALID_TOKEN")).toBe(true);
+    expect(isVerificationLinkInvalid("INVALID_CALLBACK_URL")).toBe(false);
+
+    expect(
+      propsFromHtml(getOnboardingHtml({ requestPath: "/?error=INVALID_TOKEN" }))
+        .initialView,
+    ).toBe("login");
+  });
+
+  it("hides account-only guidance when local development sign-in is available", () => {
+    expect(shouldHideAuthSubtitle("signup", true)).toBe(true);
+    expect(shouldHideAuthSubtitle("signup", false)).toBe(false);
+    expect(shouldHideAuthSubtitle("login", true)).toBe(false);
+  });
+
+  it("starts local development sign-in collapsed unless the URL requests auth", () => {
+    expect(shouldStartWithLocalDev("/", "")).toBe(true);
+    expect(shouldStartWithLocalDev("/", "?tab=signup")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?tab=login")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?verified=1")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?error=INVALID_TOKEN")).toBe(false);
+    expect(shouldStartWithLocalDev("/login", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/signup/", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/sign-in", "")).toBe(true);
+    expect(
+      shouldStartWithLocalDev("/_agent-native/sign-in", "?return=%2Fplans"),
+    ).toBe(true);
+    expect(shouldStartWithLocalDev("/sign-in", "?c=%2Fplans")).toBe(true);
+  });
+
+  it("only confirms anonymous sessions from a readable auth response", () => {
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Session unavailable" },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: false, status: 503 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("only treats a successful session response with an email as signed in", () => {
+    expect(
+      isAuthenticatedAuthSession({ ok: true }, { email: "person@example.com" }),
+    ).toBe(true);
+    expect(
+      isAuthenticatedAuthSession(
+        { ok: true },
+        { error: "Not authenticated", email: "person@example.com" },
+      ),
+    ).toBe(false);
+    expect(isAuthenticatedAuthSession({ ok: false }, {})).toBe(false);
+  });
+
+  it("only auto-federates identity SSO on its canonical origin", () => {
+    expect(
+      shouldAutoFederateIdentitySso({
+        identitySsoAuto: true,
+        publicOAuthOrigin: "https://design.agent-native.com",
+        currentOrigin: "https://design.agent-native.com",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoFederateIdentitySso({
+        identitySsoAuto: true,
+        publicOAuthOrigin: "https://design.agent-native.com",
+        currentOrigin: "https://pr-4689--agent-native-design.netlify.app",
+      }),
+    ).toBe(false);
+  });
+
+  it("uses Identity SSO for Google sign-in on immutable Netlify deploy URLs", () => {
+    const deployOrigin = `https://${"a".repeat(24)}--agent-native-analytics.netlify.app`;
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: true,
+        currentOrigin: deployOrigin,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: true,
+        currentOrigin:
+          "https://deploy-preview-42--agent-native-analytics.netlify.app",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseIdentitySsoForGoogle({
+        googleViaIdentitySso: false,
+        currentOrigin: deployOrigin,
+      }),
+    ).toBe(false);
+  });
+
+  it("enables preview Google SSO only for the current immutable site deploy", () => {
+    const previousSiteName = process.env.SITE_NAME;
+    process.env.SITE_NAME = "agent-native-analytics";
+    const deployHost = `${"a".repeat(24)}--agent-native-analytics.netlify.app`;
+
+    try {
+      const deployProps = propsFromHtml(
+        getOnboardingHtml({ requestHost: deployHost }),
+      );
+      const aliasProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: "deploy-preview-42--agent-native-analytics.netlify.app",
+        }),
+      );
+
+      expect(deployProps.googleViaIdentitySso).toBe(true);
+      expect(aliasProps.googleViaIdentitySso).toBe(false);
+      expect(deployProps.identitySsoEnabled).toBe(false);
+
+      const mailProps = propsFromHtml(
+        getOnboardingHtml({
+          requestHost: deployHost,
+          googleScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        }),
+      );
+      expect(mailProps.googleViaIdentitySso).toBe(false);
+    } finally {
+      if (previousSiteName === undefined) delete process.env.SITE_NAME;
+      else process.env.SITE_NAME = previousSiteName;
+    }
+  });
+
+  it("renders the password auth surface on the server without browser globals", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage
+        {...props}
+        identitySsoEnabled={false}
+        identitySsoAuto={false}
+      />,
+    );
+
+    expect(html).toContain('id="signup-form"');
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain('id="forgot-form"');
+    expect(html).not.toContain("onclick");
+  });
+
+  it("offers manual federation only when silent sign-in is unavailable", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto={false} />,
+    );
+
+    expect(html).toContain('id="identity-sso-btn"');
+    expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
+    expect(html).toContain("Continue with Agent-Native");
+    expect(html).toContain("Use the same verified email");
+  });
+
+  it("keeps the manual federation CTA off canonical pages with silent sign-in", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
+  it("keeps the federation CTA off auth pages without an available hub", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled={false} />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
+  it("preserves Google-only sign-in policy", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled googleOnly />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
+  it("renders the organization SSO email entry point when enabled", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} organizationSsoEnabled />);
+
+    expect(html).toContain('id="organization-sso-form"');
+    expect(html).toContain('id="organization-sso-submit"');
+  });
+
+  it("renders branded auth with the app description and inline Learn more link", () => {
+    const onboardingHtml = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+    });
+    const props = propsFromHtml(onboardingHtml);
+    const html = renderToString(<AuthPage {...props} initialView="login" />);
+
+    expect(html).toContain('data-agent-native-marketing-home="true"');
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain('data-i18n="welcomeToApp"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain('class="auth-marketing-description-link"');
+    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain(">Learn more</a>");
+    expect(html).toContain('class="oss-badge"');
+    expect(html).not.toContain("data-agent-native-starfield");
+  });
+
+  it("keeps the whole marketing panel in English when localized copy is incomplete", () => {
+    const props = propsFromHtml(
+      getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
+    );
+    props.defaultLocale = "zh-CN";
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.marketingLocales["zh-CN"]?.authHeadline).toBeTruthy();
+    expect(props.marketingLocales["zh-CN"]?.authDescription).toBeUndefined();
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain("Presentations that grow with your ideas.");
+    expect(html).not.toContain(props.marketingLocales["zh-CN"]!.authHeadline!);
+  });
+
+  it("keeps the magic-link entry and completion surfaces in the React tree", () => {
+    const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("magicLink");
+    expect(html).toContain('id="magic-link-form"');
+    expect(html).toContain('id="magic-link-success"');
+    expect(html).toContain('id="magic-link-success-email"');
+    expect(html).toContain('id="use-password-link"');
+  });
+
+  it("keeps the magic-link entry subtitle honest about the controls it renders", () => {
+    const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("magicLink");
+    expect(html).toMatch(/id="auth-tabs"[^>]*\shidden=""/);
+    expect(html).toContain("Sign in or create your account");
+    expect(html).not.toContain("Create an account or sign in");
+  });
+
+  it("still shows the account chooser on the password entry view", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.initialView).toBe("signup");
+    expect(html).toContain('id="auth-tabs"');
+    expect(html).not.toMatch(/id="auth-tabs"[^>]*\shidden=""/);
+  });
+
+  it("returns Builder Electron OAuth to the local workspace gateway", () => {
+    const target = "/agent?tab=context";
+    const genericElectron = "Mozilla/5.0 Electron/32.0 BuilderDesktop";
+
+    expect(oauthReturnTarget(target, "", genericElectron)).toBe(
+      "http://127.0.0.1:8080/agent?tab=context",
+    );
+    expect(
+      oauthReturnTarget(
+        target,
+        "",
+        "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
+      ),
+    ).toBe("http://127.0.0.1:8080/agent?tab=context");
+    expect(oauthReturnTarget(target, "", "Mozilla/5.0 Chrome/138.0")).toBe(
+      target,
+    );
+  });
+
+  it("keeps Builder preview OAuth at the public app root", () => {
+    expect(
+      resolveGoogleAuthUrlPath({
+        builderPreview: true,
+        currentOrigin: "https://preview.builder.codes",
+        publicOAuthOrigin: "https://dispatch.agent-native.com",
+        runtimeAppBasePath: "/dispatch",
+      }),
+    ).toBe("https://dispatch.agent-native.com/_agent-native/google/auth-url");
+    expect(
+      resolveGoogleAuthUrlPath({
+        builderPreview: true,
+        currentOrigin: "https://agent-workspace.builder.io",
+        publicOAuthOrigin: "https://agent-workspace.builder.io",
+        runtimeAppBasePath: "/dispatch",
+      }),
+    ).toBe("/dispatch/_agent-native/google/auth-url");
+  });
+});

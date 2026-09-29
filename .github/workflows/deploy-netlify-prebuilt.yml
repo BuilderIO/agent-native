@@ -994,6 +994,52 @@ jobs:
           echo "::error::Mail release migration failed after 3 attempts."
           exit 1
 
+      - name: Run Chat release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'chat'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts 2>/dev/null ||
+              true
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getEnvVars \
+                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+            )"
+          fi
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter chat migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Chat migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Chat release migration failed after 3 attempts."
+          exit 1
+
       - name: Unlock the published production deploy
         id: unlock
         if: >-

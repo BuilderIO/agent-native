@@ -29,7 +29,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   buildSettingsRoute: (section: string) => `/settings/${section}`,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: () => null,
 }));
 
@@ -37,7 +37,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
   SettingsTabsPage: (props: Record<string, unknown>) => {
     mocks.settingsProps = props;

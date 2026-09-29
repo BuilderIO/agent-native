@@ -128,6 +128,78 @@ it("routes relative multi-target values through one linked batch", () => {
   expect(applyFileContentUpdate).not.toHaveBeenCalled();
 });
 
+it.each([
+  ["paddingLeft", "paddingRight"],
+  ["paddingRight", "paddingLeft"],
+  ["marginTop", "marginBottom"],
+  ["marginBottom", "marginTop"],
+])(
+  "equalizes the edited %s spacing pair for each selected layer",
+  (property, oppositeProperty) => {
+    const cssProperty = (value: string) =>
+      value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    const main = `<section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="linked-child" style="${cssProperty(property)}: 8px; ${cssProperty(oppositeProperty)}: 12px">Linked</div></section><div data-agent-native-node-id="plain-child" style="${cssProperty(property)}: 20px; ${cssProperty(oppositeProperty)}: 24px">Plain</div>`;
+    const selectedLayerTargets = targetsFor(main, "main-file", [
+      "linked-child",
+      "plain-child",
+    ]);
+    const applyLinkedComponentEdit = vi.fn();
+    const activeFile: DesignFile = {
+      id: "main-file",
+      filename: "main.html",
+      fileType: "html",
+      content: main,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const applied = runCommitRelativeStyleDeltaToSelectedLayers(
+      {
+        activeBreakpointUpperBoundPx: null,
+        activeBreakpointWidthStateRef: { current: undefined },
+        activeCanvasSourceType: "inline",
+        activeContent: main,
+        activeFile,
+        applyFileContentUpdate: vi.fn(),
+        applyLinkedComponentEdit,
+        canEditDesign: true,
+        effectiveCodeLayerStateRef: {
+          current: { lockedIds: new Set(), hiddenIds: new Set() },
+        },
+        getScreenContent: () => main,
+        lastLocalContentRef: { current: null },
+        latestActiveContentRef: { current: null },
+        responsiveEditScopeRef: { current: "cascade-smaller" },
+        selectedLayerTargetsRef: { current: selectedLayerTargets },
+        setSelectedElement: vi.fn(),
+      },
+      [property, oppositeProperty],
+      1,
+    );
+
+    expect(applied).toBe(true);
+    expect(applyLinkedComponentEdit).toHaveBeenCalledWith(
+      "main-file",
+      "linked-child",
+      {
+        kind: "styleTargetsBatch",
+        targets: [
+          {
+            fileId: "main-file",
+            nodeId: "linked-child",
+            styles: { [property]: "9px", [oppositeProperty]: "9px" },
+          },
+          {
+            fileId: "main-file",
+            nodeId: "plain-child",
+            styles: { [property]: "21px", [oppositeProperty]: "21px" },
+          },
+        ],
+      },
+    );
+  },
+);
+
 it("hands linked localhost relative targets to the live source route", () => {
   const source = `<section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="linked-child" style="width: 100px">Linked</div></section><div data-agent-native-node-id="plain-child" style="width: 200px">Plain</div><section data-agent-native-node-id="copy-root" ${COMPONENT_REF_ATTR}="card"><div data-agent-native-node-id="copy-child" ${COMPONENT_SOURCE_NODE_ID_ATTR}="linked-child" style="width: 100px">Linked</div></section>`;
   const selectedLayerTargets = targetsFor(source, "live-file", [
@@ -247,78 +319,83 @@ it("reports lower-bound-only linked relative edits as one refused batch", () => 
   expect(commitVisualStyles).not.toHaveBeenCalled();
 });
 
-it("applies a relative margin delta to every changed side on each selected layer", () => {
-  const content = `<div data-agent-native-node-id="first" style="margin-left: 8px; margin-right: 12px"></div><div data-agent-native-node-id="second" style="margin-left: 20px; margin-right: 30px"></div>`;
-  const files: Record<string, string> = { "main-file": content };
-  const selectedLayerTargets = targetsFor(content, "main-file", [
-    "first",
-    "second",
-  ]);
-  const applyFileContentUpdate = vi.fn(
-    (fileId: string, nextContent: string) => {
-      files[fileId] = nextContent;
-      return {
-        status: "accepted" as const,
-        content: nextContent,
-        nodeIdMap: new Map(
-          buildCodeLayerProjection(nextContent, {
-            source: { kind: "design-file", fileId },
-          }).nodes.map((node) => [node.id, node.id]),
-        ),
-      };
-    },
-  );
-  const activeFile: DesignFile = {
-    id: "main-file",
-    filename: "main.html",
-    fileType: "html",
-    content,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
-
-  const applied = runCommitRelativeStyleDeltaToSelectedLayers(
-    {
-      activeBreakpointUpperBoundPx: null,
-      activeBreakpointWidthStateRef: { current: undefined },
-      activeContent: content,
-      activeFile,
-      applyFileContentUpdate,
-      canEditDesign: true,
-      effectiveCodeLayerStateRef: {
-        current: { lockedIds: new Set(), hiddenIds: new Set() },
+it.each(["padding", "margin"] as const)(
+  "equalizes relative %s edits across linked sides on each selected layer",
+  (kind) => {
+    const left = `${kind}Left`;
+    const right = `${kind}Right`;
+    const content = `<div data-agent-native-node-id="first" style="${kind}-left: 8px; ${kind}-right: 12px"></div><div data-agent-native-node-id="second" style="${kind}-left: 20px; ${kind}-right: 30px"></div>`;
+    const files: Record<string, string> = { "main-file": content };
+    const selectedLayerTargets = targetsFor(content, "main-file", [
+      "first",
+      "second",
+    ]);
+    const applyFileContentUpdate = vi.fn(
+      (fileId: string, nextContent: string) => {
+        files[fileId] = nextContent;
+        return {
+          status: "accepted" as const,
+          content: nextContent,
+          nodeIdMap: new Map(
+            buildCodeLayerProjection(nextContent, {
+              source: { kind: "design-file", fileId },
+            }).nodes.map((node) => [node.id, node.id]),
+          ),
+        };
       },
-      getScreenContent: (fileId) => files[fileId] ?? "",
-      lastLocalContentRef: { current: null },
-      latestActiveContentRef: { current: null },
-      responsiveEditScopeRef: { current: "cascade-smaller" },
-      selectedLayerTargetsRef: { current: selectedLayerTargets },
-      setSelectedElement: vi.fn(),
-    },
-    ["marginLeft", "marginRight"],
-    1,
-  );
-
-  expect(applied).toBe(true);
-  expect(applyFileContentUpdate).toHaveBeenCalledOnce();
-  const updatedProjection = buildCodeLayerProjection(files["main-file"]!, {
-    source: { kind: "design-file", fileId: "main-file" },
-  });
-  const stylesFor = (id: string) => {
-    const node = updatedProjection.nodes.find(
-      (candidate) =>
-        candidate.dataAttributes["data-agent-native-node-id"] === id,
     );
-    if (!node) throw new Error(`Missing updated target ${id}`);
-    return elementInfoFromCodeLayerNode(node).computedStyles;
-  };
+    const activeFile: DesignFile = {
+      id: "main-file",
+      filename: "main.html",
+      fileType: "html",
+      content,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
 
-  expect(stylesFor("first")).toMatchObject({
-    marginLeft: "9px",
-    marginRight: "13px",
-  });
-  expect(stylesFor("second")).toMatchObject({
-    marginLeft: "21px",
-    marginRight: "31px",
-  });
-});
+    const applied = runCommitRelativeStyleDeltaToSelectedLayers(
+      {
+        activeBreakpointUpperBoundPx: null,
+        activeBreakpointWidthStateRef: { current: undefined },
+        activeContent: content,
+        activeFile,
+        applyFileContentUpdate,
+        canEditDesign: true,
+        effectiveCodeLayerStateRef: {
+          current: { lockedIds: new Set(), hiddenIds: new Set() },
+        },
+        getScreenContent: (fileId) => files[fileId] ?? "",
+        lastLocalContentRef: { current: null },
+        latestActiveContentRef: { current: null },
+        responsiveEditScopeRef: { current: "cascade-smaller" },
+        selectedLayerTargetsRef: { current: selectedLayerTargets },
+        setSelectedElement: vi.fn(),
+      },
+      [left, right],
+      1,
+    );
+
+    expect(applied).toBe(true);
+    expect(applyFileContentUpdate).toHaveBeenCalledOnce();
+    const updatedProjection = buildCodeLayerProjection(files["main-file"]!, {
+      source: { kind: "design-file", fileId: "main-file" },
+    });
+    const stylesFor = (id: string) => {
+      const node = updatedProjection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === id,
+      );
+      if (!node) throw new Error(`Missing updated target ${id}`);
+      return elementInfoFromCodeLayerNode(node).computedStyles;
+    };
+
+    expect(stylesFor("first")).toMatchObject({
+      [left]: "9px",
+      [right]: "9px",
+    });
+    expect(stylesFor("second")).toMatchObject({
+      [left]: "21px",
+      [right]: "21px",
+    });
+  },
+);

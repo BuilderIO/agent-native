@@ -1,21 +1,17 @@
 import {
   generateTabId,
-  AgentChatSurface,
   buildDynamicAgentSuggestions,
   type AgentDynamicSuggestionContext,
   isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
-  useExternalAgentHost,
 } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -27,7 +23,6 @@ import {
   type AttributedRecentEdit,
   type OtherPresence,
 } from "@agent-native/core/client/collab";
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -49,17 +44,11 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
-  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
-import {
-  ShareButton,
-  withShareLinkAttribution,
-} from "@agent-native/core/client/sharing";
+import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -71,6 +60,19 @@ import {
   useCreativeContextState,
   readCreativeContextState,
 } from "@agent-native/creative-context/client";
+import {
+  AgentChatSurface,
+  useExternalAgentHost,
+} from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  buildReviewThreads,
+  type ReviewThread,
+} from "@agent-native/toolkit/app/review";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   LiveCursorOverlay,
   PresenceBar,
@@ -5045,6 +5047,8 @@ function DesignEditor() {
   const [runtimeLayerSnapshotsById, setRuntimeLayerSnapshotsById] = useState<
     Record<string, RuntimeLayerSnapshot>
   >({});
+  const [runtimeLayerSnapshotReadiness, setRuntimeLayerSnapshotReadiness] =
+    useState<{ screenId: string; ready: boolean } | null>(null);
   const [screenRootComputedStylesById, setScreenRootComputedStylesById] =
     useState<Record<string, Record<string, string>>>({});
   const screenRootComputedStylesByIdRef = useRef(screenRootComputedStylesById);
@@ -6188,6 +6192,10 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const activeRuntimeLayerReadinessScreenIdRef = useRef<string | null>(
+    activeFile?.id ?? null,
+  );
+  activeRuntimeLayerReadinessScreenIdRef.current = activeFile?.id ?? null;
   const activePendingSource = activeFile
     ? pendingLocalFileContentsRef.current.get(activeFile.id)
     : undefined;
@@ -8201,6 +8209,23 @@ function DesignEditor() {
     },
     [handleScreenRuntimeLayerSnapshot],
   );
+  const runtimeLayerSnapshotReadinessCallbacksRef = useRef(
+    new Map<string, (ready: boolean) => void>(),
+  );
+  const getRuntimeLayerSnapshotReadinessCallback = useCallback(
+    (screenId: string) => {
+      const cache = runtimeLayerSnapshotReadinessCallbacksRef.current;
+      const cached = cache.get(screenId);
+      if (cached) return cached;
+      const callback = (ready: boolean) => {
+        if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) return;
+        setRuntimeLayerSnapshotReadiness({ screenId, ready });
+      };
+      cache.set(screenId, callback);
+      return callback;
+    },
+    [],
+  );
   const runtimeVerificationSnapshotCallbacksRef = useRef<
     Map<
       string,
@@ -8626,12 +8651,10 @@ function DesignEditor() {
       }),
     [activeFile?.id, activeProjectionContent, codeLayerSourceForScreen],
   );
-  const activeRuntimeCodeLayerProjection = useMemo(() => {
+  const activeRuntimeProjectionEligible = useMemo(() => {
     const fileId = activeFile?.id;
-    if (!fileId) return null;
-    const snapshot = runtimeLayerSnapshotsById[fileId];
-    if (!snapshot) return null;
-    const eligible = shouldUseRuntimeLayerProjection({
+    if (!fileId) return false;
+    return shouldUseRuntimeLayerProjection({
       screen: overviewScreens.find((screen) => screen.id === fileId),
       fallbackSourceType:
         normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
@@ -8639,32 +8662,34 @@ function DesignEditor() {
         "inline",
       content: files.find((file) => file.id === fileId)?.content ?? "",
     });
-    if (!eligible) return null;
+  }, [activeFile?.id, designDataJson, files, overviewScreens]);
+  const activeRuntimeCodeLayerProjection = useMemo(() => {
+    const fileId = activeFile?.id;
+    if (!fileId) return null;
+    const snapshot = runtimeLayerSnapshotsById[fileId];
+    if (!snapshot || !activeRuntimeProjectionEligible) return null;
     const projection = buildCodeLayerProjection(snapshot.html, {
       source: codeLayerSourceForScreen(fileId, "inline-html"),
     });
     return projection.nodes.length > 0 ? projection : null;
   }, [
     activeFile?.id,
+    activeRuntimeProjectionEligible,
     codeLayerSourceForScreen,
-    designDataJson,
-    files,
-    overviewScreens,
     runtimeLayerSnapshotsById,
   ]);
   const activeRuntimeSourceLocationUnavailable = useMemo(() => {
     const fileId = activeFile?.id;
     const snapshot = fileId ? runtimeLayerSnapshotsById[fileId] : undefined;
-    if (!fileId || !snapshot) return false;
-    const eligible = shouldUseRuntimeLayerProjection({
-      screen: overviewScreens.find((screen) => screen.id === fileId),
-      fallbackSourceType:
-        normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
-        normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
-        "inline",
-      content: files.find((file) => file.id === fileId)?.content ?? "",
-    });
-    if (!eligible) return false;
+    if (
+      !fileId ||
+      !snapshot ||
+      !activeRuntimeProjectionEligible ||
+      runtimeLayerSnapshotReadiness?.screenId !== fileId ||
+      !runtimeLayerSnapshotReadiness.ready
+    ) {
+      return false;
+    }
     const projection = buildCodeLayerProjection(snapshot.html, {
       source: codeLayerSourceForScreen(fileId, "inline-html"),
     });
@@ -8673,10 +8698,9 @@ function DesignEditor() {
     );
   }, [
     activeFile?.id,
+    activeRuntimeProjectionEligible,
     codeLayerSourceForScreen,
-    designDataJson,
-    files,
-    overviewScreens,
+    runtimeLayerSnapshotReadiness,
     runtimeLayerSnapshotsById,
   ]);
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
@@ -23993,6 +24017,11 @@ function DesignEditor() {
         selectedElementScreenId === screen.id ||
         screenSelectedLayerGroups.length > 0;
       const screenContent = getScreenContent(screen.id);
+      const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
+        screen,
+        fallbackSourceType: designSourceType,
+        content: screenContent,
+      });
       const screenSourceType = resolveOverviewScreenSourceType(
         screen,
         metadata.source ?? designSourceType,
@@ -24209,12 +24238,13 @@ function DesignEditor() {
               : (snapshot) =>
                   handleScreenExternalContentSnapshot(screen.id, snapshot)
           }
+          onRuntimeLayerSnapshotReadinessChange={
+            screenIsActive && runtimeProjectionEligible
+              ? getRuntimeLayerSnapshotReadinessCallback(screen.id)
+              : undefined
+          }
           onRuntimeLayerSnapshot={
-            shouldUseRuntimeLayerProjection({
-              screen,
-              fallbackSourceType: designSourceType,
-              content: screenContent,
-            })
+            runtimeProjectionEligible
               ? getRuntimeLayerSnapshotCallback(screen.id)
               : undefined
           }
@@ -24440,6 +24470,7 @@ function DesignEditor() {
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
       getRuntimeLayerSnapshotCallback,
+      getRuntimeLayerSnapshotReadinessCallback,
       getScreenRootComputedStylesCallback,
       getRuntimeVerificationSnapshotCallback,
       designFusionUrl,
@@ -27665,12 +27696,15 @@ function DesignEditor() {
                               }
                         }
                         onRuntimeLayerSnapshot={
-                          shouldUseRuntimeLayerProjection({
-                            screen: activeOverviewScreen,
-                            fallbackSourceType: designSourceType,
-                            content: activeContent,
-                          })
+                          activeRuntimeProjectionEligible
                             ? handleActiveRuntimeLayerSnapshot
+                            : undefined
+                        }
+                        onRuntimeLayerSnapshotReadinessChange={
+                          activeRuntimeProjectionEligible
+                            ? getRuntimeLayerSnapshotReadinessCallback(
+                                activeFile.id,
+                              )
                             : undefined
                         }
                         onReserveVisualEditSnapshot={

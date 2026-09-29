@@ -1,12 +1,10 @@
-import {
-  BlockRegistryProvider,
-  type BlockRenderContext,
-} from "@agent-native/core/blocks";
+import { type BlockRenderContext } from "@agent-native/core/blocks/server";
 import {
   type AttributedRecentEdit,
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import {
   PresenceBar,
   RecentEditHighlights,

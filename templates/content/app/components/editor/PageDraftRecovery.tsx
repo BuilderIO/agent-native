@@ -1,6 +1,6 @@
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";

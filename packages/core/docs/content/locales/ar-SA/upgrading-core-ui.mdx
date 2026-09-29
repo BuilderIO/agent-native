@@ -1,0 +1,163 @@
+---
+title: "ترقية التطبيقات الحالية إلى Core 0.198.0"
+description: "دليل خطوة بخطوة لترحيل Core 0.198.0، واستيرادات Toolkit، والحزم النظيرة الاختيارية، والتحقق."
+---
+
+# ترقية التطبيقات الحالية إلى Core 0.198.0
+
+استخدم هذا الدليل لترقية تطبيق موجود إلى إصدار Core 0.198.0. نفّذ الأوامر من
+جذر التطبيق أو مساحة العمل، واحتفظ بفروق التغييرات لمراجعتها قبل البدء. افحص
+إعدادات النشر عن بُعد بشكل منفصل: يمكن للأداة قراءة ملفات البيئة المحلية، لكنها
+لا تستطيع فحص البيئات البعيدة أو إعدادات الميزات المخزنة في قاعدة البيانات.
+
+## 1. معاينة الترقية وتحويلات الاستيراد
+
+استخدم واجهة الأوامر المرفقة بإصدار Core 0.198.0 لتحميل بيان الترحيل الخاص به:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
+
+بعد تثبيت Core 0.198.0 في التطبيق، تتوفر المعاينة نفسها عبر ملف CLI التنفيذي المحلي:
+
+    npx agent-native upgrade --codemods --dry-run
+
+يستخدم الأمر `--codemods` الحزمة `ts-morph`. إذا لم يكن التطبيق قادرًا على حلّ الحزمة بالفعل، فثبّتها أولًا كتبعية تطوير: `pnpm add -D ts-morph`.
+
+يطبّق `--codemods` تلقائيًا تعديلات الاستيراد المدعومة. أضف `--dry-run` لمعاينة تغييرات
+التبعيات المخطط لها وفروق الملفات والتحذيرات قبل المتابعة. لم يعد الخيار `--yes` مطلوبًا.
+
+تستخدم التحويلات بياني الترحيل النشطين لـ Core وToolkit. تفحص ملفات .ts و .tsx فقط،
+مع استثناء ملفات التعريف والملفات المولدة ومجلدات التبعيات، ثم تعيد كتابة
+مسارات الاستيراد والتصدير المدعومة. عند انتقال أسماء تصدير إلى وحدات مختلفة،
+يمكنها تقسيم التصريح حسب الرمز مع الحفاظ على الأسماء البديلة والاستيرادات
+النوعية. كما تعيد كتابة مسارات CSS @import البسيطة وتضيف تبعية حزمة مفقودة إذا
+انتقل مسار محلول إلى حزمة أخرى.
+
+كما يكتشف التشخيص صيغ CommonJS باستخدام `require()` وصيغ `import()` الديناميكية، لكن codemod لا يعيد كتابة استدعاءات الدوال هذه. استبدلها باستخدام المسار الجديد المذكور في التقرير، ثم أعد تشغيل Vite أو `agent-native doctor`. تُعدّل codemod مسارات CSS `@import url(...)` سواء كانت بين علامتي اقتباس أم لا.
+
+لا تغيّر مواقع الاستدعاء ولا تنقل ملفاتك. تترك التحويلات غير المحلولة أو
+المخططة كما هي وتصدر تحذيراً. لا يمكنها تقسيم استيرادات أو صادرات default أو
+namespace أو side-effect أو star، ولا تقسّم استيرادات CSS
+على مستوى الرمز. راجع هذه الحالات يدوياً. قد تحتاج الصادرات المحذوفة إلى تعديل
+في الشيفرة؛ اتبع دليل الترحيل المذكور في تحذير CLI.
+
+تعرض المعاينة خطة الترقية كاملة أيضاً: تعارضات overrides أو patches التي تمنع
+الترقية، وتحديثات إصدارات @agent-native/\* المعلقة، وحزم الميزات المستنتجة من
+الإعدادات المحلية، والتثبيت، وتحديث مهارات scaffold، وفحص typecheck عند وجود
+هذا البرنامج النصي في الحزمة الجذرية. يحدّث الأمر مواصفات الحزم إلى latest
+الحالية في السجل ثم يثبت الإصدارات التي حلّها التثبيت. شغّله عندما يكون
+0.198.0 هو الإصدار الحالي المقصود، وتحقق من الإصدارات المثبتة إذا كنت تحتاج
+إلى إصدار محدد.
+
+## 2. تأكيد Toolkit والحزم الاختيارية
+
+تتطلب الاستيرادات المنقولة إلى `@agent-native/toolkit/*` تثبيت `@agent-native/toolkit`. تضيف التحويلات Toolkit عند نقل استيراد أو تصدير مدعوم ومحلول إليها. إذا كان التطبيق يستخدم تصديراً من Toolkit ولم تُضف تبعية، ثبّت إصدار Toolkit المطابق لـ Core 0.198.0:
+
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
+
+### التبعيات التي يختارها CLI تلقائياً
+
+يضيف CLI هذه التبعيات عندما تتطابق فحوصات البيئة المحلية. بالنسبة إلى PGlite، يفحص `${APP_NAME}_DATABASE_URL` بعد توحيد اسم التطبيق أولاً، ثم `DATABASE_URL`؛ ويختار PGlite عندما لا يوجد عنوان أو يبدأ بـ `pglite:`. لا يستطيع فحص البيئات البعيدة أو إعدادات الميزات المخزنة في قاعدة البيانات، لذا تحقّق من الإنتاج والمعاينة بنفسك.
+
+| الميزة                              | الحزمة الاختيارية            | الإصدار             | إعداد البيئة الذي يفحصه CLI                                                                         |
+| ----------------------------------- | ---------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
+| قاعدة بيانات PGlite                 | @electric-sql/pglite         | ^0.5.8              | `${APP_NAME}_DATABASE_URL` بعد توحيد اسم التطبيق، ثم `DATABASE_URL`؛ غير موجود أو يبدأ بـ `pglite:` |
+| Sentry للخادم                       | @sentry/node                 | ^10.60.0 أو ^11.0.0 | `SENTRY_SERVER_DSN` أو `SENTRY_DSN` أو مجموعة مفاتيح Sentry                                         |
+| Sentry للمتصفح                      | @sentry/browser              | ^10.60.0 أو ^11.0.0 | DSN عميل Sentry أو `SENTRY_DSN` أو مجموعة المفاتيح                                                  |
+| رفع خرائط مصادر Sentry أثناء البناء | @sentry/vite-plugin          | ^5.4.0              | تعيين `SENTRY_AUTH_TOKEN` والمؤسسة والمشروع                                                         |
+| مصادقة SSO                          | @better-auth/sso             | 1.7.4               | تفعيل `AUTH_SSO`                                                                                    |
+| مصادقة SCIM                         | @better-auth/scim            | 1.7.4               | تفعيل `AUTH_SCIM`                                                                                   |
+| Amplitude                           | @amplitude/analytics-browser | ^2.45.8             | تعيين `VITE_AMPLITUDE_API_KEY`                                                                      |
+| Microsoft Teams                     | botframework-connector       | ^4.23.3             | تعيين `MICROSOFT_TEAMS_APP_ID` و`MICROSOFT_TEAMS_APP_PASSWORD`                                      |
+
+### حزم وقت التشغيل الاختيارية التي تُضاف عند استخدام الميزة
+
+لا يستنتج CLI هذه الحزم النظيرة. أضف الحزمة لكل ميزة يستخدمها التطبيق، وتحقّق من الإعدادات المحلية والمنشورة. يحتاج محرك AI SDK إلى `ai` وإلى حزمة المزوّد التي يختارها المحرك:
+
+| الميزة                                                            | الحزمة الاختيارية                                                                                | الإصدار          |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- |
+| محرك AI SDK                                                       | ai                                                                                               | >=6              |
+| مزوّدو Anthropic أو Cohere أو Google أو Groq أو Mistral أو OpenAI | @ai-sdk/anthropic, @ai-sdk/cohere, @ai-sdk/google, @ai-sdk/groq, @ai-sdk/mistral, @ai-sdk/openai | >=3 each         |
+| مزوّد OpenRouter                                                  | @openrouter/ai-sdk-provider                                                                      | >=2              |
+| مزوّد Ollama                                                      | ai-sdk-ollama                                                                                    | >=3              |
+| عدّاد رموز Anthropic الدقيق في Context X-Ray                      | @anthropic-ai/tokenizer                                                                          | ^0.0.4           |
+| أنواع فهرسة أنظمة تصميم Builder                                   | @builder.io/ai-utils                                                                             | ^0.84.0          |
+| طلبات TypeSafe AI المباشرة لـ Jev                                 | @typesafe-ai/sdk                                                                                 | ^0.6.0           |
+| استيراد مستندات Office                                            | officeparser; mammoth                                                                            | ^7.3.0; ^1.12.0  |
+| استيراد جداول البيانات                                            | xlsx                                                                                             | ^0.18.5          |
+| استيراد PowerPoint                                                | jszip; fast-xml-parser                                                                           | ^3.10.1; ^5.10.1 |
+| بيانات الوسائط وتحويل الصور                                       | sharp                                                                                            | ^0.35.3          |
+| عرض صور المعاينة الاجتماعية / Open Graph بصيغة SVG                | @resvg/resvg-js                                                                                  | ^2.6.2           |
+| تسجيل إعادة عرض جلسة المتصفح                                      | @rrweb/record                                                                                    | ^2.1.0           |
+| تكامل التتبّع OpenTelemetry                                       | @opentelemetry/api                                                                               | ^1.9.1           |
+| علامات الميزات من LaunchDarkly على الخادم                         | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
+| جلسات الطرفية المضمنة                                             | node-pty; ws                                                                                     | >=1; >=8         |
+| تنسيق HTML للإضافات                                               | prettier                                                                                         | ^3.8.3           |
+| البحث في مصدر القوالب المضمّنة                                    | @agent-native/core-corpus                                                                        | 0.198.0          |
+
+**مضمنة مع Core:** يستخدم استخراج صفحات الويب إلى Markdown الحزم `linkedom` و`@mozilla/readability` و`turndown`. يضم Core هذه الحزم كتبعيات عادية، لذا لا تحتاج إلى إضافتها منفصلة. حزم البناء والإطار مثل Vite وReact Router وTailwind وDrizzle Kit ليست ميزات تطبيق في هذا الجدول؛ أبقها متوافقة مع إعداد إطار التطبيق.
+
+للبحث في مصدر القوالب المضمّنة، أضف حزمة corpus المطابقة كتَبعية تطوير: `pnpm add -D @agent-native/core-corpus@0.198.0`.
+
+## 3. تطبيق الترقية
+
+بعد مراجعة المعاينة والتأكد من حزم الميزات، طبّق الخطة:
+
+    npx agent-native upgrade --codemods
+
+يحدّث هذا الأمر الواحد مواصفات تبعيات @agent-native/\* المؤهلة، ويوائم حزم
+الميزات المكتشفة، ويشغّل مدير الحزم، ويثبت إصدارات Agent-Native المحلولة،
+ويطبق التحويلات المدعومة، ويحدّث مهارات scaffold، ويشغّل برنامج typecheck في
+الجذر إذا كان موجوداً. لا تشغّل أمراً ثانياً للترقية لمجرد تطبيق التحويلات.
+عالج التحذيرات والأخطاء في شيفرة التطبيق؛ لا تضف overrides أو patches لإطار
+العمل.
+
+## 4. التحقق من النتيجة
+
+راجع كامل الفرق، خصوصاً تحذيرات التحويلات المتروكة وإصدارات التبعيات، ثم شغّل:
+
+    npx @agent-native/core@0.198.0 upgrade check
+    pnpm typecheck
+
+استخدم أمر typecheck المكافئ لـ npm أو Yarn، وشغّل الاختبارات والبناء المناسبين
+للتطبيق. تأكد من تغطية إعدادات الميزات المحلية والمنشورة في جدول الحزم
+الاختيارية. ابحث عن الاستيرادات القديمة في الجدول التالي؛ يجب أن تكون النتائج
+المتبقية مقصودة أو غير مدعومة في البيان أو مشمولة بتحذير.
+
+## المسارات القديمة والوجهات التمثيلية
+
+بيان الترحيل واعٍ بالرموز؛ لذلك قد تنتقل الرموز من الوحدة القديمة نفسها إلى
+وجهات مختلفة. يعرض الجدول أمثلة ولا يشمل كل الرموز المنقولة.
+
+| المسار القديم والرموز                                                                                                            | المسار الجديد                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| @agent-native/core/client/settings                                                                                               | @agent-native/toolkit/app/settings                                                                                                                              |
+| @agent-native/core/client/agent-chat: AgentPanel وAgentSidebar وAgentChatHome وAgentChatSurface                                  | @agent-native/toolkit/app/chat                                                                                                                                  |
+| @agent-native/core/client/agent-chat: صادرات الأسئلة الإرشادية                                                                   | @agent-native/toolkit/app/chat/agentkit-chat                                                                                                                    |
+| @agent-native/core/client/changelog: ChangelogDialog وChangelogSettingsCard                                                      | @agent-native/toolkit/app/changelog                                                                                                                             |
+| @agent-native/core/client/org: OrgSwitcher وBuilderCreditNotice                                                                  | @agent-native/toolkit/app/org                                                                                                                                   |
+| @agent-native/core/client/org: TeamPage                                                                                          | @agent-native/toolkit/app/org/TeamPage                                                                                                                          |
+| @agent-native/core/client/org: OrgInfo وDomainMatchOrg وOrgInvitationSummary                                                     | @agent-native/core/org/types                                                                                                                                    |
+| @agent-native/core/client/setup-connections: BuilderConnectCard وSetupConnectionsPage                                            | @agent-native/toolkit/app/setup-connections                                                                                                                     |
+| @agent-native/core/client/setup-connections: FileStorageSetupPopover                                                             | @agent-native/toolkit/app/chat/FileStorageSetupPopover                                                                                                          |
+| @agent-native/core/client/setup-connections: صادرات واجهة الإعدادات والتهيئة والموارد والتكاملات                                 | تقسّم بين @agent-native/toolkit/app/settings و@agent-native/toolkit/app/onboarding و@agent-native/toolkit/app/resources و@agent-native/toolkit/app/integrations |
+| @agent-native/core/client/host: buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox                              | @agent-native/toolkit/app/extensions/portable-extension                                                                                                         |
+| @agent-native/core/client/ui: واجهة المستخدم المشتركة؛ وصادرات الملاحظات                                                         | @agent-native/toolkit/app/shared؛ و@agent-native/toolkit/app/feedback                                                                                           |
+| @agent-native/core/client/ui: buildSignInReturnHref                                                                              | @agent-native/core/client/sign-in-return                                                                                                                        |
+| @agent-native/core/blocks: سجل العميل والعرض والمحررات؛ وأنواع الكتل وتسجيلها على الخادم                                         | @agent-native/toolkit/app/blocks؛ و@agent-native/core/blocks/server                                                                                             |
+| @agent-native/core/client/hooks: AppProviders وAppProvidersProps                                                                 | @agent-native/toolkit/app/providers                                                                                                                             |
+| @agent-native/core/client: رموز composer والصوت، بما فيها PromptComposer وTiptapComposer                                         | @agent-native/toolkit/app/chat                                                                                                                                  |
+| @agent-native/core/client/components/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                  | @agent-native/toolkit/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                                                                |
+| @agent-native/core/client/editor و@agent-native/core/client/rich-markdown-editor: RegistryBlockDataProvider                      | @agent-native/toolkit/app/blocks                                                                                                                                |
+| @agent-native/core/client/editor و@agent-native/core/client/rich-markdown-editor: تصديرات المحرر الأخرى                          | @agent-native/toolkit/editor                                                                                                                                    |
+| @agent-native/core/client/editor و@agent-native/core/client/rich-markdown-editor: uploadEditorImage                              | @agent-native/core/client/uploads                                                                                                                               |
+| @agent-native/core/client/components/{AgentPresenceChip,PresenceBar,LiveCursorOverlay,RecentEditHighlights,RemoteSelectionRings} | @agent-native/toolkit/collab-ui                                                                                                                                 |
+| @agent-native/core/styles/agent-native.css                                                                                       | @agent-native/toolkit/styles.css                                                                                                                                |
+| @agent-native/core/styles/agent-conversation.css                                                                                 | @agent-native/toolkit/app/styles/agent-conversation.css                                                                                                         |
+| @agent-native/core/styles/chat-history-list.css                                                                                  | @agent-native/toolkit/app/styles/chat-history-list.css                                                                                                          |
+| @agent-native/agentkit/react/styles.css                                                                                          | @agent-native/toolkit/app/agentkit/react/styles.css                                                                                                             |
+| @agent-native/agentkit/react ومسارات React الفرعية                                                                               | @agent-native/toolkit/app/agentkit                                                                                                                              |
+
+عنوان المصدر الأساسي:
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

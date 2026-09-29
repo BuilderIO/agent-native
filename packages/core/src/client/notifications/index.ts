@@ -1,1 +1,1 @@
-export { NotificationsBell } from "./NotificationsBell.js";
+export {};

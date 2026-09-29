@@ -1,6 +1,6 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { readCreativeContextState } from "@agent-native/creative-context/client";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {

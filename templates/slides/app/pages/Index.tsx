@@ -1,11 +1,9 @@
 import {
-  BuilderSetupCard,
   fetchAgentEngineConfiguredState,
   type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
@@ -13,14 +11,12 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import {
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
   fetchFirstRunOnboardingStatus,
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -33,6 +29,10 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
@@ -1402,7 +1402,11 @@ export default function Index({ active = true }: { active?: boolean }) {
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      if (options?.slidesContext) {
+      if (
+        options?.slidesContext &&
+        (options.slidesContext.designSystemId ||
+          options.slidesContext.references.length > 0)
+      ) {
         void runPendingDeckGeneration(
           prompt,
           files,
@@ -1414,7 +1418,13 @@ export default function Index({ active = true }: { active?: boolean }) {
           },
           retryContext,
           attachments.attachments,
-          options,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,
         );
         return "retain" as const;
       }

@@ -58,7 +58,7 @@ Organization pages, and the app supplies only its own content.
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 
 export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs();
@@ -116,7 +116,7 @@ import { OrgMembersPage } from "@agent-native/core/client/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 
 const coreMembersPage = CORE_SETTINGS_PAGES.find(
   (page) => page.id === "members",

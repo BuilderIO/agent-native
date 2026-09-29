@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "Disconnecting…",
   },
   settings: {
+    backHome: "Back to home",
+    title: "Settings",
+    description: "Manage your app and language settings.",
+    languageTitle: "Interface language",
+    languageDescription: "Choose the language used in this app.",
+    languageLabel: "Language",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",

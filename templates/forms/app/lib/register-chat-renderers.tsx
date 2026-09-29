@@ -1,10 +1,10 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { ActionCard } from "@agent-native/toolkit/app/chat";
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
-} from "@agent-native/core/client/agentkit-chat";
-import { ActionCard } from "@agent-native/core/client/chat";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import { IconBulb } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";

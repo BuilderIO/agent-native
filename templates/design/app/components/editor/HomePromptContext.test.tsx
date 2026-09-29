@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { snapshotComposerContextItems } from "@agent-native/core/client/composer";
+import { snapshotComposerContextItems } from "@agent-native/toolkit/app/chat/composer/index";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";

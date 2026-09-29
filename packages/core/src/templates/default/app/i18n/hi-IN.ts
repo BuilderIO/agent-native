@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "डिस्कनेक्ट हो रहा है…",
   },
   settings: {
+    backHome: "होम पर वापस जाएँ",
+    title: "सेटिंग्स",
+    description: "ऐप और भाषा की सेटिंग प्रबंधित करें।",
+    languageTitle: "इंटरफ़ेस की भाषा",
+    languageDescription: "इस ऐप में उपयोग की जाने वाली भाषा चुनें।",
+    languageLabel: "भाषा",
     agentTitle: "एजेंट सेटिंग्स",
     agentDescription:
       "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",

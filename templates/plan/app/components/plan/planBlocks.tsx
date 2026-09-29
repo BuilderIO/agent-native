@@ -1,15 +1,17 @@
 import {
   BlockRegistry,
   registerBlocks,
-  registerLibraryBlocks,
-  type LibraryBlockOverrides,
   type OpenApiSpecData,
   type BlockRenderContext,
   type NestedBlock,
   type BlockAiFieldActionProps,
-} from "@agent-native/core/blocks";
+} from "@agent-native/core/blocks/server";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  registerLibraryBlocks,
+  type LibraryBlockOverrides,
+} from "@agent-native/toolkit/app/blocks";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import type { PlanBlock } from "@shared/plan-content";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";

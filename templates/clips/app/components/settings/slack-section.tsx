@@ -8,7 +8,7 @@ import {
   SettingsGroup,
   SettingsLoadingRow,
   SettingsRow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { IconBrandSlack, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";

@@ -1,15 +1,23 @@
 export const MAX_ICON_MULTIPART_BYTES = 5 * 1024 * 1024 + 64 * 1024;
 
 export class IconUploadBodyError extends Error {
+  readonly cause?: unknown;
+
   constructor(
     public readonly statusCode: 400 | 413,
-    options?: ErrorOptions,
+    options?: { cause?: unknown },
   ) {
     super(
       statusCode === 413 ? "Icon too large" : "Invalid multipart icon upload",
-      options,
     );
     this.name = "IconUploadBodyError";
+    if (options && "cause" in options) {
+      Object.defineProperty(this, "cause", {
+        value: options.cause,
+        configurable: true,
+        writable: true,
+      });
+    }
   }
 }
 

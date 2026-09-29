@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_ICON_MULTIPART_BYTES } from "../../../../core/src/icon-assets/multipart.js";
+import { getH3App } from "../../../../core/src/server/framework-request-handler.js";
 
 const mocks = vi.hoisted(() => ({
   verifyA2AToken: vi.fn(),
@@ -17,6 +18,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/a2a", () => ({
   verifyA2AToken: mocks.verifyA2AToken,
+}));
+vi.mock("../../../../core/src/deploy/route-discovery.js", () => ({
+  getMissingDefaultPlugins: vi.fn(async () => []),
 }));
 vi.mock("@agent-native/core/org", () => ({
   resolveOrgByDomain: mocks.resolveOrgByDomain,
@@ -69,6 +73,57 @@ function verified(
   };
 }
 
+async function throughMount(request: Request, readOnlyUrl: boolean) {
+  const requestEvent = {
+    url: new URL(request.url),
+    req: request,
+    method: request.method,
+    path: new URL(request.url).pathname,
+    context: {} as Record<string, unknown>,
+    res: { status: 200, headers: new Headers() },
+  };
+  if (readOnlyUrl) {
+    const pathname = requestEvent.url.pathname;
+    Object.defineProperty(requestEvent.url, "pathname", {
+      get: () => pathname,
+    });
+  }
+  const middleware: Array<
+    (
+      event: typeof requestEvent,
+      next: () => Promise<unknown>,
+    ) => Promise<unknown>
+  > = [];
+  const nitroApp = { h3: { "~middleware": middleware } };
+  let receivedPathname: string | undefined;
+  const iconHandler = createPrivateIconAssetsHandler();
+  getH3App(nitroApp).use("/_agent-native/private-icons", (mountedEvent) => {
+    receivedPathname = mountedEvent.url.pathname;
+    return iconHandler(mountedEvent);
+  });
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const handler = middleware[index++];
+    return handler
+      ? handler(requestEvent, next)
+      : new Response(null, { status: 404 });
+  };
+  const response = await next();
+  expect(response).toBeInstanceOf(Response);
+  expect(requestEvent.req.url).toBe(request.url);
+  expect(requestEvent.context._mountedPathname).toBe(
+    new URL(request.url).pathname,
+  );
+  expect(receivedPathname).toBe(
+    readOnlyUrl
+      ? new URL(request.url).pathname
+      : new URL(request.url).pathname.slice(
+          "/_agent-native/private-icons".length,
+        ) || "/",
+  );
+  return response as Response;
+}
+
 describe("Dispatch private icon assets", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -80,6 +135,108 @@ describe("Dispatch private icon assets", () => {
       mimeType: "image/png",
     });
   });
+
+  it.each([false, true])(
+    "routes collection uploads/listing through the real mount adapter with read-only URL %s",
+    async (readOnlyUrl) => {
+      mocks.verifyA2AToken.mockResolvedValue(verified("private-icon:upload"));
+      mocks.putIconAsset.mockResolvedValue({
+        id,
+        filename: "mark.png",
+        mimeType: "image/png",
+        size: 4,
+      });
+      const form = new FormData();
+      form.set(
+        "file",
+        new File([Uint8Array.of(137, 80, 78, 71)], "mark.png", {
+          type: "image/png",
+        }),
+      );
+      const url = "https://dispatch.example.test/_agent-native/private-icons";
+      const encoded = new Request(url, { method: "POST", body: form });
+      const body = await encoded.arrayBuffer();
+      const headers = new Headers(encoded.headers);
+      headers.set("authorization", "Bearer example-signed-token");
+      headers.set("content-length", String(body.byteLength));
+      const uploaded = await throughMount(
+        new Request(url, { method: "POST", body, headers }),
+        readOnlyUrl,
+      );
+      expect(uploaded.status).toBe(201);
+      expect(await uploaded.json()).toMatchObject({ id });
+
+      mocks.verifyA2AToken.mockResolvedValue(verified("private-icon:list"));
+      mocks.listIconAssets.mockResolvedValue([{ id }]);
+      const listed = await throughMount(
+        new Request(`${url}/?limit=100`, {
+          headers: { authorization: "Bearer example-signed-token" },
+        }),
+        readOnlyUrl,
+      );
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({ assets: [{ id }] });
+    },
+  );
+
+  it.each([false, true])(
+    "routes asset HEAD/GET through the real mount adapter with read-only URL %s",
+    async (readOnlyUrl) => {
+      const url = `https://dispatch.example.test/_agent-native/private-icons/${id}`;
+      mocks.verifyA2AToken.mockResolvedValue(
+        verified("private-icon:verify-owner"),
+      );
+      const owned = await throughMount(
+        new Request(url, {
+          method: "HEAD",
+          headers: { authorization: "Bearer example-signed-token" },
+        }),
+        readOnlyUrl,
+      );
+      expect(owned.status).toBe(200);
+      mocks.verifyA2AToken.mockResolvedValue(
+        verified("private-icon:read", { assetId: id }),
+      );
+      const read = await throughMount(
+        new Request(`${url}/`, {
+          headers: { authorization: "Bearer example-signed-token" },
+        }),
+        readOnlyUrl,
+      );
+      expect(read.status).toBe(200);
+      expect(new Uint8Array(await read.arrayBuffer())).toEqual(
+        Uint8Array.of(137, 80, 78, 71),
+      );
+    },
+  );
+
+  it.each([
+    "/_agent-native/private-icons-extra",
+    `/_agent-native/private-icons-extra/${id}`,
+    `/_agent-native/private-icons/${id}/extra`,
+    "/_agent-native/private-icons//",
+  ])("rejects the invalid full path %s", async (path) => {
+    const response = await createPrivateIconAssetsHandler()(event("GET", path));
+    expect(response.status).toBe(404);
+    expect(mocks.verifyA2AToken).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "rejects a repeated mount prefix before auth with read-only URL %s",
+    async (readOnlyUrl) => {
+      mocks.verifyA2AToken.mockResolvedValue(
+        verified("private-icon:read", { assetId: id }),
+      );
+      const request = new Request(
+        `https://dispatch.example.test/_agent-native/private-icons/_agent-native/private-icons/${id}`,
+        { headers: { authorization: "Bearer example-signed-token" } },
+      );
+      const response = await throughMount(request, readOnlyUrl);
+      expect(response.status).toBe(404);
+      expect(mocks.verifyA2AToken).not.toHaveBeenCalled();
+      expect(mocks.readIconAssetForAuthorizedReference).not.toHaveBeenCalled();
+    },
+  );
 
   it("denies an unverified bearer without a session fallback", async () => {
     mocks.verifyA2AToken.mockResolvedValue({ email: null, orgDomain: null });

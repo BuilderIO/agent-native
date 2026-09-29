@@ -120,13 +120,14 @@ export function interpolate(
   let sourceSql = sql;
   if (options.customDateRangeSupport) {
     for (const [name, value] of Object.entries(vars)) {
-      if (
-        value !== "custom" ||
-        !Object.prototype.hasOwnProperty.call(vars, name + "Start") ||
-        !Object.prototype.hasOwnProperty.call(vars, name + "End")
-      ) {
-        continue;
-      }
+      if (value !== "custom") continue;
+      const hasStart = Object.prototype.hasOwnProperty.call(
+        vars,
+        name + "Start",
+      );
+      const hasEnd = Object.prototype.hasOwnProperty.call(vars, name + "End");
+      if (!hasStart && !hasEnd && name !== "timeRange") continue;
+      if (!hasStart || !hasEnd) return "SELECT __invalid_custom_date_range__";
       const start = vars[name + "Start"];
       const end = vars[name + "End"];
       if (!isValidDate(start) || !isValidDate(end) || start > end) {

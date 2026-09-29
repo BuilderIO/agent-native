@@ -37,7 +37,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -57,7 +57,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: mocks.useOrg,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
   SettingsTabsPage: (props: CapturedProps) => {
     mocks.props = props;

@@ -107,7 +107,11 @@ async function ownerIdentity(
 export function createPrivateIconAssetsHandler() {
   return async (event: PrivateIconEvent): Promise<Response> => {
     const method = event.req.method.toUpperCase();
-    const path = event.url.pathname;
+    const path =
+      new URL(event.req.url).pathname.replace(
+        /^\/_agent-native\/private-icons(?=\/|$)/,
+        "",
+      ) || "/";
     const idMatch = ICON_PATH.exec(path);
     if (path !== "/" && !idMatch) {
       return errorResponse(404, "Icon not found");

@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconPhoto,
   IconPhotoEdit,

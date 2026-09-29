@@ -6,9 +6,8 @@ import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 
 const CORE_ROOT = "packages/core";
-// Project generation uses esbuild, the wizard uses Ink, and icon SVG validation
-// requires fast-xml-parser even when optional document ingestion is not installed.
-const MAX_RUNTIME_DEPENDENCIES = 66;
+// Project generation uses esbuild and the create wizard uses Ink at runtime.
+const MAX_RUNTIME_DEPENDENCIES = 65;
 const CODE_EXTENSIONS = [
   ".ts",
   ".tsx",

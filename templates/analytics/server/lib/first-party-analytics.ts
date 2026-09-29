@@ -74,6 +74,7 @@ const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
 const SAFE_ANALYTICS_SQL_TABLE_FUNCTIONS = new Set([
   "pg_catalog.generate_series",
 ]);
+const MAX_ANALYTICS_DATE_SPINE_DAYS = 3_660;
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
@@ -764,20 +765,23 @@ function stripSqlLiterals(sql: string): string {
     const ch = sql[i];
     const next = sql[i + 1];
     if (!inSingle && !inDouble && ch === "-" && next === "-") {
+      const start = i;
       while (i < sql.length && sql[i] !== "\n") i++;
-      out += " ";
+      out += " ".repeat(i - start);
       continue;
     }
     if (!inSingle && !inDouble && ch === "/" && next === "*") {
+      const start = i;
       i += 2;
       while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      i += 2;
-      out += " ";
+      if (i < sql.length) i += 2;
+      out += " ".repeat(i - start);
       continue;
     }
     if (!inDouble && ch === "'") {
       out += " ";
       if (inSingle && next === "'") {
+        out += " ";
         i += 2;
         continue;
       }
@@ -792,6 +796,54 @@ function stripSqlLiterals(sql: string): string {
       continue;
     }
     out += inSingle || inDouble ? " " : ch;
+    i++;
+  }
+  return out;
+}
+
+function stripSqlComments(sql: string): string {
+  let out = "";
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (!inSingle && !inDouble && ch === "-" && next === "-") {
+      const start = i;
+      while (i < sql.length && sql[i] !== "\n") i++;
+      out += " ".repeat(i - start);
+      continue;
+    }
+    if (!inSingle && !inDouble && ch === "/" && next === "*") {
+      const start = i;
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      out += " ".repeat(i - start);
+      continue;
+    }
+    out += ch;
+    if (!inDouble && ch === "'") {
+      if (inSingle && next === "'") {
+        out += next;
+        i += 2;
+        continue;
+      }
+      inSingle = !inSingle;
+    } else if (!inSingle && ch === '"') {
+      inDouble = !inDouble;
+    }
     i++;
   }
   return out;
@@ -1028,6 +1080,72 @@ function collectAnalyticsSqlSources(sql: string): {
   return { cteNames, sources };
 }
 
+function readGenerateSeriesArgs(
+  sql: string,
+  code: string,
+  open: number,
+): string[] | null {
+  const args: string[] = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let i = open + 1; i < code.length; i++) {
+    if (code[i] === "(") depth++;
+    else if (code[i] === ")") {
+      if (depth === 0) {
+        args.push(sql.slice(start, i).trim());
+        return args;
+      }
+      depth--;
+    } else if (code[i] === "," && depth === 0) {
+      args.push(sql.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  return null;
+}
+
+function validateAnalyticsDateSpines(sql: string): void {
+  const code = stripSqlLiterals(sql);
+  const seriesCalls = /\bpg_catalog\s*\.\s*generate_series\s*\(/gi;
+  for (const match of code.matchAll(seriesCalls)) {
+    const open = match.index! + match[0].lastIndexOf("(");
+    const args = readGenerateSeriesArgs(sql, code, open);
+    if (!args || args.length !== 3) {
+      throw new Error(
+        "First-party analytics date spines must use bounded dates and a 1-day step",
+      );
+    }
+
+    const [start, end, step] = args.map(stripSqlComments);
+    const usesDateBounds =
+      (/\btimeRangeStart\b|\bstart_date\b/i.test(start) &&
+        /\btimeRangeEnd\b|\bend_date\b/i.test(end)) ||
+      (() => {
+        const startDate = /'(\d{4}-\d{2}-\d{2})'/.exec(start)?.[1];
+        const endDate = /'(\d{4}-\d{2}-\d{2})'/.exec(end)?.[1];
+        if (!startDate || !endDate) return false;
+        const parsedStart = new Date(`${startDate}T00:00:00.000Z`);
+        const parsedEnd = new Date(`${endDate}T00:00:00.000Z`);
+        const startMs = parsedStart.getTime();
+        const endMs = parsedEnd.getTime();
+        const days = (endMs - startMs) / 86_400_000 + 1;
+        return (
+          Number.isFinite(startMs) &&
+          Number.isFinite(endMs) &&
+          parsedStart.toISOString().slice(0, 10) === startDate &&
+          parsedEnd.toISOString().slice(0, 10) === endDate &&
+          days > 0 &&
+          days <= MAX_ANALYTICS_DATE_SPINE_DAYS
+        );
+      })();
+    if (!usesDateBounds || !/^interval\s*'\s*1\s+day\s*'$/i.test(step)) {
+      throw new Error(
+        "First-party analytics date spines must use bounded dates and a 1-day step",
+      );
+    }
+  }
+}
+
 export function validateFirstPartyAnalyticsSql(sql: string): void {
   const stripped = stripSqlLiterals(sql).trim();
   const lowered = stripped.toLowerCase();
@@ -1062,6 +1180,7 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       "First-party analytics queries cannot read session replay chunks",
     );
   }
+  validateAnalyticsDateSpines(sql);
 
   const { cteNames, sources } = collectAnalyticsSqlSources(sql);
   let usesAllowedTable = false;

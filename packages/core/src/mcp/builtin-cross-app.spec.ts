@@ -352,11 +352,16 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.app).toBe("mail");
   });
 
-  it("still rejects open_app calls without an app id", async () => {
+  it("opens the current app home when an entrypoint has no arguments", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
-    await expect(tools.open_app.run({} as any)).rejects.toThrow(
-      /requires 'app'/,
-    );
+    const result: any = await tools.open_app.run({});
+    expect(result).toMatchObject({ app: "mail", url: "/", embed: true });
+  });
+
+  it("honors embed false when an entrypoint opens the current app home", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({ embed: false });
+    expect(result).toMatchObject({ app: "mail", url: "/", embed: false });
   });
 });
 

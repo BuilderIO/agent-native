@@ -2123,7 +2123,10 @@ export default function SlideEditor({
   }, [onUpdateSlide]);
   const textSessionRef = useRef<TextEditSession | null>(null);
   const exitInlineEditRef = useRef<
-    (newer?: SlideContentReplaceDetail) => string | undefined
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit?: boolean,
+    ) => string | undefined
   >(() => undefined);
   /**
    * Every other content write commits an open text edit first. The write
@@ -2722,7 +2725,10 @@ export default function SlideEditor({
 
   /** Exit edit mode, saving changed content without changing its layout. */
   const exitInlineEdit = useCallback(
-    (newer?: SlideContentReplaceDetail): string | undefined => {
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit = false,
+    ): string | undefined => {
       const el = editingElRef.current;
       if (!el) return;
 
@@ -2765,11 +2771,15 @@ export default function SlideEditor({
         selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
       });
       setEditingEl(null);
-      if (escape.action === "select-object" && selectionTarget && selector) {
-        selectElementForStyling(selectionTarget, selector);
-      } else if (escape.action === "clear-selection") {
+      if (clearSelectionAfterExit || escape.action === "clear-selection") {
         clearSelectedElement();
         syncSelectionToAppState(null);
+      } else if (
+        escape.action === "select-object" &&
+        selectionTarget &&
+        selector
+      ) {
+        selectElementForStyling(selectionTarget, selector);
       } else {
         syncSelectionToAppState(null);
       }
@@ -3679,7 +3689,7 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (action === "edit") {
-        exitInlineEdit();
+        exitInlineEdit(undefined, true);
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {

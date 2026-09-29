@@ -11,12 +11,17 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
-import { type DbExec, getDbExec } from "../db/client.js";
+import {
+  type DbExec,
+  getDbExec,
+  isProductionServerlessFunctionRuntime,
+} from "../db/client.js";
 import {
   ensureIndexExists,
   ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { appMigratesAtRelease } from "../db/migration-policy.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -1837,9 +1842,14 @@ export function createPollHandler(
         );
       }
 
+      const releaseOwnedServerlessPoll =
+        isProductionServerlessFunctionRuntime() && appMigratesAtRelease();
       try {
-        await state.seedVersionFromDb();
-        await state.checkExternalDbChanges({ durableEvents: true });
+        if (!releaseOwnedServerlessPoll) {
+          await state.seedVersionFromDb();
+          await state.checkExternalDbChanges({ durableEvents: true });
+        }
+        // ponytail: release-owned serverless polling trusts sync_events; route direct SQL writes through recordChange instead of restoring marker scans.
         return await state.getCombinedChangesSinceForUser(
           since,
           session.email,
@@ -1849,6 +1859,7 @@ export function createPollHandler(
         );
       } catch (error) {
         if (!(error instanceof SyncEventsTableUnavailableError)) throw error;
+        if (releaseOwnedServerlessPoll) throw error;
         await state.seedVersionFromDb();
         await state.checkExternalDbChanges({ durableEvents: false });
         return await state.getCombinedChangesSinceForUser(

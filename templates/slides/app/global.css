@@ -11,7 +11,6 @@
 @import "@fontsource/jetbrains-mono/700.css";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";

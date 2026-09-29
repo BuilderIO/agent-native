@@ -6,14 +6,10 @@ import {
   renameSync,
   rmSync,
   cpSync,
-  mkdirSync,
-  copyFileSync,
   writeFileSync,
   existsSync,
 } from "node:fs";
 import { join, relative } from "node:path";
-
-import { materializeSourceCorpus } from "./materialize-source-corpus.mjs";
 
 function pruneSpecArtifacts(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -99,6 +95,7 @@ function pruneStaleCompiledArtifacts(sourceDir, compiledDir) {
 if (existsSync("dist")) {
   pruneSpecArtifacts("dist");
   stripSourceMapComments("dist");
+  rmSync(join("dist", "styles"), { recursive: true, force: true });
   for (const entry of ["editor", "composer", "rich-markdown-editor"]) {
     pruneStaleCompiledArtifacts(
       join("src", "client", entry),
@@ -157,22 +154,6 @@ rmSync(templatesTempDir, { recursive: true, force: true });
 cpSync("src/templates", templatesTempDir, { recursive: true });
 pruneSpecArtifacts(templatesTempDir);
 swapTemplatesDirIntoPlace(templatesTempDir);
-function copyCssTree(sourceDir, targetDir) {
-  mkdirSync(targetDir, { recursive: true });
-  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
-    const source = join(sourceDir, entry.name);
-    const target = join(targetDir, entry.name);
-    if (entry.isDirectory()) {
-      copyCssTree(source, target);
-      continue;
-    }
-    if (entry.isFile() && entry.name.endsWith(".css")) {
-      copyFileSync(source, target);
-    }
-  }
-}
-copyCssTree("src/styles", "dist/styles");
-
 const wsPath = join("..", "..", "pnpm-workspace.yaml");
 if (existsSync(wsPath)) {
   const content = readFileSync(wsPath, "utf-8");
@@ -191,5 +172,3 @@ if (existsSync(wsPath)) {
   }
   writeFileSync("dist/catalog.json", JSON.stringify(catalog, null, 2) + "\n");
 }
-
-materializeSourceCorpus();
