@@ -107,7 +107,7 @@ describe("built-in Core chat translations", () => {
     }
   });
 
-  it("exposes localized human-review summary copy to the shared UI", async () => {
+  it("exposes localized observability copy to the shared UI", async () => {
     const summaryKeys = [
       "summarizeWithAgent",
       "regenerateSummary",
