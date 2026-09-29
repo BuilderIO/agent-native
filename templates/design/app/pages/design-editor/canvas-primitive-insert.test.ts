@@ -4,6 +4,7 @@ import { applyVisualEdit } from "@shared/code-layer";
 import {
   closePenPath,
   createCornerNode,
+  parsePenNodes,
   serializePenPath,
   type PenPath,
 } from "@shared/pen-path";
@@ -21,6 +22,7 @@ import {
   appendCanvasPrimitiveToHtml,
   blankScreenHtml,
   extractCanvasPrimitiveHtml,
+  updateCanvasPolygonSvgGeometry,
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
 import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
@@ -699,12 +701,110 @@ describe("pen path paint defaults", () => {
       nodeId: "poly-1",
       geometry: { x: 0, y: 0, width: 40, height: 40 },
     });
-    const polygon = new DOMParser()
+    const svg = new DOMParser()
       .parseFromString(html ?? "", "text/html")
-      .querySelector("polygon");
-    expect(polygon?.getAttribute("fill")).toBe("rgb(217 217 217)");
-    expect(polygon?.getAttribute("stroke")).toBe("none");
+      .querySelector<SVGSVGElement>("svg[data-an-primitive='polygon']");
+    const path = svg?.querySelector<SVGPathElement>(":scope > path");
+    expect(path?.getAttribute("fill")).toBe("rgb(217 217 217)");
+    expect(path?.getAttribute("stroke")).toBe("none");
+    const penPath = parsePenNodes(svg?.getAttribute("data-an-pen-nodes") ?? "");
+    expect(penPath?.closed).toBe(true);
+    expect(penPath?.nodes).toHaveLength(3);
+    expect(penPath?.nodes[0]?.point).toEqual({ x: 20, y: 0 });
   });
+
+  it.each(["polygon", "star"] as const)(
+    "%s stores editable closed-path geometry that corner radius can round and restore",
+    (kind) => {
+      const inserted = appendCanvasPrimitiveToHtml(
+        blankScreenHtml("Screen 1"),
+        {
+          kind,
+          nodeId: `${kind}-radius`,
+          geometry: { x: 0, y: 0, width: 100, height: 100 },
+        },
+      )!;
+      const originalSvg = new DOMParser()
+        .parseFromString(inserted, "text/html")
+        .querySelector<SVGSVGElement>(`svg[data-an-primitive='${kind}']`);
+      const originalPath =
+        originalSvg?.querySelector<SVGPathElement>(":scope > path");
+      expect(originalPath).not.toBeNull();
+      const originalD = originalPath!.getAttribute("d");
+      expect(
+        parsePenNodes(originalSvg!.getAttribute("data-an-pen-nodes")!),
+      ).toMatchObject({ closed: true });
+
+      const rounded = applyVisualEdit(inserted, {
+        kind: "style",
+        target: { nodeId: `${kind}-radius` },
+        property: "border-radius",
+        value: "8px",
+      });
+      expect(rounded.result.status).toBe("applied");
+      expect(rounded.content).toContain('data-an-corner-radius="8"');
+      expect(rounded.content).toContain(" A 8 8 ");
+
+      const restored = applyVisualEdit(rounded.content, {
+        kind: "style",
+        target: { nodeId: `${kind}-radius` },
+        property: "border-radius",
+        value: "0px",
+      });
+      expect(restored.result.status).toBe("applied");
+      expect(restored.content).toContain(`d="${originalD}"`);
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s draft polygon points when the preview is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><polygon points="0,0" /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      const resizedPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      expect(resizedPoints).not.toBe(initialPoints);
+      expect(resizedPoints?.split(" ")[0]).toBe("80,0");
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s path data and editable points when an inserted path is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><path /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPath = svg.querySelector(":scope > path")!.getAttribute("d");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      expect(svg.querySelector(":scope > path")!.getAttribute("d")).not.toBe(
+        initialPath,
+      );
+      const resized = parsePenNodes(svg.getAttribute("data-an-pen-nodes")!);
+      expect(resized?.closed).toBe(true);
+      expect(resized?.nodes).toHaveLength(kind === "polygon" ? 3 : 10);
+      expect(resized?.nodes[0]?.point).toEqual({ x: 80, y: 0 });
+    },
+  );
 });
 
 describe("reopening and reclosing a pen path", () => {

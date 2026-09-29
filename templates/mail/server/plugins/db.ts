@@ -389,6 +389,35 @@ ALTER TABLE mail_sync_accounts
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
   ON scheduled_jobs(status, run_at, id);`,
     },
+    {
+      version: 32,
+      name: "mail-background-account-sweep-order",
+      sql: `CREATE INDEX IF NOT EXISTS mail_sync_accounts_automation_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_automation_attempted_at, 0), id);
+CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_watch_attempted_at, 0), id);`,
+    },
+    {
+      version: 33,
+      name: "mail-scheduled-job-processing-leases",
+      sql: `ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_claim_id TEXT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_lease_until BIGINT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS send_started_at BIGINT;
+UPDATE scheduled_jobs
+  SET send_started_at = COALESCE(created_at, run_at, 0)
+  WHERE status = 'processing' AND type = 'send_later' AND send_started_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
+  ON scheduled_jobs(status, processing_lease_until, run_at, id);`,
+    },
+    {
+      version: 34,
+      name: "mail-scheduled-job-uncertain-send-recovery",
+      sql: `ALTER TABLE scheduled_jobs
+  DROP CONSTRAINT IF EXISTS scheduled_jobs_status_check;
+ALTER TABLE scheduled_jobs
+  ADD CONSTRAINT scheduled_jobs_status_check
+  CHECK(status IN ('pending', 'processing', 'done', 'cancelled', 'uncertain', 'retry_queued'));`,
+    },
   ],
   { table: "mail_migrations" },
 );

@@ -4,6 +4,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useContentActionMutation } from "./use-content-action-mutation";
+
 export interface CommentMention {
   email: string;
   name: string;
@@ -837,9 +839,15 @@ export function useResolveComment() {
 }
 
 export function useDeleteComment() {
-  return useActionMutation<{ ok: boolean }, { id: string; documentId: string }>(
-    "delete-comment",
-  );
+  return useContentActionMutation<
+    { ok: boolean },
+    { id: string; documentId: string }
+  >("delete-comment", {
+    invalidates: (_data, { documentId }) => [
+      commentQueryKey(documentId),
+      ["action", "list-comment-ai-requests", { documentId }],
+    ],
+  });
 }
 
 export interface ReactToCommentVariables {

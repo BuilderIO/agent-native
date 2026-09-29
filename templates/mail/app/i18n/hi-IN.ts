@@ -325,6 +325,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "शेड्यूल भेजना रद्द करें",
+      deliveryUnknownWarning:
+        "डिलीवरी की स्थिति अज्ञात है; हल करने से पहले Gmail के भेजे गए फ़ोल्डर की जाँच करें।",
+      markSentAfterChecking: "मैंने भेजे गए फ़ोल्डर की जाँच की; भेजा हुआ चिह्नित करें",
+      sendNewCopy: "नई प्रति भेजें",
+      sendingStatus:
+        "शेड्यूल किया गया ईमेल भेजा जा रहा है। कार्रवाइयाँ अभी उपलब्ध नहीं हैं।",
+      confirmSendNewCopyTitle: "क्या दूसरी प्रति भेजें?",
+      confirmSendNewCopyDescription:
+        "हो सकता है मूल ईमेल पहले ही पहुँच चुका हो। पहले Gmail के भेजे गए फ़ोल्डर की जाँच करें। दोबारा भेजने पर डुप्लिकेट ईमेल जा सकता है।",
       dateInput: "तारीख और समय",
       noDateMatch: "भविष्य का कोई मिलान समय नहीं",
       inputPlaceholder: "आज़माएँ: 8 am, 3 दिन, 7 अगस्त",
@@ -434,6 +443,10 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "शेड्यूल ईमेल भेजा गया।",
       scheduledSendFailed: "शेड्यूल ईमेल भेजने में विफल",
+      uncertainScheduledMarkedSent: "शेड्यूल ईमेल को भेजा हुआ चिह्नित किया गया।",
+      uncertainScheduledResolveFailed: "शेड्यूल ईमेल की स्थिति हल नहीं हो सकी।",
+      uncertainScheduledRetryStarted: "नई प्रति भेजी जा रही है।",
+      uncertainScheduledRetryFailed: "नई प्रति भेजने में विफल।",
       scheduledCancelled: "शेड्यूल ईमेल रद्द हुआ।",
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",

@@ -106,6 +106,7 @@ const recording: RecordingSummary = {
   id: "recording-1",
   title: "Test recording",
   description: "",
+  kind: "video",
   thumbnailUrl: null,
   animatedThumbnailUrl: null,
   durationMs: 1_000,

@@ -5238,12 +5238,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       selectionOverlay.appendChild(handle);
     });
-    ["nw", "ne", "se", "sw"].forEach(function(pos) {
-      var handle = document.createElement("span");
-      handle.setAttribute("data-agent-native-radius-handle", pos);
-      handle.style.cssText = "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
-      selectionOverlay.appendChild(handle);
-    });
     (function() {
       var baseAngles = { nw: 270, ne: 0, se: 90, sw: 180 };
       function rotateCursorUri(angleDeg) {
@@ -7466,24 +7460,214 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
     }
     var lastHandleGeometryTargetEl = null;
-    var RADIUS_UNSUPPORTED_PRIMITIVES = {
-      line: true,
-      arrow: true,
-      ellipse: true,
-      circle: true,
-      polygon: true,
-      star: true,
-      path: true,
-      pen: true
-    };
-    function supportsCornerRadiusHandles(el) {
-      if (!el || el.nodeType !== 1) return false;
+    var hoveredRadiusHandleKey = "";
+    var activeRadiusHandleKey = "";
+    function radiusPathData(el) {
+      if (!el || el.nodeType !== 1 || el.tagName.toLowerCase() !== "svg") {
+        return null;
+      }
+      var serialized = el.getAttribute("data-an-pen-nodes");
+      if (!serialized) return null;
+      var parsed;
+      try {
+        parsed = JSON.parse(serialized);
+      } catch (_err) {
+        return { malformed: true };
+      }
+      if (!Array.isArray(parsed) || parsed[0] !== 1 || parsed.length < 4) {
+        return null;
+      }
+      var points = [];
+      for (var index = 1; index < parsed.length; index++) {
+        var tuple = parsed[index];
+        if (!Array.isArray(tuple) || !Number.isFinite(tuple[0]) || !Number.isFinite(tuple[1]) || tuple[2] !== null || tuple[3] !== null || tuple[4] !== null || tuple[5] !== null) {
+          return null;
+        }
+        points.push({ x: tuple[0], y: tuple[1] });
+      }
+      var viewBox = (el.getAttribute("viewBox") || "0 0 0 0").trim().split(/[\\s,]+/).map(Number);
+      if (viewBox.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0 || viewBox[3] <= 0) {
+        return null;
+      }
+      return {
+        points,
+        viewBox: {
+          x: viewBox[0],
+          y: viewBox[1],
+          width: viewBox[2],
+          height: viewBox[3]
+        }
+      };
+    }
+    function cornerRadiusHandleKeys(el) {
+      if (!el || el.nodeType !== 1) return [];
       var kind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
+      if (kind === "rectangle") return ["nw", "ne", "se", "sw"];
+      if (kind !== "polygon" && kind !== "star") return [];
+      var path = radiusPathData(el);
+      if (!path || path.malformed) return [];
+      if (kind === "star") return ["vertex-0"];
+      return path.points.map(function(_point, index) {
+        return "vertex-" + index;
+      });
+    }
+    function radiusPrimitiveKind(el) {
+      return String(
+        el && (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive")) || ""
+      ).toLowerCase();
+    }
+    function ensureCornerRadiusHandles(keys) {
+      var current = Array.from(
+        selectionOverlay.querySelectorAll("[data-agent-native-radius-handle]")
+      );
+      var matches = current.length === keys.length && current.every(function(handle, index) {
+        return handle.getAttribute("data-agent-native-radius-handle") === keys[index];
+      });
+      if (matches) return;
+      current.forEach(function(handle) {
+        handle.remove();
+      });
+      keys.forEach(function(key) {
+        var handle = document.createElement("span");
+        handle.setAttribute("data-agent-native-radius-handle", key);
+        handle.style.cssText = "position:absolute;z-index:2;width:9px;height:9px;border:1.5px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:999px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:pointer;display:none;";
+        selectionOverlay.appendChild(handle);
+      });
+    }
+    function radiusPathVertexGeometry(pathData, index, radius) {
+      var points = pathData && !pathData.malformed && pathData.points;
+      if (!points || index < 0 || index >= points.length) return null;
+      var point = points[index];
+      var previous = points[(index + points.length - 1) % points.length];
+      var next = points[(index + 1) % points.length];
+      var toPrevious = { x: previous.x - point.x, y: previous.y - point.y };
+      var toNext = { x: next.x - point.x, y: next.y - point.y };
+      var previousLength = Math.hypot(toPrevious.x, toPrevious.y);
+      var nextLength = Math.hypot(toNext.x, toNext.y);
+      if (previousLength <= 0 || nextLength <= 0) return null;
+      toPrevious.x /= previousLength;
+      toPrevious.y /= previousLength;
+      toNext.x /= nextLength;
+      toNext.y /= nextLength;
+      var cosine = Math.max(
+        -1,
+        Math.min(1, toPrevious.x * toNext.x + toPrevious.y * toNext.y)
+      );
+      var halfAngle = Math.acos(cosine) / 2;
+      var bisector = {
+        x: toPrevious.x + toNext.x,
+        y: toPrevious.y + toNext.y
+      };
+      var bisectorLength = Math.hypot(bisector.x, bisector.y);
+      if (bisectorLength <= 0 || halfAngle <= 0 || halfAngle >= Math.PI / 2) {
+        return null;
+      }
+      bisector.x /= bisectorLength;
+      bisector.y /= bisectorLength;
+      var radiusValue = Number(radius);
+      var distance = Number.isFinite(radiusValue) && radiusValue > 0 ? radiusValue / Math.sin(halfAngle) : 0;
+      return {
+        x: point.x + bisector.x * distance,
+        y: point.y + bisector.y * distance,
+        bisector,
+        sinHalfAngle: Math.sin(halfAngle)
+      };
+    }
+    function roundedRadiusPathData(points, requestedRadius) {
+      if (!points || points.length < 3) return null;
+      var corners = points.map(function(point, index2) {
+        var previous = points[(index2 + points.length - 1) % points.length];
+        var next = points[(index2 + 1) % points.length];
+        var incoming = { x: previous.x - point.x, y: previous.y - point.y };
+        var outgoing = { x: next.x - point.x, y: next.y - point.y };
+        var inLength = Math.hypot(incoming.x, incoming.y);
+        var outLength = Math.hypot(outgoing.x, outgoing.y);
+        if (inLength <= 0 || outLength <= 0) return null;
+        var cosine = Math.max(
+          -1,
+          Math.min(
+            1,
+            (incoming.x * outgoing.x + incoming.y * outgoing.y) / (inLength * outLength)
+          )
+        );
+        if (cosine <= -0.9999999 || cosine >= 0.9999999) return null;
+        var tangent = Math.tan(Math.acos(cosine) / 2);
+        if (!(tangent > 0)) return null;
+        return {
+          point,
+          incoming,
+          outgoing,
+          inLength,
+          outLength,
+          tangent,
+          coefficient: 1 / tangent
+        };
+      });
+      if (corners.some(function(corner2) {
+        return !corner2;
+      }))
+        return null;
+      var radius = Math.max(0, Number(requestedRadius) || 0);
+      for (var edge = 0; edge < points.length; edge++) {
+        var nextEdge = (edge + 1) % points.length;
+        var length = Math.hypot(
+          points[nextEdge].x - points[edge].x,
+          points[nextEdge].y - points[edge].y
+        );
+        var coefficient = corners[edge].coefficient + corners[nextEdge].coefficient;
+        if (coefficient > 0) radius = Math.min(radius, length / coefficient);
+      }
+      var format = function(value) {
+        return String(Math.round(value * 10) / 10);
+      };
+      var formatPoint = function(value) {
+        return format(value.x) + " " + format(value.y);
+      };
+      var cornerPoints = corners.map(function(corner2) {
+        if (!radius) {
+          return { entry: corner2.point, exit: corner2.point, radius: 0, sweep: 0 };
+        }
+        var trim = radius * corner2.coefficient;
+        var cross = corner2.incoming.x * corner2.outgoing.y - corner2.incoming.y * corner2.outgoing.x;
+        return {
+          entry: {
+            x: corner2.point.x + corner2.incoming.x / corner2.inLength * trim,
+            y: corner2.point.y + corner2.incoming.y / corner2.inLength * trim
+          },
+          exit: {
+            x: corner2.point.x + corner2.outgoing.x / corner2.outLength * trim,
+            y: corner2.point.y + corner2.outgoing.y / corner2.outLength * trim
+          },
+          radius,
+          sweep: cross < 0 ? 1 : 0
+        };
+      });
+      var commands = ["M " + formatPoint(cornerPoints[0].exit)];
+      for (var index = 1; index < cornerPoints.length; index++) {
+        var corner = cornerPoints[index];
+        commands.push("L " + formatPoint(corner.entry));
+        if (corner.radius) {
+          commands.push(
+            "A " + format(radius) + " " + format(radius) + " 0 0 " + corner.sweep + " " + formatPoint(corner.exit)
+          );
+        }
+      }
+      var first = cornerPoints[0];
+      commands.push("L " + formatPoint(first.entry));
+      if (first.radius) {
+        commands.push(
+          "A " + format(radius) + " " + format(radius) + " 0 0 " + first.sweep + " " + formatPoint(first.exit)
+        );
+      }
+      commands.push("Z");
+      return { d: commands.join(" "), radius };
     }
     function applySelectionHandleHitGeometry(el) {
       var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
       lastHandleGeometryTargetEl = el || null;
+      if (isNewSelectionTarget && !activeRadiusHandleKey) {
+        hoveredRadiusHandleKey = "";
+      }
       if (isNewSelectionTarget) {
         selectionOverlay.setAttribute(
           "data-agent-native-suppress-handle-transition",
@@ -7537,7 +7721,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           handle.style.right = inwardX - sizeX + "px";
         }
       });
-      var radiusHandlesSupported = supportsCornerRadiusHandles(el);
+      var radiusHandleKeys = cornerRadiusHandleKeys(el);
+      ensureCornerRadiusHandles(radiusHandleKeys);
+      var radiusHandlesSupported = radiusHandleKeys.length > 0;
       selectionOverlay.querySelectorAll("[data-agent-native-radius-handle]").forEach(function(handle) {
         if (readOnly || !!activeTextEditEl || !radiusHandlesSupported || !(elWidth > 0) || !(elHeight > 0)) {
           handle.style.display = "none";
@@ -7550,16 +7736,64 @@ export const editorChromeBridgeScript: string = `"use strict";
           handle.style.display = "none";
           return;
         }
-        var inset = Math.max(4 * line, Math.min(16 * line, maxInset));
         handle.style.display = "block";
+        var isRadiusHandleVisible = pos === hoveredRadiusHandleKey || pos === activeRadiusHandleKey;
+        handle.style.visibility = isRadiusHandleVisible ? "visible" : "hidden";
+        handle.style.pointerEvents = isRadiusHandleVisible ? "auto" : "none";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
         handle.style.borderWidth = 1.5 * line + "px";
-        var offset = inset - size / 2 + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = offset;
-        if (pos.indexOf("s") !== -1) handle.style.bottom = offset;
-        if (pos.indexOf("w") !== -1) handle.style.left = offset;
-        if (pos.indexOf("e") !== -1) handle.style.right = offset;
+        handle.style.removeProperty("left");
+        handle.style.removeProperty("right");
+        handle.style.removeProperty("top");
+        handle.style.removeProperty("bottom");
+        if (pos.indexOf("vertex-") === 0) {
+          var vertexIndex = parseInt(pos.slice("vertex-".length), 10);
+          var pathData = radiusPathData(el);
+          var vertexRadius = parseFloat(
+            el.getAttribute("data-an-corner-radius") || "0"
+          );
+          var vertex = radiusPathVertexGeometry(
+            pathData,
+            vertexIndex,
+            vertexRadius
+          );
+          if (!pathData || !vertex) {
+            handle.style.display = "none";
+            return;
+          }
+          var pathWidth = readPx(selectionOverlay.style.width) || elWidth;
+          var pathHeight = readPx(selectionOverlay.style.height) || elHeight;
+          var viewBox = pathData.viewBox;
+          var vertexX = (vertex.x - viewBox.x) / viewBox.width * pathWidth;
+          var vertexY = (vertex.y - viewBox.y) / viewBox.height * pathHeight;
+          handle.style.left = vertexX - size / 2 + "px";
+          handle.style.top = vertexY - size / 2 + "px";
+          return;
+        }
+        var cs = window.getComputedStyle(el);
+        var box = borderBoxDimensions(cs);
+        var radii = cornerRadiusMap(cs, box.width, box.height)[pos] || {
+          x: 0,
+          y: 0
+        };
+        var overlayWidth = readPx(selectionOverlay.style.width) || elWidth;
+        var overlayHeight = readPx(selectionOverlay.style.height) || elHeight;
+        var scaleX = box.width > 0 ? overlayWidth / box.width : 1;
+        var scaleY = box.height > 0 ? overlayHeight / box.height : 1;
+        var inwardFraction = 1 - Math.SQRT1_2;
+        var centerX = 4 * line + radii.x * scaleX * inwardFraction;
+        var centerY = 4 * line + radii.y * scaleY * inwardFraction;
+        var offsetX = centerX - size / 2 + "px";
+        var offsetY = centerY - size / 2 + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = offsetY;
+        if (pos.indexOf("s") !== -1) {
+          handle.style.bottom = centerY - size / 2 + "px";
+        }
+        if (pos.indexOf("w") !== -1) handle.style.left = offsetX;
+        if (pos.indexOf("e") !== -1) {
+          handle.style.right = centerX - size / 2 + "px";
+        }
       });
       if (isNewSelectionTarget) {
         void selectionOverlay.offsetHeight;
@@ -7567,6 +7801,28 @@ export const editorChromeBridgeScript: string = `"use strict";
           "data-agent-native-suppress-handle-transition"
         );
       }
+    }
+    function updateRadiusHandleHover(e) {
+      if (activeRadiusHandleKey) return;
+      var nextHoveredKey = "";
+      if (!readOnly && !activeTextEditEl && !selectionChromeHidden && selectedEl && document.documentElement.contains(selectedEl)) {
+        var threshold = 16 * chromeLineScale();
+        var nearestDistance = threshold;
+        selectionOverlay.querySelectorAll("[data-agent-native-radius-handle]").forEach(function(handle) {
+          var rect = handle.getBoundingClientRect();
+          if (!(rect.width > 0) || !(rect.height > 0)) return;
+          var dx = e.clientX - (rect.left + rect.width / 2);
+          var dy = e.clientY - (rect.top + rect.height / 2);
+          var distance = Math.hypot(dx, dy);
+          if (distance <= nearestDistance) {
+            nearestDistance = distance;
+            nextHoveredKey = handle.getAttribute("data-agent-native-radius-handle") || "";
+          }
+        });
+      }
+      if (nextHoveredKey === hoveredRadiusHandleKey) return;
+      hoveredRadiusHandleKey = nextHoveredKey;
+      applySelectionHandleHitGeometry(selectedEl);
     }
     function applyEditorChromeScale() {
       syncEditorChromeScaleVars();
@@ -17509,6 +17765,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (readOnly) return;
       if (!selectedEl) return;
       if (isLayerInteractionBlocked(selectedEl)) return;
+      if (String(corner).indexOf("vertex-") === 0) {
+        startVectorRadiusDrag(corner, e);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       var events = dragEventNames(e);
@@ -17533,16 +17793,52 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;
-      var originalRadiusValue = radiusEl.style[cornerProperty];
+      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
+      var radiusStyleProperties = [
+        "border-radius",
+        "border-top-left-radius",
+        "border-top-right-radius",
+        "border-bottom-right-radius",
+        "border-bottom-left-radius"
+      ];
+      var originalInlineRadiusStyles = radiusStyleProperties.map(
+        function(property) {
+          return {
+            property,
+            value: radiusEl.style.getPropertyValue(property),
+            priority: radiusEl.style.getPropertyPriority(property)
+          };
+        }
+      );
       var startX = e.clientX;
       var startY = e.clientY;
       var radiusMoved = false;
+      activeRadiusHandleKey = String(corner);
+      applySelectionHandleHitGeometry(radiusEl);
       var signX = corner.indexOf("w") !== -1 ? 1 : -1;
       var signY = corner.indexOf("n") !== -1 ? 1 : -1;
+      function restoreOriginalInlineRadiusStyles() {
+        originalInlineRadiusStyles.forEach(function(entry) {
+          if (entry.value) {
+            radiusEl.style.setProperty(
+              entry.property,
+              entry.value,
+              entry.priority
+            );
+          } else {
+            radiusEl.style.removeProperty(entry.property);
+          }
+        });
+      }
       function applyRadius(nextX, nextY) {
         var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
         var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
-        radiusEl.style[cornerProperty] = x === y ? x + "px" : x + "px " + y + "px";
+        var value = x === y ? x + "px" : x + "px " + y + "px";
+        if (wholeShape) {
+          radiusEl.style.borderRadius = value;
+        } else {
+          radiusEl.style[cornerProperty] = value;
+        }
       }
       function onMove(ev) {
         if (!radiusEl) return;
@@ -17563,11 +17859,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onRadiusKeyDown, true);
         clearActiveDragCancel(cancelRadiusDrag);
+        hoveredRadiusHandleKey = activeRadiusHandleKey;
+        activeRadiusHandleKey = "";
       }
       function cancelRadiusDrag() {
         cleanupRadiusDrag();
         if (radiusEl && document.documentElement.contains(radiusEl)) {
-          radiusEl.style[cornerProperty] = originalRadiusValue;
+          restoreOriginalInlineRadiusStyles();
           selectedEl = radiusEl;
           applySelectionHandleHitGeometry(radiusEl);
           refreshOverlays();
@@ -17589,20 +17887,24 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var finalRadius = resolveCornerRadiusXY(
-          radiusEl.style[cornerProperty] || cs[cornerProperty],
+          wholeShape ? radiusEl.style.borderRadius || cs.borderRadius : radiusEl.style[cornerProperty] || cs[cornerProperty],
           elWidthPx,
           elHeightPx
         );
         var radiusChanged = Math.abs(finalRadius.x - originRadius.x) > 0.5 || Math.abs(finalRadius.y - originRadius.y) > 0.5;
         if (!radiusChanged) {
-          radiusEl.style[cornerProperty] = originalRadiusValue;
+          restoreOriginalInlineRadiusStyles();
           applySelectionHandleHitGeometry(radiusEl);
           refreshOverlays();
           releaseLiveVisualEditOriginalStyles(radiusEl);
           return;
         }
         var styles = {};
-        styles[cornerProperty] = radiusEl.style[cornerProperty];
+        if (wholeShape) {
+          styles.borderRadius = radiusEl.style.borderRadius;
+        } else {
+          styles[cornerProperty] = radiusEl.style[cornerProperty];
+        }
         window.parent.postMessage(
           {
             type: "visual-style-change",
@@ -17620,6 +17922,120 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onRadiusKeyDown, true);
       setActiveDragCancel(cancelRadiusDrag);
+    }
+    function startVectorRadiusDrag(handle, e) {
+      var radiusEl = selectedEl;
+      if (!radiusEl) return;
+      var pathData = radiusPathData(radiusEl);
+      var index = parseInt(String(handle).slice("vertex-".length), 10);
+      var originalPath = radiusEl.querySelector(":scope > path");
+      if (!pathData || !originalPath || !Number.isInteger(index)) return;
+      var vertex = radiusPathVertexGeometry(
+        pathData,
+        index,
+        parseFloat(radiusEl.getAttribute("data-an-corner-radius") || "0")
+      );
+      if (!vertex) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var events = dragEventNames(e);
+      var originalD = originalPath.getAttribute("d") || "";
+      var originalRadiusAttribute = radiusEl.getAttribute(
+        "data-an-corner-radius"
+      );
+      var originRadius = Number.isFinite(
+        parseFloat(originalRadiusAttribute || "")
+      ) ? parseFloat(originalRadiusAttribute || "") : 0;
+      var cssBox = borderBoxDimensions(window.getComputedStyle(radiusEl));
+      if (!(cssBox.width > 0) || !(cssBox.height > 0)) return;
+      var startX = e.clientX;
+      var startY = e.clientY;
+      var radiusMoved = false;
+      activeRadiusHandleKey = String(handle);
+      applySelectionHandleHitGeometry(radiusEl);
+      refreshLiveVisualEditOriginalStyles(radiusEl);
+      function applyRadius(nextRadius) {
+        var rounded = roundedRadiusPathData(pathData.points, nextRadius);
+        if (!rounded) return;
+        radiusEl.setAttribute("data-an-corner-radius", String(rounded.radius));
+        originalPath.setAttribute("d", rounded.d);
+      }
+      function cleanupVectorRadiusDrag() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onRadiusKeyDown, true);
+        clearActiveDragCancel(cancelVectorRadiusDrag);
+        hoveredRadiusHandleKey = activeRadiusHandleKey;
+        activeRadiusHandleKey = "";
+      }
+      function restoreVectorRadius() {
+        originalPath.setAttribute("d", originalD);
+        if (originalRadiusAttribute === null) {
+          radiusEl.removeAttribute("data-an-corner-radius");
+        } else {
+          radiusEl.setAttribute("data-an-corner-radius", originalRadiusAttribute);
+        }
+        selectedEl = radiusEl;
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      function cancelVectorRadiusDrag() {
+        cleanupVectorRadiusDrag();
+        if (document.documentElement.contains(radiusEl)) restoreVectorRadius();
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRadiusKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelVectorRadiusDrag();
+      }
+      function onMove(ev) {
+        var screenDx = ev.clientX - startX;
+        var screenDy = ev.clientY - startY;
+        if (screenDx === 0 && screenDy === 0) return;
+        radiusMoved = true;
+        var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+        var localX = local.x * (pathData.viewBox.width / cssBox.width);
+        var localY = local.y * (pathData.viewBox.height / cssBox.height);
+        var projected = localX * vertex.bisector.x + localY * vertex.bisector.y;
+        applyRadius(originRadius + projected * vertex.sinHalfAngle);
+        applySelectionHandleHitGeometry(radiusEl);
+        refreshOverlays();
+      }
+      function onUp() {
+        cleanupVectorRadiusDrag();
+        if (!radiusMoved) {
+          releaseLiveVisualEditOriginalStyles(radiusEl);
+          return;
+        }
+        var finalRadius = parseFloat(
+          radiusEl.getAttribute("data-an-corner-radius") || "0"
+        );
+        if (!Number.isFinite(finalRadius) || Math.abs(finalRadius - originRadius) < 0.5) {
+          restoreVectorRadius();
+          releaseLiveVisualEditOriginalStyles(radiusEl);
+          return;
+        }
+        var styles = { borderRadius: String(finalRadius) + "px" };
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            selector: getSelector(radiusEl),
+            styles,
+            originalStyles: originalInlineStylesForPatch(radiusEl, styles),
+            payload: getElementInfo(radiusEl)
+          },
+          "*"
+        );
+        recordSourceOwnership(radiusEl);
+        releaseLiveVisualEditOriginalStyles(radiusEl);
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onRadiusKeyDown, true);
+      setActiveDragCancel(cancelVectorRadiusDrag);
     }
     function clearPendingShieldDrag() {
       if (!pendingShieldDrag) return;
@@ -19037,6 +19453,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "pointermove",
       function(e) {
+        updateRadiusHandleHover(e);
         if (isOverlayElement(e.target)) return;
         if (pendingShieldDrag || activeDragCancel) {
           if (e.cancelable) e.preventDefault();
@@ -19050,6 +19467,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "mousemove",
       function(e) {
+        updateRadiusHandleHover(e);
         if (isOverlayElement(e.target)) return;
         if (pendingShieldDrag || activeDragCancel) {
           if (e.cancelable) e.preventDefault();

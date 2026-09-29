@@ -82,6 +82,12 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "لم يتم الالتقاط",
   "observability.openFullConversation": "فتح المحادثة الكاملة",
   "observability.learnAboutTab": "تعرّف على علامة التبويب",
+  "observability.promoteMustContain": "يجب أن يتضمن الرد…",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
+  "observability.promoteMustContainOptional": "يجب أن يتضمن الرد (اختياري)",
+  "observability.promoteNeedsContains":
+    "لا تتضمن هذه الجولة أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل الترقية.",
   "observability.summarizeWithAgent": "تلخيص باستخدام الوكيل",
   "observability.regenerateSummary": "إعادة إنشاء الملخص",
   "observability.summarizeWithAgentHelp":
@@ -634,6 +640,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "موصى به",
   "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
   "mcpIntegrations.menuLabel": "عمليات التكامل",
+  "mcpApps.optionalPeerRequired":
+    "يتطلب تطبيق MCP هذا الحزمة {{packageName}}. ثبّتها باستخدام {{installCommand}}.",
   "mcpIntegrations.menuDescription": "ربط الأدوات والخدمات بالوكيل",
   "mcpIntegrations.title": "ربط عمليات التكامل",
   "mcpIntegrations.description":
@@ -1333,6 +1341,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
   "usage.builderCredits": "أرصدة Builder",
+  "featureFlags.builderCreditReferrals.name": "إحالات أرصدة Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "عرض تفاصيل إحالات مساحة عمل Builder المتصلة في الاستخدام.",
   "usage.inviteFriends": "ادعُ الأصدقاء",
   "usage.inviteCredits":
     "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",

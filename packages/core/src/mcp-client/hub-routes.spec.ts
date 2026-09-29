@@ -4,7 +4,10 @@ const settingsMock = vi.hoisted(() => ({
   listSettingsByKeySegments: vi.fn(),
 }));
 
-vi.mock("../settings/store.js", () => settingsMock);
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  ...settingsMock,
+}));
 
 const { listHubServers } = await import("./hub-routes.js");
 

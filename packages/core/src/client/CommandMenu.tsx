@@ -144,6 +144,12 @@ interface CommandItemProps {
   keywords?: string[];
   className?: string;
   deferSelect?: boolean;
+  /**
+   * Stable identity for keyboard selection. Without it, the selection is keyed
+   * by the item's text, so an item whose text changes while it is shown (for
+   * example a search result gaining a snippet) loses the highlight.
+   */
+  value?: string;
 }
 
 function CommandItem({
@@ -152,6 +158,7 @@ function CommandItem({
   keywords: _keywords,
   className,
   deferSelect = true,
+  value,
 }: CommandItemProps) {
   const { onOpenChange } = useCommandMenuContext();
 
@@ -170,6 +177,7 @@ function CommandItem({
     <CommandItemPrimitive
       className={cn("cursor-pointer gap-2", className)}
       onSelect={handleSelect}
+      value={value}
     >
       {children}
     </CommandItemPrimitive>

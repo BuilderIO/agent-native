@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
+const prefetchSecretsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
+  prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
   resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
 }));
 
@@ -37,10 +39,32 @@ describe("s3FileUploadProvider", () => {
     }
     resolveSecretMock.mockReset();
     resolveSecretMock.mockResolvedValue(null);
+    prefetchSecretsMock.mockReset();
+    prefetchSecretsMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  it("batches every storage key into one prefetch before resolving them", async () => {
+    const order: string[] = [];
+    prefetchSecretsMock.mockImplementation(async () => {
+      order.push("prefetch");
+    });
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      order.push(key);
+      return null;
+    });
+
+    await s3FileUploadProvider.isConfiguredForRequest?.();
+
+    expect(prefetchSecretsMock).toHaveBeenCalledTimes(1);
+    const [prefetched] = prefetchSecretsMock.mock.calls[0] as [string[]];
+    const resolved = order.slice(1);
+    expect(order[0]).toBe("prefetch");
+    expect(new Set(prefetched)).toEqual(new Set(resolved));
+    expect(resolved).toHaveLength(12);
   });
 
   it("is unavailable until all public URL and credential values exist", async () => {

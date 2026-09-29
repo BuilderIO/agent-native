@@ -182,9 +182,12 @@ export function subscribeAgentSidebarUrlChanges(
 export function getInitialAgentSidebarOpen(
   defaultOpen: boolean,
   storageKey?: string | null,
+  { ignoreUrlOverride = false }: { ignoreUrlOverride?: boolean } = {},
 ): boolean {
-  const urlOverride = getAgentSidebarUrlOpenOverride();
-  if (urlOverride !== null) return urlOverride;
+  if (!ignoreUrlOverride) {
+    const urlOverride = getAgentSidebarUrlOpenOverride();
+    if (urlOverride !== null) return urlOverride;
+  }
   if (hasChatThreadDeepLink()) return true;
 
   if (

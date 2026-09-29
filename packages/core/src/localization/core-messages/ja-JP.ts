@@ -84,6 +84,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未取得",
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
+  "observability.promoteMustContain": "返信に含めるテキスト…",
+  "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
+  "observability.promoteMustContainOptional": "返信に含めるテキスト（任意）",
+  "observability.promoteNeedsContains":
+    "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.summarizeWithAgent": "エージェントで要約",
   "observability.regenerateSummary": "要約を再生成",
   "observability.summarizeWithAgentHelp":
@@ -651,6 +656,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
   "mcpIntegrations.menuLabel": "連携",
+  "mcpApps.optionalPeerRequired":
+    "この MCP アプリには {{packageName}} が必要です。{{installCommand}} でインストールしてください。",
   "mcpIntegrations.menuDescription": "ツールやサービスをエージェントに接続",
   "mcpIntegrations.title": "連携を接続",
   "mcpIntegrations.description":
@@ -1320,6 +1327,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
+  "featureFlags.builderCreditReferrals.description":
+    "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
