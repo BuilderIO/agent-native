@@ -204,6 +204,16 @@ describe("resolveFilterVars", () => {
     ).toContain("__missing_dashboard_time_filter__");
   });
 
+  it("leaves ordinary custom-valued variables alone", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT '{{segment}}' AS segment",
+        { segment: "custom" },
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT 'custom' AS segment");
+  });
+
   it("resolves custom bounds for a preset date filter", () => {
     const filters: DashboardFilter[] = [
       {

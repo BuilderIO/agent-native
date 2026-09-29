@@ -116,7 +116,11 @@ export function interpolate(
   let sourceSql = sql;
   if (options.customDateRangeSupport) {
     for (const [name, value] of Object.entries(vars)) {
-      if (value !== "custom") {
+      if (
+        value !== "custom" ||
+        !Object.prototype.hasOwnProperty.call(vars, name + "Start") ||
+        !Object.prototype.hasOwnProperty.call(vars, name + "End")
+      ) {
         continue;
       }
       const start = vars[name + "Start"];

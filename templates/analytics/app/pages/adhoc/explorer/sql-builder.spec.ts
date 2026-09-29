@@ -15,6 +15,10 @@ describe("buildSql custom dates", () => {
       "createdDate >= TIMESTAMP('2026-09-01') AND createdDate < TIMESTAMP(DATE_ADD(DATE('2026-09-10'), INTERVAL 1 DAY))",
     );
 
+    config.customDateStart = "2026-09-10";
+    config.customDateEnd = "2026-09-01";
+    expect(buildSql(config)).toBe("");
+
     config.customDateEnd = "2026-02-31";
     expect(buildSql(config)).toBe("");
   });

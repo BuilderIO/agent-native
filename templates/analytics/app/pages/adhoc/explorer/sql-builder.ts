@@ -100,7 +100,7 @@ export function buildSql(config: ExplorerConfig): string {
   if (config.dateRange === "custom") {
     const start = config.customDateStart;
     const end = config.customDateEnd;
-    const isDate = (value: string | undefined) => {
+    const isDate = (value: string | undefined): value is string => {
       if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
       const parsed = new Date(`${value}T00:00:00.000Z`);
       return (
@@ -108,7 +108,7 @@ export function buildSql(config: ExplorerConfig): string {
         parsed.toISOString().startsWith(value)
       );
     };
-    if (!isDate(start) || !isDate(end)) return "";
+    if (!isDate(start) || !isDate(end) || start > end) return "";
     dateClause = `createdDate >= TIMESTAMP('${start}') AND createdDate < TIMESTAMP(DATE_ADD(DATE('${end}'), INTERVAL 1 DAY))`;
   } else {
     const days = dateRangeToDays(config.dateRange);
