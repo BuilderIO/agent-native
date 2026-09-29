@@ -1,4 +1,5 @@
 import {
+  AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
   migrationMoveMessage,
 } from "./migration-message.js";
@@ -23,7 +24,7 @@ export class AgentNativeUpgradeError extends Error {
     super(
       overrides.length === 0
         ? migrationMoveMessage(from, to)
-        : `${from} exports moved to multiple entrypoints: ${overrides.map(([symbol, target]) => `${symbol} -> ${target}`).join("; ")}; all other exports -> ${to}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+        : `${from} exports moved to multiple entrypoints: ${overrides.map(([symbol, target]) => `${symbol} -> ${target}`).join("; ")}; all other exports -> ${to}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
     );
   }
 }

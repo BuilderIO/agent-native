@@ -58,6 +58,7 @@ import {
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import {
   executeIdentityRekey,
   rekeyIdentity,
@@ -105,13 +106,6 @@ import {
   resolveDeployEnvironment,
 } from "./deploy-environment.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import {
-  renderChangeEmailConfirmationEmail,
-  renderChangeEmailVerificationEmail,
-  renderMagicLinkEmail,
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
@@ -2147,10 +2141,13 @@ async function createBetterAuthInstance(
         });
       }
       const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
-      const { subject, html, text, appSender } = renderMagicLinkEmail({
-        email,
-        magicLinkUrl: deliveredMagicLinkUrl,
-      });
+      const { subject, html, text, appSender } = await renderTransactionalEmail(
+        CORE_MAGIC_LINK_EMAIL_ID,
+        {
+          email,
+          magicLinkUrl: deliveredMagicLinkUrl,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
@@ -2186,10 +2183,11 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}${publicFrameworkPath("/_agent-native/auth/reset")}?token=${encodeURIComponent(token)}`;
-        const { subject, html, text, appSender } = renderResetPasswordEmail({
-          email: user.email,
-          resetUrl,
-        });
+        const { subject, html, text, appSender } =
+          await renderTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, {
+            email: user.email,
+            resetUrl,
+          });
         await sendEmail({
           to: user.email,
           subject,
@@ -2223,9 +2221,12 @@ async function createBetterAuthInstance(
             emailChange.oldEmail,
             emailChange.newEmail,
           );
-        const renderedEmail = emailChange
-          ? renderChangeEmailVerificationEmail({ email: user.email, verifyUrl })
-          : renderVerifySignupEmail({ email: user.email, verifyUrl });
+        const renderedEmail = await renderTransactionalEmail(
+          emailChange
+            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+            : CORE_VERIFY_SIGNUP_EMAIL_ID,
+          { email: user.email, verifyUrl },
+        );
         await sendEmail({
           to: user.email,
           ...renderedEmail,
@@ -2272,11 +2273,10 @@ async function createBetterAuthInstance(
           const confirmationUrl = confirmationBasePath
             ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
             : url;
-          const renderedEmail = renderChangeEmailConfirmationEmail({
-            email: user.email,
-            newEmail,
-            confirmationUrl,
-          });
+          const renderedEmail = await renderTransactionalEmail(
+            CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            { email: user.email, newEmail, confirmationUrl },
+          );
           await sendEmail({
             to: user.email,
             ...renderedEmail,

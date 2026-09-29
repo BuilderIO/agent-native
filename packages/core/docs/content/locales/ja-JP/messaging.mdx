@@ -646,6 +646,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+`createIntegrationsPlugin()` は省略可能な `IntegrationsPluginOptions` オブジェクトを受け取ります。`initialToolNames?: readonly string[]` オプションで、最初のモデルリクエストに送るローカルアクションのスキーマを選択します。省略すると、すべてのローカルアクションが初期セットに含まれます。渡された配列はコピーされ、呼び出し元の配列は変更されません。
+
+明示的に空のリストを渡すと、ローカルアクションは `tool-search` で発見されるまで読み込まれません。フレームワークの必須ツールは最初から利用できます。次の設定は、デプロイ先に A2A ピアがない場合にアプリ間の委任も無効にします。
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+同じ初期ツールセットが Webhook 処理、キュー内のタスク、Google Docs のポーリングに適用されます。完全なアクションレジストリは引き続き検索できます。`callAgent: false` は独立して組み込みの `call-agent` アクションの登録を無効にし、`initialToolNames` に含まれていても登録しません。
+
 どのプラットフォームがアクティブになるかは、どの環境変数が設定されているかによって異なります。プラグインは、`/_agent-native/integrations/` の下にそれぞれの Webhook ルートを登録します。
 
 ### Webhook URL {#webhook-urls}

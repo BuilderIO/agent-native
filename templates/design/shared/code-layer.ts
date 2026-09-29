@@ -3063,17 +3063,18 @@ function buildProjection(
  *
  * Bounded by source size, not entry count: the editor projects every screen of
  * a design in one pass, so any count below the screen count misses on every
- * screen of the next pass. A projection retains about 6 bytes per source char,
- * plus a few KB however small its document, so each entry is also charged a
- * floor — an empty document would otherwise cost nothing and never evict.
+ * screen of the next pass. A cached build (projection plus parsed elements)
+ * retains about 8 bytes per source char, plus a few KB however small its
+ * document, so each entry is also charged a floor — an empty document would
+ * otherwise cost nothing and never evict.
  *
  * Callers must treat the result as read-only — it is shared now. Every consumer
  * only reads (`find`/`filter`/`map`); `applyCodeLayer*`-style writers build new
  * HTML and re-project rather than editing a projection in place.
  */
-const PROJECTION_CACHE_MAX_CHARS = 16_000_000;
+const PROJECTION_CACHE_MAX_CHARS = 12_000_000;
 const PROJECTION_CACHE_ENTRY_FLOOR_CHARS = 2_048;
-const projectionCache = new Map<string, Map<string, CodeLayerProjection>>();
+const projectionCache = new Map<string, Map<string, ProjectionBuild>>();
 let projectionCacheChars = 0;
 
 function projectionCacheEntryChars(html: string, sourceKey: string): number {
@@ -3097,8 +3098,15 @@ export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
 ): CodeLayerProjection {
+  return cachedProjectionBuild(html, options.source).projection;
+}
+
+function cachedProjectionBuild(
+  html: string,
+  sourceOption: CodeLayerSource | undefined,
+): ProjectionBuild {
   const safeHtml = typeof html === "string" ? html : "";
-  const source = options.source ?? { kind: "inline-html" };
+  const source = sourceOption ?? { kind: "inline-html" };
   const sourceKey = projectionSourceKey(source);
   const bySource = projectionCache.get(safeHtml);
   if (bySource) {
@@ -3111,13 +3119,10 @@ export function buildCodeLayerProjection(
       return cached;
     }
   }
-  const projection = buildProjection(safeHtml, source).projection;
+  const build = buildProjection(safeHtml, source);
   projectionCache.set(
     safeHtml,
-    (bySource ?? new Map<string, CodeLayerProjection>()).set(
-      sourceKey,
-      projection,
-    ),
+    (bySource ?? new Map<string, ProjectionBuild>()).set(sourceKey, build),
   );
   projectionCacheChars += projectionCacheEntryChars(safeHtml, sourceKey);
   evict: for (const [oldestHtml, oldestBySource] of projectionCache) {
@@ -3136,7 +3141,7 @@ export function buildCodeLayerProjection(
     }
     projectionCache.delete(oldestHtml);
   }
-  return projection;
+  return build;
 }
 
 export function clearCodeLayerProjectionCache(): void {
@@ -3828,10 +3833,7 @@ export function resolveCodeLayerTarget(
   target: EditIntentTarget,
   options: { source?: CodeLayerSource } = {},
 ): { projection: CodeLayerProjection; resolution: EditIntentResolution } {
-  const build = buildProjection(
-    html,
-    options.source ?? { kind: "inline-html" },
-  );
+  const build = cachedProjectionBuild(html, options.source);
   return {
     projection: build.projection,
     resolution: resolveTarget(build, target),

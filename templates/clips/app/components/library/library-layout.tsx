@@ -3,7 +3,6 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -16,7 +15,6 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
@@ -350,14 +348,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  // The redesigned Settings shell brings its own navigation, header, and
-  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
-  // so the app chrome stays out then too instead of appearing and vanishing.
+  // The Settings shell brings its own navigation, header, and agent toggle.
   const settingsOwnsChrome =
-    (location.pathname === "/settings" ||
-      location.pathname.startsWith("/settings/")) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);

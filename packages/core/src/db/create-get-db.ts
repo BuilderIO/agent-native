@@ -155,6 +155,7 @@ export function buildResilientNeonPool<
             }>,
           dbOpTimeoutMs(),
           () => releaseClient(true),
+          { sql: sqlText },
         );
         releaseClient();
         return result;
@@ -227,6 +228,7 @@ export function buildResilientPostgresJsClient<
             // ignore — cancellation is advisory
           }
         },
+        { sql: query },
       );
     };
 

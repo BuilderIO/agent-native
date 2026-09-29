@@ -448,7 +448,7 @@ function RuleBackfillStatus({
   );
 }
 
-export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
+export function AiFilterSection() {
   const t = useT();
   const { hash } = useLocation();
   const navigate = useNavigate();
@@ -896,28 +896,14 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   return (
     <>
       <div className="max-w-180 space-y-7 pb-10">
-        {embedded ? (
-          <>
-            <SettingsGroup id="ai-filter-settings">
-              <SettingsRow
-                id="ai-filter-enabled"
-                label={t("mail.aiFilter.triageTitle")}
-                control={enabledSwitch}
-              />
-            </SettingsGroup>
-            <div className="flex justify-end">{manageAutomationsLink}</div>
-          </>
-        ) : (
-          <div className="flex items-center justify-between border-b border-border/50 pb-4">
-            <h2 className="text-base font-semibold text-foreground">
-              {t("mail.aiFilter.triageTitle")}
-            </h2>
-            <div className="flex items-center gap-3">
-              {manageAutomationsLink}
-              {enabledSwitch}
-            </div>
-          </div>
-        )}
+        <SettingsGroup id="ai-filter-settings">
+          <SettingsRow
+            id="ai-filter-enabled"
+            label={t("mail.aiFilter.triageTitle")}
+            control={enabledSwitch}
+          />
+        </SettingsGroup>
+        <div className="flex justify-end">{manageAutomationsLink}</div>
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />

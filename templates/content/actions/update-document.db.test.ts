@@ -157,6 +157,43 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(id)).bodyRevision).toBe(2);
   });
 
+  it("writes a stale browser save that already holds a peer tab's change", async () => {
+    const base = "Seed one\nSeed two\nLine one";
+    const id = await createDocument({ content: base });
+    const revision = documentRevisionToken(0, base);
+    const browserSave = (session: string, content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id,
+            content,
+            baseRevision: revision,
+            authoredBaseRevision: revision,
+            authoredBaseContent: base,
+            authoredCandidateContent: content,
+            editorSessionId: session,
+            editorEditGeneration: 1,
+            browserSaveAttemptId: nextId("stale-attempt"),
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    await browserSave(
+      nextId("peer-session"),
+      "Seed one\nSeed two peer\nLine one",
+    );
+    const typing = "Seed one\nSeed two peer\nLine one\nLine two";
+    const saved = await browserSave(nextId("typing-session"), typing);
+    expect(saved).toMatchObject({
+      content: typing,
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await documentRow(id)).toMatchObject({
+      content: typing,
+      bodyRevision: 2,
+    });
+  });
+
   it("replays a preserved attempt without duplicating its History checkpoint", async () => {
     const base = "First passage\nSecond passage";
     const id = await createDocument({ content: base });

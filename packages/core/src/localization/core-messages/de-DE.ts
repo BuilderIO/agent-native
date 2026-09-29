@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "Kontext konnte nicht geladen werden.",
   "composer.contextLinkRequired": "Gib einen Link ein.",
   "composer.submitFailed": "Senden fehlgeschlagen. Versuche es erneut.",
+  "composer.attachmentsRemainAfterSubmit":
+    "Die Nachricht wurde gesendet, aber einige Anhänge sind noch vorhanden. Entferne sie, bevor du erneut sendest.",
   "composer.addContext": "Kontext hinzufügen",
   "composer.contextActionFailed": "Kontext konnte nicht hinzugefügt werden.",
   "composer.contextBack": "Zurück",
@@ -76,6 +78,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "observability.promoteMustContain": "Antwort muss enthalten …",
+  "observability.promoteMustContainOptional":
+    "Antwort muss enthalten (optional)",
+  "observability.promoteMustContainLabel":
+    "Text, den die hochgestufte Eval-Antwort enthalten muss",
+  "observability.promoteNeedsContains":
+    "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
   "observability.hideDetails": "Details ausblenden",
   "observability.input": "Eingabe",
@@ -85,13 +94,6 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "Nicht erfasst",
   "observability.openFullConversation": "Vollständige Unterhaltung öffnen",
   "observability.learnAboutTab": "Mehr über diesen Tab erfahren",
-  "observability.promoteMustContain": "Antwort muss enthalten…",
-  "observability.promoteMustContainLabel":
-    "Text, den die Antwort der hochgestuften Evaluation enthalten muss",
-  "observability.promoteMustContainOptional":
-    "Antwort muss enthalten (optional)",
-  "observability.promoteNeedsContains":
-    "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib vor der Hochstufung den Text ein, den die Antwort enthalten muss.",
   "observability.summarizeWithAgent": "Mit Agent zusammenfassen",
   "observability.regenerateSummary": "Zusammenfassung neu erstellen",
   "observability.summarizeWithAgentHelp":

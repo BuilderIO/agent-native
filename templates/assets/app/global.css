@@ -94,19 +94,19 @@
 .assets-create-chat-intro {
   display: grid;
   justify-items: center;
-  gap: 0.75rem;
-  margin: 0 auto 1rem;
-  padding-bottom: 1rem;
+  margin: 0 auto;
   text-align: center;
+}
+
+.assets-create-chat-intro > div:empty {
+  display: none;
 }
 
 .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .assets-create-chat-intro {
   display: grid;
   justify-items: center;
-  gap: 0.75rem;
-  margin: 0 auto 1rem;
-  padding-bottom: 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 
@@ -237,7 +237,6 @@
   .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .assets-create-chat-intro {
     width: 100%;
-    margin-bottom: 0.875rem;
   }
 
   .assets-create-chat-intro h1 {

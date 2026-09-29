@@ -187,22 +187,22 @@ Toolkit のスタイルに共有の寸法が含まれます。`@agent-native/too
 
 ## エージェントとチャット UI {#agent-chat-ui}
 
-| API                                  | インポートパス                                    | 次の場合に使用します                                                                                          |
-| ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` または `/client/chat` | アプリの周りに完全なサイドバーが必要です。                                                                    |
-| `<AgentToggleButton>`                | `@agent-native/core/client` または `/client/chat` | サイドバー用に独自のヘッダー ボタンをレンダリングします。                                                     |
-| `<AgentPanel>`                       | `@agent-native/core/client` または `/client/chat` | 独自のレイアウト、ルート、ダイアログ、またはサイドカラムに完全なパネルが必要です。                            |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` または `/client/chat` | サイドバー ラッパーを使用せずにパネル モードまたはページ モードでチャットしたいと考えています。               |
-| `<AssistantChat>`                    | `@agent-native/core/client` または `/client/chat` | 標準の会話とコンポーザーのランタイムを維持しながら、周囲のクロムを所有したいと考えています。                  |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` または `/client/chat` | `AgentPanel` クロムなしでフレームワークのスレッド タブが必要です。                                            |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` または `/client/chat` | 正規化されたチャット イベントをストリーミングする BYO エージェント エンドポイントがあります。                 |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` または `/client/chat` | あなたは OpenAI エージェント SDK ストリームを持っており、それを中心とした標準チャット UI を必要としています。 |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` または `/client/chat` | OpenAI 応答イベント ストリームがあり、それをチャット UI に正規化したいと考えています。                        |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` または `/client/chat` | AG-UI イベント ストリームがあり、チャット UI に正規化したいと考えています。                                   |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` または `/client/chat` | あなたは Claude エージェント SDK ストリームを持っており、それをチャット UI に正規化したいと考えています。     |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` または `/client/chat` | Vercel AI SDK ストリームがあり、それをチャット UI に正規化したいと考えています。                              |
-| `useChatThreads()`                   | `@agent-native/core/client` または `/client/chat` | カスタム スレッド リスト、履歴ピッカー、またはスコープ付きチャット UI が必要です。                            |
-| `sendToAgentChat()`                  | `@agent-native/core/client` または `/client/chat` | 製品アクションは、エージェント チャットに手動で作業させる必要があります。                                     |
+| API                                  | インポートパス                         | 次の場合に使用します                                                                                          |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | アプリの周りに完全なサイドバーが必要です。                                                                    |
+| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | サイドバー用に独自のヘッダー ボタンをレンダリングします。                                                     |
+| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | 独自のレイアウト、ルート、ダイアログ、またはサイドカラムに完全なパネルが必要です。                            |
+| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | サイドバー ラッパーを使用せずにパネル モードまたはページ モードでチャットしたいと考えています。               |
+| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | 標準の会話とコンポーザーのランタイムを維持しながら、周囲のクロムを所有したいと考えています。                  |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | `AgentPanel` クロムなしでフレームワークのスレッド タブが必要です。                                            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 正規化されたチャット イベントをストリーミングする BYO エージェント エンドポイントがあります。                 |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | あなたは OpenAI エージェント SDK ストリームを持っており、それを中心とした標準チャット UI を必要としています。 |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | OpenAI 応答イベント ストリームがあり、それをチャット UI に正規化したいと考えています。                        |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | AG-UI イベント ストリームがあり、チャット UI に正規化したいと考えています。                                   |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | あなたは Claude エージェント SDK ストリームを持っており、それをチャット UI に正規化したいと考えています。     |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | Vercel AI SDK ストリームがあり、それをチャット UI に正規化したいと考えています。                              |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | カスタム スレッド リスト、履歴ピッカー、またはスコープ付きチャット UI が必要です。                            |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | 製品アクションは、エージェント チャットに手動で作業させる必要があります。                                     |
 
 `AgentChatRuntime` は、標準チャット シェルの BYO エージェント コントラクトです。パス
 外部エージェントが電源を投入する必要がある場合の `runtime` から `<AssistantChat>`
@@ -216,7 +216,7 @@ Agent-Native が作曲家、トランスクリプト、ツール カード、お
 最短のカスタム ルートはまだ配線済みのサーフェスです:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -226,7 +226,10 @@ export default function ChatRoute() {
 標準ランタイム周辺のカスタム クロムの場合:
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import {
+  AssistantChat,
+  useChatThreads,
+} from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -442,7 +445,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 アクションの結果をアプリ品質の UI としてレンダリングする必要がある場合は、ネイティブ ツール ウィジェットを使用します
 プレーンな JSON ではなく、内部チャット。組み込みの再利用可能な出力には、
 `DataTableWidget`、`DataChartWidget`、および `DataWidgetResult`;それらはエクスポートされます
-`@agent-native/core/client/chat` およびルート クライアント エントリから。参照
+`@agent-native/core/client/widgets` およびルート クライアント エントリから。参照
 アクション結果コントラクトの場合は [Native チャット UI](/docs/native-chat-ui)。
 
 | API                              | 次の場合に使用します                                                                             |
