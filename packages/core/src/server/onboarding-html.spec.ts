@@ -1,12 +1,19 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import type { AuthPageProps } from "../client/auth/AuthPage.js";
+import { AuthPage } from "../client/auth/AuthPage.js";
+import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
+import type {
+  AuthPageProps,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -19,7 +26,28 @@ import {
 import { AUTH_MARKETING_LOCALE_COPY } from "./auth-marketing-locales.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
-import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import {
+  getOnboardingHtml as getCoreOnboardingHtml,
+  getResetPasswordHtml as getCoreResetPasswordHtml,
+} from "./onboarding-html.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(createElement(AuthPage, props))),
+  });
+
+const getResetPasswordHtml: typeof getCoreResetPasswordHtml = (
+  requestPath,
+  renderer,
+) =>
+  getCoreResetPasswordHtml(
+    requestPath,
+    renderer ??
+      ((props) => renderToString(createElement(ResetPasswordPage, props))),
+  );
 
 function readAuthPageData(html: string): AuthPageProps {
   const match = html.match(
@@ -41,6 +69,61 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("local@localhost");
     expect(html).not.toContain("You started this flow");
     expect(html).toContain('id="upgrade-note"');
+  });
+
+  it("uses the injected auth renderer and falls back to a plain HTML shell", () => {
+    const renderSignInPage = vi.fn(
+      (props: AuthPageProps) =>
+        `<main data-view="${props.initialView}">Custom sign-in</main>`,
+    );
+    const rendered = getCoreOnboardingHtml({ renderSignInPage });
+
+    expect(renderSignInPage).toHaveBeenCalledWith(
+      expect.objectContaining({ initialView: "signup" }),
+    );
+    expect(rendered).toContain(
+      '<main data-view="signup">Custom sign-in</main>',
+    );
+    expect(rendered).not.toContain("data-agent-native-auth-fallback");
+
+    const fallback = getCoreOnboardingHtml();
+    expect(fallback).toContain('data-agent-native-auth-fallback="true"');
+    expect(fallback).toContain('<main class="auth-fallback"');
+    expect(fallback).toContain('id="agent-native-auth-data"');
+    expect(readAuthPageData(fallback).initialView).toBe("signup");
+  });
+
+  it("uses the injected reset renderer and a plain HTML fallback", () => {
+    const renderResetPasswordPage = vi.fn(
+      (props: ResetPasswordPageProps) =>
+        `<main data-page="${props.pageType}">Custom reset</main>`,
+    );
+    const rendered = getCoreResetPasswordHtml(
+      "/workspace/_agent-native/auth/reset",
+      renderResetPasswordPage,
+    );
+
+    expect(renderResetPasswordPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageType: "reset-password",
+      }),
+    );
+    expect(rendered).toContain(
+      '<main data-page="reset-password">Custom reset</main>',
+    );
+    expect(rendered).not.toContain("data-agent-native-auth-fallback");
+
+    const fallback = getCoreResetPasswordHtml();
+    expect(fallback).toContain('data-agent-native-auth-fallback="true"');
+    expect(fallback).toContain('<main class="card"><h1>Reset password</h1>');
+    expect(fallback).toContain('id="agent-native-auth-data"');
+    expect(
+      JSON.parse(
+        fallback.match(
+          /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+        )?.[1] ?? "{}",
+      ),
+    ).toMatchObject({ pageType: "reset-password" });
   });
 
   it("includes an environment switcher on the standalone auth page", () => {

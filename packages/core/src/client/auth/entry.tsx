@@ -1,4 +1,4 @@
-import { hydrateRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 
 import { AuthPage, type AuthPageProps } from "./AuthPage.js";
 import {
@@ -14,8 +14,12 @@ if (root && data) {
     | AuthPageProps
     | ResetPasswordPageProps;
   if ("pageType" in props && props.pageType === "reset-password") {
-    hydrateRoot(root, <ResetPasswordPage {...props} />);
+    const page = <ResetPasswordPage {...props} />;
+    if (root.dataset.agentNativeAuthFallback) createRoot(root).render(page);
+    else hydrateRoot(root, page);
   } else {
-    hydrateRoot(root, <AuthPage {...(props as AuthPageProps)} />);
+    const page = <AuthPage {...(props as AuthPageProps)} />;
+    if (root.dataset.agentNativeAuthFallback) createRoot(root).render(page);
+    else hydrateRoot(root, page);
   }
 }

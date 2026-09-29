@@ -66,7 +66,7 @@ export function createSentryPlugin(): NitroPluginDef {
     markDefaultPluginProvided(nitroApp, "sentry");
     await awaitBootstrap(nitroApp);
 
-    initServerSentry();
+    await initServerSentry();
     if (!isServerSentryEnabled()) {
       return;
     }

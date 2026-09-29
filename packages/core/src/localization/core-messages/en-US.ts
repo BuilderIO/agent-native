@@ -634,6 +634,8 @@ const messages = {
   "integrations.recommended": "Recommended",
   "integrations.subtitle": "Connect the tools your agent can use.",
   "mcpIntegrations.menuLabel": "Integrations",
+  "mcpApps.optionalPeerRequired":
+    "This MCP App requires {{packageName}}. Install it with {{installCommand}}.",
   "mcpIntegrations.menuDescription": "Connect tools and services to the agent",
   "mcpIntegrations.title": "Connect integrations",
   "mcpIntegrations.description":
