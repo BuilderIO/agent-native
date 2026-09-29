@@ -31,7 +31,7 @@ re-export specifier。如果具名 export 移至不同模組，它可以依 symb
 宣告，同時保留 alias 和 type-only import。它也會改寫簡單的 CSS @import
 路徑，並在已解析的改寫跨越 package 邊界時加入缺少的相依套件。
 
-診斷也會偵測 CommonJS `require()` 與動態 `import()` 形式，但 codemod 不會重寫這些呼叫運算式。請依照報告中的新位置替換它們，然後重新執行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路徑無論是否加上引號，codemod 都會重寫。
+診斷也會偵測 CommonJS `require()` 與動態 `import()` 形式。舊模組只有一個新目的地時，codemod 會重寫字串常值的 `import()` 呼叫。`require()` 和需要依符號拆分的動態匯入會保持不變並顯示警告；請依照報告中的新位置替換它們，然後重新執行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路徑無論是否加上引號，codemod 都會重寫。
 
 它不會改變呼叫位置或移動檔案。無法解析或標記為 planned 的遷移會保留
 原狀並顯示警告。它不能拆分 default、namespace、side-effect 或 star

@@ -38,7 +38,7 @@ conservant les alias et les imports de type. Il réécrit aussi les chemins CSS
 @import simples et ajoute une dépendance manquante lorsqu’une réécriture
 résolue traverse la frontière d’un package.
 
-Le diagnostic détecte également les formes CommonJS `require()` et les formes `import()` dynamiques, mais le codemod ne réécrit pas ces expressions d’appel. Remplacez-les en utilisant la nouvelle destination indiquée dans le rapport, puis relancez Vite ou `agent-native doctor`. Les chemins CSS `@import url(...)` sont réécrits qu’ils soient entre guillemets ou non.
+Le diagnostic détecte également les formes CommonJS `require()` et les formes `import()` dynamiques. Le codemod réécrit les appels `import()` littéraux lorsque l’ancien module n’a qu’une seule nouvelle destination. Il laisse `require()` et les imports dynamiques nécessitant une séparation par symbole inchangés et signale un avertissement ; remplacez-les en utilisant la nouvelle destination indiquée dans le rapport, puis relancez Vite ou `agent-native doctor`. Les chemins CSS `@import url(...)` sont réécrits qu’ils soient entre guillemets ou non.
 
 Il ne modifie pas les sites d’appel et ne déplace pas vos fichiers. Les
 migrations non résolues ou planifiées restent inchangées et génèrent un

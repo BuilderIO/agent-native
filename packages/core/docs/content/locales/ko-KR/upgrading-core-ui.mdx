@@ -34,7 +34,7 @@ import와 re-export specifier를 다시 씁니다. 이름이 지정된 export가
 유지할 수 있습니다. 간단한 CSS @import 경로도 바꾸고, 해결된 경로가 패키지
 경계를 넘어가면 누락된 dependency를 추가합니다.
 
-진단은 CommonJS `require()` 형식과 동적 `import()` 형식도 감지하지만 codemod는 이러한 호출식을 다시 쓰지 않습니다. 보고된 새 경로를 사용해 직접 바꾼 다음 Vite 또는 `agent-native doctor`를 다시 실행하세요. CSS `@import url(...)` 경로는 따옴표가 있거나 없어도 codemod가 다시 씁니다.
+진단은 CommonJS `require()` 형식과 동적 `import()` 형식도 감지합니다. 기존 모듈의 새 대상이 하나뿐이면 codemod가 리터럴 `import()` 호출을 다시 씁니다. `require()`와 심볼별 분할이 필요한 동적 import는 경고와 함께 그대로 둡니다. 보고된 새 경로를 사용해 직접 바꾼 다음 Vite 또는 `agent-native doctor`를 다시 실행하세요. CSS `@import url(...)` 경로는 따옴표가 있거나 없어도 codemod가 다시 씁니다.
 
 호출 위치를 바꾸거나 파일을 옮기지는 않습니다. 해결되지 않았거나 planned인
 이동은 경고와 함께 그대로 둡니다. default, namespace, side-effect, star

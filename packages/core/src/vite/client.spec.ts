@@ -3625,7 +3625,7 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain(
       "@agent-native/toolkit > lowlight > highlight.js/lib/core",
     );
-    expect(deps).not.toContain("@agent-native/toolkit > highlight.js/lib/core");
+    expect(deps).toContain("@agent-native/toolkit > highlight.js/lib/core");
     expect(deps).toContain(
       "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
     );
@@ -3736,6 +3736,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/app/agentkit/react/components",
           "@agent-native/toolkit/app/agentkit/react/context",
           "@agent-native/toolkit/app/agentkit/react/root",
+          "@agent-native/toolkit/app/chat/agentkit-chat/index",
           "@agent-native/core/client/agent-native-icon",
           "@agent-native/core/client/agentkit-chat/composer",
           "@agent-native/core/client/agentkit-chat/connections",
@@ -3764,6 +3765,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
           "@agent-native/toolkit > lowlight > highlight.js/lib/core",
+          "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",
           "@agent-native/toolkit > highlight.js/lib/languages/css",
           "@agent-native/toolkit > highlight.js/lib/languages/javascript",
@@ -4265,6 +4267,9 @@ describe("local-core dev aliases and router dedupe", () => {
     );
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/toolkit > lowlight > highlight.js/lib/core",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > highlight.js/lib/core",
     );
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/toolkit > highlight.js/lib/languages/javascript",

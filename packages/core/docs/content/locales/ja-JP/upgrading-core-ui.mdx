@@ -35,7 +35,7 @@ type-only importを保持できます。単純なCSSの@import pathも書き換�
 解決できた移動でpackage境界を越える場合は不足するdependencyを追加
 します。
 
-診断では CommonJS の `require()` と動的 `import()` 形式も検出しますが、codemod はこれらの呼び出し式を書き換えません。報告された新しい移行先を使って置き換え、その後 Vite または `agent-native doctor` を再実行してください。CSS の `@import url(...)` パスは、引用符の有無にかかわらず codemod で書き換えられます。
+診断では CommonJS の `require()` と動的 `import()` 形式も検出します。旧モジュールの移行先が 1 つの場合、codemod は文字列リテラルの `import()` 呼び出しを書き換えます。`require()` とシンボル単位の分割が必要な動的 import は警告を出して変更しません。報告された新しい移行先を使って置き換え、その後 Vite または `agent-native doctor` を再実行してください。CSS の `@import url(...)` パスは、引用符の有無にかかわらず codemod で書き換えられます。
 
 呼び出し箇所は変更せず、ファイルも移動しません。解決できない移動や
 plannedの移動は警告を出してそのまま残します。default、namespace、

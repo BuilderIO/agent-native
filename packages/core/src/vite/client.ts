@@ -1268,6 +1268,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       packageName: "highlight.js",
     },
     {
+      specifier: "highlight.js/lib/core",
+      packageName: "highlight.js",
+    },
+    {
       specifier: "lowlight > highlight.js/lib/core",
       packageName: "lowlight",
     },
@@ -1364,6 +1368,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
                 "@agent-native/toolkit/app/agentkit/react/components",
                 "@agent-native/toolkit/app/agentkit/react/context",
                 "@agent-native/toolkit/app/agentkit/react/root",
+                "@agent-native/toolkit/app/chat/agentkit-chat/index",
               ]
             : []),
           ...(hasDep("@agent-native/core", cwd)
@@ -1439,6 +1444,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
       : []),
     ...(hasToolkitDep("highlight.js", cwd)
       ? [
+          "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",
           "@agent-native/toolkit > highlight.js/lib/languages/css",
           "@agent-native/toolkit > highlight.js/lib/languages/javascript",

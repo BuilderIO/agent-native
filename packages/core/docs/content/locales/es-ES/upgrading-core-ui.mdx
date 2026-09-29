@@ -36,7 +36,7 @@ puede dividir una declaración por símbolo y conservar alias e imports de tipo.
 También actualiza rutas sencillas de CSS @import y añade una dependencia si una
 ruta resuelta cruza el límite de un paquete.
 
-El diagnóstico también detecta las formas CommonJS `require()` y las formas de `import()` dinámico, pero el codemod no reescribe esas expresiones de llamada. Sustitúyelas usando el nuevo destino indicado en el informe y vuelve a ejecutar Vite o `agent-native doctor`. Las rutas CSS `@import url(...)` se modifican tanto si están entre comillas como si no.
+El diagnóstico también detecta las formas CommonJS `require()` y las formas de `import()` dinámico. El codemod reescribe las llamadas literales a `import()` cuando el módulo antiguo tiene un único destino nuevo. Deja sin cambios y con una advertencia `require()` y las importaciones dinámicas que necesitan dividirse por símbolo. Sustitúyelas usando el nuevo destino indicado en el informe y vuelve a ejecutar Vite o `agent-native doctor`. Las rutas CSS `@import url(...)` se modifican tanto si están entre comillas como si no.
 
 No cambia los puntos de llamada ni mueve archivos. Deja sin cambios los
 movimientos planificados o no resueltos y muestra advertencias. No puede dividir

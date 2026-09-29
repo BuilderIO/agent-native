@@ -30,7 +30,7 @@ codemod 使用当前生效的 Core 和 Toolkit migration manifest。它仅扫描
 拆分声明，同时保留别名和 type-only import。它还会重写简单的 CSS
 @import 路径，并在已解析的重写跨越 package 边界时添加缺失依赖。
 
-诊断也会检测 CommonJS `require()` 和动态 `import()` 形式，但 codemod 不会重写这些调用表达式。请根据报告中的新位置替换它们，然后重新运行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路径无论是否带引号，codemod 都会重写。
+诊断也会检测 CommonJS `require()` 和动态 `import()` 形式。当旧模块只有一个新目标时，codemod 会重写字面量 `import()` 调用。`require()` 以及需要按符号拆分的动态导入会保持不变并给出警告；请根据报告中的新位置替换它们，然后重新运行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路径无论是否带引号，codemod 都会重写。
 
 codemod 不会改动调用位置，也不会移动文件。未解析或 planned 的迁移会保留
 原样并显示警告。它无法拆分 default、namespace、side-effect 或 star

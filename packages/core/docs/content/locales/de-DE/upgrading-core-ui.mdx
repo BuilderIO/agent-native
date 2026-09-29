@@ -38,7 +38,7 @@ Type-only-Imports erhalten. Einfache CSS-@import-Pfade werden ebenfalls
 aktualisiert; bei einem aufgelösten Paketwechsel wird die fehlende Dependency
 hinzugefügt.
 
-Die Diagnose erkennt auch CommonJS-Formen mit `require()` und dynamische `import()`-Formen. Das Codemod schreibt diese Aufrufausdrücke jedoch nicht um. Ersetzen Sie sie anhand des gemeldeten neuen Importziels und starten Sie anschließend Vite oder `agent-native doctor` erneut. CSS-Pfade in `@import url(...)` werden unabhängig davon umgeschrieben, ob der Pfad in Anführungszeichen steht.
+Die Diagnose erkennt auch CommonJS-Formen mit `require()` und dynamische `import()`-Formen. Das Codemod schreibt literale `import()`-Aufrufe um, wenn das alte Modul genau ein neues Ziel hat. `require()` und dynamische Imports, die eine Aufteilung nach Symbolen erfordern, bleiben unverändert und erzeugen eine Warnung. Ersetzen Sie diese anhand des gemeldeten neuen Importziels und starten Sie anschließend Vite oder `agent-native doctor` erneut. CSS-Pfade in `@import url(...)` werden unabhängig davon umgeschrieben, ob der Pfad in Anführungszeichen steht.
 
 Aufrufstellen und Dateien werden nicht geändert oder verschoben. Nicht
 aufgelöste und geplante Moves bleiben mit Warnungen unverändert. Default-,
