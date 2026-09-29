@@ -110,7 +110,7 @@ describe("title changes and database query membership", () => {
     },
   );
 
-  it("optimistically patches loaded navigation and Recent titles, then invalidates both", async () => {
+  it("optimistically patches loaded navigation and Recent titles, then refreshes only the renamed row's branch and path", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
@@ -126,8 +126,25 @@ describe("title changes and database query membership", () => {
       "get-content-navigation-context",
       { id: "row-1" },
     ];
+    const otherBranchKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", navigation: { parentId: "other-parent" } },
+    ];
+    const otherContextKey = [
+      "action",
+      "get-content-navigation-context",
+      { id: "other-page" },
+    ];
     client.setQueryData(navigationKey, {
       items: [{ documentId: "row-1", title: "Untitled" }],
+    });
+    client.setQueryData(otherBranchKey, {
+      items: [{ documentId: "other-page", title: "Other" }],
+    });
+    client.setQueryData(otherContextKey, {
+      document: { id: "other-page", title: "Other" },
+      path: [{ id: "other-page", title: "Other" }],
     });
     client.setQueryData(recentKey, {
       scopeKey: "user",
@@ -176,10 +193,15 @@ describe("title changes and database query membership", () => {
     );
 
     expect(client.getQueryState(navigationKey)?.isInvalidated).toBe(true);
-    expect(client.getQueryState(recentKey)?.isInvalidated).toBe(true);
     expect(client.getQueryState(navigationContextKey)?.isInvalidated).toBe(
       true,
     );
+    expect(client.getQueryData<any>(recentKey).entries[0].title).toBe(
+      "Renamed page",
+    );
+    expect(client.getQueryState(recentKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(otherBranchKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(otherContextKey)?.isInvalidated).toBe(false);
     client.clear();
   });
 

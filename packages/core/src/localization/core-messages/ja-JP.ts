@@ -11,6 +11,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
   "composer.contextLinkRequired": "リンクを入力してください。",
   "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.attachmentsRemainAfterSubmit":
+    "メッセージは送信されましたが、添付ファイルが残っています。再送信する前に削除してください。",
   "composer.addContext": "コンテキストを追加",
   "composer.contextActionFailed": "コンテキストを追加できませんでした。",
   "composer.contextBack": "戻る",
@@ -75,6 +77,11 @@ const messages: AgentChatTranslation = {
   "commands.mention": "ファイル、エージェント、リソースをメンション",
   "commands.new": "/clear と同じ",
   "commands.plan": "読み取り専用の計画モードに切り替え",
+  "observability.promoteMustContain": "返信に含める内容…",
+  "observability.promoteMustContainOptional": "返信に含める内容（任意）",
+  "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
+  "observability.promoteNeedsContains":
+    "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",
   "observability.hideDetails": "詳細を非表示",
   "observability.input": "入力",
@@ -1322,6 +1329,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
+  "featureFlags.builderCreditReferrals.description":
+    "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",

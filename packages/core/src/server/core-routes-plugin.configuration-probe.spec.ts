@@ -24,7 +24,7 @@ function probeSource(file: string, start: string, end: string): string {
 describe("configuration probe missing-settings line", () => {
   // Both copies must report the server's own answer. A copy that falls back to
   // the env-name checks reports nothing on a Netlify function without
-  // NODE_ENV while sign-up is refused, or flags an unpooled-only URL or a
+  // NODE_ENV while sign-up is refused, or flags an app-prefixed URL or a
   // workspace-derived auth secret that the server accepts.
   it.each([
     ["./core-routes-plugin.ts", "`${P}/ping`", "if (!options.disableHealth)"],

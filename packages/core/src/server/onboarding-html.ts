@@ -1116,13 +1116,15 @@ export interface OnboardingHtmlOptions {
   googleScopes?: string[];
   authMode?: "magic-link" | "password";
   initialPrompt?: boolean;
-  marketing?: {
-    appName: string;
-    tagline: string;
-    description?: string;
-    features?: string[];
-    learnMoreUrl?: string;
-  };
+  marketing?:
+    | false
+    | {
+        appName: string;
+        tagline: string;
+        description?: string;
+        features?: string[];
+        learnMoreUrl?: string;
+      };
   requestHost?: string;
   /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
   identitySsoRequestHost?: string;
@@ -1242,13 +1244,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 })();`;
 
   const marketing: AuthMarketingContent | undefined =
-    opts.marketing ??
-    resolveBuiltInAuthMarketing({
-      requestHost: opts.requestHost,
-      requestPath: opts.requestPath,
-    });
+    opts.marketing === false
+      ? undefined
+      : (opts.marketing ??
+        resolveBuiltInAuthMarketing({
+          requestHost: opts.requestHost,
+          requestPath: opts.requestPath,
+        }));
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingWasResolvedFromCatalog = !opts.marketing;
+  const marketingWasResolvedFromCatalog = opts.marketing === undefined;
   const configuredMarketingSlug = resolveBuiltInAuthMarketingSlugFromName(
     marketing?.appName,
   );
@@ -2076,6 +2080,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
+  .auth-centered {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
   .auth-marketing-shell { padding: 0; }
   .auth-marketing-home .auth-marketing-shell-with-top-right {

@@ -653,6 +653,9 @@ export interface AgentChatRuntimeErrorEvent extends AgentChatRuntimeEventBase<"e
   readonly cause?: unknown;
 }
 
+export type AgentChatRuntimeContinuationEvent =
+  AgentChatRuntimeEventBase<"continuation">;
+
 export type AgentChatRuntimeDoneReason =
   | "complete"
   | "cancelled"
@@ -696,6 +699,7 @@ export type AgentChatRuntimeKnownEvent =
   | AgentChatRuntimeFileEvent
   | AgentChatRuntimeUsageEvent
   | AgentChatRuntimeErrorEvent
+  | AgentChatRuntimeContinuationEvent
   | AgentChatRuntimeDoneEvent;
 
 export type AgentChatRuntimeEvent<
@@ -1729,6 +1733,9 @@ function mapAgentNativeEvent(
     turnId: input.turnId,
     ...(ev.seq !== undefined ? { metadata: { seq: ev.seq } } : {}),
   };
+  if (ev.type === "auto_continue") {
+    return [{ type: "continuation", ...base }];
+  }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
     const type = ev.type === "text" ? "text" : "reasoning";

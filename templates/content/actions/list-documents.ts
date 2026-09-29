@@ -168,6 +168,9 @@ export default defineAction({
         primaryId: string | null;
       }
     >();
+    // A parent on another page keeps its id; only a parent the caller cannot
+    // list stays hidden.
+    const visibleParentIds = new Set(documents.map((document) => document.id));
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(
           db,
@@ -197,7 +200,17 @@ export default defineAction({
         );
       }
 
-      const [notionLinks, shareRows, databases, databaseMemberships] =
+      const outsideParentIds = [
+        ...new Set(
+          documents.flatMap((document) =>
+            document.parentId && !visibleParentIds.has(document.parentId)
+              ? [document.parentId]
+              : [],
+          ),
+        ),
+      ];
+
+      const [notionLinks, shareRows, databases, databaseMemberships, parents] =
         await Promise.all([
           db
             .select({
@@ -281,7 +294,20 @@ export default defineAction({
               sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
               asc(schema.contentDatabases.id),
             ),
+          outsideParentIds.length > 0
+            ? db
+                .select({ id: schema.documents.id })
+                .from(schema.documents)
+                .where(
+                  and(
+                    inArray(schema.documents.id, outsideParentIds),
+                    documentDiscoveryWhere({ userEmail, authorizedOrgIds }),
+                  ),
+                )
+            : Promise.resolve([] as { id: string }[]),
         ]);
+
+      for (const parent of parents) visibleParentIds.add(parent.id);
 
       for (const link of notionLinks) {
         notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
@@ -348,9 +374,6 @@ export default defineAction({
       }
     }
 
-    const visibleDocumentIds = new Set(
-      documents.map((document) => document.id),
-    );
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
@@ -373,7 +396,7 @@ export default defineAction({
       return {
         id: d.id,
         parentId:
-          d.parentId && visibleDocumentIds.has(d.parentId) ? d.parentId : null,
+          d.parentId && visibleParentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
         contentPreview: contentPreview(d.contentSnippet),

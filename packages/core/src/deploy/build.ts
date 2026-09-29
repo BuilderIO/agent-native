@@ -398,6 +398,8 @@ function cloudflareBindingsInitScript(): string {
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") globalThis.process.env[key] = value;
   }
+  globalThis.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ =
+    process.env.NODE_ENV === "production";
 }`;
 }
 
@@ -575,7 +577,7 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
       )
     : [];
   config.compatibility_flags = [
-    ...new Set([...compatibilityFlags, "nodejs_compat"]),
+    ...new Set([...compatibilityFlags, "nodejs_compat", "nodejs_als"]),
   ];
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(

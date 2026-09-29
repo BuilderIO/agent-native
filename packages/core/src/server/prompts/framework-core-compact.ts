@@ -48,7 +48,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-For generated media, prefer this app's native generation action; otherwise use \`call-agent\` with agent "assets".
+For brand-consistent generated media, use \`call-agent\` with agent "assets" unless the current app has its own generation action that already delegates there.
 `
     : "";
   const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);

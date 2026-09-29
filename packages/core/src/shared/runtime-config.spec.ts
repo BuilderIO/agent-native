@@ -267,13 +267,13 @@ describe("runtime configuration diagnostics", () => {
     });
 
     it("trusts the server over the env-name checks when nothing is missing", () => {
-      // Only an unpooled URL is set and no BETTER_AUTH_SECRET: the env-name
-      // checks would flag both, but the server resolves the database and a
-      // workspace-derived auth secret.
+      // Only an app-prefixed URL is set and no BETTER_AUTH_SECRET: the
+      // env-name checks would flag both, but the server resolves the database
+      // and a workspace-derived auth secret.
       const report = getRuntimeConfigReport(
         {
           NODE_ENV: "production",
-          NETLIFY_DATABASE_URL_UNPOOLED: "postgres://db.example/app",
+          CHAT_DATABASE_URL: "postgres://db.example/app",
         },
         {},
         { phase: "runtime", missingDeploySettings: none },

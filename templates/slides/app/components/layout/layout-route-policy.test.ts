@@ -3,49 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
-  isSlidesFullWidthSettingsRoute,
   isSlidesHomeRoute,
+  isSlidesSettingsRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 
 describe("Slides settings route policy", () => {
-  it("gives Settings the full width only with the redesign on or loading", () => {
-    expect(
-      isSlidesFullWidthSettingsRoute("/settings", {
-        status: "ready",
-        enabled: true,
-      }),
-    ).toBe(true);
-    expect(
-      isSlidesFullWidthSettingsRoute("/settings/app/general", {
-        status: "loading",
-        enabled: false,
-      }),
-    ).toBe(true);
-    expect(
-      isSlidesFullWidthSettingsRoute("/settings", {
-        status: "ready",
-        enabled: false,
-      }),
-    ).toBe(false);
-    expect(
-      isSlidesFullWidthSettingsRoute("/settings", {
-        status: "unavailable",
-        enabled: false,
-      }),
-    ).toBe(false);
-    expect(
-      isSlidesFullWidthSettingsRoute("/settingsx", {
-        status: "ready",
-        enabled: true,
-      }),
-    ).toBe(false);
-    expect(
-      isSlidesFullWidthSettingsRoute("/home", {
-        status: "ready",
-        enabled: true,
-      }),
-    ).toBe(false);
+  it("gives Settings the full width", () => {
+    expect(isSlidesSettingsRoute("/settings")).toBe(true);
+    expect(isSlidesSettingsRoute("/settings/app/general")).toBe(true);
+    expect(isSlidesSettingsRoute("/settingsx")).toBe(false);
+    expect(isSlidesSettingsRoute("/home")).toBe(false);
   });
 });
 

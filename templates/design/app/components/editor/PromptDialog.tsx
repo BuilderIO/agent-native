@@ -7,12 +7,12 @@ import {
   type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
 import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import { useOrg } from "@agent-native/core/client/org";
+import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
 import {
   IconApps,
   IconArtboard,
@@ -663,7 +663,7 @@ export default function PromptPopover({
       attachmentAdapter={attachmentAdapter}
       inlineTextAttachments={false}
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-      disabled={disabled || loading || submitting || checkingProvider}
+      disabled={disabled || loading || submitting}
       submissionDisabled={submissionDisabled}
       submitting={submitting || checkingProvider}
       layoutVariant={inline ? "hero" : undefined}
@@ -781,7 +781,22 @@ export default function PromptPopover({
 
       <div className={cn(!inline && "px-2 pb-2", showStartChoice && "hidden")}>
         <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
-          <Suspense fallback={null}>{promptComposer}</Suspense>
+          <Suspense
+            fallback={
+              <div
+                aria-busy="true"
+                className="flex min-h-36 flex-col justify-between gap-3 rounded-md border border-input p-3"
+              >
+                <Skeleton className="h-16 w-full" />
+                <div className="flex items-center justify-between gap-2">
+                  <Skeleton className="size-8" />
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              </div>
+            }
+          >
+            {promptComposer}
+          </Suspense>
         </LazyChunkErrorBoundary>
       </div>
       {!inline &&

@@ -6,6 +6,7 @@ description: >-
   refining any creative output, or when the user references saved or approved
   context.
 scope: both
+requires-lab: content.creative-context
 metadata:
   internal: true
 ---

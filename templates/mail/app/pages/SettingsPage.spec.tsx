@@ -6,34 +6,23 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { flagState, registerChannelSettingsExtensions, syncMock, tabsProps } =
-  vi.hoisted(() => ({
-    flagState: { enabled: true },
+const { registerChannelSettingsExtensions, syncMock, tabsProps } = vi.hoisted(
+  () => ({
     registerChannelSettingsExtensions: vi.fn(() => () => {}),
     syncMock: vi.fn(),
     tabsProps: { current: null as Record<string, unknown> | null },
-  }));
-
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlagState: () => ({ status: "ready", enabled: flagState.enabled }),
-}));
+  }),
+);
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  LanguagePicker: () => null,
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/changelog", () => ({
-  ChangelogSettingsCard: () => null,
-}));
-
 vi.mock("@agent-native/core/client/settings", () => ({
-  AccountSettingsCard: () => null,
   SettingsGroup: ({ children }: { children: React.ReactNode }) => (
     <section>{children}</section>
   ),
   SettingsRow: () => null,
-  SettingsShellSkeleton: () => <div data-testid="skeleton" />,
   SettingsTabsPage: (props: Record<string, unknown>) => {
     tabsProps.current = props;
     return null;
@@ -97,11 +86,7 @@ afterEach(() => {
   container.remove();
 });
 
-describe("Mail Settings with the redesign on", () => {
-  beforeEach(() => {
-    flagState.enabled = true;
-  });
-
+describe("Mail Settings", () => {
   it("passes Mail's areas as tabs on Mail › General", async () => {
     await renderAt("/settings/app");
 
@@ -145,41 +130,6 @@ describe("Mail Settings with the redesign on", () => {
       view: "settings",
       settingsSection: "rules",
     });
-  });
-});
-
-describe("Mail Settings with the redesign off", () => {
-  beforeEach(() => {
-    flagState.enabled = false;
-  });
-
-  it("opens today's tab for a redesigned area path", async () => {
-    await renderAt("/settings/app/rules");
-
-    expect(location).toBe("/settings");
-    expect(tabsProps.current?.value).toBe("automations");
-  });
-
-  it("preserves an AI triage group anchor when redirecting to today's tabs", async () => {
-    await renderAt("/settings/app/ai-filter#tags");
-
-    expect(location).toBe("/settings#tags");
-    expect(tabsProps.current?.value).toBe("ai-filter");
-  });
-
-  it("opens the Organization tab for an old team link", async () => {
-    await renderAt("/settings?section=team");
-
-    expect(tabsProps.current?.value).toBe("organization");
-    expect(tabsProps.current?.team).toBeUndefined();
-  });
-
-  it("keeps the Slack intake tab", async () => {
-    await renderAt("/settings/channels/slack");
-
-    expect(tabsProps.current?.value).toBe("slack");
-    const tabs = tabsProps.current?.extraTabs as Array<{ id: string }>;
-    expect(tabs.map((tab) => tab.id)).toContain("slack");
   });
 });
 

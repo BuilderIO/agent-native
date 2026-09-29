@@ -796,7 +796,6 @@ export default function PromptPopover({
                   loading ||
                   uploading ||
                   submitting ||
-                  checkingProvider ||
                   Boolean(importMode)
                 }
                 submitting={submitting || checkingProvider}

@@ -5,6 +5,7 @@ import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
 import {
   getActiveOrgSettingForEvent,
+  getOrgContext,
   getOrgDomain,
   listOrgMembershipsForEvent,
 } from "../org/context.js";
@@ -829,38 +830,40 @@ async function handleAuthorize(
     event,
     session.email,
   );
-  const explicitPersonal = activeOrgSetting?.orgId === null;
   const requestedOrganizationId =
     method === "POST" && params.organization_id !== undefined
       ? params.organization_id || null
-      : explicitPersonal
-        ? null
-        : (activeOrgSetting?.orgId ?? session.orgId ?? null);
-  const memberships = await listOrgMembershipsForEvent(
+      : (activeOrgSetting?.orgId ?? session.orgId ?? null);
+  let memberships = await listOrgMembershipsForEvent(
     event,
     session.email,
     requestedOrganizationId,
   );
+  // A token issued with no org stays org-less for its whole life, even after
+  // the app later creates the org, so resolve an account without one to its
+  // domain or default org before offering the choice.
+  const ensuredOrgId =
+    memberships?.length === 0 ? (await getOrgContext(event)).orgId : null;
+  if (ensuredOrgId) {
+    memberships = await listOrgMembershipsForEvent(
+      event,
+      session.email,
+      ensuredOrgId,
+    );
+  }
   const organizations =
     memberships?.map((membership) => ({
       id: membership.orgId,
       name: membership.orgName,
       domain: membership.allowedDomain,
     })) ??
-    (!explicitPersonal && session.orgId
+    (session.orgId
       ? [{ id: session.orgId, name: "Organization", domain: null }]
       : []);
-  const organizationOptions = explicitPersonal
-    ? [{ id: "", name: "Personal", domain: null }, ...organizations]
-    : organizations;
-  const defaultOrganizationId = explicitPersonal
-    ? ""
-    : activeOrgSetting?.orgId &&
-        organizations.some(({ id }) => id === activeOrgSetting.orgId)
-      ? activeOrgSetting.orgId
-      : session.orgId && organizations.some(({ id }) => id === session.orgId)
-        ? session.orgId
-        : organizations[0]?.id;
+  const defaultOrganizationId =
+    [activeOrgSetting?.orgId, ensuredOrgId, session.orgId].find(
+      (id) => id && organizations.some((org) => org.id === id),
+    ) ?? organizations[0]?.id;
 
   if (method === "GET") {
     return html(
@@ -870,7 +873,7 @@ async function handleAuthorize(
         clientName: client.clientName || client.clientId,
         redirectUri,
         scopes: scope.split(/\s+/),
-        organizations: organizationOptions,
+        organizations,
         fields: {
           response_type: "code",
           client_id: clientId,
@@ -923,10 +926,7 @@ async function handleAuthorize(
   const selectedOrganization = organizations.find(
     ({ id }) => id === selectedOrganizationId,
   );
-  const selectedPersonal =
-    selectedOrganizationId === "" &&
-    (explicitPersonal || organizations.length === 0);
-  if (organizations.length > 0 && !selectedPersonal && !selectedOrganization) {
+  if (organizations.length > 0 && !selectedOrganization) {
     return oauthError(
       "invalid_request",
       "A valid organization selection is required",

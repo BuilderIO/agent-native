@@ -739,6 +739,13 @@ describe("assertCloudflarePagesPresetRemoved", () => {
 });
 
 describe("Cloudflare module Worker entry", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+    );
+  });
+
   it("defers Nitro's handler and lifecycle initialization", () => {
     const source =
       'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
@@ -755,6 +762,7 @@ describe("Cloudflare module Worker entry", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
     expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
@@ -826,15 +834,15 @@ export default {
     );
 
     configureCloudflareModuleWorkerOutput(serverDir);
+    const outputConfig = JSON.parse(
+      fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+    );
 
-    expect(
-      JSON.parse(
-        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
-      ),
-    ).toMatchObject({
+    expect(outputConfig).toMatchObject({
       main: "worker.mjs",
       assets: { binding: "ASSETS" },
     });
+    expect(outputConfig.compatibility_flags).toContain("nodejs_als");
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
     ).toContain('await import("./index.mjs")');
@@ -1269,6 +1277,10 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   describe("Cloudflare Pages worker entry", () => {
     afterEach(() => {
       Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      );
     });
 
     it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {
@@ -1279,13 +1291,22 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       expect(source).toContain("initializeBindings(env);");
     });
 
-    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+    it("sets the production marker from bindings when process.env starts empty", async () => {
+      vi.stubEnv("NODE_ENV", "");
       const worker = await importGeneratedWorker(generateWorkerEntry([], []));
-      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+      const bindings = {
+        DATABASE_URL: "postgres://example.test/db",
+        NODE_ENV: "production",
+      };
 
       await worker.fetch(new Request("https://app.test/"), bindings, {});
 
       expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+      expect(
+        (globalThis as Record<string, unknown>)[
+          "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__"
+        ],
+      ).toBe(true);
     });
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {

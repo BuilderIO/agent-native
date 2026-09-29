@@ -70,7 +70,6 @@ const messages = {
     create: "बनाएँ",
     save: "सहेजें",
     saving: "सहेजा जा रहा है…",
-    saveChanges: "बदलाव सहेजें",
     connected: "कनेक्टेड",
     notConnected: "कनेक्टेड नहीं",
     disconnect: "डिस्कनेक्ट करें",
@@ -787,7 +786,6 @@ const messages = {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     agentTitle: "एजेंट प्रबंधित करें",
-    title: "सेटिंग्स",
     pageTitle: "सेटिंग्स · Clips",
     labs: "Labs",
     labsIntro:
@@ -798,12 +796,6 @@ const messages = {
     labMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
     labWisprFlow: "वॉइस डिक्टेशन",
     labWisprFlowDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
-    intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
-    preferencesTitle: "प्राथमिकताएँ",
-    languageTitle: "भाषा",
-    languageDescription:
-      "इस खाते के लिए इंटरफ़ेस भाषा चुनें। Clips इसे आपके डिवाइसों पर याद रखेगा।",
-    languageLabel: "इंटरफ़ेस भाषा",
     uploadWorkspaceTitle: "सक्रिय वर्कस्पेस",
     uploadWorkspaceDescription:
       "वह वर्कस्पेस चुनें जिसका उपयोग Clips डेस्कटॉप अपलोड सहित नई रिकॉर्डिंग के लिए करेगा।",
@@ -824,9 +816,6 @@ const messages = {
     viewAllUpdates: "सभी अपडेट देखें",
     expand: "फैलाएं",
     collapse: "समेटें",
-    playback: "प्लेबैक",
-    defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
-    playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
     transcript: "ट्रांसक्रिप्ट",
     transcriptCleanup: "बैकग्राउंड सफ़ाई",
     transcriptCleanupDescription:
@@ -834,27 +823,17 @@ const messages = {
     notifications: "सूचनाएँ",
     monthlyRecap: "मासिक सारांश",
     sharing: "साझा करना",
-    defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
-    defaultVisibilityDescription:
-      "आपकी बनाई हर रिकॉर्डिंग पर लागू होती है। आप हर रिकॉर्डिंग की दृश्यता बदल सकते हैं।",
     visibilityPrivate: "निजी - केवल आप",
     visibilityOrg: "संगठन - आपके वर्कस्पेस में कोई भी",
     visibilityPublic: "सार्वजनिक - लिंक वाला कोई भी",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
       "चुनें कि आप Clips की कौन-सी वैकल्पिक ईमेल सूचनाएं पाना चाहते हैं।",
-    saved: "सेटिंग्स सहेजी गईं",
     saveFailed: "सहेजने में विफल",
-    builderConnectedToast: "Builder.io कनेक्टेड",
-    videoStorage: "वीडियो स्टोरेज",
     videoStorageDescription:
       "Builder.io Clips अपलोड के लिए मुख्य स्टोरेज पथ है। अपना bucket लाने की ज़रूरत हो तो S3 उपलब्ध है।",
-    checkingBuilder: "Builder.io जाँचा जा रहा है",
     builderConnected: "Builder.io कनेक्टेड",
     connectBuilder: "Builder.io इस्तेमाल करें",
-    builderConnectedFor: "{{orgName}} के लिए Builder.io इस्तेमाल हो रहा है।",
-    builderConnectedGeneric:
-      "नई क्लिप्स कनेक्टेड Builder.io प्रोवाइडर का उपयोग करती हैं।",
     builderIncludes:
       "Builder.io के मुफ्त स्तर में नई क्लिप्स के लिए ऑब्जेक्ट स्टोरेज, अपलोड और मैनेज्ड ट्रांसक्रिप्शन शामिल हैं।",
     s3Title: "S3-संगत स्टोरेज",
@@ -862,11 +841,8 @@ const messages = {
     active: "सक्रिय",
     s3BuilderConnectedDescription:
       "इसे केवल तब इस्तेमाल करें जब यह वर्कस्पेस Builder.io के बजाय आपके अपने bucket में अपलोड करे।",
-    s3CurrentProvider: "अभी {{providerName}} इस्तेमाल हो रहा है।",
     s3OwnBucketDescription:
       "यदि आप Builder.io स्टोरेज नहीं चाहते हैं तो अपना bucket इस्तेमाल करें।",
-    configureS3: "S3 कॉन्फ़िगर करें",
-    hideS3: "S3 छिपाएँ",
     saveStorage: "स्टोरेज सहेजें",
     storageSaved: "स्टोरेज सेटिंग्स सहेजी गईं",
     storageRequired: "Endpoint, bucket, access key और secret आवश्यक हैं।",
@@ -880,7 +856,6 @@ const messages = {
       "एक मान्य URL होना चाहिए (उदा. https://s3.us-east-1.amazonaws.com)",
     s3BucketInvalid: "बकेट नाम 3–63 लोअरकेस अक्षर, अंक या हाइफ़न होने चाहिए",
     s3RegionInvalid: 'एक मान्य क्षेत्र (उदा. us-east-1) या "auto" होना चाहिए',
-    apiSetup: "AI सेटअप",
     apiSetupDescription: "चुनें कि Clips AI से कैसे कनेक्ट हो।",
     builderEasySetup: "Builder.io मुफ्त क्रेडिट",
     builderAiAvailable:
@@ -891,18 +866,11 @@ const messages = {
     providerKeyDescription:
       "प्रोवाइडर-बिल्ड उपयोग के लिए Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere या Ollama चुनें।",
     providerKeysSet: "{{count}} सेट",
-    providerActionTitle: "AI प्रदाता",
-    providerActionDescription:
-      "Builder.io में मुफ्त स्तर शामिल है, या कस्टम कुंजियां इस्तेमाल करें।",
-    providerManage: "प्रबंधित करें",
-    providerCustomKeys: "कस्टम कुंजियां",
-    checkingProviderKeys: "प्रोवाइडर कीज़ जाँची जा रही हैं…",
     keySet: "सेट",
     keyCleared: "स्टोरेज क्रेडेंशियल साफ़ किए गए",
     clearAllS3: "क्रेडेंशियल साफ़ करें",
     replaceKey: "की बदलें…",
     pasteProviderKey: "पहले प्रोवाइडर की पेस्ट करें।",
-    apiKeySaved: "API की सहेजी गई",
     apiKeyFailed: "की सहेजने में विफल",
     slackTitle: "Slack के लिए Agent-Native Clips",
     slackDescription:
@@ -1016,8 +984,6 @@ const messages = {
     namedTitle: "{{name}} · सेटिंग्स",
     noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
-    adminsOnlyBranding: "केवल व्यवस्थापक ब्रांडिंग संपादित कर सकते हैं।",
-    brandingLoadFailed: "संगठन ब्रांडिंग लोड नहीं हो सकी।",
     members: "सदस्य",
     pendingInvites: "लंबित आमंत्रण",
     noPendingInvites: "कोई लंबित आमंत्रण नहीं।",

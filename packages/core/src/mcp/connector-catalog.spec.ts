@@ -573,6 +573,66 @@ describe("connector-catalog tier", () => {
       expect(names).not.toContain("db-exec");
     });
 
+    it("omits discovery-gated actions from tools/list for users who cannot discover them", async () => {
+      const availableForUser = vi.fn(
+        async (context?: { caller?: string; userEmail?: string }) =>
+          context?.caller === "mcp" &&
+          context.userEmail === "enabled@example.com",
+      );
+      const actions = {
+        ...declaringActions,
+        "creative-context-search": {
+          tool: { description: "Search Creative Context" },
+          mcpTool: true,
+          agentDiscoveryAvailable: availableForUser,
+          run: async () => ({ ok: true }),
+        },
+      };
+      const mcpConfig = {
+        ...declaringConfig,
+        actions,
+        productionActions: actions,
+      };
+
+      const disabledToken = await signA2AToken("disabled@example.com");
+      const disabled = await call(
+        { jsonrpc: "2.0", id: 62, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${disabledToken}` },
+          mcpConfig,
+        },
+      );
+      expect(disabled.result.tools.map((tool: any) => tool.name)).not.toContain(
+        "creative-context-search",
+      );
+
+      const enabledToken = await signA2AToken("enabled@example.com");
+      const enabled = await call(
+        { jsonrpc: "2.0", id: 63, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${enabledToken}` },
+          mcpConfig,
+        },
+      );
+      expect(enabled.result.tools.map((tool: any) => tool.name)).toContain(
+        "creative-context-search",
+      );
+      expect(availableForUser).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "disabled@example.com",
+        }),
+      );
+      expect(availableForUser).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "enabled@example.com",
+        }),
+      );
+    });
+
     it("activates the connector tier with no configured catalog at all", async () => {
       const token = await signA2AToken("alice@example.com");
       const { connectorCatalog: _dropped, ...noCatalogConfig } =

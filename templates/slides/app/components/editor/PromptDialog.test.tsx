@@ -1409,6 +1409,11 @@ describe("inline prompt starters", () => {
       await Promise.resolve();
     });
     expect(promptComposerProps.mock.lastCall![0].submitting).toBe(true);
+    expect(promptComposerProps.mock.lastCall![0].disabled).toBe(false);
+    expect(
+      (screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(false);
     await act(async () => {
       resolveCheck(false);
       expect(await check).toBe(false);

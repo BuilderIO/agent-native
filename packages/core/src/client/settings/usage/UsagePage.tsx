@@ -229,7 +229,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
   const canViewOrganization =
     data?.access.canViewWorkspace ?? mayViewOrganization;
   const showCreditPanel = Boolean(
-    data?.builderCreditUsageEnabled && data.access.canViewWorkspace,
+    tab === "overview" && data?.access.canViewWorkspace,
   );
   const creditQuery = useActionQuery<BuilderCreditUsageData | null>(
     "get-builder-credit-usage",
@@ -552,7 +552,8 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
       : data.topChats.slice(0, LIST_PREVIEW);
     body = (
       <div className="space-y-10">
-        {showCreditPanel ? (
+        {showCreditPanel &&
+        !(creditQuery.isSuccess && creditQuery.data === null) ? (
           creditQuery.data ? (
             <BuilderCreditUsagePanel usage={creditQuery.data} />
           ) : creditQuery.isError ? (

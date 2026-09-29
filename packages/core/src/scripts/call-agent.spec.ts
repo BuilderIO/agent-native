@@ -178,6 +178,10 @@ describe("call-agent action", () => {
 
     expect(tool.description).toContain("Use message by default");
     expect(tool.description).toContain(
+      "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
+    );
+    expect(tool.description).toContain("availability alone is not a reason");
+    expect(tool.description).toContain(
       "The receiver owns provider, schema, query, join, and SQL decisions",
     );
     expect(tool.description).toContain(

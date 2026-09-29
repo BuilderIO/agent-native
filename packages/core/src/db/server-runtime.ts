@@ -18,9 +18,11 @@
  * why it only counts together with {@link isProductionServerBuild}.
  *
  * Its own module, mirroring `./migration-runtime.js`: `client.js` reads it,
- * and keeping it dependency-free avoids adding one more stub to every
+ * and keeping it out of `client.js` avoids adding one more stub to every
  * `vi.mock("../db/client.js")` in the codebase.
  */
+
+import { hasCloudflareRuntime } from "./migration-runtime.js";
 
 type ServerRuntimeGlobal = typeof globalThis & {
   __AGENT_NATIVE_SERVER_RUNTIME__?: boolean;
@@ -59,14 +61,6 @@ export function isProductionServerBuild(): boolean {
   );
 }
 
-export function hasCloudflareRuntime(): boolean {
-  const runtime = globalThis as typeof globalThis & {
-    __cf_env?: unknown;
-    __env__?: unknown;
-  };
-  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
-}
-
 /**
  * Local emulators that set the same markers as a deploy: `netlify dev` /
  * `netlify serve` set `NETLIFY_LOCAL=true` next to `NETLIFY_FUNCTION_NAME`,
@@ -87,7 +81,14 @@ export function isLocalPlatformEmulator(
   );
 }
 
-export function isHostedFunctionInvocationRuntime(
+/**
+ * A platform marker proves a real hosted invocation. Not the same question as
+ * `isHostedFunctionInvocationRuntime()` in `./migration-runtime.js`, which
+ * the schema guards use and which treats `NODE_ENV=test` and an unflagged
+ * Cloudflare runtime as local. Folding the two together would let either
+ * value switch the database refusal off on a real deploy.
+ */
+export function hasHostedInvocationMarker(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (hasCloudflareRuntime()) return true;
@@ -111,7 +112,7 @@ export function isHostedFunctionInvocationRuntime(
  * and not another.
  */
 export function isDeployedServerRuntime(): boolean {
-  if (isHostedFunctionInvocationRuntime()) return true;
+  if (hasHostedInvocationMarker()) return true;
   if (isLocalPlatformEmulator(process.env)) return false;
   return isProductionServerBuild() && isServerRuntimeStarted();
 }

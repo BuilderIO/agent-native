@@ -16,6 +16,10 @@ import type { H3Event } from "h3";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  newOrgSelection,
+  ORG_SELECTION_COOKIE,
+} from "../org/request-org-cache.js";
+import {
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
@@ -345,13 +349,15 @@ export interface AuthOptions {
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
   googleScopes?: string[];
-  marketing?: {
-    appName: string;
-    tagline: string;
-    description?: string;
-    features?: string[];
-    learnMoreUrl?: string;
-  };
+  marketing?:
+    | false
+    | {
+        appName: string;
+        tagline: string;
+        description?: string;
+        features?: string[];
+        learnMoreUrl?: string;
+      };
   signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
   googleAuthMode?: GoogleAuthMode;
   betterAuth?: BetterAuthConfig;
@@ -626,6 +632,20 @@ async function getLegacyCookieSession(
       }
     }
     if (email && resolvedToken) {
+      if (name !== COOKIE_NAME || resolvedToken !== value) {
+        setFrameworkSessionCookie(event, resolvedToken);
+      }
+      const known = await readLegacySessionUser(email);
+      if (known.kind === "canonical") {
+        return enrichLegacySessionIdentity(
+          legacySessionWithVerification(
+            email,
+            resolvedToken,
+            known.verification,
+          ),
+          known.canonicalUser,
+        );
+      }
       let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
         canonicalUser = await resolveCanonicalUserForLegacySession(email);
@@ -634,9 +654,6 @@ async function getLegacyCookieSession(
           "[auth] legacy session canonical-user backfill failed:",
           error instanceof Error ? error.message : error,
         );
-      }
-      if (name !== COOKIE_NAME || resolvedToken !== value) {
-        setFrameworkSessionCookie(event, resolvedToken);
       }
       return enrichLegacySessionIdentity(
         await mapLegacySession(email, resolvedToken),
@@ -2034,10 +2051,7 @@ async function resolveLegacySessionEmailVerification(
       args: [email],
     });
     if (rows.length === 0) return "absent";
-    const value = rows[0].email_verified;
-    if (value === true || value === 1 || value === "1") return "verified";
-    if (value === false || value === 0 || value === "0") return "unverified";
-    return "unreadable";
+    return emailVerificationFromColumn(rows[0].email_verified);
   } catch (error) {
     console.warn(
       "[auth] failed to resolve legacy session email verification:",
@@ -2047,11 +2061,71 @@ async function resolveLegacySessionEmailVerification(
   }
 }
 
-async function mapLegacySession(
+function emailVerificationFromColumn(
+  value: unknown,
+): LegacySessionEmailVerification {
+  if (value === true || value === 1 || value === "1") return "verified";
+  if (value === false || value === 0 || value === "0") return "unverified";
+  return "unreadable";
+}
+
+type LegacySessionUserRead =
+  | {
+      kind: "canonical";
+      canonicalUser: CanonicalLegacyUser;
+      verification: LegacySessionEmailVerification;
+    }
+  | { kind: "two-step" };
+
+/**
+ * One `"user"` read for both legacy-session lookups: it is the verification
+ * query widened to the profile columns. Its row is also the canonical Better
+ * Auth user only when the stored address is already the normalized one, since
+ * Better Auth's adapter matches that exact value and `"user".email` is unique.
+ * Anything else keeps the two-step path, which also backfills a missing user.
+ */
+async function readLegacySessionUser(
+  email: string,
+): Promise<LegacySessionUserRead> {
+  if (!getBetterAuthSync()) return { kind: "two-step" };
+  let row: Record<string, unknown> | undefined;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT id, email, name, image, email_verified FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      args: [email],
+    });
+    row = rows[0] as Record<string, unknown> | undefined;
+  } catch {
+    // The two-step path repeats both reads and reports their failures.
+    return { kind: "two-step" };
+  }
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    row.email !== email.trim().toLowerCase()
+  ) {
+    return { kind: "two-step" };
+  }
+  return {
+    kind: "canonical",
+    canonicalUser: {
+      user: {
+        id: row.id,
+        email: row.email,
+        ...(typeof row.name === "string" ? { name: row.name } : {}),
+        image: typeof row.image === "string" ? row.image : null,
+      },
+      accounts: [],
+    },
+    verification: emailVerificationFromColumn(row.email_verified),
+  };
+}
+
+function legacySessionWithVerification(
   email: string,
   token: string,
-): Promise<AuthSession> {
-  const verification = await resolveLegacySessionEmailVerification(email);
+  verification: LegacySessionEmailVerification,
+): AuthSession {
   return {
     email,
     ...(verification === "verified"
@@ -2061,6 +2135,17 @@ async function mapLegacySession(
         : {}),
     token,
   };
+}
+
+async function mapLegacySession(
+  email: string,
+  token: string,
+): Promise<AuthSession> {
+  return legacySessionWithVerification(
+    email,
+    token,
+    await resolveLegacySessionEmailVerification(email),
+  );
 }
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
@@ -2285,7 +2370,7 @@ function getOnboardingLoginHtmlConfig(
   }
   return {
     authMode,
-    rootAuth: options.rootAuth ?? Boolean(options.marketing),
+    rootAuth: options.rootAuth ?? options.marketing !== undefined,
     loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
@@ -4645,6 +4730,13 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     maxAge: sessionMaxAge,
   });
   setFrameworkSessionHintCookie(event);
+  // Signing in can assign an organization (invitations, domain join, SSO), so
+  // a new session starts from a fresh org selection on every instance.
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+  });
 }
 
 export function redirectWithStagedCookies(
@@ -6836,7 +6928,7 @@ export async function autoMountAuth(
       if (
         options.googleOnly ||
         options.loginHtml ||
-        options.marketing ||
+        options.marketing !== undefined ||
         options.renderSignInPage
       ) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
@@ -6848,7 +6940,7 @@ export async function autoMountAuth(
       }
       if (options.rootAuth !== undefined) {
         _authGuardConfig.rootAuth = options.rootAuth;
-      } else if (options.loginHtml || options.marketing) {
+      } else if (options.loginHtml || options.marketing !== undefined) {
         _authGuardConfig.rootAuth = true;
       }
       if (options.publicPaths) {

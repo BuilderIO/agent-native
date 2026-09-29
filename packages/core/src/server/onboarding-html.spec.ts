@@ -180,6 +180,21 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('href="https://agent-native.com/apps/clips"');
   });
 
+  it("allows a hosted app to opt out of catalog auth marketing", () => {
+    const html = getOnboardingHtml({
+      requestHost: "chat.agent-native.com",
+      marketing: false,
+    });
+
+    expect(html).toContain('class="auth-centered"');
+    expect(html).toContain(
+      ".auth-centered {\n    display: flex;\n    justify-content: center;",
+    );
+    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).not.toContain("data-agent-native-marketing-home");
+    expect(readAuthPageData(html).marketing).toBeUndefined();
+  });
+
   it("version-stamps the auth client when the deployment build id is available", () => {
     vi.stubGlobal("__AGENT_NATIVE_BUILD_ID__", "deploy-auth-client-123");
 

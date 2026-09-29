@@ -773,7 +773,7 @@ async function processIncomingMessage(
     }
 
     threadId = mapping.internalThreadId;
-    await setThreadSourceIfMissing(threadId, {
+    await setThreadSourceIfMissing(threadId, ownerEmail, {
       platform: incoming.platform,
       appId: options.appId ?? null,
       url: incoming.sourceUrl ?? null,

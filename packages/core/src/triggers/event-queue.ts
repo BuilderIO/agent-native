@@ -15,6 +15,7 @@ const COMPLETED_PAYLOAD = '{"kind":"completed"}';
 const UNIQUE_INDEX = "idx_automation_trigger_event_queue_dedupe";
 const ORDER_INDEX = "idx_automation_trigger_event_queue_order";
 const READY_INDEX = "idx_automation_trigger_event_queue_ready";
+const ACTIVE_HEAD_INDEX = "idx_automation_trigger_event_queue_active_head";
 const COMPLETED_INDEX = "idx_automation_trigger_event_queue_completed";
 const FAILED_INDEX = "idx_automation_trigger_event_queue_failed";
 const STALE_EVENT_INDEX = "idx_automation_trigger_event_queue_stale_event";
@@ -91,6 +92,13 @@ export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
     name: "automation-trigger-event-queue-sweep-state",
     sql: CREATE_SWEEP_STATE_TABLE_SQL,
   },
+  {
+    version: 5,
+    name: "automation-trigger-event-active-head-index",
+    sql: `CREATE INDEX IF NOT EXISTS ${ACTIVE_HEAD_INDEX}
+      ON ${TABLE} (app_id, trigger_id, sequence_id)
+      WHERE status IN ('pending', 'processing')`,
+  },
 ];
 
 export async function runAutomationTriggerEventMigrations(
@@ -128,6 +136,12 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
         READY_INDEX,
         `CREATE INDEX IF NOT EXISTS ${READY_INDEX}
           ON ${TABLE} (app_id, status, available_at, claimed_at)`,
+      );
+      await ensureIndexExists(
+        ACTIVE_HEAD_INDEX,
+        `CREATE INDEX IF NOT EXISTS ${ACTIVE_HEAD_INDEX}
+          ON ${TABLE} (app_id, trigger_id, sequence_id)
+          WHERE status IN ('pending', 'processing')`,
       );
       await ensureIndexExists(
         FAILED_INDEX,
@@ -180,6 +194,10 @@ export interface QueuedAutomationTriggerEvent {
   attempts: number;
   failureAttempts: number;
   claimedAt: number;
+}
+
+export interface AutomationTriggerQueueQueryOptions {
+  timeoutMs?: number;
 }
 
 function rowToEvent(
@@ -285,6 +303,9 @@ export async function listReadyAutomationTriggerIds(
   appId?: string | null,
   limit = 100,
   cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
+  options: AutomationTriggerQueueQueryOptions & {
+    excludeStaleEventBefore?: { eventName: string; emittedBefore: string };
+  } = {},
 ): Promise<string[]> {
   await ensureAutomationTriggerEventQueue();
   const now = Date.now();
@@ -293,26 +314,64 @@ export async function listReadyAutomationTriggerIds(
     cursor.afterTriggerId === undefined ? "" : "AND trigger_id > ?";
   const throughClause =
     cursor.throughTriggerId === undefined ? "" : "AND trigger_id <= ?";
+  const readyRowsSql = `FROM ${TABLE}
+          WHERE ${scope.sql}
+            AND ((status = 'pending' AND available_at <= ?)
+              OR (status = 'processing' AND
+                (claimed_at IS NULL OR claimed_at <= ?)))
+            ${afterClause}
+            ${throughClause}`;
+  const staleEventClause = options.excludeStaleEventBefore
+    ? `AND NOT EXISTS (
+        SELECT 1 FROM ${TABLE} AS stale
+        WHERE stale.app_id IS NOT DISTINCT FROM ready.app_id
+          AND stale.trigger_id = ready.trigger_id
+          AND stale.status = 'pending'
+          AND stale.event_name = ?
+          AND stale.emitted_at < ?
+          AND NOT EXISTS (
+            SELECT 1 FROM ${TABLE} AS earlier
+            WHERE earlier.app_id IS NOT DISTINCT FROM stale.app_id
+              AND earlier.trigger_id = stale.trigger_id
+              AND earlier.sequence_id < stale.sequence_id
+              AND earlier.status IN ('pending', 'processing')
+          )
+      )`
+    : "";
   const args = [
     ...scope.args,
     now,
     now - CLAIM_LEASE_MS(),
     ...(cursor.afterTriggerId === undefined ? [] : [cursor.afterTriggerId]),
     ...(cursor.throughTriggerId === undefined ? [] : [cursor.throughTriggerId]),
+    ...(options.excludeStaleEventBefore
+      ? [
+          options.excludeStaleEventBefore.eventName,
+          options.excludeStaleEventBefore.emittedBefore,
+        ]
+      : []),
     Math.max(1, Math.min(limit, 500)),
   ];
   const { rows } = await getDbExec().execute({
-    sql: `SELECT DISTINCT trigger_id
-          FROM ${TABLE}
-          WHERE ${scope.sql}
-            AND ((status = 'pending' AND available_at <= ?)
-              OR (status = 'processing' AND
-                (claimed_at IS NULL OR claimed_at <= ?)))
-            ${afterClause}
-            ${throughClause}
+    sql: options.excludeStaleEventBefore
+      ? `WITH ready AS (
+            SELECT DISTINCT app_id, trigger_id
+            ${readyRowsSql}
+          )
+          SELECT ready.trigger_id
+          FROM ready
+          WHERE TRUE
+            ${staleEventClause}
+          ORDER BY ready.trigger_id ASC
+          LIMIT ?`
+      : `SELECT DISTINCT trigger_id
+          ${readyRowsSql}
           ORDER BY trigger_id ASC
           LIMIT ?`,
     args,
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   return rows.map((row) => String((row as Record<string, unknown>).trigger_id));
 }
@@ -351,11 +410,15 @@ export async function scheduleAutomationTriggerEventPurge(
 
 export async function getAutomationTriggerSweepCursor(
   appId?: string | null,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<string | null> {
   await ensureAutomationTriggerEventQueue();
   const { rows } = await getDbExec().execute({
     sql: `SELECT last_trigger_id FROM ${SWEEP_STATE_TABLE} WHERE scope_key = ?`,
     args: [appId?.trim() ?? ""],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   const cursor = (rows[0] as Record<string, unknown> | undefined)
     ?.last_trigger_id;
@@ -365,6 +428,7 @@ export async function getAutomationTriggerSweepCursor(
 export async function setAutomationTriggerSweepCursor(
   appId: string | null | undefined,
   triggerId: string | null,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const scopeKey = appId?.trim() ?? "";
@@ -372,6 +436,9 @@ export async function setAutomationTriggerSweepCursor(
     await getDbExec().execute({
       sql: `DELETE FROM ${SWEEP_STATE_TABLE} WHERE scope_key = ?`,
       args: [scopeKey],
+      ...(options.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
     });
     return;
   }
@@ -383,12 +450,16 @@ export async function setAutomationTriggerSweepCursor(
             SET last_trigger_id = excluded.last_trigger_id,
                 updated_at = excluded.updated_at`,
     args: [scopeKey, triggerId, Date.now()],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
 export async function claimNextAutomationTriggerEvent(
   triggerId: string,
   appId?: string | null,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<QueuedAutomationTriggerEvent | null> {
   await ensureAutomationTriggerEventQueue();
   const now = Date.now();
@@ -401,22 +472,14 @@ export async function claimNextAutomationTriggerEvent(
                 CASE WHEN claimed.status = 'processing' THEN 1 ELSE 0 END,
               claimed_at = ?, last_error = NULL
           WHERE claimed.id = (
-            SELECT candidate.id
-            FROM ${TABLE} AS candidate
-            WHERE candidate.trigger_id = ? AND candidate.${scope.sql}
-              AND ((candidate.status = 'pending' AND candidate.available_at <= ?)
-                OR (candidate.status = 'processing' AND
-                  (candidate.claimed_at IS NULL OR candidate.claimed_at <= ?)))
-              AND NOT EXISTS (
-                SELECT 1 FROM ${TABLE} AS earlier
-                WHERE earlier.trigger_id = candidate.trigger_id
-                  AND earlier.sequence_id < candidate.sequence_id
-                  AND earlier.status IN ('pending', 'processing')
-              )
-            ORDER BY candidate.sequence_id ASC
+            SELECT head.id
+            FROM ${TABLE} AS head
+            WHERE head.trigger_id = ? AND head.${scope.sql}
+              AND head.status IN ('pending', 'processing')
+            ORDER BY head.sequence_id ASC
             LIMIT 1
           )
-          AND (claimed.status = 'pending' OR
+          AND ((claimed.status = 'pending' AND claimed.available_at <= ?) OR
             (claimed.status = 'processing' AND
               (claimed.claimed_at IS NULL OR claimed.claimed_at <= ?)))
           RETURNING claimed.id, claimed.sequence_id, claimed.trigger_id,
@@ -424,7 +487,10 @@ export async function claimNextAutomationTriggerEvent(
             claimed.event_name, claimed.event_id, claimed.payload,
             claimed.event_owner, claimed.emitted_at, claimed.attempts,
             claimed.failure_attempts, claimed.claimed_at`,
-    args: [now, triggerId, ...scope.args, now, cutoff, cutoff],
+    args: [now, triggerId, ...scope.args, now, cutoff],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   return rows[0] ? rowToEvent(rows[0] as Record<string, unknown>) : null;
 }
@@ -433,6 +499,7 @@ export async function completeAutomationTriggerEvent(
   id: string,
   claimedAt: number,
   attempts: number,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   await getDbExec().execute({
@@ -442,6 +509,9 @@ export async function completeAutomationTriggerEvent(
           WHERE id = ? AND status = 'processing'
             AND claimed_at = ? AND attempts = ?`,
     args: [COMPLETED_PAYLOAD, Date.now(), id, claimedAt, attempts],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
@@ -450,6 +520,7 @@ export async function expireAutomationTriggerEvent(
   claimedAt: number,
   attempts: number,
   reason: string,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   await getDbExec().execute({
@@ -466,6 +537,9 @@ export async function expireAutomationTriggerEvent(
       claimedAt,
       attempts,
     ],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
@@ -475,6 +549,7 @@ export async function expireStaleAutomationTriggerEvents(input: {
   emittedBefore: string;
   reason: string;
   limit?: number;
+  timeoutMs?: number;
 }): Promise<number> {
   await ensureAutomationTriggerEventQueue();
   const limit = Math.max(
@@ -504,8 +579,31 @@ export async function expireStaleAutomationTriggerEvents(input: {
       Date.now(),
       input.reason.slice(0, 500),
     ],
+    ...(input.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: input.timeoutMs, maxAttempts: 1 }),
   });
   return rowsAffected;
+}
+
+export async function hasPendingStaleAutomationTriggerEvents(input: {
+  appId: string;
+  eventName: string;
+  emittedBefore: string;
+  timeoutMs?: number;
+}): Promise<boolean> {
+  await ensureAutomationTriggerEventQueue();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM ${TABLE}
+          WHERE app_id = ? AND event_name = ? AND status = 'pending'
+            AND emitted_at < ?
+          LIMIT 1`,
+    args: [input.appId, input.eventName, input.emittedBefore],
+    ...(input.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: input.timeoutMs, maxAttempts: 1 }),
+  });
+  return rows.length > 0;
 }
 
 export async function retryAutomationTriggerEvent(
@@ -514,7 +612,10 @@ export async function retryAutomationTriggerEvent(
   attempts: number,
   failureAttempts: number,
   error: unknown,
-  options: { delayMs?: number; countFailure?: boolean } = {},
+  options: AutomationTriggerQueueQueryOptions & {
+    delayMs?: number;
+    countFailure?: boolean;
+  } = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const message =
@@ -542,6 +643,9 @@ export async function retryAutomationTriggerEvent(
       attempts,
       failureAttempts,
     ],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
@@ -551,6 +655,7 @@ export async function failAutomationTriggerEvent(
   attempts: number,
   failureAttempts: number,
   error: unknown,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const message =
@@ -573,6 +678,9 @@ export async function failAutomationTriggerEvent(
       attempts,
       failureAttempts,
     ],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 

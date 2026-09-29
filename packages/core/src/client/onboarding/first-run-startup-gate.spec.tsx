@@ -14,7 +14,8 @@ vi.mock("./first-run-enabled.js", () => ({
   isFirstRunOnboardingEnabled: mocks.enabled,
 }));
 
-vi.mock("./first-run-status.js", () => ({
+vi.mock("./first-run-status.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./first-run-status.js")>()),
   fetchFirstRunOnboardingStatus: mocks.fetchStatus,
 }));
 

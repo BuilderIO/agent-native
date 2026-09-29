@@ -7,18 +7,12 @@ import { Link } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 
 import {
   connectionModeInfo,
   CRM_CONNECTION_MODE_INFO,
   SELECTABLE_CRM_CONNECTION_MODES,
 } from "./settings-admin";
-import {
-  CrmSettingsPanelHeader,
-  crmSettingsPanelClassName,
-  type CrmSettingsPanelProps,
-} from "./SettingsPanelHeader";
 
 interface CrmConnectionSummary {
   id: string;
@@ -32,7 +26,7 @@ interface CrmConnectionSummary {
   lastError: string | null;
 }
 
-export function ConnectionSettings({ embedded }: CrmSettingsPanelProps = {}) {
+export function ConnectionSettings() {
   const t = useT();
   const connectionsQuery = useActionQuery<{
     connections: CrmConnectionSummary[];
@@ -43,19 +37,8 @@ export function ConnectionSettings({ embedded }: CrmSettingsPanelProps = {}) {
   );
 
   return (
-    <div className={crmSettingsPanelClassName(embedded)}>
-      <CrmSettingsPanelHeader
-        embedded={embedded}
-        title={t("connection.title")}
-        description={t("connection.description")}
-      />
-
-      <div
-        className={cn(
-          "mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4",
-          embedded && "mt-0",
-        )}
-      >
+    <div className="w-full">
+      <div className="grid gap-3 rounded-lg border border-border/70 bg-card p-4">
         <p className="text-sm font-medium">{t("connection.modesTitle")}</p>
         {SELECTABLE_CRM_CONNECTION_MODES.map((mode) => (
           <div key={mode} className="grid gap-0.5">

@@ -74,8 +74,8 @@ export interface RuntimeConfigReportOptions {
    * The running server's own answer from `getMissingDeploySettings()`. When
    * given, it replaces the env-name checks for a missing database, auth
    * secret, and workspace `A2A_SECRET` in every environment. Those checks
-   * guess from key names and `NODE_ENV`, while the server resolves unpooled
-   * and config-level database URLs and the workspace-derived auth secret, and
+   * guess from key names and `NODE_ENV`, while the server resolves app-prefixed
+   * database URLs and the workspace-derived auth secret, and
    * knows whether it is deployed at all. A runtime probe must never fall back
    * to them, or the in-app notice and the refusals can disagree.
    */

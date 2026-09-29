@@ -11278,6 +11278,146 @@ describe("server/auth", () => {
       }
     });
   });
+
+  describe("org selection on a new session", () => {
+    it("starts every new session from a fresh org selection", async () => {
+      const { setFrameworkSessionCookie } = await import("./auth.js");
+      const selection = (event: any) =>
+        event.res.headers
+          .getSetCookie()
+          .find((cookie: string) => cookie.startsWith("an_org_selection="));
+
+      const first = createMockEvent();
+      setFrameworkSessionCookie(first, "session-token-1");
+      const second = createMockEvent();
+      setFrameworkSessionCookie(second, "session-token-2");
+
+      expect(selection(first)).toMatch(
+        /^an_org_selection=[\w-]{16,64}; Path=\/; HttpOnly/,
+      );
+      expect(selection(second)?.split(";")[0]).not.toBe(
+        selection(first)?.split(";")[0],
+      );
+    });
+  });
+
+  describe("legacy cookie session user reads", () => {
+    async function resolveLegacySession(userRows: {
+      combined: Record<string, unknown> | undefined;
+      verification?: Record<string, unknown>;
+    }) {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const betterAuth = { api: { getSession: vi.fn(async () => null) } };
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => betterAuth),
+        getBetterAuthSync: vi.fn(() => betterAuth),
+      }));
+      const userQueries: string[] = [];
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql: string = typeof query === "string" ? query : query.sql;
+        if (sql.includes("FROM sessions WHERE token")) {
+          return {
+            rows: [{ email: "person@example.com", created_at: Date.now() }],
+          };
+        }
+        if (sql.includes('FROM "user"')) {
+          userQueries.push(sql);
+          if (sql.startsWith("SELECT id, email, name, image, email_verified")) {
+            return { rows: userRows.combined ? [userRows.combined] : [] };
+          }
+          return {
+            rows: userRows.verification ? [userRows.verification] : [],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../db/client.js")>()),
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      const resolveCanonicalUserForLegacySession = vi.fn(async () => ({
+        user: { id: "user-1", email: "person@example.com", name: "Canonical" },
+        accounts: [],
+      }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession,
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const session = await getSession(
+        createMockEvent({ headers: { cookie: "an_session=legacy-token" } }),
+      );
+      return { session, userQueries, resolveCanonicalUserForLegacySession };
+    }
+
+    it("answers verification and the canonical profile from one user read", async () => {
+      const { session, userQueries, resolveCanonicalUserForLegacySession } =
+        await resolveLegacySession({
+          combined: {
+            id: "user-1",
+            email: "person@example.com",
+            name: "Person",
+            image: null,
+            email_verified: true,
+          },
+        });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: true,
+        token: "legacy-token",
+        name: "Person",
+      });
+      expect(userQueries).toHaveLength(1);
+      expect(resolveCanonicalUserForLegacySession).not.toHaveBeenCalled();
+    });
+
+    it("keeps both reads when the stored address is not the normalized one", async () => {
+      const { session, userQueries, resolveCanonicalUserForLegacySession } =
+        await resolveLegacySession({
+          combined: {
+            id: "user-legacy",
+            email: "Person@Example.com",
+            name: "Differently Cased",
+            image: null,
+            email_verified: true,
+          },
+          verification: { email_verified: false },
+        });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: false,
+        token: "legacy-token",
+        name: "Canonical",
+      });
+      expect(userQueries).toHaveLength(2);
+      expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
+        "person@example.com",
+      );
+    });
+
+    it("keeps both reads, and backfills, when no user row exists yet", async () => {
+      const { session, resolveCanonicalUserForLegacySession } =
+        await resolveLegacySession({ combined: undefined });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        token: "legacy-token",
+        name: "Canonical",
+      });
+      expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
+        "person@example.com",
+      );
+    });
+  });
 });
 
 function createMockApp(): any {
