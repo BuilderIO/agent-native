@@ -823,8 +823,15 @@ async function executeClaudeCliRun(options: {
       });
     }
   } catch (error) {
-    const interrupted = options.signal?.aborted === true;
-    const message = error instanceof Error ? error.message : String(error);
+    // A resume has no handle to this run's MCP config, so a stopped run whose
+    // config is still on disk fails instead of pausing.
+    const interrupted = options.signal?.aborted === true && !mcpConfigDir;
+    const message =
+      options.signal?.aborted && mcpConfigDir
+        ? `Could not remove the temporary Claude MCP config at ${mcpConfigDir} after the run was stopped.`
+        : error instanceof Error
+          ? error.message
+          : String(error);
     const executionError =
       error instanceof ClaudeCodeAuthStatusError ? error.rawMessage : message;
     const summary = interrupted

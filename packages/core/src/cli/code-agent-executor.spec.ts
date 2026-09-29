@@ -806,6 +806,44 @@ describe("executeCodeAgentRun", () => {
     }
   });
 
+  it("fails a stopped run instead of pausing it while its MCP config remains", async () => {
+    const root = useTempCodeAgentsHome();
+    const restore = useFakeClaudeWithMcp(root, [
+      "process.stdin.resume();",
+      "setInterval(() => {}, 1000);",
+    ]);
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    const deletes = mockMcpConfigDelete(Number.POSITIVE_INFINITY);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 300);
+
+    try {
+      await executeCodeAgentRun({
+        runId: run.id,
+        prompt: "list contacts",
+        signal: controller.signal,
+      });
+
+      const record = getCodeAgentRunRecord(run.id);
+      expect(record?.status).toBe("errored");
+      expect(String(record?.metadata?.executionError)).toContain(
+        "Could not remove the temporary Claude MCP config",
+      );
+    } finally {
+      clearTimeout(timer);
+      deletes.restore();
+      restore();
+    }
+  });
+
   it("retries MCP config cleanup when the Claude run itself fails", async () => {
     const root = useTempCodeAgentsHome();
     const restore = useFakeClaudeWithMcp(root, [
