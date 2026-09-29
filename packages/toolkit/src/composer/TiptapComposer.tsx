@@ -4047,6 +4047,7 @@ export function TiptapComposer({
       let attachments = composerRuntime.getState().attachments;
       let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
+      let submittedDraftHtml = ed.getHTML();
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return false;
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
@@ -4175,6 +4176,7 @@ export function TiptapComposer({
         if (textOverride === undefined) {
           text = current.text;
           submittedEditorDocument = ed.state.doc;
+          submittedDraftHtml = ed.getHTML();
         }
         references = current.references;
         submittedSlotReferences = slotReferencesRef.current;
@@ -4291,8 +4293,29 @@ export function TiptapComposer({
           if (
             !clearOnSubmitImmediately ||
             !clearOnSubmit ||
-            !isCurrentDraftScope() ||
-            !isComposerEditorUsable(ed) ||
+            !isCurrentDraftScope()
+          ) {
+            return;
+          }
+          if (!isComposerEditorUsable(ed)) {
+            if (
+              submittingDraftKey &&
+              composerDocumentHasContent(submittedEditorDocument)
+            ) {
+              try {
+                if (localStorage.getItem(submittingDraftKey) === null) {
+                  localStorage.setItem(submittingDraftKey, submittedDraftHtml);
+                }
+              } catch (error) {
+                console.error(
+                  "Could not restore submitted composer draft",
+                  error,
+                );
+              }
+            }
+            return;
+          }
+          if (
             composerDocumentHasContent(ed.state.doc) ||
             slotReferencesRef.current.length > 0
           ) {

@@ -2216,6 +2216,150 @@ describe("TiptapComposer slash commands", () => {
     expect(editor.textContent).toBe("send this once");
   });
 
+  it("restores the persisted draft when an immediate submit fails after unmount", async () => {
+    const scope = "restore-after-unmount";
+    let rejectSubmit!: (error: Error) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("restore after a failed send"));
+
+    const editor = localContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toBeNull();
+    await act(async () => {
+      localRoot.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    localContainer.remove();
+
+    await act(async () => {
+      rejectSubmit(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "restore after a failed send",
+    );
+  });
+
+  it("keeps a newer persisted draft when an immediate submit fails after unmount", async () => {
+    const scope = "keep-newer-after-unmount";
+    let rejectSubmit!: (error: Error) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            clearOnSubmitImmediately: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localRoot.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("submitted prompt"));
+
+    const editor = localContainer.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await Promise.resolve();
+    });
+    await act(async () => {
+      localRoot.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    localContainer.remove();
+
+    const draftKey = getComposerDraftKey(scope);
+    localStorage.setItem(draftKey, "<p>newer prompt</p>");
+    await act(async () => {
+      rejectSubmit(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem(draftKey)).toBe("<p>newer prompt</p>");
+  });
+
   it("keeps submission locked until status-updated attachments are removed", async () => {
     let resolveStatusUpdate!: () => void;
     const statusUpdate = new Promise<void>((resolve) => {
