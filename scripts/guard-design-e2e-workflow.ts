@@ -6,6 +6,11 @@ import { parse } from "yaml";
 const workflow = parse(
   readFileSync(".github/workflows/design-e2e.yml", "utf8"),
 ) as {
+  on?: {
+    push?: unknown;
+    schedule?: unknown;
+    workflow_dispatch?: unknown;
+  };
   concurrency?: {
     group?: unknown;
     "cancel-in-progress"?: unknown;
@@ -14,7 +19,10 @@ const workflow = parse(
   jobs?: { e2e?: { "timeout-minutes"?: unknown } };
 };
 
+assert.deepEqual(workflow.on?.schedule, [{ cron: "37 9 * * *" }]);
+assert.ok(Object.hasOwn(workflow.on ?? {}, "workflow_dispatch"));
+assert.equal(workflow.on?.push, undefined);
 assert.equal(workflow.concurrency?.group, "design-e2e");
-assert.equal(workflow.concurrency?.["cancel-in-progress"], false);
-assert.equal(workflow.concurrency?.queue, "max");
+assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
+assert.equal(workflow.concurrency?.queue, undefined);
 assert.equal(workflow.jobs?.e2e?.["timeout-minutes"], 45);
