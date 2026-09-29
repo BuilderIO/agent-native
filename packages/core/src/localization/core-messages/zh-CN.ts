@@ -88,6 +88,10 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "正在向智能体发送请求…",
   "observability.summaryQueued":
     "请求已排队。智能体保存摘要后，它会显示在这里。",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainLabel": "提升后的评估回复必须包含的文本",
+  "observability.promoteNeedsContains":
+    "此运行没有成功的工具调用。请先输入回复必须包含的文本，再进行提升。",
   "observability.summaryFailed": "无法发送请求，请重试。",
   "observability.summaryExpired":
     "尚未显示摘要。你可以重试，但智能体可能仍在处理中。",

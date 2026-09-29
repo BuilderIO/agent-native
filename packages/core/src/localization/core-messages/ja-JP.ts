@@ -93,6 +93,10 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "エージェントにリクエストを送信中…",
   "observability.summaryQueued":
     "リクエストをキューに追加しました。エージェントが要約を保存するとここに表示されます。",
+  "observability.promoteMustContain": "回答に含めるテキスト…",
+  "observability.promoteMustContainLabel": "昇格した評価の回答に含めるテキスト",
+  "observability.promoteNeedsContains":
+    "この実行ではツール呼び出しが成功していません。昇格する前に、回答に含めるテキストを入力してください。",
   "observability.summaryFailed":
     "リクエストを送信できませんでした。もう一度お試しください。",
   "observability.summaryExpired":

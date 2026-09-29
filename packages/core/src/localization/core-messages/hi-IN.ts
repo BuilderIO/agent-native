@@ -91,6 +91,11 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "एजेंट को अनुरोध भेजा जा रहा है…",
   "observability.summaryQueued":
     "अनुरोध कतार में है। एजेंट के सारांश सहेजने पर वह यहाँ दिखाई देगा।",
+  "observability.promoteMustContain": "जवाब में यह शामिल होना चाहिए…",
+  "observability.promoteMustContainLabel":
+    "प्रचारित मूल्यांकन के जवाब में शामिल किया जाने वाला टेक्स्ट",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जिसे जवाब में शामिल होना चाहिए।",
   "observability.summaryFailed": "अनुरोध नहीं भेजा जा सका। फिर से कोशिश करें।",
   "observability.summaryExpired":
     "अभी तक कोई सारांश दिखाई नहीं दिया है। आप फिर से कोशिश कर सकते हैं, लेकिन एजेंट अभी भी काम कर रहा हो सकता है।",

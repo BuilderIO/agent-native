@@ -94,6 +94,11 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "Anfrage wird an den Agenten gesendet…",
   "observability.summaryQueued":
     "Anfrage in Warteschlange. Die Zusammenfassung erscheint hier, sobald der Agent sie gespeichert hat.",
+  "observability.promoteMustContain": "Antwort muss enthalten …",
+  "observability.promoteMustContainLabel":
+    "Text, den die Antwort der übernommenen Eval enthalten muss",
+  "observability.promoteNeedsContains":
+    "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib vor dem Übernehmen den Text ein, den die Antwort enthalten muss.",
   "observability.summaryFailed":
     "Anfrage konnte nicht gesendet werden. Bitte erneut versuchen.",
   "observability.summaryExpired":

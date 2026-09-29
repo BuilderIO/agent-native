@@ -90,6 +90,11 @@ const messages = {
   "observability.summaryQueued":
     "Request queued. The summary will appear here after the agent saves it.",
   "observability.summaryFailed": "Could not send the request. Try again.",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.summaryExpired":
     "No summary has appeared yet. You can retry, but the agent may still be working.",
   "onboarding.back": "Back",

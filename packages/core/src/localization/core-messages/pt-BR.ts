@@ -91,6 +91,11 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "Enviando solicitação ao agente…",
   "observability.summaryQueued":
     "Solicitação na fila. O resumo aparecerá aqui depois que o agente o salvar.",
+  "observability.promoteMustContain": "A resposta deve conter…",
+  "observability.promoteMustContainLabel":
+    "Texto que a resposta da avaliação promovida deve conter",
+  "observability.promoteNeedsContains":
+    "Esta execução não teve nenhuma chamada de ferramenta bem-sucedida. Informe o texto que a resposta deve conter antes de promovê-la.",
   "observability.summaryFailed":
     "Não foi possível enviar a solicitação. Tente novamente.",
   "observability.summaryExpired":

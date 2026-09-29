@@ -91,6 +91,11 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "جارٍ إرسال الطلب إلى الوكيل…",
   "observability.summaryQueued":
     "وُضع الطلب في قائمة الانتظار. سيظهر الملخص هنا بعد أن يحفظه الوكيل.",
+  "observability.promoteMustContain": "يجب أن تتضمن الإجابة…",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن تتضمنه إجابة التقييم المُروَّج",
+  "observability.promoteNeedsContains":
+    "لا تحتوي هذه الجولة على أي استدعاء ناجح لأداة. أدخل نصًا يجب أن تتضمنه الإجابة قبل الترقية.",
   "observability.summaryFailed": "تعذّر إرسال الطلب. حاول مرة أخرى.",
   "observability.summaryExpired":
     "لم يظهر ملخص بعد. يمكنك إعادة المحاولة، لكن قد يكون الوكيل لا يزال يعمل.",

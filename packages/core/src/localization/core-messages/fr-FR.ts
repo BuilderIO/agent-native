@@ -95,6 +95,11 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "Envoi de la demande à l’agent…",
   "observability.summaryQueued":
     "Demande mise en file d’attente. Le résumé apparaîtra ici lorsque l’agent l’aura enregistré.",
+  "observability.promoteMustContain": "Réponse devant contenir…",
+  "observability.promoteMustContainLabel":
+    "Texte que la réponse de l’évaluation promue doit contenir",
+  "observability.promoteNeedsContains":
+    "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de la promouvoir.",
   "observability.summaryFailed": "Impossible d’envoyer la demande. Réessayez.",
   "observability.summaryExpired":
     "Aucun résumé n’est encore apparu. Vous pouvez réessayer, mais l’agent est peut-être toujours en train de travailler.",

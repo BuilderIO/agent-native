@@ -89,6 +89,10 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "正在傳送請求給代理程式…",
   "observability.summaryQueued":
     "請求已排入佇列。代理程式儲存摘要後，摘要就會顯示在這裡。",
+  "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainLabel": "升級後的評估回覆必須包含的文字",
+  "observability.promoteNeedsContains":
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.summaryFailed": "無法傳送請求，請再試一次。",
   "observability.summaryExpired":
     "摘要尚未顯示。你可以重試，但代理程式可能仍在處理。",

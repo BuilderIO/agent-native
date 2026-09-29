@@ -92,6 +92,10 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "에이전트에 요청을 보내는 중…",
   "observability.summaryQueued":
     "요청이 대기열에 추가되었습니다. 에이전트가 요약을 저장하면 여기에 표시됩니다.",
+  "observability.promoteMustContain": "응답에 포함할 내용…",
+  "observability.promoteMustContainLabel": "승격된 평가 응답에 포함할 텍스트",
+  "observability.promoteNeedsContains":
+    "이 실행에서는 성공한 도구 호출이 없습니다. 승격하기 전에 응답에 포함할 텍스트를 입력하세요.",
   "observability.summaryFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
   "observability.summaryExpired":
     "아직 요약이 표시되지 않았습니다. 다시 시도할 수 있지만 에이전트가 계속 작업 중일 수 있습니다.",
