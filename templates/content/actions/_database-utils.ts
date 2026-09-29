@@ -1429,6 +1429,16 @@ export async function getDatabaseItemByDocumentId(
   options: { includeDeleted?: boolean; databaseId?: string } = {},
   db = getDb(),
 ) {
+  const [row] = await listDatabaseItemsByDocumentId(documentId, options, db);
+  return row ?? null;
+}
+
+/** Every membership row of the document, in getDatabaseItemByDocumentId order. */
+export function listDatabaseItemsByDocumentId(
+  documentId: string,
+  options: { includeDeleted?: boolean; databaseId?: string } = {},
+  db = getDb(),
+) {
   const clauses = [eq(schema.contentDatabaseItems.documentId, documentId)];
   if (options.databaseId) {
     clauses.push(
@@ -1438,7 +1448,7 @@ export async function getDatabaseItemByDocumentId(
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
   }
-  const [row] = await db
+  return db
     .select({
       item: schema.contentDatabaseItems,
       database: schema.contentDatabases,
@@ -1491,7 +1501,6 @@ export async function getDatabaseItemByDocumentId(
       sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
       asc(schema.contentDatabases.id),
     );
-  return row ?? null;
 }
 
 export async function getBuilderBodyHydrationMembershipByDocumentId(
