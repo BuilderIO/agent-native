@@ -69,7 +69,7 @@ function addCustomDateRange(
     ],
   ]) {
     const branch = new RegExp(
-      `\\(\\s*'${variable}'\\s*=\\s*'365d'\\s+AND\\s+([\\w.]+)\\s*>=\\s*${dateExpr}\\s*\\)(?=\\s*\\))`,
+      `\\(\\s*'${variable}'\\s*=\\s*'365d'\\s+AND\\s+((?:[\\w.]+|substr\\([\\w.]+,\\s*\\d+,\\s*\\d+\\)))\\s*>=\\s*${dateExpr}\\s*\\)(?=\\s*\\))`,
       "gi",
     );
     result = result.replace(branch, (match, column: string) => {

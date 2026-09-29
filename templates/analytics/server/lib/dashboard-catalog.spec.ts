@@ -286,7 +286,7 @@ describe("dashboard catalog", () => {
       const seedPanel = seedPanels.find((panel) => panel.id === id);
       const lookbackFilter =
         id === "retention-over-time"
-          ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
+          ? "ELSE to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD') END"
           : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
       expect(seedPanel?.sql).toContain(lookbackFilter);
       if (id !== "retention-over-time") {

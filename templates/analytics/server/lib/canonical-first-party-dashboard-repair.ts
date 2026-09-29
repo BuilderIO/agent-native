@@ -77,7 +77,7 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
-const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL =
+export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL =
   FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)\n",
     "",
@@ -238,6 +238,7 @@ function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
 function isLegacyFirstPartyBigQueryWauSql(sql: string): boolean {
   return [
     LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
+    PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
   ].some(
     (legacySql) =>
@@ -356,6 +357,13 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
     },
   ];
 
+function removeCustomDateRangeClauses(sql: string): string {
+  return sql.replace(
+    /\s+OR \('\{\{timeRange\}\}' = 'custom' AND [\s\S]*? <= '\{\{timeRangeEnd\}\}'\)/g,
+    "",
+  );
+}
+
 const CANONICAL_CATALOG_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   (() => {
     const seed = loadDashboardSeed(FIRST_PARTY_DASHBOARD_ID);
@@ -367,16 +375,22 @@ const CANONICAL_CATALOG_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplace
       if (!rawPanel || typeof rawPanel !== "object") return [];
       const panel = rawPanel as Record<string, unknown>;
       const id = typeof panel.id === "string" ? panel.id : "";
-      const legacySql = typeof panel.sql === "string" ? panel.sql : "";
+      const seededSql = typeof panel.sql === "string" ? panel.sql : "";
       if (!scopedMetricKeys.has(id)) return [];
       const catalogPanel = id ? buildPanel(id) : null;
-      if (!catalogPanel || !legacySql || catalogPanel.sql === legacySql) {
-        return [];
-      }
+      if (!catalogPanel) return [];
+      const legacySql = new Set<string>();
+      if (seededSql && catalogPanel.sql !== seededSql) legacySql.add(seededSql);
+      const priorCustomRangeSql = removeCustomDateRangeClauses(
+        catalogPanel.sql,
+      );
+      if (priorCustomRangeSql !== catalogPanel.sql)
+        legacySql.add(priorCustomRangeSql);
+      if (legacySql.size === 0) return [];
       return [
         {
           id,
-          legacySql: [legacySql],
+          legacySql: [...legacySql],
           sql: catalogPanel.sql,
         },
       ];

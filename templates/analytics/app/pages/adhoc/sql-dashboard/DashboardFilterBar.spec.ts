@@ -251,6 +251,22 @@ describe("resolveFilterVars", () => {
     ).toBe("SELECT __invalid_custom_date_range__");
   });
 
+  it("adds custom bounds to replay date expressions in persisted queries", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM replay_sessions WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND substr(started_at, 1, 10) >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) ",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { source: "first-party" },
+    );
+
+    expect(sql).toContain(
+      "OR ('custom' = 'custom' AND substr(started_at, 1, 10) >= to_char('2026-08-01'::date, 'YYYY-MM-DD') AND substr(started_at, 1, 10) <= to_char('2026-08-15'::date, 'YYYY-MM-DD'))",
+    );
+  });
+
   it("fails closed for reversed custom date ranges", () => {
     expect(
       interpolateDashboardPanelSql(
