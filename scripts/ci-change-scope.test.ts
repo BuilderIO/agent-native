@@ -142,10 +142,15 @@ test("measures every template when shared code or the budget changes", () => {
     "packages/core/src/db/client.ts",
     "templates/forms/actions/list-forms.ts",
   ]);
+  const creativeContext = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.ts",
+  ]);
   const budget = classifyChangedPaths(["scripts/neon-query-budgets.json"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(core.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.deepEqual(creativeContext.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(budget.checks.neon_query_budget, true);
   assert.deepEqual(budget.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(full.full, true);

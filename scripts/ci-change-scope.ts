@@ -346,6 +346,7 @@ function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
 function measuresEveryQueryBudgetApp(paths: readonly string[]): boolean {
   return (
     hasPath(paths, "packages/core/") ||
+    hasPath(paths, "packages/creative-context/") ||
     hasPath(paths, "scripts/neon-query-budget")
   );
 }
