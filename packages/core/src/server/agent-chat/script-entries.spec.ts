@@ -19,16 +19,31 @@ function classify(
 }
 
 describe("cross-app script entries", () => {
-  it("registers unified framework lookup for every built-in app agent", async () => {
+  it("describes docs-search as an instruction and documentation reader", async () => {
     const entries = await createDocsScriptEntries();
 
     expect(entries["framework-search"]?.readOnly).toBe(true);
     expect(entries["framework-search"]?.tool.description).toContain(
       "Core, Toolkit",
     );
-    expect(entries["docs-search"]?.tool.description).toContain(
-      "reuse its result for the rest of the turn",
+    const docsSearch = entries["docs-search"]?.tool;
+    expect(docsSearch?.description).toContain(
+      "Read bundled framework/app instructions, framework docs, and codebase skills",
     );
+    expect(docsSearch?.description).toContain(
+      "exact skill-<name> slug shown in the prompt",
+    );
+    expect(docsSearch?.description).toContain(
+      "Use --query only when the page or slug is unknown",
+    );
+    expect(docsSearch?.description).toContain(
+      "not tool discovery; use tool-search",
+    );
+    expect(Object.keys(docsSearch?.parameters.properties ?? {})).toEqual([
+      "query",
+      "slug",
+      "list",
+    ]);
   });
 
   it("keeps discovery read-only without treating delegation as read-only", async () => {
