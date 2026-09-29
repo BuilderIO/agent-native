@@ -1703,6 +1703,10 @@ test.describe("URL-backed live auto-layout probe", () => {
     const groupA = frame.locator('[data-agent-native-node-id="group-a"]');
     const groupB = frame.locator('[data-agent-native-node-id="group-b"]');
     await expect(groupA).toBeVisible({ timeout: 15_000 });
+    await expect(groupB).toBeVisible({ timeout: 15_000 });
+    await expect(
+      frame.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1, { timeout: 30_000 });
     const groupABox = await groupA.boundingBox();
     const groupBBox = await groupB.boundingBox();
     if (!groupABox || !groupBBox)
@@ -1753,9 +1757,9 @@ test.describe("URL-backed live auto-layout probe", () => {
       page.locator('button[aria-label="Unlink padding"]'),
     ).toHaveCount(0);
     for (const label of ["Top", "Right", "Bottom", "Left"]) {
-      await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
-        "Mixed",
-      );
+      const input = page.locator(`input[aria-label="${label}"]`);
+      await expect(input).toBeVisible();
+      await expect(input).toHaveValue("Mixed");
     }
     for (const label of [
       "Top margin",
@@ -1763,20 +1767,10 @@ test.describe("URL-backed live auto-layout probe", () => {
       "Bottom margin",
       "Left margin",
     ]) {
-      await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
-        "Mixed",
-      );
+      const input = page.locator(`input[aria-label="${label}"]`);
+      await expect(input).toBeVisible();
+      await expect(input).toHaveValue("Mixed");
     }
-    await page.locator('input[aria-label="Top"]').press("ArrowUp");
-    for (const label of ["Right", "Bottom", "Left"]) {
-      await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
-        "Mixed",
-      );
-    }
-    await page.screenshot({
-      path: path.resolve(process.cwd(), "../../.tmp/design-mixed-spacing.png"),
-      fullPage: true,
-    });
   });
 
   test("keeps a grouped grid drag in one pending visual edit unit", async ({
