@@ -8,17 +8,17 @@
       "action": "list-analyses",
       "observed": {
         "page": {
-          "queries": 4,
-          "rowsReturned": 11,
+          "queries": 0,
+          "rowsReturned": 0,
           "catalogQueries": 0,
-          "migrationTableQueries": 4,
+          "migrationTableQueries": 0,
           "poolAcquisitions": 0
         },
         "listAction": {
-          "queries": 16,
+          "queries": 15,
           "poolAcquisitions": 0,
-          "rowsReturned": 2,
-          "catalogQueries": 1,
+          "rowsReturned": 0,
+          "catalogQueries": 0,
           "migrationTableQueries": 0
         },
         "idlePoll": {

@@ -621,6 +621,7 @@ jobs:
       AUTH_DISABLED: "true"
       BETTER_AUTH_SECRET: neon-query-budget-test-secret
       DATABASE_URL: pglite:memory
+      AGENT_NATIVE_RELEASE_MIGRATIONS: "true"
       NETLIFY: "true"
       NODE_ENV: production
       RUN_BACKGROUND_JOBS: "0"
