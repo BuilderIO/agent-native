@@ -1,5 +1,5 @@
-import { LeagueTable } from "@/components/fpl/league-table";
 import { LeadersPanel } from "@/components/fpl/leaders-panel";
+import { LeagueTable } from "@/components/fpl/league-table";
 import { NewsPanel } from "@/components/fpl/news-panel";
 import { RecommendationsPanel } from "@/components/fpl/recommendations-panel";
 import { APP_TITLE } from "@/lib/app-config";

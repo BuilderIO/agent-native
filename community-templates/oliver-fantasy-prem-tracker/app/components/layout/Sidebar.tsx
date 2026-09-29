@@ -547,7 +547,9 @@ export function Sidebar({
             <TooltipTrigger asChild>
               <Link
                 to="/dashboard"
-                aria-current={location.pathname === "/dashboard" ? "page" : undefined}
+                aria-current={
+                  location.pathname === "/dashboard" ? "page" : undefined
+                }
                 className={cn(
                   "flex items-center text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
                   location.pathname === "/dashboard" &&
@@ -558,7 +560,10 @@ export function Sidebar({
                 )}
                 aria-label={collapsed ? "Dashboard" : undefined}
               >
-                <IconLayoutDashboard className="size-4 shrink-0" strokeWidth={1.8} />
+                <IconLayoutDashboard
+                  className="size-4 shrink-0"
+                  strokeWidth={1.8}
+                />
                 <span className={collapsed ? "sr-only" : "truncate"}>
                   Dashboard
                 </span>

@@ -30,7 +30,10 @@ function upcomingDifficultyForTeam(
   );
   const average =
     difficulties.reduce((sum, value) => sum + value, 0) / difficulties.length;
-  return { average, opponents: upcoming.map((fixture) => String(fixture.event)) };
+  return {
+    average,
+    opponents: upcoming.map((fixture) => String(fixture.event)),
+  };
 }
 
 function isAvailable(player: EnrichedPlayer): boolean {
@@ -39,10 +42,7 @@ function isAvailable(player: EnrichedPlayer): boolean {
   return player.chanceOfPlayingNextRound >= 75;
 }
 
-function buildReason(
-  player: EnrichedPlayer,
-  avgDifficulty: number,
-): string {
+function buildReason(player: EnrichedPlayer, avgDifficulty: number): string {
   const fixtureNote =
     avgDifficulty <= 2.4
       ? "a kind run of fixtures"
@@ -64,19 +64,23 @@ function buildReason(
 
 export default defineAction({
   description:
-    "Recommend Fantasy Premier League players to sign and give tips on who is likely to play well and score points in upcoming gameweeks, based on current form, points per game, and fixture difficulty over the next few gameweeks. Optionally filter to one position.",
+    'Recommend Fantasy Premier League players to sign and give tips on who is likely to play well and score points in upcoming gameweeks, based on current form, points per game, and fixture difficulty over the next few gameweeks. Returns two ranked lists: "essentialPicks" (owned by 10%+ of managers) and "differentials" (owned by under 10%). Optionally filter to one position.',
   schema: z.object({
     position: z
       .enum(["GKP", "DEF", "MID", "FWD"])
       .optional()
-      .describe("Restrict recommendations to one position. Omit for all positions."),
+      .describe(
+        "Restrict recommendations to one position. Omit for all positions.",
+      ),
     limit: z.coerce
       .number()
       .int()
       .min(1)
       .max(30)
-      .default(10)
-      .describe("How many recommended players to return. Defaults to 10."),
+      .default(6)
+      .describe(
+        "How many players to return per list (essentialPicks and differentials). Defaults to 6.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -92,6 +96,8 @@ export default defineAction({
         isAvailable(player) &&
         (!position || player.positionShort === position),
     );
+
+    const DIFFERENTIAL_OWNERSHIP_THRESHOLD = 10;
 
     const scored = candidates
       .map((player) => {
@@ -114,15 +120,23 @@ export default defineAction({
           totalPoints: player.totalPoints,
           upcomingFixtureDifficulty: Number(difficulty.average.toFixed(1)),
           tag:
-            player.selectedByPercent < 10 ? "differential" : "popular-pick",
+            player.selectedByPercent < DIFFERENTIAL_OWNERSHIP_THRESHOLD
+              ? "differential"
+              : "popular-pick",
           score: Number(score.toFixed(2)),
           reason: buildReason(player, difficulty.average),
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.score - a.score);
+
+    const essentialPicks = scored
+      .filter((entry) => entry.tag === "popular-pick")
+      .slice(0, limit);
+    const differentials = scored
+      .filter((entry) => entry.tag === "differential")
       .slice(0, limit);
 
-    return { recommendations: scored };
+    return { essentialPicks, differentials };
   },
 });

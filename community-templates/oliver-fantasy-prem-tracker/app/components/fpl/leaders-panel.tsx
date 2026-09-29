@@ -3,7 +3,6 @@ import { useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -12,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CATEGORIES = [
   { value: "points", label: "Points", valueLabel: "Pts" },
@@ -36,7 +36,10 @@ export function LeadersPanel() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>Leaderboards</CardTitle>
-        <Tabs value={category} onValueChange={(value) => setCategory(value as Category)}>
+        <Tabs
+          value={category}
+          onValueChange={(value) => setCategory(value as Category)}
+        >
           <TabsList>
             {CATEGORIES.map((entry) => (
               <TabsTrigger key={entry.value} value={entry.value}>

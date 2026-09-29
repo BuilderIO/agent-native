@@ -1,7 +1,9 @@
 import { XMLParser } from "fast-xml-parser";
 
-const FPL_BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/";
-const FPL_FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/?future=1";
+const FPL_BOOTSTRAP_URL =
+  "https://fantasy.premierleague.com/api/bootstrap-static/";
+const FPL_FIXTURES_URL =
+  "https://fantasy.premierleague.com/api/fixtures/?future=1";
 const ESPN_STANDINGS_URL =
   "https://site.api.espn.com/apis/v2/sports/soccer/eng.1/standings";
 const NEWS_FEED_URL = "https://www.fantasyfootballscout.co.uk/feed/";
@@ -32,7 +34,10 @@ async function cached<T>(
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "oliver-fantasy-prem-tracker" },
+    headers: {
+      accept: "application/json",
+      "user-agent": "oliver-fantasy-prem-tracker",
+    },
   });
   if (!response.ok) {
     throw new Error(`Request to ${url} failed with status ${response.status}`);
@@ -268,9 +273,8 @@ const HTML_ENTITIES: Record<string, string> = {
 
 function decodeHtmlEntities(value: string): string {
   return value
-    .replace(
-      /&#(\d+);/g,
-      (_, code: string) => String.fromCharCode(Number(code)),
+    .replace(/&#(\d+);/g, (_, code: string) =>
+      String.fromCharCode(Number(code)),
     )
     .replace(
       /&amp;|&lt;|&gt;|&quot;|&#8217;|&#8216;|&#8220;|&#8221;|&#8211;|&#8212;|&nbsp;/g,
@@ -280,7 +284,10 @@ function decodeHtmlEntities(value: string): string {
 
 function stripHtml(value: string): string {
   return decodeHtmlEntities(
-    value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(),
+    value
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
   );
 }
 
@@ -289,10 +296,15 @@ async function fetchNewsRaw(): Promise<FplNewsItem[]> {
     headers: { "user-agent": "oliver-fantasy-prem-tracker" },
   });
   if (!response.ok) {
-    throw new Error(`Request to ${NEWS_FEED_URL} failed with status ${response.status}`);
+    throw new Error(
+      `Request to ${NEWS_FEED_URL} failed with status ${response.status}`,
+    );
   }
   const xml = await response.text();
-  const parser = new XMLParser({ ignoreAttributes: true, textNodeName: "text" });
+  const parser = new XMLParser({
+    ignoreAttributes: true,
+    textNodeName: "text",
+  });
   const parsed = parser.parse(xml) as {
     rss?: { channel?: { item?: unknown } };
   };

@@ -13,7 +13,9 @@ export default defineAction({
       .min(1)
       .max(60)
       .default(20)
-      .describe("Maximum number of upcoming fixtures to return. Defaults to 20."),
+      .describe(
+        "Maximum number of upcoming fixtures to return. Defaults to 20.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
