@@ -10,7 +10,6 @@ import type {
 } from "@agent-native/core/client/agent-chat";
 import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
-import { findMcpIntegrationForToolName } from "@agent-native/core/client/resources/mcp-integration-catalog";
 import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
@@ -36,7 +35,6 @@ import {
   IconChevronRight,
   IconCopy,
   IconCode,
-  IconBrandSlack,
   IconTerminal2,
   IconDatabase,
   IconSearch,
@@ -50,7 +48,6 @@ import React, {
   useRef,
 } from "react";
 
-import { McpIntegrationLogo } from "../../resources/index.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
@@ -69,6 +66,10 @@ import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
 } from "./markdown-renderer.js";
+import {
+  IntegrationToolBadge,
+  resolveToolIntegration,
+} from "./tool-integration.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
@@ -341,38 +342,8 @@ type ToolIconComponent = React.ComponentType<{
   size?: number | string;
 }>;
 
-const brandIcons = new Map<string, ToolIconComponent>();
-
-function brandToolIcon(
-  logoUrl: string,
-  name: string,
-  integrationId?: string,
-): ToolIconComponent {
-  const cacheKey = integrationId ? `${integrationId}:${logoUrl}` : logoUrl;
-  const cached = brandIcons.get(cacheKey);
-  if (cached) return cached;
-  const Icon: ToolIconComponent = ({ className, size }) => (
-    <McpIntegrationLogo
-      name={name}
-      logoUrl={logoUrl}
-      integrationId={integrationId}
-      className={cn("size-4 rounded-[3px] border-0", className)}
-      imageClassName="size-full"
-      style={size === undefined ? undefined : { width: size, height: size }}
-      title={name}
-    />
-  );
-  brandIcons.set(cacheKey, Icon);
-  return Icon;
-}
-
 function resolveToolIcon(toolName: string): ToolIconComponent {
-  const integration = findMcpIntegrationForToolName(toolName);
-  if (integration) {
-    return brandToolIcon(integration.logoUrl, integration.name, integration.id);
-  }
   const name = toolName.toLowerCase();
-  if (name.includes("slack")) return IconBrandSlack;
   if (
     name.includes("bash") ||
     name.includes("shell") ||
@@ -969,6 +940,7 @@ function ToolCallDisplayGeneric({
     ? hasStreamText
     : hasArgs || result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
+  const integration = resolveToolIntegration(toolName, args);
   const ToolIcon = resolveToolIcon(toolName);
   const outputTitle = t("agentChat.tool.rawOutput", { tool: toolName });
 
@@ -1006,8 +978,15 @@ function ToolCallDisplayGeneric({
           isRunning && "text-muted-foreground",
         )}
       >
-        <span className="relative flex size-4 shrink-0 items-center justify-center">
-          {isRunning ? (
+        <span
+          className={cn(
+            "relative flex shrink-0 items-center justify-center",
+            integration ? "size-5" : "size-4",
+          )}
+        >
+          {integration ? (
+            <IntegrationToolBadge integration={integration} />
+          ) : isRunning ? (
             <CubeLoader aria-hidden="true" className="size-3.5" />
           ) : isAgentError ? (
             <IconCircleX className="size-3.5 text-destructive" />
@@ -1035,7 +1014,8 @@ function ToolCallDisplayGeneric({
         <span
           className={cn(
             "min-w-0 truncate font-normal",
-            isActiveTail && "agent-running-shimmer",
+            (isActiveTail || (integration && isRunning)) &&
+              "agent-running-shimmer",
           )}
         >
           {displayName}
@@ -1058,6 +1038,18 @@ function ToolCallDisplayGeneric({
             {repeatCount}x
           </span>
         )}
+        {integration && isUnknownOutcome ? (
+          <IconAlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+        ) : null}
+        {integration && canExpand ? (
+          <IconChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover/tool:opacity-100 group-focus-within/tool:opacity-100",
+              isExpanded && "rotate-90 opacity-100",
+            )}
+          />
+        ) : null}
       </button>
       <AnimatedCollapse
         open={isExpanded && !isAgentCall && (hasArgs || result !== undefined)}
@@ -1283,6 +1275,10 @@ function AgentActivityToolCallRow({
 }) {
   const t = useT();
   const isRunning = tool.status === "running";
+  const integration = resolveToolIntegration(
+    tool.name,
+    tool.input ? parseJsonText(tool.input) : undefined,
+  );
   const ToolIcon = resolveToolIcon(tool.name);
 
   return (
@@ -1293,8 +1289,15 @@ function AgentActivityToolCallRow({
       suppressLongRunningHint
     >
       <div className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground">
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {isRunning ? (
+        <span
+          className={cn(
+            "flex shrink-0 items-center justify-center",
+            integration ? "size-5" : "size-4",
+          )}
+        >
+          {integration ? (
+            <IntegrationToolBadge integration={integration} />
+          ) : isRunning ? (
             <CubeLoader aria-hidden="true" className="size-3.5" />
           ) : (
             <ToolIcon className="size-3.5" />

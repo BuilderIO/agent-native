@@ -282,8 +282,10 @@ export default function Index() {
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured = effectiveAgentEngineState === "configured";
-  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const agentEngineConfigured =
+    effectiveAgentEngineState === "configured" && !agentEngine.missing;
+  const agentEngineMissing =
+    effectiveAgentEngineState === "missing" || agentEngine.missing;
   const canChatRef = useRef(agentEngineConfigured);
   canChatRef.current = agentEngineConfigured;
   useEffect(() => {
@@ -1154,6 +1156,8 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
+              disabled={!agentEngineConfigured}
+              submissionDisabled={!agentEngineConfigured}
               onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
@@ -1213,40 +1217,42 @@ export default function Index() {
           </div>
         }
         quickActions={
-          <AgentSuggestionBar
-            suggestions={homeSuggestions.map((suggestion, index) => ({
-              ...suggestion,
-              id: suggestion.id ?? `design-home-${index}`,
-              disabled:
-                !quickActionsEnabled ||
-                newDesignHandoffPending ||
-                quickStartPending,
-            }))}
-            ariaLabel={t("home.suggestedPrompts")}
-            className="px-0 py-0"
-            onSelect={async (suggestion) => {
-              if (
-                !quickActionsEnabled ||
-                quickStartRef.current ||
-                !composerRef.current
-              )
-                return;
-              quickStartRef.current = true;
-              submissionErrorRef.current = false;
-              setQuickStartPending(true);
-              try {
-                const accepted = await composerRef.current.submitWithText(
-                  agentSuggestionPrompt(suggestion),
-                );
-                if (!accepted && !submissionErrorRef.current) {
-                  toast.error(t("homeContext.notReady"));
+          quickActionsEnabled ? (
+            <AgentSuggestionBar
+              suggestions={homeSuggestions.map((suggestion, index) => ({
+                ...suggestion,
+                id: suggestion.id ?? `design-home-${index}`,
+                disabled:
+                  !quickActionsEnabled ||
+                  newDesignHandoffPending ||
+                  quickStartPending,
+              }))}
+              ariaLabel={t("home.suggestedPrompts")}
+              className="px-0 py-0"
+              onSelect={async (suggestion) => {
+                if (
+                  !quickActionsEnabled ||
+                  quickStartRef.current ||
+                  !composerRef.current
+                )
+                  return;
+                quickStartRef.current = true;
+                submissionErrorRef.current = false;
+                setQuickStartPending(true);
+                try {
+                  const accepted = await composerRef.current.submitWithText(
+                    agentSuggestionPrompt(suggestion),
+                  );
+                  if (!accepted && !submissionErrorRef.current) {
+                    toast.error(t("homeContext.notReady"));
+                  }
+                } finally {
+                  quickStartRef.current = false;
+                  setQuickStartPending(false);
                 }
-              } finally {
-                quickStartRef.current = false;
-                setQuickStartPending(false);
-              }
-            }}
-          />
+              }}
+            />
+          ) : null
         }
       >
         {accessibleDesignsSummary.isError ? (

@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   creativeContext: {
     title: "लाइब्रेरी",
     description:
@@ -1678,7 +1679,7 @@ export default {
     design: "डिज़ाइन",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
-    figmaReference: "Figma संलग्न करें",
+    figmaReference: "Figma जोड़ें",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",

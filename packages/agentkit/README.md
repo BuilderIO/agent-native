@@ -338,6 +338,14 @@ existing `AgentKitController`. In controller mode `AgentKitRoot` opens and
 releases the active thread lease while the host eventually disposes the
 controller; with `load="manual"` the host owns both steps.
 
+`registry.toolSource(tool)` resolves an optional `{ id, icon }` for an
+`AgentToolCall`. The default transcript uses that badge in the current activity,
+expanded rows, and repeated-call groups. The stable source `id` keeps calls to
+different integrations in separate groups, even when they share a generic tool
+name. Core supplies this resolver from its integration catalog and logo library.
+Hosts can supply their own accessible badge node or return `undefined` to retain
+the default activity icon.
+
 The `react/headless` entry excludes the reference transcript and rich composer,
 so a custom client bundle loads only the regions it renders. `AgentKitProvider`
 is the lower-level context boundary it exports: it accepts a controller, thread

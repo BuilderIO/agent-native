@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrações" } },
   creativeContext: {
     title: "Biblioteca",
     description:
@@ -1679,7 +1680,7 @@ export default {
       "O elemento original não foi mais encontrado na tela de design.",
   },
   homeContext: {
-    websiteReference: "Anexar site",
+    websiteReference: "Adicionar site",
     websiteUrlLabel: "URL do site",
     websiteUrl: "Cole a URL de um site",
     figmaUrlLabel: "Link do Figma",
@@ -1707,7 +1708,7 @@ export default {
     design: "Design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
-    figmaReference: "Anexar Figma",
+    figmaReference: "Adicionar Figma",
     referenceDeck: "Usar uma apresentação como referência",
     quickSaas: "Criar uma página de SaaS",
     quickDashboard: "Criar um painel",

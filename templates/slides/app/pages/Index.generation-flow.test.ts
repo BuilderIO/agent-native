@@ -118,8 +118,10 @@ describe("new deck generation flow", () => {
       "options?.slidesContext &&",
     );
     expect(directGenerationIndex).toBeGreaterThan(-1);
-    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
-      directGenerationIndex,
+    const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
+    expect(promptCloseIndex).toBeLessThan(directGenerationIndex);
+    expect(promptCloseIndex).toBeLessThan(
+      promptSubmit.indexOf("const promptReferenceDeckId ="),
     );
     expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
     expect(referenceStep).toContain("text: pending.prompt");

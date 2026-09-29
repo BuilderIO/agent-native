@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Intégrations" } },
   creativeContext: {
     title: "Bibliothèque",
     description:
@@ -1695,7 +1696,7 @@ export default {
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
   homeContext: {
-    websiteReference: "Joindre un site web",
+    websiteReference: "Ajouter un site web",
     websiteUrlLabel: "URL du site web",
     websiteUrl: "Collez l’URL d’un site web",
     figmaUrlLabel: "Lien Figma",
@@ -1724,7 +1725,7 @@ export default {
     design: "Design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
-    figmaReference: "Joindre Figma",
+    figmaReference: "Ajouter Figma",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",

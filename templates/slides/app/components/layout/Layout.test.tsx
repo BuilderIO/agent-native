@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   agentSidebarMock,
+  navigateChatMock,
   flushDeckSaveMock,
   useDecksMock,
   creativeContextLabEnabled,
 } = vi.hoisted(() => ({
   agentSidebarMock: vi.fn(),
+  navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
   useDecksMock: vi.fn(),
   creativeContextLabEnabled: { value: false },
@@ -35,7 +37,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   },
   focusAgentChat: vi.fn(),
   isAgentChatHomeHandoffActive: vi.fn(() => false),
-  navigateWithAgentChatViewTransition: vi.fn(),
+  navigateWithAgentChatViewTransition: navigateChatMock,
   useAgentChatHomeHandoff: vi.fn(() => false),
   useAgentChatHomeHandoffLinks: vi.fn(),
 }));
@@ -71,6 +73,9 @@ vi.mock("@/lib/utils", () => ({
 }));
 vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
+}));
+vi.mock("../editor/SlidesComposerContextProvider", () => ({
+  SlidesComposerContextProvider: () => null,
 }));
 vi.mock("./AgentWorkIndicator", () => ({
   AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
@@ -113,6 +118,7 @@ function NavigateAway() {
 describe("Slides Layout", () => {
   beforeEach(() => {
     agentSidebarMock.mockClear();
+    navigateChatMock.mockClear();
     flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
     useDecksMock.mockReturnValue({
       decks: [],
@@ -131,6 +137,20 @@ describe("Slides Layout", () => {
     renderLayout("/");
     expect(screen.getByTestId("creative-context-composer-chip")).toBeTruthy();
   });
+
+  it.each([
+    ["thread/one", "/chat/thread%2Fone?deckId=deck-1"],
+    [undefined, "/chat?deckId=deck-1"],
+  ])(
+    "opens fullscreen with thread %s while retaining deck context",
+    (threadId, path) => {
+      renderLayout("/deck/deck-1");
+      const props = agentSidebarMock.mock.lastCall![0];
+      expect(props.storageKey).toBeUndefined();
+      act(() => props.onFullscreenRequest(threadId));
+      expect(navigateChatMock).toHaveBeenCalledWith(expect.any(Function), path);
+    },
+  );
 
   it("enables agent-panel auto-open only during a run", () => {
     renderLayout("/");

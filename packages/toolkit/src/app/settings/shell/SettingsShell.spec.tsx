@@ -27,6 +27,21 @@ vi.mock("@agent-native/core/client/labs/use-lab", () => ({
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlags: () => ({}),
 }));
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const english = (await import("../../i18n/catalogs/en-US.js"))
+    .default as Record<string, string>;
+  const translate = (key: string, options?: Record<string, unknown>) => {
+    let value =
+      english[key.replace(/^agentChat\./, "")] ??
+      (typeof options?.defaultValue === "string" ? options.defaultValue : key);
+    for (const [name, replacement] of Object.entries(options ?? {})) {
+      value = value.replaceAll(`{{${name}}}`, String(replacement));
+    }
+    return value;
+  };
+  return { ...actual, useT: () => translate };
+});
 vi.mock("../../AgentSidebar.js", () => ({
   AgentToggleButton: () => <button type="button">agent</button>,
 }));
@@ -35,10 +50,14 @@ const appState = vi.hoisted(() => ({
   write: vi.fn(async (_key: string, value: unknown) => value),
   remove: vi.fn(async () => undefined),
 }));
-vi.mock("@agent-native/core/client/application-state", () => ({
-  writeClientAppState: appState.write,
-  deleteClientAppState: appState.remove,
-}));
+vi.mock(
+  "@agent-native/core/client/application-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    writeClientAppState: appState.write,
+    deleteClientAppState: appState.remove,
+  }),
+);
 
 import { useSettingsPageHeader, useSettingsShell } from "./context.js";
 import { CORE_SETTINGS_PAGES } from "./core-pages.js";
@@ -158,6 +177,11 @@ describe("SettingsShell", () => {
         pages: ["profile", "preferences", "security"],
       },
       {
+        id: "app",
+        label: "Clips",
+        pages: ["app", "automations", "channels", "mcp"],
+      },
+      {
         id: "connections",
         label: "Connections",
         pages: ["integrations", "api-keys"],
@@ -179,11 +203,6 @@ describe("SettingsShell", () => {
         id: "organization",
         label: "Organization",
         pages: ["org", "members", "usage"],
-      },
-      {
-        id: "app",
-        label: "Clips",
-        pages: ["app", "automations", "channels", "mcp"],
       },
       { id: "footer", label: null, pages: ["labs"] },
     ]);

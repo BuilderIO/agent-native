@@ -16,6 +16,7 @@ uniform vec3 uPointer;
 uniform vec3 uFgColor;
 uniform vec3 uBgColor;
 uniform float uBrightness;
+uniform float uTransparent;
 
 #define S(a, b, t) smoothstep(a, b, t)
 
@@ -100,7 +101,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   value *= S(0., FADE_IN_SECONDS, iTime);
   vec3 lit = mix(uBgColor, uFgColor, value);
   lit += (uFgColor - uBgColor) * value * tone * (uBrightness - 1.);
-  fragColor = vec4(clamp(lit, 0., 1.), 1.);
+  if (uTransparent > 0.5) {
+    float alpha = clamp(value, 0., 1.);
+    vec3 waveColor = uBgColor + (uFgColor - uBgColor) * (1. + tone * (uBrightness - 1.));
+    fragColor = vec4(clamp(waveColor, 0., 1.) * alpha, alpha);
+  } else {
+    fragColor = vec4(clamp(lit, 0., 1.), 1.);
+  }
 }
 
 void main() {
@@ -113,11 +120,13 @@ let shaderEpoch = 0;
 export interface StarfieldBackgroundProps {
   className?: string;
   frameRate?: number;
+  transparent?: boolean;
 }
 
 export function StarfieldBackground({
   className = "",
   frameRate = 30,
+  transparent = false,
 }: StarfieldBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -131,7 +140,7 @@ export function StarfieldBackground({
     const container: HTMLElement = containerRaw;
 
     const glRaw = canvas.getContext("webgl", {
-      alpha: false,
+      alpha: transparent,
       antialias: false,
       preserveDrawingBuffer: false,
     });
@@ -192,6 +201,7 @@ export function StarfieldBackground({
     const uFgColor = gl.getUniformLocation(program, "uFgColor");
     const uBgColor = gl.getUniformLocation(program, "uBgColor");
     const uBrightness = gl.getUniformLocation(program, "uBrightness");
+    const uTransparent = gl.getUniformLocation(program, "uTransparent");
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
         ? window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -257,6 +267,7 @@ export function StarfieldBackground({
       gl.uniform3f(uFgColor, theme.fg[0], theme.fg[1], theme.fg[2]);
       gl.uniform3f(uBgColor, theme.bg[0], theme.bg[1], theme.bg[2]);
       gl.uniform1f(uBrightness, theme.brightness);
+      gl.uniform1f(uTransparent, transparent ? 1 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -392,7 +403,7 @@ export function StarfieldBackground({
       gl.deleteBuffer(buf);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
-  }, [frameRate]);
+  }, [frameRate, transparent]);
 
   return (
     <div
@@ -401,6 +412,7 @@ export function StarfieldBackground({
       className={className}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       data-agent-native-starfield
+      data-agent-native-starfield-transparent={transparent ? "true" : undefined}
     >
       <canvas
         ref={canvasRef}

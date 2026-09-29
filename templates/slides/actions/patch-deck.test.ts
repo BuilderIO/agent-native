@@ -942,6 +942,43 @@ describe("applyOperation — patch-deck-fields", () => {
     expect(deck.designSystemId).toBeNull();
   });
 
+  it("clears optional values for granular undo operations", () => {
+    const deck = {
+      title: "T",
+      aspectRatio: "16:9",
+      tweaks: { accent: "blue" },
+      starred: true,
+      slides: [
+        {
+          id: "s1",
+          content: "source",
+          notes: "",
+          layout: "content",
+          background: "blue",
+          skipped: true,
+        },
+      ],
+    };
+    const slidePatch = OperationSchema.parse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { background: null, skipped: null },
+    });
+    const deckPatch = OperationSchema.parse({
+      op: "patch-deck-fields",
+      fields: { aspectRatio: null, tweaks: null, starred: null },
+    });
+
+    applyOperation(deck, slidePatch);
+    applyOperation(deck, deckPatch);
+
+    expect(deck.slides[0]).not.toHaveProperty("background");
+    expect(deck.slides[0]).not.toHaveProperty("skipped");
+    expect(deck).not.toHaveProperty("aspectRatio");
+    expect(deck).not.toHaveProperty("tweaks");
+    expect(deck).not.toHaveProperty("starred");
+  });
+
   it("persists generation context without changing slide content", () => {
     const generationContext = {
       originalPrompt: "Create a dark 6-slide deck",
@@ -1489,17 +1526,20 @@ describe("patch-deck agent schema", () => {
       (operation: any) => operation.properties?.op?.const === "patch-slide",
     );
     const animations = slidePatch.properties.fields.properties.animations;
+    const animationArray =
+      animations.anyOf?.find((variant: any) => variant.type === "array") ??
+      animations;
 
     expect(animations.description).toMatch(/complete ordered/i);
-    expect(animations.items.properties.type.enum).toEqual([
+    expect(animationArray.items.properties.type.enum).toEqual([
       "appear",
       "fade",
       "slide-up",
       "zoom",
     ]);
-    expect(animations.items.properties).toHaveProperty("id");
-    expect(animations.items.properties).toHaveProperty("elementIndex");
-    expect(animations.items.properties).toHaveProperty("elementPath");
+    expect(animationArray.items.properties).toHaveProperty("id");
+    expect(animationArray.items.properties).toHaveProperty("elementIndex");
+    expect(animationArray.items.properties).toHaveProperty("elementPath");
   });
 
   it("rejects stored entries that predate the required id/elementIndex/type", () => {

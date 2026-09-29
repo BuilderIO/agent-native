@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integraciones" } },
   creativeContext: {
     title: "Biblioteca",
     description:
@@ -1680,7 +1681,7 @@ export default {
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
   homeContext: {
-    websiteReference: "Adjuntar sitio web",
+    websiteReference: "Añadir sitio web",
     websiteUrlLabel: "URL del sitio web",
     websiteUrl: "Pega la URL de un sitio web",
     figmaUrlLabel: "Enlace de Figma",
@@ -1709,7 +1710,7 @@ export default {
     design: "Diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
-    figmaReference: "Adjuntar Figma",
+    figmaReference: "Añadir Figma",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",

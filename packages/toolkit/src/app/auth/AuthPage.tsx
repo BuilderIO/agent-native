@@ -29,6 +29,7 @@ import { isSyntheticTrafficValue } from "@agent-native/core/shared/test-traffic"
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
+import { StarfieldBackground } from "../shared/StarfieldBackground.js";
 
 export type {
   AuthLegalNotice,
@@ -2345,6 +2346,15 @@ export function AuthPage(props: AuthPageProps) {
       </span>
     </p>
   ) : null;
+  const signupWave =
+    usesMarketingWelcome && view === "signup" ? (
+      <div className="auth-marketing-signup-wave">
+        <StarfieldBackground
+          className="auth-marketing-signup-wave-canvas"
+          transparent
+        />
+      </div>
+    ) : null;
   const signupForm = (
     <AuthForm
       id="signup-form"
@@ -2410,6 +2420,7 @@ export function AuthPage(props: AuthPageProps) {
       footer={
         <>
           {legalNote}
+          {signupWave}
           {localModeNote}
         </>
       }

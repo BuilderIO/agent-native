@@ -5,10 +5,12 @@ import {
   createAgentThreadState,
   type AgentKitController,
   type AgentKitSnapshot,
+  reduceAgentEvent,
 } from "@agent-native/agentkit/client";
 import { createAgentKitHttpHandler } from "@agent-native/agentkit/http";
 import type {
   AgentEvent,
+  AgentToolCall,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
 import { StrictMode, act, useEffect, useRef, type ReactNode } from "react";
@@ -753,7 +755,11 @@ describe("AgentChat lifecycle", () => {
       ".agentkit-activities",
     );
     expect(runWorkBefore).not.toBeNull();
-    expect(runWorkBefore?.open).toBe(true);
+    expect(runWorkBefore?.open).toBe(false);
+    expect(
+      runWorkBefore?.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Contacting model");
 
     const assistantMessage = {
       id: "assistant-1",
@@ -926,14 +932,263 @@ describe("AgentChat lifecycle", () => {
     expect(runWorkAfter?.open).toBe(true);
   });
 
-  it("shows an active run timer and clusters repeated default activities", async () => {
+  it("keeps thoughts inside one work disclosure through streaming and completion", async () => {
+    const threadId = "thread-reasoning-work";
+    const runId = "run-reasoning-work";
+    const base = (sequence: number, seconds: number = sequence) => ({
+      id: `event-${sequence}`,
+      threadId,
+      runId,
+      sequence,
+      occurredAt: `2026-09-28T00:00:${String(seconds).padStart(2, "0")}.000Z`,
+    });
+    const events: AgentEvent[] = [
+      { ...base(1, 0), type: "run.started" },
+      {
+        ...base(2),
+        type: "message.completed",
+        message: {
+          id: "thought-1",
+          role: "assistant",
+          status: "complete",
+          parts: [
+            { type: "reasoning", text: "First thought" },
+            { type: "reasoning", text: "Hidden thought", visibility: "hidden" },
+          ],
+        },
+      },
+      {
+        ...base(3),
+        type: "reasoning.delta",
+        messageId: "assistant-2",
+        text: "Second thought",
+      },
+      {
+        ...base(4),
+        type: "activity.started",
+        activity: {
+          id: "search",
+          kind: "search",
+          label: "Searching documentation",
+          status: "running",
+        },
+      },
+    ];
+    let thread = events.reduce(
+      reduceAgentEvent,
+      createAgentThreadState(threadId),
+    );
+    const snapshot = (revision: number) => ({
+      connection: "connected" as const,
+      capabilities: {},
+      capabilitiesStatus: "ready" as const,
+      threads: { [threadId]: thread },
+      revision,
+    });
+    const observable = observableController(snapshot(0));
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{
+          reasoning: ({ value, active, resetKey }) => (
+            <span data-thought={resetKey} data-active={active}>
+              {value.text}
+            </span>
+          ),
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    )!;
+    expect(work.open).toBe(false);
+    expect(
+      tree.container.querySelectorAll(".agentkit-activities"),
+    ).toHaveLength(1);
+    expect(tree.container.querySelectorAll("article")).toHaveLength(0);
+    expect(
+      work.querySelectorAll('[data-activity-bucket="thinking"] [data-thought]'),
+    ).toHaveLength(2);
+    expect(tree.container.textContent).not.toContain("Hidden thought");
+    expect(
+      work.querySelector("[data-agentkit-current-activity]")?.textContent,
+    ).toBe("Searching documentation");
+    expect(
+      work
+        .querySelector(".agentkit-activities-label")
+        ?.nextElementSibling?.classList.contains("agentkit-summary-chevron"),
+    ).toBe(true);
+    expect(
+      work
+        .querySelector('[data-thought="thread-reasoning-work:assistant-2:0"]')
+        ?.getAttribute("data-active"),
+    ).toBe("false");
+
+    thread = reduceAgentEvent(thread, {
+      ...base(5, 18),
+      type: "message.completed",
+      message: {
+        id: "assistant-2",
+        role: "assistant",
+        status: "complete",
+        parts: [
+          { type: "reasoning", text: "Second thought" },
+          { type: "text", text: "Here is the answer." },
+        ],
+      },
+    });
+    thread = reduceAgentEvent(thread, {
+      ...base(6, 19),
+      type: "run.completed",
+    });
+    await act(async () => observable.update(snapshot(1)));
+    await flush();
+    expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
+    expect(work.open).toBe(false);
+    expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s");
+    expect(work.querySelector("[data-agentkit-current-activity]")).toBeNull();
+    expect(tree.container.querySelectorAll("article")).toHaveLength(1);
+    const answer = tree.container.querySelector(
+      '[data-message-id="assistant-2"]',
+    )!;
+    expect(answer.textContent).toContain("Here is the answer.");
+    expect(answer.querySelector("[data-thought]")).toBeNull();
+    expect(
+      work.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    await act(async () => work.querySelector("summary")!.click());
+    expect(work.open).toBe(true);
+    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
+    await act(async () => work.querySelector("summary")!.click());
+    expect(work.open).toBe(false);
+  });
+
+  it.each(["completed", "cancelled"] as const)(
+    "keeps reasoning-only %s runs collapsed without empty message rows",
+    async (status) => {
+      const threadId = "reasoning-only";
+      const runId = "run-reasoning-only";
+      const message = {
+        id: "thought",
+        role: "assistant" as const,
+        status: "streaming" as const,
+        parts: [{ type: "reasoning" as const, text: "Reviewing the request" }],
+      };
+      const thread = {
+        ...createAgentThreadState(threadId),
+        messages: [message],
+        events: [
+          {
+            id: "reasoning",
+            type: "reasoning.delta" as const,
+            threadId,
+            runId,
+            sequence: 1,
+            occurredAt: "2026-09-28T00:00:01.000Z",
+            messageId: message.id,
+            text: "Reviewing the request",
+          },
+        ],
+        runs: {
+          [runId]: {
+            id: runId,
+            status,
+            lastSequence: 1,
+            startedAt: "2026-09-28T00:00:00.000Z",
+            completedAt: "2026-09-28T00:00:18.000Z",
+          },
+        },
+      };
+      const { controller } = observableController({
+        connection: "connected",
+        capabilities: {},
+        capabilitiesStatus: "ready",
+        threads: { [threadId]: thread },
+        revision: 0,
+      });
+      const tree = mount();
+      await tree.render(
+        <AgentKitProvider controller={controller} threadId={threadId}>
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+      const work = tree.container.querySelector<HTMLDetailsElement>(
+        ".agentkit-activities",
+      )!;
+      expect(work.open).toBe(false);
+      expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s");
+      expect(work.querySelector(".agentkit-reasoning")).not.toBeNull();
+      expect(
+        work.querySelector("[data-active], [data-agentkit-current-activity]"),
+      ).toBeNull();
+      expect(tree.container.querySelector("article")).toBeNull();
+    },
+  );
+
+  it("collapses snapshot reasoning without run events and preserves message supplements", async () => {
+    const threadId = "restored-reasoning";
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [
+        {
+          id: "restored",
+          role: "assistant" as const,
+          status: "complete" as const,
+          parts: [
+            { type: "reasoning" as const, text: "Earlier thought" },
+            {
+              type: "reasoning" as const,
+              text: "Not public",
+              visibility: "hidden" as const,
+            },
+          ],
+        },
+      ],
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider
+        controller={controller}
+        threadId={threadId}
+        slots={{
+          messageSupplement: () => <div data-supplement="true">Supplement</div>,
+        }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    )!;
+    expect(work.open).toBe(false);
+    expect(work.querySelector("summary")?.textContent).toBe("Worked");
+    expect(work.querySelector(".agentkit-reasoning")?.textContent).toContain(
+      "Earlier thought",
+    );
+    expect(tree.container.textContent).not.toContain("Not public");
+    expect(tree.container.querySelector("[data-supplement]")).not.toBeNull();
+    expect(tree.container.querySelector("article")).toBeNull();
+  });
+
+  it("keeps active work compact and groups expanded history by purpose", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-31T00:00:15.000Z"));
     const threadId = "thread-clustered-work";
     const runId = "run-clustered-work";
     const activities = Array.from({ length: 3 }, (_, index) => ({
       id: `activity-docs-${index}`,
-      kind: "tool",
+      kind: "search",
       label: "Docs search",
       status: "completed" as const,
       detail: `Result ${index + 1}`,
@@ -964,6 +1219,34 @@ describe("AgentChat lifecycle", () => {
           status: "running",
         },
       },
+      {
+        id: "event-latest-started",
+        threadId,
+        runId,
+        sequence: 5,
+        occurredAt: "2026-08-31T00:00:05.000Z",
+        type: "activity.started",
+        activity: {
+          id: "activity-latest",
+          kind: "read",
+          label: "Reading a file",
+          status: "running",
+        },
+      },
+      {
+        id: "event-model-updated",
+        threadId,
+        runId,
+        sequence: 6,
+        occurredAt: "2026-08-31T00:00:06.000Z",
+        type: "activity.updated",
+        activity: {
+          id: "activity-model",
+          kind: "model",
+          label: "Reviewing results",
+          status: "running",
+        },
+      },
     ];
     const thread = {
       ...createAgentThreadState(threadId),
@@ -972,7 +1255,7 @@ describe("AgentChat lifecycle", () => {
         [runId]: {
           id: runId,
           status: "running" as const,
-          lastSequence: 4,
+          lastSequence: 6,
           startedAt: "2026-08-31T00:00:00.000Z",
         },
       },
@@ -1009,6 +1292,17 @@ describe("AgentChat lifecycle", () => {
       expect(
         work?.querySelector(".agentkit-activities-summary")?.textContent,
       ).toContain("Working for 15s");
+      expect(work?.open).toBe(false);
+      expect(
+        work?.querySelector("[data-agentkit-current-activity]")?.textContent,
+      ).toBe("Reviewing results");
+      expect(work?.querySelector(".agentkit-activities-count")).toBeNull();
+      expect(
+        Array.from(
+          work?.querySelectorAll("[data-activity-bucket]") ?? [],
+          (bucket) => bucket.getAttribute("data-activity-bucket"),
+        ),
+      ).toEqual(["thinking", "research"]);
       expect(cluster?.open).toBe(false);
       expect(cluster?.querySelector("summary")?.textContent).toContain(
         "Docs search×3",
@@ -1017,6 +1311,12 @@ describe("AgentChat lifecycle", () => {
         cluster?.querySelectorAll(".agentkit-activity-cluster-items > *"),
       ).toHaveLength(3);
       await act(async () => {
+        work
+          ?.querySelector<HTMLElement>(".agentkit-activities-summary")
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(work?.open).toBe(true);
+      await act(async () => {
         cluster
           ?.querySelector<HTMLElement>("summary")
           ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1024,12 +1324,12 @@ describe("AgentChat lifecycle", () => {
       expect(cluster?.open).toBe(true);
       expect(
         work?.querySelectorAll(
-          ':scope > .agentkit-activities-list > [data-status="completed"]',
+          '[data-activity-bucket="research"] [data-status="completed"]',
         ),
-      ).toHaveLength(0);
+      ).toHaveLength(3);
       expect(
         work?.querySelectorAll(
-          ':scope > .agentkit-activities-list > [data-status="running"]',
+          '[data-activity-bucket="thinking"] [data-status="running"]',
         ),
       ).toHaveLength(1);
 
@@ -1042,6 +1342,274 @@ describe("AgentChat lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shares integration badges between current work and history without mixing providers", async () => {
+    const threadId = "thread-tool-sources";
+    const runId = "run-tool-sources";
+    const tools: AgentToolCall[] = ["slack", "slack", "gong", "figma"].map(
+      (provider, index) => ({
+        id: `tool-${index}`,
+        name: "provider-api-request",
+        input: { provider },
+        status: provider === "figma" ? "running" : "completed",
+      }),
+    );
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: Object.fromEntries(tools.map((tool) => [tool.id, tool])),
+      events: tools.map(
+        (tool, index): AgentEvent => ({
+          id: `event-${tool.id}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: "2026-09-28T00:00:00.000Z",
+          type: "tool.started",
+          toolCall: tool,
+        }),
+      ),
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          toolSource: (tool) => {
+            const provider = (tool.input as { provider: string }).provider;
+            return {
+              id: provider,
+              icon: (
+                <span
+                  role="img"
+                  aria-label={provider}
+                  data-source-id={provider}
+                />
+              ),
+            };
+          },
+        }}
+      >
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(work?.open).toBe(false);
+    expect(
+      work?.querySelector(
+        '[data-agentkit-current-activity] [data-source-id="figma"]',
+      ),
+    ).not.toBeNull();
+    const clusters = work?.querySelectorAll(".agentkit-activity-cluster");
+    expect(clusters).toHaveLength(1);
+    expect(
+      clusters?.[0]?.querySelector('summary [data-source-id="slack"]'),
+    ).not.toBeNull();
+    expect(clusters?.[0]?.querySelector("summary")?.textContent).toContain(
+      "×2",
+    );
+    expect(clusters?.[0]?.querySelector('[data-source-id="gong"]')).toBeNull();
+    expect(
+      work?.querySelector('.agentkit-activities-list [data-source-id="gong"]'),
+    ).not.toBeNull();
+    await tree.unmount();
+  });
+
+  it("keeps generic tool results in collapsed history but preserves rich surfaces", async () => {
+    const threadId = "thread-collapsed-tool-results";
+    const runId = "run-collapsed-tool-results";
+    const genericTool: AgentToolCall = {
+      id: "tool-search",
+      name: "docs-search",
+      input: { query: "workspace defaults" },
+      output: "Found the workspace defaults guide.",
+      status: "completed",
+    };
+    const richTool: AgentToolCall = {
+      id: "tool-rich-result",
+      name: "create-report",
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: {
+        [genericTool.id]: genericTool,
+        [richTool.id]: richTool,
+      },
+      events: [genericTool, richTool].map(
+        (tool, index): AgentEvent => ({
+          id: `event-${tool.id}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-08-31T00:00:0${index + 1}.000Z`,
+          type: "tool.started",
+          toolCall: { ...tool, status: "running" },
+        }),
+      ),
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 2,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:03.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    const GenericToolRenderer = ({ value }: { value: AgentToolCall }) => (
+      <div data-testid="generic-tool-result">{value.name}</div>
+    );
+    const RichToolRenderer = ({ value }: { value: AgentToolCall }) => (
+      <div data-testid="rich-tool-result">{value.name}</div>
+    );
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        slots={{ tool: GenericToolRenderer }}
+        registry={{ tools: { [richTool.name]: RichToolRenderer } }}
+      >
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    const genericResult = tree.container.querySelector(
+      '[data-testid="generic-tool-result"]',
+    );
+    const richResult = tree.container.querySelector(
+      '[data-testid="rich-tool-result"]',
+    );
+    expect(work?.open).toBe(false);
+    expect(genericResult?.closest("details")).toBe(work);
+    expect(richResult?.closest("details")).toBeNull();
+    expect(
+      tree.container
+        .querySelector("[data-agentkit-tool-results]")
+        ?.contains(richResult),
+    ).toBe(true);
+    await tree.unmount();
+  });
+
+  it("keeps failed tools visible while successful work stays collapsed", async () => {
+    const threadId = "thread-tool-failure";
+    const runId = "run-tool-failure";
+    const tools: AgentToolCall[] = [
+      {
+        id: "read",
+        name: "read-file",
+        status: "completed",
+        output: "Read complete",
+      },
+      {
+        id: "write",
+        name: "write-file",
+        status: "failed",
+        error: {
+          code: "write_failed",
+          message: "The file could not be saved.",
+        },
+      },
+    ];
+    const events = tools.map(
+      (toolCall, index): AgentEvent => ({
+        id: `event-${index}`,
+        threadId,
+        runId,
+        sequence: index + 1,
+        occurredAt: "2026-09-28T00:00:00.000Z",
+        type: "tool.updated",
+        toolCall,
+      }),
+    );
+    const thread = events.reduce(
+      reduceAgentEvent,
+      createAgentThreadState(threadId),
+    );
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const failure = tree.container.querySelector('[role="alert"]');
+    expect(failure?.textContent).toContain("The file could not be saved.");
+    expect(failure?.closest("details")).toBeNull();
+    expect(
+      tree.container.querySelector<HTMLDetailsElement>(".agentkit-activities")
+        ?.open,
+    ).toBe(false);
+  });
+
+  it("resets disclosure state when switching threads with reused run ids", async () => {
+    const threads = Object.fromEntries(
+      ["thread-a", "thread-b"].map((threadId) => [
+        threadId,
+        reduceAgentEvent(createAgentThreadState(threadId), {
+          id: "event-1",
+          threadId,
+          runId: "run-1",
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:00.000Z",
+          type: "tool.updated",
+          toolCall: { id: "tool-1", name: "read-file", status: "completed" },
+        }),
+      ]),
+    );
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads,
+      revision: 0,
+    });
+    const tree = mount();
+    const render = (threadId: string) =>
+      tree.render(
+        <AgentKitProvider controller={controller} threadId={threadId}>
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+    await render("thread-a");
+    const first = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    )!;
+    await act(async () => first.querySelector("summary")!.click());
+    expect(first.open).toBe(true);
+    await render("thread-b");
+    expect(
+      tree.container.querySelector<HTMLDetailsElement>(".agentkit-activities")
+        ?.open,
+    ).toBe(false);
   });
 
   it("keeps internal activity labels out of a restored summary without run state", async () => {
@@ -1257,7 +1825,7 @@ describe("AgentChat lifecycle", () => {
     ).toBe("2 min 5 sec");
   });
 
-  it("collapses a completed pending segment when the next response arrives", async () => {
+  it("keeps pending work collapsed when the next response arrives", async () => {
     const threadId = "thread-pending-run-work";
     const runId = "run-pending-work";
     const firstResponse = {
@@ -1313,8 +1881,12 @@ describe("AgentChat lifecycle", () => {
     const pendingBefore = tree.container.querySelector<HTMLDetailsElement>(
       ".agentkit-activities",
     );
-    expect(pendingBefore?.open).toBe(true);
+    expect(pendingBefore?.open).toBe(false);
     expect(pendingBefore?.getAttribute("data-running")).toBe("true");
+    expect(
+      pendingBefore?.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Edited framework files");
 
     const secondResponse = {
       id: "assistant-second",

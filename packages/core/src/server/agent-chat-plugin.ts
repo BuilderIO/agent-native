@@ -115,9 +115,12 @@ import {
   claimQueuedMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  foldThreadRunSuggestions,
   hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
+  normalizeThreadRepository,
   upsertUserMessage,
+  type ThreadSuggestionRun,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -548,18 +551,22 @@ export async function runPreAgentTurnAutosave(
 
 export function foldAgentChatRunCompletion(
   repo: unknown,
-  assistantMsg: Parameters<typeof foldAssistantTurn>[1],
-  run: Pick<
-    ActiveRun,
-    "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
-  >,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  run: ThreadSuggestionRun &
+    Pick<
+      ActiveRun,
+      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+    >,
 ) {
-  return foldAssistantTurn(repo, assistantMsg, {
-    runId: run.runId,
-    turnId: run.turnId,
-    parentId: run.parentId,
-    agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
-  });
+  const folded = assistantMsg
+    ? foldAssistantTurn(repo, assistantMsg, {
+        runId: run.runId,
+        turnId: run.turnId,
+        parentId: run.parentId,
+        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+      })
+    : repo;
+  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
 }
 
 /**
@@ -3393,27 +3400,10 @@ export function createAgentChatPlugin(
                   : undefined,
             },
           );
-          if (!assistantMsg) {
-            // No content produced — just bump timestamp
-            await updateThreadData(
-              threadId,
-              thread.threadData,
-              thread.title,
-              thread.preview,
-              thread.messageCount,
-            );
-            return;
-          }
-
           // Parse existing thread_data, append assistant message only if
           // the frontend hasn't already saved it (avoids duplicates when
           // the client is still connected during a normal flow).
-          let repo: any;
-          try {
-            repo = JSON.parse(thread.threadData || "{}");
-          } catch {
-            repo = {};
-          }
+          let repo = JSON.parse(thread.threadData || "{}");
           if (!Array.isArray(repo.messages)) repo.messages = [];
 
           repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
@@ -3590,6 +3580,7 @@ export function createAgentChatPlugin(
 
       const persistSubmittedUserMessage = async (details: {
         runId: string;
+        turnId: string;
         threadId: string | undefined;
         message: string;
         attachments?: AgentChatAttachment[];
@@ -3658,12 +3649,7 @@ export function createAgentChatPlugin(
             };
           }
 
-          let repo: any;
-          try {
-            repo = JSON.parse(thread.threadData || "{}");
-          } catch {
-            repo = {};
-          }
+          let repo = JSON.parse(thread.threadData || "{}");
 
           if (details.queuedMessageId) {
             if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
@@ -3681,6 +3667,7 @@ export function createAgentChatPlugin(
               text: details.message,
               attachments: details.attachments,
               runId: details.runId,
+              turnId: details.turnId,
               queuedMessageId: details.queuedMessageId,
             }),
           );
@@ -5650,6 +5637,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             controller: ReadableStreamDefaultController<Uint8Array>,
           ) {
             const MAX_RESULTS = 50;
+            const sourceCount =
+              3 + Number(currentDevMode) + Object.keys(mentionProviders).length;
+            const perSourceLimit = Math.max(
+              1,
+              Math.floor(MAX_RESULTS / sourceCount),
+            );
             let totalSent = 0;
             let cancelled = mentionsAbort.signal.aborted;
 
@@ -5661,7 +5654,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const filtered = batch.filter(matchesQuery);
               if (filtered.length === 0) return;
               const remaining = MAX_RESULTS - totalSent;
-              const toSend = filtered.slice(0, remaining);
+              const toSend = filtered.slice(
+                0,
+                Math.min(remaining, perSourceLimit),
+              );
               if (toSend.length > 0) {
                 totalSent += toSend.length;
                 try {

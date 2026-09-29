@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
     description:
@@ -1666,7 +1667,7 @@ export default {
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
   homeContext: {
-    websiteReference: "Attach website",
+    websiteReference: "Add website",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
     figmaUrlLabel: "Figma link",
@@ -1694,7 +1695,7 @@ export default {
     design: "Design",
     slides: "Slides",
     referenceDesign: "Reference a design",
-    figmaReference: "Attach Figma",
+    figmaReference: "Add Figma",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import {
   defineEventHandler,
@@ -198,6 +199,16 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import {
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+  followUpSuggestionsTool,
+  identifyFollowUpSuggestions,
+  parseFollowUpSuggestions,
+  type FollowUpSuggestionsFailure,
+} from "./follow-up-suggestions.js";
 import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
@@ -1534,6 +1545,7 @@ export interface ProductionAgentOptions {
   onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
   onRunPrepared?: (details: {
     runId: string;
+    turnId: string;
     threadId: string | undefined;
     message: string;
     attachments?: AgentChatAttachment[];
@@ -4503,6 +4515,8 @@ export async function runAgentLoop(opts: {
   actionCaller?: ActionCaller;
   automation?: ActionAutomationContext;
   runId?: string;
+  /** Enable same-turn, agent-authored response metadata for interactive chat. */
+  followUpSuggestions?: boolean;
   budgetStartedAt?: number;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
@@ -4548,14 +4562,55 @@ export async function runAgentLoop(opts: {
 }): Promise<AgentLoopUsage> {
   const {
     engine,
-    systemPrompt,
-    tools,
-    availableTools,
+    systemPrompt: providedSystemPrompt,
+    tools: providedTools,
+    availableTools: providedAvailableTools,
     messages,
     actions,
     send,
     signal,
   } = opts;
+  const followUpRunId = opts.followUpSuggestions ? opts.runId : undefined;
+  if (opts.followUpSuggestions && !followUpRunId) {
+    throw new Error("Follow-up suggestions require the canonical run id.");
+  }
+  const systemPrompt = followUpRunId
+    ? `${providedSystemPrompt}\n\n${FOLLOW_UP_SUGGESTIONS_INSTRUCTION}`
+    : providedSystemPrompt;
+  const tools = followUpRunId
+    ? [
+        followUpSuggestionsTool,
+        ...providedTools.filter(
+          (tool) => tool.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        ),
+      ]
+    : providedTools;
+  const availableTools = followUpRunId
+    ? [
+        followUpSuggestionsTool,
+        ...(providedAvailableTools ?? providedTools).filter(
+          (tool) => tool.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        ),
+      ]
+    : providedAvailableTools;
+  let completedFollowUpSuggestions: AgentSuggestion[] | undefined;
+  let completingFollowUpSuggestions = false;
+  let followUpCompletionFailed = false;
+  const failFollowUpCompletion = (code: FollowUpSuggestionsFailure) => {
+    if (followUpCompletionFailed) return;
+    followUpCompletionFailed = true;
+    completedFollowUpSuggestions = undefined;
+    send({
+      type: "rich_event",
+      event: {
+        namespace: "agent-native.follow-up-suggestions",
+        name: "generation_failed",
+        version: 1,
+        data: { code, runId: followUpRunId },
+      },
+    });
+  };
+  if (followUpRunId) send({ type: "suggestions", suggestions: [] });
   let model = opts.model;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
@@ -4617,6 +4672,7 @@ export async function runAgentLoop(opts: {
         activeToolNames.has(tool.name),
       );
       const prioritizedNames = new Set(names);
+      if (followUpRunId) prioritizedNames.add(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
       activeTools = [
         ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
         ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
@@ -4861,6 +4917,10 @@ export async function runAgentLoop(opts: {
     }
     const turnInputTokens = priorTurnInputTokens + usage.inputTokens;
     if (turnInputTokens > maxRunInputTokens) {
+      if (completingFollowUpSuggestions) {
+        failFollowUpCompletion("budget_exhausted");
+        break;
+      }
       emitTripwire(
         new TripWire(
           `I stopped because this request consumed ${turnInputTokens.toLocaleString()} input tokens, past the ${maxRunInputTokens.toLocaleString()} budget for a single turn. ` +
@@ -4871,6 +4931,10 @@ export async function runAgentLoop(opts: {
       break;
     }
     if (++iterations > maxIterations + (loopBreakerCloseout ? 1 : 0)) {
+      if (completingFollowUpSuggestions) {
+        failFollowUpCompletion("iteration_limit");
+        break;
+      }
       send({ type: "loop_limit", maxIterations });
       endedAtLoopLimit = true;
       break;
@@ -4887,29 +4951,49 @@ export async function runAgentLoop(opts: {
       string,
       { name: string; input: unknown; error: string }
     >();
-    let contextMessages = messages;
-
-    if (opts.threadId) {
-      contextMessages = await applyContextXrayTransformForIteration({
-        threadId: opts.threadId,
-        ownerEmail: opts.ownerEmail,
-        turnId: opts.turnId,
-        model,
-        messages,
-        systemSections: opts.systemSections,
-      });
-
-      if (opts.ownerEmail) {
-        contextMessages = await applyObservationalMemoryToContext(
-          contextMessages,
+    let contextMessages = completingFollowUpSuggestions
+      ? [
+          ...messages,
           {
-            threadId: opts.threadId,
-            ownerEmail: opts.ownerEmail,
-            orgId: opts.orgId ?? null,
+            role: "user" as const,
+            content: [
+              {
+                type: "text" as const,
+                text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+              },
+            ],
           },
-        );
+        ]
+      : messages;
+
+    try {
+      if (opts.threadId) {
+        contextMessages = await applyContextXrayTransformForIteration({
+          threadId: opts.threadId,
+          ownerEmail: opts.ownerEmail,
+          turnId: opts.turnId,
+          model,
+          messages: contextMessages,
+          systemSections: opts.systemSections,
+        });
+
+        if (opts.ownerEmail) {
+          contextMessages = await applyObservationalMemoryToContext(
+            contextMessages,
+            {
+              threadId: opts.threadId,
+              ownerEmail: opts.ownerEmail,
+              orgId: opts.orgId ?? null,
+            },
+          );
+        }
       }
+    } catch (error) {
+      if (signal.aborted || !completingFollowUpSuggestions) throw error;
+      failFollowUpCompletion("context_error");
+      break;
     }
+    if (signal.aborted) break;
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
@@ -4919,23 +5003,42 @@ export async function runAgentLoop(opts: {
       terminalStopReason = undefined;
       toolCallErrors.clear();
       try {
+        let providerOptions = opts.providerOptions;
+        if (
+          completingFollowUpSuggestions &&
+          providerOptions?.anthropic?.thinking
+        ) {
+          const { thinking: _thinking, ...anthropic } =
+            providerOptions.anthropic;
+          providerOptions = { ...providerOptions, anthropic };
+        }
         const streamOpts = {
           model,
           systemPrompt: continuationSystemPrompt,
           messages: contextMessages,
           tools: loopBreakerCloseout
             ? []
-            : sourceSweepDelegationGuardActive
-              ? restrictAgentTeamsAfterSourceSweep(activeTools)
-              : activeTools,
+            : completingFollowUpSuggestions
+              ? [followUpSuggestionsTool]
+              : sourceSweepDelegationGuardActive
+                ? restrictAgentTeamsAfterSourceSweep(activeTools)
+                : activeTools,
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
             engine.name,
-            effectiveMaxOutputTokens,
+            completingFollowUpSuggestions
+              ? Math.min(
+                  effectiveMaxOutputTokens ??
+                    FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
+                  FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
+                )
+              : effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: effectiveReasoningEffort,
-          providerOptions: opts.providerOptions,
+          reasoningEffort: completingFollowUpSuggestions
+            ? ("none" as const)
+            : effectiveReasoningEffort,
+          providerOptions,
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
@@ -5009,10 +5112,9 @@ export async function runAgentLoop(opts: {
         const checkpointNoProgress = () => {
           if (endedForNoProgress) return;
           closeModelStreamBracket();
-          send({
-            type: "auto_continue",
-            reason: "no_progress",
-          });
+          if (completingFollowUpSuggestions)
+            failFollowUpCompletion("interrupted");
+          else send({ type: "auto_continue", reason: "no_progress" });
           endedForNoProgress = true;
         };
         let eventIteratorReturnRequested = false;
@@ -5104,6 +5206,11 @@ export async function runAgentLoop(opts: {
               try {
                 await processorChain.runStream(event);
               } catch (err) {
+                if (signal.aborted) throw err;
+                if (completingFollowUpSuggestions) {
+                  failFollowUpCompletion("processor_error");
+                  break;
+                }
                 if (err instanceof TripWire) {
                   emitTripwire(err);
                   break;
@@ -5113,10 +5220,12 @@ export async function runAgentLoop(opts: {
             }
             if (event.type === "text-delta") {
               streamedAssistantText += event.text;
-              send({ type: "text", text: event.text });
+              if (!completingFollowUpSuggestions)
+                send({ type: "text", text: event.text });
             } else if (event.type === "thinking-delta") {
               thinkingBuffer += event.text;
-              send({ type: "thinking", text: event.text });
+              if (!completingFollowUpSuggestions)
+                send({ type: "thinking", text: event.text });
             } else if (event.type === "tool-input-start") {
               const key = event.id ?? event.name;
               if (key && event.name) {
@@ -5124,6 +5233,12 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, 0);
                 trackActiveToolInput(key, event.name, 0);
               }
+              if (
+                completingFollowUpSuggestions ||
+                (followUpRunId &&
+                  event.name === FOLLOW_UP_SUGGESTIONS_TOOL_NAME)
+              )
+                continue;
               send({
                 type: "tool_input_start",
                 ...(event.name ? { tool: event.name } : {}),
@@ -5149,6 +5264,11 @@ export async function runAgentLoop(opts: {
                   trackActiveToolInput(key, toolName, progressBytes);
                 }
               }
+              if (
+                completingFollowUpSuggestions ||
+                (followUpRunId && toolName === FOLLOW_UP_SUGGESTIONS_TOOL_NAME)
+              )
+                continue;
               if (event.text) {
                 send({
                   type: "tool_input_delta",
@@ -5229,8 +5349,10 @@ export async function runAgentLoop(opts: {
         }
 
         if (endedForNoProgress) {
+          if (completingFollowUpSuggestions) break;
           return usage;
         }
+        if (followUpCompletionFailed) break;
 
         const hasCompleteToolCall =
           streamedAssistantToolCalls.length > 0 ||
@@ -5239,6 +5361,10 @@ export async function runAgentLoop(opts: {
         const hasUnfinishedToolInput =
           activeToolInputs.size > 0 && !hasCompleteToolCall;
         if (hasUnfinishedToolInput) {
+          if (completingFollowUpSuggestions) {
+            failFollowUpCompletion("interrupted");
+            break;
+          }
           send({ type: "auto_continue", reason: "stream_ended" });
           return usage;
         }
@@ -5246,6 +5372,10 @@ export async function runAgentLoop(opts: {
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
+        if (completingFollowUpSuggestions) {
+          failFollowUpCompletion("provider_error");
+          break;
+        }
         if (isContextTooLongError(err)) {
           if (retry === 0) {
             const trimmed = trimOldToolResults(contextMessages);
@@ -5317,7 +5447,7 @@ export async function runAgentLoop(opts: {
       }
     }
 
-    if (tripwire) break;
+    if (tripwire || followUpCompletionFailed) break;
 
     if (!assistantContent && toolCallErrors.size > 0) {
       assistantContent = [];
@@ -5350,6 +5480,10 @@ export async function runAgentLoop(opts: {
     }
     if (!assistantContent) {
       if (!terminalStopReason) {
+        if (completingFollowUpSuggestions) {
+          failFollowUpCompletion("interrupted");
+          break;
+        }
         send({ type: "auto_continue", reason: "stream_ended" });
         return usage;
       }
@@ -5388,14 +5522,64 @@ export async function runAgentLoop(opts: {
         : part,
     );
 
-    if (assistantContentForHistory.length > 0) {
+    if (
+      !completingFollowUpSuggestions &&
+      assistantContentForHistory.length > 0
+    ) {
       messages.push({ role: "assistant", content: assistantContentForHistory });
     }
 
-    const toolCallParts = assistantContent.filter(
+    const allToolCallParts = assistantContent.filter(
       (p): p is import("./engine/types.js").EngineToolCallPart =>
         p.type === "tool-call",
     );
+    const followUpCalls = followUpRunId
+      ? allToolCallParts.filter(
+          (part) => part.name === FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        )
+      : [];
+    const toolCallParts = followUpRunId
+      ? allToolCallParts.filter(
+          (part) => part.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+        )
+      : allToolCallParts;
+    if (
+      toolCallParts.length > 0 ||
+      followUpCalls.length > 0 ||
+      terminalStopReason === "max_tokens" ||
+      !terminalStopReason
+    ) {
+      completedFollowUpSuggestions = undefined;
+    }
+    const followUpResults: EngineContentPart[] = followUpCalls.map((call) => {
+      const parsed = parseFollowUpSuggestions(call.input);
+      const error = !parsed.success
+        ? `Invalid follow-up suggestions: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`
+        : followUpCalls.length !== 1 || toolCallParts.length > 0
+          ? "Provide follow-ups before or alongside the final reply, after other tool results are known."
+          : toolCallErrors.has(call.id)
+            ? "Follow-up tool input was not completed successfully."
+            : terminalStopReason !== "end_turn" &&
+                terminalStopReason !== "tool_use"
+              ? "Follow-up publication was interrupted; provide it again after completing the work."
+              : undefined;
+      if (!error && parsed.success && followUpRunId) {
+        completedFollowUpSuggestions = identifyFollowUpSuggestions(
+          parsed.data.suggestions,
+          followUpRunId,
+        );
+      }
+      return {
+        type: "tool-result",
+        toolCallId: call.id,
+        toolName: call.name,
+        toolInput: JSON.stringify(call.input ?? {}),
+        content:
+          error ??
+          "Follow-ups validated; displayed only if this turn completes successfully.",
+        ...(error ? { isError: true } : {}),
+      };
+    });
 
     if (loopBreakerCloseout && toolCallParts.length > 0) {
       const finalText = collectTextParts(assistantContentForHistory);
@@ -5419,12 +5603,23 @@ export async function runAgentLoop(opts: {
           },
         });
       } catch (err) {
+        if (signal.aborted) throw err;
+        if (completingFollowUpSuggestions) {
+          failFollowUpCompletion("processor_error");
+          break;
+        }
         if (err instanceof TripWire) {
           emitTripwire(err);
           break;
         }
         throw err;
       }
+    }
+
+    if (completingFollowUpSuggestions) {
+      if (completedFollowUpSuggestions === undefined)
+        failFollowUpCompletion("invalid_or_missing");
+      break;
     }
 
     const flushUnstreamedAssistantText = () => {
@@ -5434,6 +5629,8 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
+      if (followUpResults.length > 0)
+        messages.push({ role: "user", content: followUpResults });
       if (terminalStopReason === "max_tokens") {
         flushUnstreamedAssistantText();
         appendAgentLoopContinuation(messages, "max_tokens");
@@ -5443,7 +5640,15 @@ export async function runAgentLoop(opts: {
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
+      if (
+        followUpResults.length > 0 &&
+        (terminalStopReason === "tool_use" || hasEmptyFinalResponse)
+      ) {
+        flushUnstreamedAssistantText();
+        continue;
+      }
       if (hasEmptyFinalResponse) {
+        completedFollowUpSuggestions = undefined;
         if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
           emptyFinalResponseRetries += 1;
           effectiveMaxOutputTokens =
@@ -5487,6 +5692,7 @@ export async function runAgentLoop(opts: {
         }
       }
       if (guard) {
+        completedFollowUpSuggestions = undefined;
         const retryMessage =
           typeof guard === "string" ? guard : guard.retryMessage;
         const fallbackMessage =
@@ -5524,6 +5730,14 @@ export async function runAgentLoop(opts: {
         });
       } else {
         flushUnstreamedAssistantText();
+        if (
+          followUpRunId &&
+          completedFollowUpSuggestions === undefined &&
+          terminalStopReason === "end_turn"
+        ) {
+          completingFollowUpSuggestions = true;
+          continue;
+        }
       }
       emptyFinalResponseRetries = 0;
       effectiveMaxOutputTokens = opts.maxOutputTokens;
@@ -6703,7 +6917,7 @@ export async function runAgentLoop(opts: {
       return null;
     };
 
-    const toolResultParts: EngineContentPart[] = [];
+    const toolResultParts: EngineContentPart[] = [...followUpResults];
     let parallelBatch: import("./engine/types.js").EngineToolCallPart[] = [];
     let parallelBatchKind: ParallelBatchKind | null = null;
     const flushParallelBatch = async () => {
@@ -6844,8 +7058,18 @@ export async function runAgentLoop(opts: {
         );
       } catch (err) {
         if (!(err instanceof TripWire)) throw err;
+        emitTripwire(err);
+        reportOutcome({
+          state: "failed",
+          code: "guardrail",
+          retryable: false,
+          message: err.message,
+        });
+        return usage;
       }
     }
+    if (followUpRunId && completedFollowUpSuggestions !== undefined)
+      send({ type: "suggestions", suggestions: completedFollowUpSuggestions });
     send({
       type: "done",
       ...(loopBreakerStopped
@@ -9543,6 +9767,7 @@ export function createProductionAgentHandler(
       try {
         await options.onRunPrepared({
           runId,
+          turnId: effectiveTurnId,
           threadId,
           message: messageToPersist,
           attachments: requestAttachments,
@@ -10202,6 +10427,7 @@ export function createProductionAgentHandler(
           engine,
           model: effectiveModel,
           runId,
+          followUpSuggestions: true,
           systemPrompt: requestSystemPrompt,
           tools: requestTools,
           availableTools: availableRequestTools,

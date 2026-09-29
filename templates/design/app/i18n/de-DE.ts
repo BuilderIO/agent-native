@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrationen" } },
   creativeContext: {
     title: "Bibliothek",
     description:
@@ -1701,7 +1702,7 @@ export default {
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
   homeContext: {
-    websiteReference: "Website anhängen",
+    websiteReference: "Website hinzufügen",
     websiteUrlLabel: "Website-URL",
     websiteUrl: "Website-URL einfügen",
     figmaUrlLabel: "Figma-Link",
@@ -1730,7 +1731,7 @@ export default {
     design: "Design",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
-    figmaReference: "Figma anhängen",
+    figmaReference: "Figma hinzufügen",
     referenceDeck: "Eine Präsentation als Referenz verwenden",
     quickSaas: "SaaS-Landingpage erstellen",
     quickDashboard: "Dashboard erstellen",
