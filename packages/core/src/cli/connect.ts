@@ -8,6 +8,7 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   CLIENTS,
   ClientId,
@@ -18,10 +19,6 @@ import {
   writeHttpEntryForClient,
   writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
-import {
-  isFirstPartyPlanHost,
-  writePlanPublishAuth,
-} from "./plan-publish-store.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
@@ -2121,10 +2118,19 @@ async function connectOne(
   // Plans server gets a usable token and `publish-visual-plan` doesn't send the
   // user back to `agent-native connect` right after they just ran it.
   let publishToken = token;
+  const planHost =
+    new URL(baseUrl).hostname.toLowerCase() === "plan.agent-native.com";
+  const planPublishStore =
+    planHost && (Boolean(publishToken) || oauthClients.length > 0)
+      ? await loadOptionalPeer(
+          "@agent-native/recap-cli",
+          () => import("@agent-native/recap-cli"),
+        )
+      : undefined;
   if (
     !publishToken &&
     oauthClients.length > 0 &&
-    isFirstPartyPlanHost(baseUrl)
+    planPublishStore?.isFirstPartyPlanHost(baseUrl)
   ) {
     try {
       logOut("");
@@ -2147,8 +2153,8 @@ async function connectOne(
       );
     }
   }
-  if (publishToken && isFirstPartyPlanHost(baseUrl)) {
-    const canonicalPath = writePlanPublishAuth({
+  if (publishToken && planPublishStore?.isFirstPartyPlanHost(baseUrl)) {
+    const canonicalPath = planPublishStore.writePlanPublishAuth({
       url: baseUrl,
       token: publishToken,
     });

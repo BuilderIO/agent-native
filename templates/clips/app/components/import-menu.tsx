@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown, IconLink, IconUpload } from "@tabler/icons-react";
+import {
+  IconCamera,
+  IconChevronDown,
+  IconLink,
+  IconUpload,
+} from "@tabler/icons-react";
 import { useState } from "react";
 
 import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
@@ -24,6 +29,12 @@ type MenuAlign = "start" | "center" | "end";
 export interface ImportMenuProps {
   uploadHref?: string;
   onUpload?: () => void;
+  /**
+   * Take a screenshot. A handler rather than an href because the browser's
+   * screen picker has to open from the click, not after a navigation.
+   */
+  onScreenshot?: () => void;
+  screenshotPending?: boolean;
   importLoomHref?: string;
   spaceId?: string | null;
   folderId?: string | null;
@@ -41,6 +52,8 @@ export interface ImportMenuProps {
 export function ImportMenu({
   uploadHref,
   onUpload,
+  onScreenshot,
+  screenshotPending = false,
   importLoomHref,
   spaceId,
   folderId,
@@ -58,7 +71,7 @@ export function ImportMenu({
   const { input, openUploadPicker } = useUploadVideoPicker();
   const [loomDialogOpen, setLoomDialogOpen] = useState(false);
 
-  if (!uploadHref && !onUpload && !importLoomHref) return null;
+  if (!uploadHref && !onUpload && !onScreenshot && !importLoomHref) return null;
 
   const trigger = (
     <Button
@@ -110,6 +123,20 @@ export function ImportMenu({
             <DropdownMenuItem onSelect={onUpload}>
               <IconUpload />
               {t("preRecord.uploadVideo")}
+            </DropdownMenuItem>
+          ) : null}
+          {onScreenshot ? (
+            <DropdownMenuItem
+              disabled={screenshotPending}
+              onSelect={(event) => {
+                // Keep the click's transient activation: closing the menu first
+                // would cost the screen picker its user gesture.
+                event.preventDefault();
+                onScreenshot();
+              }}
+            >
+              <IconCamera />
+              {t("preRecord.takeScreenshot")}
             </DropdownMenuItem>
           ) : null}
           {importLoomHref ? (
