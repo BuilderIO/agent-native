@@ -675,13 +675,15 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
   String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
 ].join("|");
 const PR_REVIEW_MERGE_GATE_RE =
-  /\b(?:approval|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?|builds?)|reviewers?|security[-\s]team(?:['’]s)?|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
+  /\b(?:approval|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?|builds?)|reviewers?|security(?:[-\s]team(?:['’]s)?)?|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
 const PR_REVIEW_GATE_REQUIRED_RE =
   /\b(?:required|wait(?:ing)?\s+for|subject\s+to|contingent\s+upon|(?:only\s+)?after|upon|once|when|until|unless|if)\b(?:\s+(?:the|a|an|all|any|required|another|security|team|reviewer|approval|check|ci|test|suite|build)){0,5}\s*$/i;
 const PR_REVIEW_GATE_WAIVER_RE =
   /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than)\s+wait(?:ing)?\s+for)\b(?:\s+(?:the|a|an|required|another|security|team|reviewer|approval|check|ci|to|approve(?:s|d)?)){0,5}\s*$/i;
 const PR_REVIEW_GATE_CONDITION_AFTER_RE =
   /^\s*(?:(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?)\b|(?:is|are|has\s+been|have\s+been)\s+required|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)|(?:(?:has|have)\s+)?sign(?:s|ed)?[-\s]+off\b[^.!?]{0,30}\bbefore\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)/i;
+const PR_REVIEW_GATE_NEGATION_AFTER_RE =
+  /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
 const PR_REVIEW_MERGE_PROHIBITION_RE = /\b(?:don't|do\s+not|never)\s+merge\b/i;
@@ -694,6 +696,7 @@ function hasActivePrReviewMergeGate(sentence) {
       match.index + match[0].length + 60,
     );
     if (PR_REVIEW_GATE_WAIVER_RE.test(before)) continue;
+    if (PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after)) continue;
     if (
       PR_REVIEW_GATE_REQUIRED_RE.test(before) ||
       PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after)
@@ -761,6 +764,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   ],
   [true, "If no changes are needed, do not wait for CI to finish; merge."],
   [true, "If no changes are needed, merge the CI fix."],
+  [true, "If no changes are needed, merge the security fix."],
+  [true, "If no changes are needed, merge if the approval isn't required."],
   [true, "Stop saying someone else needs to approve when the PR is ready."],
   [
     true,
@@ -775,6 +780,7 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, wait for the required security approval before merging.",
   ],
   [false, "If no changes are needed, merge only after security approval."],
+  [false, "If no changes are needed, merge only after security sign-off."],
   [false, "If no changes are needed, merge only after the test suite passes."],
   [
     false,
