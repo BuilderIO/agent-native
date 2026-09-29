@@ -556,7 +556,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Type quickly in chat while slide text editing remains active
+      - name: Check selection direction and chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 

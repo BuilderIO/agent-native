@@ -389,6 +389,21 @@ describe("in-place text session: entering and ending", () => {
     expect(window.getSelection()!.toString()).toBe("beta");
   });
 
+  it("preserves an initial backward selection when entering edit mode", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    selectBackward(text, 1, text, 5);
+
+    session = startInPlaceTextSession(el);
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorNode).toBe(text);
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusNode).toBe(text);
+    expect(selection.focusOffset).toBe(1);
+  });
+
   it("restores backward selection direction after blur and focus", () => {
     const el = mount('<p id="t">Alpha beta</p>');
     const text = el.firstChild as Text;

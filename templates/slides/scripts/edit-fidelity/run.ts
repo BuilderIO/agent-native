@@ -536,6 +536,7 @@ async function exitEdit(
 }
 
 async function runChatTypingRegression(page: Page, base: string) {
+  const problems: string[] = [];
   await page.route("**/_agent-native/agent-engine/status", (route: any) =>
     route.fulfill({
       status: 200,
@@ -545,6 +546,37 @@ async function runChatTypingRegression(page: Page, base: string) {
   );
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
+  const initialSelection = await page.evaluate(async () => {
+    const target = document.createElement("div");
+    target.style.cssText =
+      "position:fixed;left:-10000px;top:0;pointer-events:none";
+    target.textContent = "abc def";
+    document.body.append(target);
+    const text = target.firstChild as Text;
+    const selection = window.getSelection();
+    selection?.setBaseAndExtent(text, 6, text, 1);
+    const source = "/app/components/editor/in-place-text-session.ts";
+    const { startInPlaceTextSession } = await import(source);
+    const session = startInPlaceTextSession(target);
+    const result = {
+      anchor: selection?.anchorOffset,
+      focus: selection?.focusOffset,
+      text: selection?.toString(),
+    };
+    session.end();
+    selection?.removeAllRanges();
+    target.remove();
+    return result;
+  });
+  if (
+    initialSelection.text !== "bc de" ||
+    initialSelection.anchor !== 6 ||
+    initialSelection.focus !== 1
+  ) {
+    problems.push(
+      `entering edit changed an initial backward selection (${JSON.stringify(initialSelection)})`,
+    );
+  }
   const created = await action(page, "create-deck", {
     title: "[edit-fidelity] chat typing regression",
     slides: [
@@ -614,7 +646,6 @@ async function runChatTypingRegression(page: Page, base: string) {
       };
     }, selector);
     const editAfterTyping = await editorState(page, "chat-typing-slide");
-    const problems: string[] = [];
     if (result.text !== expected) {
       problems.push(`text mismatch: ${JSON.stringify(result.text)}`);
     }
@@ -2846,7 +2877,7 @@ async function main() {
         return 1;
       }
       console.log(
-        "[edit-fidelity] chat typing regression passed with a slide edit session open",
+        "[edit-fidelity] selection direction and chat typing regressions passed",
       );
       return 0;
     }

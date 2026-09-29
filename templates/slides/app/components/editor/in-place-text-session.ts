@@ -2293,6 +2293,12 @@ export function startInPlaceTextSession(
     selection && selection.rangeCount > 0
       ? selection.getRangeAt(0).cloneRange()
       : null;
+  const initialBackward = Boolean(
+    initialRange &&
+    !initialRange.collapsed &&
+    selection?.anchorNode === initialRange.endContainer &&
+    selection.anchorOffset === initialRange.endOffset,
+  );
   el.setAttribute("contenteditable", "true");
   el.setAttribute("data-editing-block", "true");
   listen(el);
@@ -2311,8 +2317,11 @@ export function startInPlaceTextSession(
     el.contains(initialRange.endContainer) &&
     (!point || initialRange.comparePoint(...point) === 0)
   ) {
-    selection.removeAllRanges();
-    selection.addRange(initialRange);
+    select(
+      [initialRange.startContainer, initialRange.startOffset],
+      [initialRange.endContainer, initialRange.endOffset],
+      initialBackward,
+    );
   } else if (point) {
     placeCaret(...point);
     // A double-click in an object's move band has its default prevented, so
