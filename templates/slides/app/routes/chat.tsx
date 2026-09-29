@@ -108,6 +108,7 @@ export default function ChatRoute() {
           t("agent.suggestionBrand"),
           t("agent.suggestionHero"),
         ]}
+        suggestionPlacement="after-composer"
         emptyStateText={t("agent.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty

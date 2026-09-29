@@ -4,6 +4,7 @@ import {
   getAgentEngineEntry,
   isAgentEngineSettingConfigured,
   isStoredEngineUsable,
+  readDefaultAgentEngineSetting,
   registerBuiltinEngines,
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
@@ -11,7 +12,6 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { getSetting } from "@agent-native/core/settings";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   getUsageSummary,
@@ -187,7 +187,7 @@ function isEnvAdmin(email: string): boolean {
 
 async function detectUsageEngineName(): Promise<string | null> {
   try {
-    const stored = (await getSetting("agent-engine")) as {
+    const stored = (await readDefaultAgentEngineSetting()) as {
       engine?: string;
     } | null;
     if (isAgentEngineSettingConfigured(stored)) {

@@ -710,7 +710,17 @@ switch (command) {
     }
     const cliDir = path.dirname(fileURLToPath(import.meta.url));
     const script = path.resolve(cliDir, "../scripts/identity-rekey.js");
-    run(process.execPath, [script, ...identityArgs]);
+    // Apps declare their identity columns from the module graph of their
+    // database plugin. Without it the rekey refuses every app-owned column.
+    const declarations = path.resolve("server/plugins/db.ts");
+    if (fs.existsSync(declarations))
+      run(findTsxBin(), [
+        script,
+        "--identity-declarations",
+        declarations,
+        ...identityArgs,
+      ]);
+    else run(process.execPath, [script, ...identityArgs]);
     break;
   }
 
@@ -1240,6 +1250,10 @@ Usage:
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,
                                 --threshold N to override all thresholds.
+                                eval promote <runId> [--write path] [--json]
+                                turns a completed production trace into a
+                                defineEval case (SQL dataset; --write emits
+                                the *.eval.ts CI already discovers).
 
 Options:
   -h, --help                    Show this help message

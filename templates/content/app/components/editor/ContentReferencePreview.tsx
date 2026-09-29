@@ -111,7 +111,7 @@ export function ContentReferencePreview({
             asChild
             size="sm"
             variant="ghost"
-            className="h-8 gap-1.5 px-2 text-xs"
+            className="gap-1.5 px-2 text-xs"
           >
             <Link to={`/page/${document.documentId}`}>
               <IconExternalLink className="size-3.5" />

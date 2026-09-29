@@ -202,14 +202,25 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("offers the existing federation flow when identity SSO is available", () => {
+  it("offers manual federation only when silent sign-in is unavailable", () => {
     const props = propsFromHtml(getOnboardingHtml());
-    const html = renderToString(<AuthPage {...props} identitySsoEnabled />);
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto={false} />,
+    );
 
     expect(html).toContain('id="identity-sso-btn"');
     expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
     expect(html).toContain("Continue with Agent-Native");
     expect(html).toContain("Use the same verified email");
+  });
+
+  it("keeps the manual federation CTA off canonical pages with silent sign-in", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
   });
 
   it("keeps the federation CTA off auth pages without an available hub", () => {
@@ -238,22 +249,37 @@ describe("AuthPage", () => {
     expect(html).toContain('id="organization-sso-submit"');
   });
 
-  it("renders branded auth as a centered form without the legacy marketing panel", () => {
+  it("renders branded auth with the app description and inline Learn more link", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
     const props = propsFromHtml(onboardingHtml);
     const html = renderToString(<AuthPage {...props} initialView="login" />);
 
-    expect(html).toContain('<div class="auth-centered">');
+    expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('id="login-form"');
-    expect(html).toContain('data-i18n="welcomeBackTitle"');
-    expect(html).not.toContain('data-i18n="welcomeToApp"');
-    expect(html).not.toContain("data-agent-native-marketing-home");
-    expect(html).not.toContain("auth-marketing-visual");
-    expect(html).not.toContain('class="marketing-panel"');
-    expect(html).not.toContain('class="oss-badge"');
-    expect(html).not.toContain("Say it. Show it.");
+    expect(html).toContain('data-i18n="welcomeToApp"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain('class="auth-marketing-description-link"');
+    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain(">Learn more</a>");
+    expect(html).toContain('class="oss-badge"');
+    expect(html).not.toContain("data-agent-native-starfield");
+  });
+
+  it("keeps the whole marketing panel in English when localized copy is incomplete", () => {
+    const props = propsFromHtml(
+      getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
+    );
+    props.defaultLocale = "zh-CN";
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.marketingLocales["zh-CN"]?.authHeadline).toBeTruthy();
+    expect(props.marketingLocales["zh-CN"]?.authDescription).toBeUndefined();
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain("Presentations that grow with your ideas.");
+    expect(html).not.toContain(props.marketingLocales["zh-CN"]!.authHeadline!);
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

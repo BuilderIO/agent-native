@@ -797,6 +797,18 @@ describe("callActionWithRetry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("surfaces a gateway timeout without retrying", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 504 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callActionWithRetry("read-thing", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 504 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves Retry-After milliseconds and the action error code", async () => {
     vi.stubGlobal(
       "fetch",
@@ -919,6 +931,28 @@ describe("tryCallActionKeepalive", () => {
         }),
         body: JSON.stringify({ id: "file-1", content: "updated" }),
       }),
+    );
+  });
+
+  it("uses PUT for full-deck keepalive actions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = tryCallActionKeepalive(
+      "save-deck",
+      {
+        deckId: "deck-1",
+        deck: { id: "deck-1", slides: [] },
+      },
+      { method: "PUT" },
+    );
+
+    expect(attempt.accepted).toBe(true);
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/save-deck",
+      expect.objectContaining({ method: "PUT", keepalive: true }),
     );
   });
 
@@ -1101,12 +1135,17 @@ describe("action query retry defaults", () => {
     expect(defaultActionQueryRetry(2, rateLimited)).toBe(true);
     expect(defaultActionQueryRetry(3, rateLimited)).toBe(false);
 
-    for (const status of [502, 503, 504]) {
+    for (const status of [502, 503]) {
       const transient = Object.assign(new Error("down"), { status });
       expect(defaultActionQueryRetry(0, transient)).toBe(true);
       expect(defaultActionQueryRetry(2, transient)).toBe(true);
       expect(defaultActionQueryRetry(3, transient)).toBe(false);
     }
+
+    const gatewayTimeout = Object.assign(new Error("timed out"), {
+      status: 504,
+    });
+    expect(defaultActionQueryRetry(0, gatewayTimeout)).toBe(false);
   });
 
   it("caps retry backoff at 2s so real failures surface fast", () => {

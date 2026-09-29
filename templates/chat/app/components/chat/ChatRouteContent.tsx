@@ -492,7 +492,6 @@ function ChatEmptyState() {
   return (
     <div className="agentkit-chat-empty-copy">
       <h1>{t("chat.heroTitle")}</h1>
-      <p>{t("chat.heroDescription")}</p>
     </div>
   );
 }
@@ -518,12 +517,11 @@ function ChatCanvas({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           data-agent-page-workspace-toggle=""
           aria-label={t("settings.workspaceTitle")}
           aria-expanded={workspaceOpen}
           onClick={() => setWorkspaceOpen((open) => !open)}
-          className="size-8"
         >
           <IconLayoutSidebarRight className="size-4" />
         </Button>

@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import {
   useBuilderConnectFlow,
   type BuilderConnectFlow,
+  type BuilderConnectionScope,
 } from "../settings/useBuilderStatus.js";
 
 const DEFAULT_TITLE = "Builder connect";
@@ -15,6 +16,12 @@ export interface BuilderConnectCardControllerOptions {
   description?: string;
   trackingSource?: string;
   onConnected?: (orgName: string | null) => void;
+  /**
+   * Show and connect exactly this connection. The card is then connected only
+   * while that grant is usable, and offers Connect only to callers the server
+   * allows to connect it. Omit for "any Builder.io connection".
+   */
+  scope?: BuilderConnectionScope;
 }
 
 export type BuilderConnectCardStatus =
@@ -39,6 +46,15 @@ export interface BuilderConnectCardViewModel {
   orgName: string | null;
   connectFlow?: BuilderConnectFlow;
   action: BuilderConnectCardAction | null;
+  scope?: BuilderConnectionScope;
+}
+
+function isScopeConnected(
+  flow: BuilderConnectFlow,
+  scope: BuilderConnectionScope,
+): boolean {
+  const grant = flow.grants?.[scope];
+  return Boolean(grant && !grant.needsReconnect);
 }
 
 export function useBuilderConnectCardController({
@@ -46,6 +62,7 @@ export function useBuilderConnectCardController({
   description = DEFAULT_DESCRIPTION,
   trackingSource = DEFAULT_TRACKING_SOURCE,
   onConnected,
+  scope,
 }: BuilderConnectCardControllerOptions = {}): BuilderConnectCardViewModel {
   const handleConnected = useCallback(
     ({ orgName }: { orgName: string | null }) => onConnected?.(orgName),
@@ -57,13 +74,16 @@ export function useBuilderConnectCardController({
     onConnected: handleConnected,
   });
   const handlePress = useCallback(
-    (provisionAccount = false) => flow.start({ provisionAccount }),
-    [flow.start],
+    (provisionAccount = false) =>
+      flow.start(scope ? { provisionAccount, scope } : { provisionAccount }),
+    [flow.start, scope],
   );
 
+  const configured = scope ? isScopeConnected(flow, scope) : flow.configured;
+  const canConnect = scope ? flow.canConnect[scope] : true;
   const status: BuilderConnectCardStatus = !flow.hasFetchedStatus
     ? { kind: "checking", label: "Checking" }
-    : flow.configured
+    : configured
       ? {
           kind: "connected",
           label: flow.orgName ? `Connected to ${flow.orgName}` : "Connected",
@@ -74,18 +94,20 @@ export function useBuilderConnectCardController({
     title,
     description,
     status,
-    configured: flow.configured,
+    configured,
     pending: flow.connecting,
     error: flow.error,
     orgName: flow.orgName,
     connectFlow: flow,
-    action: flow.configured
-      ? null
-      : {
-          label: "Connect Builder.io",
-          pending: flow.connecting,
-          disabled: flow.connecting,
-          onPress: handlePress,
-        },
+    action:
+      configured || !canConnect
+        ? null
+        : {
+            label: "Connect Builder.io",
+            pending: flow.connecting,
+            disabled: flow.connecting,
+            onPress: handlePress,
+          },
+    ...(scope ? { scope } : {}),
   };
 }

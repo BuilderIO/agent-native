@@ -395,6 +395,60 @@ describe("preloadJevContextForPrompt", () => {
     );
   });
 
+  it("preloads an exact-term personal memory without Jev", async () => {
+    const owner = "user@example.test";
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) =>
+        resourceOwner === owner && path === "memory/MEMORY.md"
+          ? {
+              content:
+                "# Memory Index\n- [wife-contact](wife-contact.md) — My wife's name and email address.",
+            }
+          : resourceOwner === owner && path === "memory/wife-contact.md"
+            ? { content: "My wife Alex can be reached at alex@example.test." }
+            : null,
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "Email my wife about dinner.",
+      owner,
+    });
+
+    expect(result).toContain("My wife Alex can be reached");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      owner,
+      "memory/wife-contact.md",
+      { orgId: undefined },
+    );
+  });
+
+  it.each([
+    ["a short exact term", "Who is Mom?", "Mom's contact details."],
+    ["Arabic", "أرسل بريدًا إلى زوجتي", "زوجتي وعنوان بريدها الإلكتروني."],
+    ["Chinese", "给妻子发邮件", "妻子联系人的邮箱地址。"],
+  ])(
+    "preloads a personal memory for %s without Jev",
+    async (_label, request, description) => {
+      const owner = "user@example.test";
+      mocks.resourceGetByPath.mockImplementation(
+        async (resourceOwner: string, path: string) =>
+          resourceOwner === owner && path === "memory/MEMORY.md"
+            ? {
+                content: `# Memory Index\n- [contact](contact.md) — ${description}`,
+              }
+            : resourceOwner === owner && path === "memory/contact.md"
+              ? { content: `Saved contact: ${description}` }
+              : null,
+      );
+
+      const result = await preloadJevContextForPrompt({ request, owner });
+
+      expect(result).toContain(`Saved contact: ${description}`);
+      expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not start another selected memory read after the shared budget expires", async () => {
     const owner = "user@example.test";
     const startedBodyPaths: string[] = [];
@@ -941,6 +995,37 @@ describe("preloadJevContextForPrompt", () => {
     expect(prompt).not.toContain("Ambient");
     expect(prompt).not.toContain("ambient.md");
   });
+
+  it.each([false, true])(
+    "loads personal memory instructions in %s compact context",
+    async (compact) => {
+      const owner = "user@example.test";
+      mocks.resourceGetByPath.mockImplementation(
+        async (resourceOwner: string, path: string) =>
+          resourceOwner === owner && path === "memory/INSTRUCTIONS.md"
+            ? {
+                content:
+                  "Remember stable contact details; skip one-off errands.",
+              }
+            : null,
+      );
+
+      const prompt = await loadResourcesForPrompt(
+        owner,
+        compact,
+        undefined,
+        null,
+      );
+
+      expect(prompt).toContain("memory/INSTRUCTIONS.md");
+      expect(prompt).toContain("Remember stable contact details");
+      expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+        owner,
+        "memory/INSTRUCTIONS.md",
+        { orgId: null },
+      );
+    },
+  );
 
   it.each([
     ["instruction", "instructions/", "instructions/failing.md"],

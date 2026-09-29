@@ -462,7 +462,7 @@ function CustomRecurrenceEditor({
           onChange={(event) =>
             update({ interval: Math.max(1, Number(event.target.value) || 1) })
           }
-          className="h-9 w-16 text-center"
+          className="w-16 text-center"
           aria-label={t("eventForm.repeatEvery")}
         />
         <Select
@@ -474,7 +474,7 @@ function CustomRecurrenceEditor({
             })
           }
         >
-          <SelectTrigger className="h-9 flex-1">
+          <SelectTrigger className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -499,8 +499,8 @@ function CustomRecurrenceEditor({
                   key={value}
                   type="button"
                   variant={selected ? "default" : "secondary"}
-                  size="icon"
-                  className="size-8 rounded-full text-xs"
+                  size="icon-sm"
+                  className="rounded-full text-xs"
                   aria-pressed={selected}
                   onClick={() => toggleDay(value)}
                 >
@@ -534,12 +534,13 @@ function CustomRecurrenceEditor({
           />
           <span>{t("eventForm.on")}</span>
           <Input
+            size="sm"
             type="date"
             value={draft.endDate}
             onChange={(event) =>
               update({ endMode: "date", endDate: event.target.value })
             }
-            className="h-8 min-w-0 flex-1"
+            className="min-w-0 flex-1"
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground">
@@ -551,6 +552,7 @@ function CustomRecurrenceEditor({
           />
           <span>{t("eventForm.after")}</span>
           <Input
+            size="sm"
             type="number"
             min={1}
             max={999}
@@ -561,7 +563,7 @@ function CustomRecurrenceEditor({
                 count: Math.max(1, Number(event.target.value) || 1),
               })
             }
-            className="h-8 w-20"
+            className="w-20"
           />
           <span className="text-muted-foreground">
             {t("eventForm.occurrences")}

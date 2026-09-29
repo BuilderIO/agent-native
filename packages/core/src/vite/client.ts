@@ -784,6 +784,11 @@ function getClientDedupe(cwd: string): string[] {
     "@tailwindcss/vite",
   ]);
 
+  // Stateless, so one copy is not required. Forcing the app's copy breaks
+  // toolkit's generated icon catalog, which imports every export of the exact
+  // Tabler version toolkit pins; newer Tabler releases rename icons.
+  const versionPinnedByDependents = new Set(["@tabler/icons-react"]);
+
   try {
     const corePkgPath = path.resolve(__dirname, "../../package.json");
     const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
@@ -802,7 +807,7 @@ function getClientDedupe(cwd: string): string[] {
     ]);
 
     for (const dep of coreDeps) {
-      if (serverOnly.has(dep)) continue;
+      if (serverOnly.has(dep) || versionPinnedByDependents.has(dep)) continue;
       if (
         appDeps.has(dep) ||
         dep.startsWith("@radix-ui/") ||
@@ -3111,7 +3116,11 @@ function nitroStartupRecovery(): Plugin {
             cause?: NodeJS.ErrnoException;
           };
           const code = err.code ?? err.cause?.code;
-          const syscall = err.syscall ?? err.cause?.syscall;
+          // A reset on the browser's socket destroys it, so `disconnected`
+          // already covers the client leaving. A reset from any other socket
+          // (the database, an upstream fetch) leaves the browser waiting:
+          // destroying its response then reads as ERR_EMPTY_RESPONSE with
+          // nothing logged.
           const disconnected =
             req.aborted ||
             req.destroyed ||
@@ -3119,9 +3128,8 @@ function nitroStartupRecovery(): Plugin {
             res.destroyed ||
             res.writableEnded;
           if (
-            (code === "ECONNRESET" && syscall === "read") ||
-            (disconnected &&
-              (code === "ECONNRESET" || err.message === "read ECONNRESET"))
+            disconnected &&
+            (code === "ECONNRESET" || err.message === "read ECONNRESET")
           ) {
             if (!res.destroyed && !res.writableEnded) res.destroy();
             return;

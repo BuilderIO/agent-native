@@ -47,24 +47,33 @@ export function AgentKitActionWidget({
             thread.widgetMessageIds[candidate.id] === messageId,
         )
       : [];
-  const relatedResults: Array<{ widgetId: string; result: unknown }> =
-    attachedChangeWidgets
-      .map((candidate) => {
-        const candidateData = asRecord(candidate.data);
-        const candidateToolCallId = candidateData?.toolCallId;
-        const candidateTool =
-          typeof candidateToolCallId === "string"
-            ? thread.tools[candidateToolCallId]
-            : null;
-        return candidateTool?.status !== "completed" ||
-          candidateTool.output === undefined
-          ? null
-          : { widgetId: candidate.id, result: candidateTool.output as unknown };
-      })
-      .filter(
-        (entry): entry is { widgetId: string; result: unknown } =>
-          entry !== null && normalizeActionChangeResult(entry.result) !== null,
-      );
+  const relatedResults: Array<{
+    widgetId: string;
+    result: unknown;
+    toolName: string;
+  }> = attachedChangeWidgets
+    .map((candidate) => {
+      const candidateData = asRecord(candidate.data);
+      const candidateToolCallId = candidateData?.toolCallId;
+      const candidateTool =
+        typeof candidateToolCallId === "string"
+          ? thread.tools[candidateToolCallId]
+          : null;
+      return candidateTool?.status !== "completed" ||
+        candidateTool.output === undefined
+        ? null
+        : {
+            widgetId: candidate.id,
+            result: candidateTool.output as unknown,
+            toolName: candidateTool.name,
+          };
+    })
+    .filter(
+      (
+        entry,
+      ): entry is { widgetId: string; result: unknown; toolName: string } =>
+        entry !== null && normalizeActionChangeResult(entry.result) !== null,
+    );
   const primaryChangeWidgetId =
     relatedResults[0]?.widgetId ?? attachedChangeWidgets[0]?.id;
   if (attachedChangeWidgets.length > 1 && primaryChangeWidgetId !== widget.id) {

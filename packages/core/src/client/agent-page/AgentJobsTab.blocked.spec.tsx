@@ -55,6 +55,27 @@ function queryResult<T>(data: T) {
   return { data, error: null, isLoading: false };
 }
 
+function blockedJob(lastStatus: string, lastError: string | null) {
+  return {
+    id: "blocked-job",
+    name: "competitive-intelligence-daily-email",
+    path: "jobs/competitive-intelligence-daily-email.md",
+    scope: "personal" as const,
+    schedule: "0 8 * * *",
+    scheduleDescription: "Every day at 8 AM",
+    instructions: "Send the briefing.",
+    enabled: true,
+    lastRun: null,
+    lastCheck: "2026-07-31T17:04:14.688Z",
+    lastStatus,
+    lastError,
+    nextRun: "2026-08-01T08:00:00.000Z",
+    createdBy: "tmilazzo@builder.io",
+    mcpTools: [],
+    canUpdate: true,
+  };
+}
+
 describe("AgentJobsTab blocked automation", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -67,28 +88,7 @@ describe("AgentJobsTab blocked automation", () => {
 
     jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
       queryResult(
-        scope === "user"
-          ? [
-              {
-                id: "blocked-job",
-                name: "competitive-intelligence-daily-email",
-                path: "jobs/competitive-intelligence-daily-email.md",
-                scope: "personal",
-                schedule: "0 8 * * *",
-                scheduleDescription: "Every day at 8 AM",
-                instructions: "Send the briefing.",
-                enabled: true,
-                lastRun: null,
-                lastCheck: "2026-07-31T17:04:14.688Z",
-                lastStatus: "skipped",
-                lastError: BLOCKED_REASON,
-                nextRun: "2026-08-01T08:00:00.000Z",
-                createdBy: "tmilazzo@builder.io",
-                mcpTools: [],
-                canUpdate: true,
-              },
-            ]
-          : [],
+        scope === "user" ? [blockedJob("skipped", BLOCKED_REASON)] : [],
       ),
     );
     jobMocks.useAutomations.mockReturnValue(queryResult([]));
@@ -152,6 +152,7 @@ describe("AgentJobsTab blocked automation", () => {
           startedAt: Date.now(),
           finishedAt: Date.now() + 1000,
           error: "The worker failed.",
+          errorCode: "background_automation_failed",
         },
       ]),
     );
@@ -170,7 +171,56 @@ describe("AgentJobsTab blocked automation", () => {
     });
 
     expect(document.body.textContent).toContain("Open thread");
+    expect(document.body.textContent).toContain("background_automation_failed");
   });
+
+  it.each(["error", "interrupted"] as const)(
+    "keeps details discoverable for %s status without error text",
+    (status) => {
+      jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
+        queryResult(scope === "user" ? [blockedJob(status, null)] : []),
+      );
+      jobMocks.useAutomationRuns.mockReturnValue(
+        queryResult([
+          {
+            id: "failed-run",
+            automation: "competitive-intelligence-daily-email",
+            scope: "personal",
+            runId: "failed-run",
+            threadId: null,
+            status,
+            startedAt: Date.now(),
+            finishedAt: Date.now() + 1000,
+            error: null,
+            errorCode: null,
+          },
+        ]),
+      );
+
+      act(() => {
+        root.render(<AgentJobsTab />);
+      });
+
+      const statusLabel = Array.from(container.querySelectorAll("div")).find(
+        (element) => element.textContent === status,
+      );
+      expect(statusLabel?.className).toContain("bg-destructive");
+
+      const detailsButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => button.textContent?.trim() === "View details");
+      expect(detailsButton).toBeDefined();
+
+      act(() => {
+        detailsButton?.click();
+      });
+
+      const runStatus = Array.from(document.body.querySelectorAll("span")).find(
+        (element) => element.textContent === status,
+      );
+      expect(runStatus?.className).toContain("text-destructive");
+    },
+  );
 
   it("qualifies the next run date when the scheduler check failed", () => {
     jobMocks.useScheduledTriggerState.mockReturnValue({
@@ -223,13 +273,23 @@ describe("AgentJobsTab blocked automation", () => {
       root.render(<AgentJobsTab />);
     });
 
-    const editButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Edit",
+    // Edit lives in the row's More actions menu.
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      'article button[aria-haspopup="menu"]',
     );
-    expect(editButton).toBeDefined();
+    expect(menuTrigger).not.toBeNull();
+    act(() => {
+      menuTrigger!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Edit");
+    expect(editItem).toBeDefined();
 
     act(() => {
-      editButton?.click();
+      editItem?.click();
     });
 
     const input = document.querySelector<HTMLInputElement>(

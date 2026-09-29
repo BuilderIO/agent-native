@@ -18,6 +18,8 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+import { mailSettingsRoute } from "@shared/settings-navigation";
+
 import { EmailListItem } from "./EmailListItem";
 
 const email = {
@@ -124,6 +126,55 @@ describe("EmailListItem touch swipe interactions", () => {
     expect(
       screen.getByRole("button", { name: "mail.sort.priorityFeedbackLabel" }),
     ).toBeTruthy();
+  });
+
+  it("shows the Priority score and keeps score popover actions inside the row", () => {
+    const onSelect = vi.fn();
+    const onImportanceFeedback = vi.fn();
+    renderRow({ importanceScore: 0.91, onSelect, onImportanceFeedback });
+
+    const trigger = screen.getByRole("button", {
+      name: "mail.sort.priority 0.91",
+    });
+    expect(trigger.textContent).toBe("0.91");
+    expect(
+      (trigger as HTMLElement).style.getPropertyValue(
+        "--mail-importance-weight",
+      ),
+    ).toBe("91%");
+
+    fireEvent.click(trigger);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.importantMode" }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "mail.aiFilter.importantMode" }),
+    ).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.notImportantMode" }),
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.notImportantMode",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(trigger);
+    const editRulesLink = screen.getByRole("link", {
+      name: "mail.sort.priorityEditRules",
+    });
+    expect(editRulesLink.getAttribute("href")).toBe(
+      `${mailSettingsRoute("ai-filter")}#importance-rules`,
+    );
+    fireEvent.click(editRulesLink);
+
+    expect(onImportanceFeedback).toHaveBeenNthCalledWith(1, "important");
+    expect(onImportanceFeedback).toHaveBeenNthCalledWith(2, "not-important");
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("sizes the automated notifications label to its full text", () => {

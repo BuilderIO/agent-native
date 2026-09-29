@@ -148,8 +148,10 @@ export interface ScreenMetadata {
   previewToken?: string;
 }
 
+export type DuplicateMode = "cmd-d" | "alt-click" | "alt-drag";
+
 export interface DuplicateRequest {
-  mode: "alt-click" | "alt-drag";
+  mode: DuplicateMode;
   screen: ScreenFile;
   canvasPosition: { x: number; y: number };
   canvasFrameGeometryById?: FrameGeometryById;

@@ -15,6 +15,8 @@ import {
 import { IconCheck, IconChevronDown } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
+import { cn } from "../utils.js";
+
 const SYSTEM_VALUE = "system";
 
 export function browserTimezone(): string {
@@ -95,6 +97,8 @@ export interface TimezoneSelectProps {
   suggested?: string[];
   systemLabel?: string;
   id?: string;
+  /** The trigger's height: `sm` for a settings row, 32px. */
+  size?: "sm" | "default";
 }
 
 export function TimezoneSelect({
@@ -104,6 +108,7 @@ export function TimezoneSelect({
   suggested = [],
   systemLabel,
   id,
+  size = "default",
 }: TimezoneSelectProps) {
   const [open, setOpen] = useState(false);
   const detected = browserTimezone();
@@ -168,7 +173,10 @@ export function TimezoneSelect({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className={cn(
+            "flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+            size === "sm" ? "h-8" : "h-10",
+          )}
         >
           <span className="truncate">{triggerLabel}</span>
           <IconChevronDown className="size-4 shrink-0 opacity-50" />

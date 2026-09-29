@@ -25,7 +25,7 @@ export function TaskTitleSection({
         value={title}
         onChange={(event) => onChange(event.currentTarget.value)}
         aria-label={t("taskFields.editTaskTitleAriaLabel")}
-        className="h-9 text-[13px]"
+        className="text-[13px]"
       />
     </section>
   );

@@ -1,6 +1,5 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -12,6 +11,7 @@ import {
 import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
+  type CreativeContextAgentTabFactory,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import {
@@ -23,11 +23,14 @@ import {
   CONTENT_SLASH_VISUALS,
 } from "@shared/labs";
 import { useMemo } from "react";
-import { toast } from "sonner";
 
-import { Switch } from "@/components/ui/switch";
-import { useContentPrefs } from "@/hooks/use-content-prefs";
+import {
+  COMMENT_EMAILS_ROW_ID,
+  LegacyEmailNotificationsRow,
+  NotificationSettings,
+} from "@/components/settings/notification-settings";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -36,18 +39,35 @@ export function meta() {
   return [{ title: messagesByLocale["en-US"].settings.metaTitle }];
 }
 
+// The redesigned Settings gives the library its own page and header. The
+// context is widened first so this compiles before and after the package
+// accepts `variant`.
+const createCreativeContextSettingsTab: CreativeContextAgentTabFactory = (
+  context,
+) => {
+  const settingsContext = { ...context, variant: "settings" as const };
+  return createCreativeContextAgentTab(settingsContext);
+};
+
 export default function SettingsRoute() {
   const t = useT();
+  const redesign = useSettingsRedesign().enabled;
   const creativeContextEnabled = useCreativeContextLab();
   const agentAdditionalTabFactories = useMemo(
-    () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
-    [creativeContextEnabled],
+    () =>
+      creativeContextEnabled
+        ? [
+            redesign
+              ? createCreativeContextSettingsTab
+              : createCreativeContextAgentTab,
+          ]
+        : [],
+    [creativeContextEnabled, redesign],
   );
   const agentSettingsTabs = useAgentSettingsTabs({
     agentAdditionalTabFactories,
   });
   useSetPageTitle(t("settings.title"));
-  const { prefs, loading: prefsLoading, save: savePrefs } = useContentPrefs();
 
   const labs = useMemo(
     () =>
@@ -103,21 +123,30 @@ export default function SettingsRoute() {
     [t],
   );
 
-  return (
-    <div className="flex-1 overflow-auto">
-      <SettingsTabsPage
-        account={<AccountSettingsCard />}
-        teamLabel={t("team.pageTitle")}
-        extraTabs={agentSettingsTabs}
-        labs={labs}
-        labsIntro={t("settings.labsIntro", {
-          defaultValue: "Preview experimental features before they ship.",
-        })}
-        labsLabel={t("settings.labs", {
-          defaultValue: "Labs",
-        })}
-        generalSearchEntries={generalSearchEntries}
-        general={
+  const notificationsSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "content-comment-emails",
+        label: t("settings.commentsRepliesMentions"),
+        keywords: "email notifications document comments replies mentions",
+        hash: COMMENT_EMAILS_ROW_ID,
+      },
+    ],
+    [t],
+  );
+
+  // With the flag on, language lives on Account › Preferences, comment emails
+  // on the Notifications page, and the library on its own page, so Content
+  // adds no groups to its General page. With it off, today's General tab
+  // stays as it was.
+  const appSettings = redesign
+    ? {
+        notifications: <NotificationSettings />,
+        notificationsSearchEntries,
+      }
+    : {
+        generalSearchEntries,
+        general: (
           <main className="mx-auto w-full max-w-2xl space-y-6">
             <p className="text-sm leading-6 text-muted-foreground">
               {t("settings.description")}
@@ -136,41 +165,22 @@ export default function SettingsRoute() {
                   </div>
                 }
               />
-              <SettingsRow
-                id="notifications"
-                label={t("settings.emailNotifications")}
-                description={t("settings.emailNotificationsDescription")}
-                control={
-                  <Switch
-                    aria-label={t("settings.emailNotifications")}
-                    checked={prefs.emailNotifications !== false}
-                    disabled={prefsLoading}
-                    onCheckedChange={(checked) => {
-                      savePrefs({ emailNotifications: checked }).catch(
-                        (err) => {
-                          toast.error(
-                            err instanceof Error
-                              ? err.message
-                              : t("settings.saveFailed"),
-                          );
-                        },
-                      );
-                    }}
-                  />
-                }
-              />
+              <LegacyEmailNotificationsRow />
             </SettingsGroup>
           </main>
-        }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("team.createOrgDescription")}
-              className="max-w-3xl"
-            />
-          </div>
-        }
+        ),
+      };
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <SettingsTabsPage
+        {...appSettings}
+        account={<AccountSettingsCard />}
+        extraTabs={agentSettingsTabs}
+        labs={labs}
+        labsIntro={t("settings.labsIntro")}
+        labsLabel={t("settings.labs")}
+        mcpAbout={t("settings.mcpAbout")}
         whatsNew={
           <div className="mx-auto w-full max-w-2xl">
             <ChangelogSettingsCard markdown={changelog} />

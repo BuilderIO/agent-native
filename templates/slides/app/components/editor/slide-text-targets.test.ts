@@ -286,7 +286,7 @@ describe("slide text targets", () => {
   it("keeps a click on a slide link from opening it, but not a link in editor chrome", () => {
     document.body.innerHTML = `
       <div data-main-slide-canvas="true">
-        <div class="slide-content"><p>Read <a href="/report" target="_blank"><b>the report</b></a></p></div>
+        <div class="slide-content"><p contenteditable="true">Read <a href="/report" target="_blank"><b>the report</b></a></p></div>
         <a id="chrome" href="/help">Help</a>
       </div>
     `;

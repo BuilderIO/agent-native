@@ -1,5 +1,24 @@
 # @agent-native/toolkit
 
+## 0.23.0
+
+### Minor Changes
+
+- a20f0b4: Move the toolkit's Button, Switch, Select, and Input to shadcn new-york-v4 sizing. Buttons are 36px by default and 32px at `sm`, with new `xs`, `icon-xs`, `icon-sm`, and `icon-lg` sizes. `outline` is now the v4 bordered outline (`border bg-background shadow-xs`, with `bg-input/30` in dark mode) instead of an accent fill, and a new `outline-destructive` variant (outline with red text) marks destructive row actions; it maps to the design-system `danger` intent with `outline` emphasis. Switch is 32x18 with a `size` prop (`sm` is 24x14), SelectTrigger and Input take `size="sm" | "default"` (32px or 36px), Toggle is 36px (`sm` 32px), and TabsList is 36px. Alert sets `text-sm` on the root, so titles are 14px, and AlertDescription uses relaxed leading. Adds the shadcn `InputGroup` (`InputGroupAddon`, `InputGroupInput`, `InputGroupButton`, `InputGroupText`, `InputGroupTextarea`) for fields with icons or inline actions. Dispatch's local Button, Switch, Input, Tabs, Toggle, and AlertDialog now re-export the toolkit's, so its tabs and toggles follow the same heights and its confirm dialogs stack above toolkit dialogs. The Dispatch app search matches the 32px toolbar buttons beside it. Settings row, retry, and group-heading buttons use `outline` instead of `secondary`; dialog Cancel buttons stay `secondary`.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.22.3
+
+### Patch Changes
+
+- 880740b: Match attached Connect AI card spacing and stacking across chat surfaces.
+- 55c9666: Support host-owned inline recipient atoms, exact mention aliases, selection restoration, and IME-safe keyboard handling in the shared prompt composer.
+- 55c9666: Let hosts style the shared composer for non-agent prompts: a stacked `@` menu density with larger avatars, `insertTextAtCursor` on the composer handle, a `requireAgentEngine` opt-out so a missing API key never blocks a human comment, data attributes on inline mention pills, filtering of host-supplied `@` items by the typed query so Enter picks the matching item, and an `@` inserted through `insertTextAtCursor` (an @ toolbar button) now opens the mention menu.
+- Release all public npm packages with a patch version bump.
+
 ## 0.22.2
 
 ### Patch Changes
@@ -901,18 +920,5 @@
 ### Patch Changes
 
 - c690750: Button press feedback now eases instead of snapping: include the native `scale` property in the Button transition list (Tailwind v4 compiles `active:scale-*` to `scale`, which the previous `transform`-only list didn't animate).
-
-## 0.4.8
-
-### Patch Changes
-
-- ffad302: Allow command dialogs to configure the underlying command root for custom ranking and controlled selection.
-- ffad302: Ease in the backdrop blur for instant command dialogs while keeping the command surface immediately responsive.
-
-## 0.4.7
-
-### Patch Changes
-
-- 38ca6fa: Motion polish across shared UI: overlay primitives (tooltip, popover, select, context/menubar menus) now scale from their trigger, exit with ease-out, and respect prefers-reduced-motion; new shared easing tokens (--ease-drawer, --ease-collapse, --ease-out-strong); press feedback on the shared Button and composer send button; GPU-friendly progress fills; chat tool cells (files-changed/edit/write) animate open/closed like other disclosures.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

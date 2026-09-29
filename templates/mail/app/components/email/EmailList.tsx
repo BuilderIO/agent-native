@@ -10,6 +10,7 @@ import {
   type MailSortMode,
 } from "@shared/ai-priority";
 import { mailLabelsInclude } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
@@ -393,11 +394,9 @@ function EmailErrorState({
     ? getRateLimitRetryMs({ message, retryAfterMs })
     : 0;
   const [cooldownRemaining, setCooldownRemaining] = useState(rateLimitRetryMs);
-  const autoRetryFired = useRef(false);
 
   useEffect(() => {
     setCooldownRemaining(rateLimitRetryMs);
-    autoRetryFired.current = false;
   }, [rateLimitRetryMs]);
 
   const isCoolingDown = cooldownRemaining > 0;
@@ -409,18 +408,9 @@ function EmailErrorState({
     return () => clearInterval(handle);
   }, [isCoolingDown]);
 
-  useEffect(() => {
-    if (!isQuotaError) return;
-    if (autoRetryFired.current) return;
-    if (cooldownRemaining > 0) return;
-    autoRetryFired.current = true;
-    void onRetry();
-  }, [cooldownRemaining, isQuotaError, onRetry]);
-
   const handleClick = useCallback(() => {
     if (cooldownRemaining > 0 || isFetching) return;
     setCooldownRemaining(rateLimitRetryMs);
-    autoRetryFired.current = true;
     void onRetry();
   }, [cooldownRemaining, isFetching, onRetry, rateLimitRetryMs]);
 
@@ -2258,7 +2248,9 @@ export function EmailList({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
-                      navigate("/settings?section=ai-filter#importance-rules")
+                      navigate(
+                        `${mailSettingsRoute("ai-filter")}#importance-rules`,
+                      )
                     }
                     aria-label={t("mail.sort.priorityEditRules")}
                     title={t("mail.sort.priorityEditRules")}
@@ -2672,6 +2664,16 @@ export function EmailList({
               >
                 <EmailListItem
                   email={thread.latestMessage}
+                  importanceScore={
+                    view === "inbox" && currentSortMode === "priority"
+                      ? cachedPriorityScores.get(
+                          aiPriorityEmailKey(
+                            thread.latestMessage.accountEmail,
+                            thread.latestMessage.id,
+                          ),
+                        )
+                      : undefined
+                  }
                   labelNames={labelNames}
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}

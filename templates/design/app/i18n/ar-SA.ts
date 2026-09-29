@@ -170,6 +170,8 @@ export default {
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+    mcpAbout:
+      "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
   pages: {
     presentEmpty: "لا يوجد محتوى للعرض",
@@ -178,7 +180,6 @@ export default {
     notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
     notFoundSignIn: "تسجيل الدخول",
     notFoundBackToDesigns: "العودة إلى التصاميم",
-    teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
   },
   onboarding: {
     fileStorage: {
@@ -1453,6 +1454,18 @@ export default {
         "لم يؤكد جسر المحرر المباشر الاتصال بعد عدة محاولات.",
       connectionNotConfirmed:
         "لم يؤكد جسر المحرر المباشر الاتصال. هل لا يزال خادم التطوير المحلي قيد التشغيل؟",
+      permissionPromptTitle: "وصّل شاشاتك المحلية",
+      permissionPromptDescription:
+        "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
+      permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
+      permissionPromptSettingsInstructions:
+        "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اسمح بالوصول إلى التطبيقات على جهازك.",
+      permissionCloseTitle: "إغلاق الإعداد؟",
+      permissionCloseDescription:
+        "لن يعمل التحرير المباشر حتى تسمح بالوصول في Chrome.",
+      permissionCloseStay: "إبقاء الإعداد مفتوحًا",
+      permissionCloseAnyway: "إغلاق على أي حال",
+      permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },
   multiScreenCanvas: {

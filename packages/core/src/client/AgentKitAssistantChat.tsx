@@ -1,5 +1,8 @@
-import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import type { AgentThreadState } from "@agent-native/agentkit";
+import {
+  hasActiveAgentRuns,
+  type AgentKitUploadDriver,
+  type AgentThreadState,
+} from "@agent-native/agentkit";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
@@ -101,6 +104,7 @@ import { agentNativePath } from "./api-path.js";
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
+  isClientAppStateMutationPending,
   readClientAppState,
 } from "./application-state.js";
 import { isInBuilderFrame } from "./builder-frame.js";
@@ -204,6 +208,8 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryRequestMode?: "act" | "plan";
   deferredFileParts?: FilePart[];
   contextAlreadyIncluded?: boolean;
+  pendingSelectionCapturedAt?: number | null;
+  skipAmbientSelectionContext?: boolean;
   deferredAgentId?: string | null;
   deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
   deferredSubmissionId?: string;
@@ -231,6 +237,23 @@ interface DeferredProviderSubmissionsState {
 interface PendingSelectionContext {
   text: string;
   capturedAt: number;
+}
+
+interface PendingSelectionHydration {
+  threadId: string;
+  promise: Promise<void>;
+  resolve: () => void;
+  status: "pending" | "loaded" | "failed";
+}
+
+function createPendingSelectionHydration(
+  threadId: string,
+): PendingSelectionHydration {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { threadId, promise, resolve, status: "pending" };
 }
 
 function deferredProviderSubmissionsStateKey(threadId: string): string {
@@ -414,6 +437,7 @@ function isRetryableDeferredProviderSubmissionError(error: unknown): boolean {
 interface AgentKitSurfaceContextValue {
   props: AgentKitAssistantChatProps;
   handoffSnapshot: AgentThreadSnapshot | null;
+  hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
@@ -998,7 +1022,7 @@ const AgentKitAssistantChatBody = forwardRef<
     onThreadRestoreLoaded: () => void;
   }
 >(function AgentKitAssistantChatBody(props, ref) {
-  const { threadId, requestComposerFocus } = useAgentKit();
+  const { controller, threadId, requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const history = useOptionalAgentKitHistory();
@@ -1105,12 +1129,52 @@ const AgentKitAssistantChatBody = forwardRef<
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
+  const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
+  const updatePendingSelection = useCallback(
+    (selection: PendingSelectionContext | null) => {
+      pendingSelectionRef.current = selection;
+      setPendingSelection(selection);
+    },
+    [],
+  );
+  const pendingSelectionHydrationRef = useRef<PendingSelectionHydration | null>(
+    null,
+  );
+  if (pendingSelectionHydrationRef.current?.threadId !== threadId) {
+    pendingSelectionHydrationRef.current?.resolve();
+    pendingSelectionHydrationRef.current =
+      createPendingSelectionHydration(threadId);
+  }
   const selectionRevisionRef = useRef(0);
   const selectionLength = pendingSelection?.text.length ?? null;
-  const [voiceTranscriptMessages, setVoiceTranscriptMessages] = useState<
-    AgentMessage[]
-  >([]);
-  const voiceTranscriptsRef = useRef<RealtimeVoiceTranscriptMessage[]>([]);
+  const [voiceTranscriptState, setVoiceTranscriptState] = useState({
+    threadId,
+    messages: [] as AgentMessage[],
+  });
+  const voiceTranscriptMessages =
+    voiceTranscriptState.threadId === threadId
+      ? voiceTranscriptState.messages
+      : [];
+  const voiceTranscriptsRef = useRef({
+    threadId,
+    messages: [] as RealtimeVoiceTranscriptMessage[],
+  });
+  if (voiceTranscriptsRef.current.threadId !== threadId) {
+    voiceTranscriptsRef.current = { threadId, messages: [] };
+  }
+  const threadMessageIds = new Set(
+    thread.messages.map((message) => message.id),
+  );
+  const hasRenderedMessages =
+    thread.messages.length > 0 ||
+    props.threadContentSlot != null ||
+    getAgentKitThreadHandoffMessages(
+      thread,
+      props.threadRestore.status === "error" ? null : props.handoffSnapshot,
+    ).length > 0 ||
+    voiceTranscriptMessages.some(
+      (message) => !threadMessageIds.has(message.id),
+    );
   const seenEventsRef = useRef({
     threadId,
     initialized: false,
@@ -1135,7 +1199,11 @@ const AgentKitAssistantChatBody = forwardRef<
         .find((message) => message.role === "assistant"),
     [thread.messages],
   );
-  const isRunning = thread.activeRunIds.length > 0;
+  const isRunning = hasActiveAgentRuns(thread);
+  const isThreadRunning = useCallback(
+    () => hasActiveAgentRuns(controller.getThread(threadId)),
+    [controller, threadId],
+  );
 
   useEffect(() => {
     if (previousPrefillRevisionRef.current === prefillRevision) return;
@@ -1312,24 +1380,31 @@ const AgentKitAssistantChatBody = forwardRef<
     thread.messages.some((message) => message.role === "assistant");
 
   const clearPendingSelection = useCallback(() => {
-    selectionRevisionRef.current += 1;
-    setPendingSelection(null);
-    void deleteClientAppState("pending-selection-context", {
+    const selectionRevision = ++selectionRevisionRef.current;
+    return deleteClientAppState("pending-selection-context", {
       keepalive: true,
-    }).catch(() => {});
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-    }
-  }, []);
+    }).then(() => {
+      if (selectionRevision !== selectionRevisionRef.current) return;
+      updatePendingSelection(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agent-panel:selection-cleared"));
+      }
+    });
+  }, [updatePendingSelection]);
+  const requestPendingSelectionClear = useCallback(() => {
+    void clearPendingSelection().catch((error: unknown) => {
+      console.warn("[agent-chat] Couldn't clear the pending selection", error);
+    });
+  }, [clearPendingSelection]);
 
   useEffect(() => {
     let cancelled = false;
+    const hydration = pendingSelectionHydrationRef.current;
+    updatePendingSelection(null);
     const selectionRevision = selectionRevisionRef.current;
     void readClientAppState<unknown>("pending-selection-context")
       .then((value) => {
-        if (cancelled || selectionRevision !== selectionRevisionRef.current) {
-          return;
-        }
+        if (cancelled || hydration?.threadId !== threadId) return;
         const state = asRecord(value);
         const nestedValue = asRecord(state?.value);
         const text =
@@ -1344,31 +1419,42 @@ const AgentKitAssistantChatBody = forwardRef<
             : typeof state?.capturedAt === "number"
               ? state.capturedAt
               : 0;
-        setPendingSelection(
-          text && Date.now() - capturedAt <= PENDING_SELECTION_TTL_MS
-            ? { text, capturedAt }
-            : null,
-        );
+        if (selectionRevision === selectionRevisionRef.current) {
+          updatePendingSelection(
+            text && Date.now() - capturedAt <= PENDING_SELECTION_TTL_MS
+              ? { text, capturedAt }
+              : null,
+          );
+        }
+        if (hydration) hydration.status = "loaded";
       })
-      .catch(() => {});
+      .catch(() => {
+        if (hydration) hydration.status = "failed";
+      })
+      .finally(() => {
+        if (hydration?.status === "pending") hydration.status = "failed";
+        hydration?.resolve();
+      });
     return () => {
       cancelled = true;
+      if (hydration?.status === "pending") hydration.status = "failed";
+      hydration?.resolve();
     };
-  }, [threadId]);
+  }, [threadId, updatePendingSelection]);
 
   useEffect(() => {
     const onAttached = (event: Event) => {
       const detail = asRecord((event as CustomEvent).detail);
       if (typeof detail?.text === "string" && detail.text) {
         selectionRevisionRef.current += 1;
-        setPendingSelection({ text: detail.text, capturedAt: Date.now() });
+        updatePendingSelection({ text: detail.text, capturedAt: Date.now() });
       }
     };
     const onCleared = () => {
       selectionRevisionRef.current += 1;
-      setPendingSelection(null);
+      updatePendingSelection(null);
     };
-    const onClearRequested = () => clearPendingSelection();
+    const onClearRequested = requestPendingSelectionClear;
     window.addEventListener("agent-panel:selection-attached", onAttached);
     window.addEventListener("agent-panel:selection-cleared", onCleared);
     window.addEventListener(
@@ -1383,7 +1469,7 @@ const AgentKitAssistantChatBody = forwardRef<
         onClearRequested,
       );
     };
-  }, [clearPendingSelection]);
+  }, [requestPendingSelectionClear, updatePendingSelection]);
 
   useEffect(() => {
     const apply = () => {
@@ -1512,7 +1598,7 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
 
   saveSnapshotRef.current = () => {
-    const transcripts = voiceTranscriptsRef.current;
+    const transcripts = voiceTranscriptsRef.current.messages;
     if (thread.messages.length === 0 && transcripts.length === 0) {
       return;
     }
@@ -1552,19 +1638,25 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const appendRealtimeVoiceTranscript = useCallback(
     (transcript: RealtimeVoiceTranscriptMessage) => {
-      if (isRestoring || isRunning) return false;
+      if (
+        isRestoring ||
+        isRunning ||
+        transcript.threadId !== threadId ||
+        voiceTranscriptsRef.current.threadId !== threadId
+      ) {
+        return false;
+      }
+      const currentTranscripts = voiceTranscriptsRef.current.messages;
       if (
         thread.messages.some((message) => message.id === transcript.id) ||
-        voiceTranscriptsRef.current.some(
-          (message) => message.id === transcript.id,
-        )
+        currentTranscripts.some((message) => message.id === transcript.id)
       ) {
         return true;
       }
-      const transcripts = [...voiceTranscriptsRef.current, transcript];
+      const transcripts = [...currentTranscripts, transcript];
       const messages = transcripts.map(realtimeVoiceTranscriptAgentMessage);
-      voiceTranscriptsRef.current = transcripts;
-      setVoiceTranscriptMessages(messages);
+      voiceTranscriptsRef.current = { threadId, messages: transcripts };
+      setVoiceTranscriptState({ threadId, messages });
       const baseSnapshot = createAgentKitThreadSnapshot(thread);
       const snapshot = appendVoiceTranscriptsToThreadSnapshot(
         baseSnapshot,
@@ -1639,22 +1731,23 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: PromptComposerSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ) => {
+      const selectionHydration = pendingSelectionHydrationRef.current;
+      await selectionHydration?.promise;
+      const currentPendingSelection = pendingSelectionRef.current;
+      const selectionRevision = selectionRevisionRef.current;
       const context =
         options.recoveryAction || options.contextAlreadyIncluded
           ? ""
           : [
               formatAgentChatContextItemsForPrompt(contextItems),
-              pendingSelectionPromptContext(pendingSelection),
+              pendingSelectionPromptContext(currentPendingSelection),
             ]
               .filter(Boolean)
               .join("\n\n");
       const message = options.contextAlreadyIncluded
         ? text
         : appendAgentChatContextToMessage(text, context);
-      const attachments = [
-        ...(options.attachments ?? []),
-        ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
-      ];
+      const attachments = options.attachments ?? [];
       const needsFileStorage =
         files.length > 0 ||
         attachments.some(
@@ -1666,15 +1759,23 @@ const AgentKitAssistantChatBody = forwardRef<
       const fileParts =
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
-      if (!options.recoveryAction) {
-        await deleteClientAppState("pending-selection-context", {
-          keepalive: true,
-        }).catch(() => {});
-        selectionRevisionRef.current += 1;
-        setPendingSelection(null);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-        }
+      const selectionChangedDuringSubmission =
+        selectionRevision !== selectionRevisionRef.current ||
+        (options.pendingSelectionCapturedAt !== undefined &&
+          options.pendingSelectionCapturedAt !==
+            (currentPendingSelection?.capturedAt ?? null));
+      const skipAmbientSelectionContext =
+        options.skipAmbientSelectionContext === true ||
+        selectionHydration?.status === "pending" ||
+        isClientAppStateMutationPending("pending-selection-context") ||
+        selectionChangedDuringSubmission ||
+        Boolean(pendingSelectionPromptContext(currentPendingSelection));
+      if (
+        !options.recoveryAction &&
+        !selectionChangedDuringSubmission &&
+        Boolean(pendingSelectionPromptContext(currentPendingSelection))
+      ) {
+        requestPendingSelectionClear();
       }
       const requestMode =
         options.requestMode ??
@@ -1705,6 +1806,9 @@ const AgentKitAssistantChatBody = forwardRef<
           : {}),
         ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
         ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
+        ...(skipAmbientSelectionContext
+          ? { agentNativeSkipPendingSelectionContext: true }
+          : {}),
         ...(actionScope ? { actionScope } : {}),
         ...(options.approvedToolCalls
           ? { approvedToolCalls: options.approvedToolCalls }
@@ -1794,7 +1898,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedModel,
       fileStorageConfigured,
       t,
-      pendingSelection,
+      requestPendingSelectionClear,
     ],
   );
 
@@ -1839,10 +1943,11 @@ const AgentKitAssistantChatBody = forwardRef<
                 readiness.state === "unavailable")))
         ) {
           try {
-            const attachments = [
-              ...(options.attachments ?? []),
-              ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
-            ];
+            const selectionHydration = pendingSelectionHydrationRef.current;
+            await selectionHydration?.promise;
+            const currentPendingSelection = pendingSelectionRef.current;
+            const selectionRevision = selectionRevisionRef.current;
+            const attachments = options.attachments ?? [];
             const needsFileStorage =
               files.length > 0 ||
               attachments.some(
@@ -1858,16 +1963,27 @@ const AgentKitAssistantChatBody = forwardRef<
               attachments,
               files,
             );
+            const selectionChangedDuringUpload =
+              selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
               ? ""
               : [
                   formatAgentChatContextItemsForPrompt(contextItems),
-                  pendingSelectionPromptContext(pendingSelection),
+                  pendingSelectionPromptContext(currentPendingSelection),
                 ]
                   .filter(Boolean)
                   .join("\n\n");
             const { submitMessageId } = options;
             const deferredOptions = { ...options };
+            deferredOptions.pendingSelectionCapturedAt =
+              currentPendingSelection?.capturedAt ?? null;
+            if (
+              options.skipAmbientSelectionContext === true ||
+              selectionHydration?.status === "pending" ||
+              selectionChangedDuringUpload
+            ) {
+              deferredOptions.skipAmbientSelectionContext = true;
+            }
             delete deferredOptions.submitMessageId;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
@@ -1940,7 +2056,6 @@ const AgentKitAssistantChatBody = forwardRef<
       control,
       dispatch,
       fileStorageConfigured,
-      pendingSelection,
       props.contextScope,
       props.execMode,
       props.selectedAgent,
@@ -2201,7 +2316,7 @@ const AgentKitAssistantChatBody = forwardRef<
         text,
         [],
         [],
-        { intent: isRunning ? "queued" : "immediate" },
+        { intent: isThreadRunning() ? "queued" : "immediate" },
         {
           ...options,
           attachments: [
@@ -2214,7 +2329,7 @@ const AgentKitAssistantChatBody = forwardRef<
           ],
         },
       ),
-    [isRunning, submit],
+    [isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
     async (
@@ -2235,7 +2350,7 @@ const AgentKitAssistantChatBody = forwardRef<
         text,
         [],
         [],
-        { intent: isRunning ? "queued" : "immediate" },
+        { intent: isThreadRunning() ? "queued" : "immediate" },
         {
           hideUserMessage: true,
           recoveryAction,
@@ -2252,7 +2367,7 @@ const AgentKitAssistantChatBody = forwardRef<
         },
       );
     },
-    [isRunning, submit],
+    [isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
     (message: string) => {
@@ -2266,11 +2381,11 @@ const AgentKitAssistantChatBody = forwardRef<
   const submitSuggestion = useCallback(
     (prompt: string) =>
       void submit(prompt, [], [], {
-        intent: isRunning ? "queued" : "immediate",
+        intent: isThreadRunning() ? "queued" : "immediate",
       }).catch((error) => {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
       }),
-    [isRunning, props.tabId, submit, threadId],
+    [isThreadRunning, props.tabId, submit, threadId],
   );
   const retryDeferredSubmission = useCallback(async () => {
     if (!deferredProviderSubmissionFailureId) return;
@@ -2385,7 +2500,7 @@ const AgentKitAssistantChatBody = forwardRef<
             })),
           },
         ),
-      isRunning: () => thread.activeRunIds.length > 0,
+      isRunning: isThreadRunning,
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
         Object.values(thread.activities).some(
@@ -2395,14 +2510,14 @@ const AgentKitAssistantChatBody = forwardRef<
       exportThreadSnapshot: () => {
         if (
           thread.messages.length === 0 &&
-          voiceTranscriptsRef.current.length === 0
+          voiceTranscriptsRef.current.messages.length === 0
         ) {
           return null;
         }
         const snapshot = appendVoiceTranscriptsToThreadSnapshot(
           createAgentKitThreadSnapshot(thread),
           thread,
-          voiceTranscriptsRef.current,
+          voiceTranscriptsRef.current.messages,
         );
         if (!props.createTransport && !props.runtime) {
           storeAgentKitThreadHandoffSnapshot(
@@ -2438,6 +2553,7 @@ const AgentKitAssistantChatBody = forwardRef<
   const surfaceContext: AgentKitSurfaceContextValue = {
     props,
     handoffSnapshot: props.handoffSnapshot,
+    hasRenderedMessages,
     canChat,
     setupMissing,
     providerStatus,
@@ -2466,7 +2582,7 @@ const AgentKitAssistantChatBody = forwardRef<
     text: composerText,
     onTextChange: onComposerTextChange,
     onRemoveContextItem: removeContextItem,
-    onClearSelection: clearPendingSelection,
+    onClearSelection: requestPendingSelectionClear,
     onBeforeSubmit: beforeSubmit,
     onSubmit: submitPrepared,
     sendMessage: send,
@@ -2516,6 +2632,7 @@ const AgentKitAssistantChatBody = forwardRef<
       <AgentKitChat
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+        hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty ? "center" : "bottom"
         }
@@ -2543,8 +2660,16 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
     return null;
   }
   const showDefault = surface.props.emptyStateDisplay !== "hidden";
+  if (
+    !showDefault &&
+    !surface.props.emptyStateAddon &&
+    !surface.props.emptyStateFooter
+  ) {
+    return null;
+  }
   const promptSuggestions =
     surface.props.suggestionPlacement !== "context-chips" &&
+    surface.props.suggestionPlacement !== "after-composer" &&
     surface.props.suggestionPlacement !== "hidden" &&
     surface.showSuggestions
       ? surface.suggestions
@@ -2624,6 +2749,7 @@ function AgentKitSelectionPill({
 }
 
 function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
+  const { controller } = useAgentKit();
   const surface = useAgentKitSurface();
   const t = useT();
   const thread = useAgentThread(threadId);
@@ -2642,7 +2768,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         appendAgentChatContextToMessage(message, context),
         [],
         [],
-        { intent: surface.isRunning ? "queued" : "immediate" },
+        {
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
+        },
       );
       return { delivered: true };
     },
@@ -2651,7 +2781,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         appendAgentChatContextToMessage(message, context),
         [],
         [],
-        { intent: surface.isRunning ? "queued" : "immediate" },
+        {
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
+        },
       );
       return { delivered: true };
     },
@@ -2662,29 +2796,23 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
+  const showHomeSuggestions =
+    surface.props.centerComposerWhenEmpty &&
+    !surface.hasRenderedMessages &&
+    surface.threadRestore.status === "ready";
   const suggestionBar =
     surface.props.suggestionPlacement === "context-chips" &&
+    !showHomeSuggestions &&
     surface.showSuggestions &&
     surface.suggestions.length > 0 ? (
-      <AgentSuggestionBar
-        ariaLabel={t("agentChat.composer.suggestedPrompts")}
-        suggestions={surface.suggestions.map((suggestion, index) => ({
-          ...(typeof suggestion === "string"
-            ? {
-                id: `host-suggestion-${index}-${suggestion}`,
-                label: suggestion,
-                prompt: suggestion,
-              }
-            : suggestion),
-          disabled: Boolean(
-            !surface.canChat ||
-            surface.props.composerDisabled ||
-            surface.isSubmissionInFlight,
-          ),
-        }))}
-        onSelect={(suggestion) =>
-          surface.submitSuggestion(agentSuggestionPrompt(suggestion))
+      <AgentKitSuggestedPrompts
+        suggestions={surface.suggestions}
+        disabled={
+          !surface.canChat ||
+          surface.props.composerDisabled ||
+          surface.isSubmissionInFlight
         }
+        onSelect={surface.submitSuggestion}
         className="agentkit-host-suggestions"
       />
     ) : null;
@@ -2961,6 +3089,10 @@ function AgentKitComposerSurface({
   isRunning,
   isRestoring,
   isSubmissionInFlight,
+  hasRenderedMessages,
+  threadRestore,
+  suggestions,
+  showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
   contextItems,
@@ -2972,6 +3104,7 @@ function AgentKitComposerSurface({
   onClearSelection,
   onBeforeSubmit,
   onSubmit,
+  submitSuggestion,
   onImplementPlan,
 }: {
   threadId: string;
@@ -2989,6 +3122,7 @@ function AgentKitComposerSurface({
   isRunning: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
+  hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   contextItems: AgentChatContextItem[];
@@ -3000,6 +3134,12 @@ function AgentKitComposerSurface({
   onClearSelection: () => void;
   onBeforeSubmit: () => Promise<boolean>;
   onSubmit: PromptComposerProps["onSubmit"];
+  threadRestore:
+    | { status: "ready" | "loading" }
+    | { status: "error"; notFound: boolean };
+  suggestions: AgentSuggestionInput[];
+  showSuggestions: boolean;
+  submitSuggestion: (prompt: string) => void;
   onImplementPlan: () => boolean;
 }) {
   const t = useT();
@@ -3031,10 +3171,35 @@ function AgentKitComposerSurface({
     variant: "composer",
     requestedByUser: true,
   });
+  const showHomeIntro =
+    props.homeIntroSlot &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready";
+  const showHomeSuggestions =
+    props.centerComposerWhenEmpty &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready" &&
+    props.suggestionPlacement === "context-chips" &&
+    showSuggestions &&
+    suggestions.length > 0;
+  const showAfterComposerSuggestions =
+    props.suggestionPlacement === "after-composer" &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready" &&
+    showSuggestions &&
+    suggestions.length > 0;
+  const showAfterComposerSlot =
+    props.afterComposerSlot &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready";
   return (
     <div
       ref={fileStorageAnchorRef}
-      className={cn("agentkit-host-composer", props.composerAreaClassName)}
+      className={cn(
+        "agentkit-host-composer",
+        setupMissing && "agent-composer-area--attached-above",
+        props.composerAreaClassName,
+      )}
     >
       <FileStorageSetupPopover
         open={fileStoragePromptOpen && !fileStorageConfigured}
@@ -3049,6 +3214,17 @@ function AgentKitComposerSurface({
             })}
       />
       {props.composerSlot}
+      {showHomeIntro ? (
+        <div className="agentkit-home-intro">{props.homeIntroSlot}</div>
+      ) : null}
+      {showHomeSuggestions ? (
+        <AgentKitSuggestedPrompts
+          suggestions={suggestions}
+          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          onSelect={submitSuggestion}
+          className="agentkit-home-suggestions"
+        />
+      ) : null}
       {showPlanCallout ? (
         <PlanModeCallout
           canImplementPlan={latestAssistantWasPlan}
@@ -3056,16 +3232,13 @@ function AgentKitComposerSurface({
           onSwitchToAct={() => props.onExecModeChange?.("build")}
         />
       ) : null}
-      {setupMissing ? (
+      {setupMissing && props.showMissingApiKeySetup !== false ? (
         <BuilderSetupCard
           fullWidth
           attached
           bouncePulse={setupBouncePulse}
           layout={props.missingApiKeySetupLayout ?? "default"}
           onConnected={() =>
-            window.dispatchEvent(new Event("agent-engine:configured-changed"))
-          }
-          onRetry={() =>
             window.dispatchEvent(new Event("agent-engine:configured-changed"))
           }
         />
@@ -3154,7 +3327,10 @@ function AgentKitComposerSurface({
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           onSlashCommand={props.onSlashCommand}
-          modelStatusChecksEnabled={false}
+          modelStatusChecksEnabled={
+            props.showModelSelector !== false &&
+            props.availableModels === undefined
+          }
           attachmentsEnabled={fileStorageConfigured}
           onAttachmentRequest={requestFileStorage}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
@@ -3243,7 +3419,53 @@ function AgentKitComposerSurface({
         ) : null}
         <ExternalAgentNudge variant="prompt" />
       </div>
+      {showAfterComposerSuggestions ? (
+        <AgentKitSuggestedPrompts
+          suggestions={suggestions}
+          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          onSelect={submitSuggestion}
+          className="agentkit-home-suggestions"
+        />
+      ) : null}
+      {showAfterComposerSlot ? (
+        <div className="agentkit-after-composer-slot">
+          {props.afterComposerSlot}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function AgentKitSuggestedPrompts({
+  suggestions,
+  disabled,
+  onSelect,
+  className,
+}: {
+  suggestions: AgentSuggestionInput[];
+  disabled: boolean;
+  onSelect: (prompt: string) => void;
+  className: string;
+}) {
+  const t = useT();
+  return (
+    <AgentSuggestionBar
+      ariaLabel={t("agentChat.composer.suggestedPrompts")}
+      suggestions={suggestions.map((suggestion, index) => ({
+        ...(typeof suggestion === "string"
+          ? {
+              id: `host-suggestion-${index}-${suggestion}`,
+              label: suggestion,
+              prompt: suggestion,
+            }
+          : suggestion),
+        disabled: Boolean(
+          disabled || (typeof suggestion !== "string" && suggestion.disabled),
+        ),
+      }))}
+      onSelect={(suggestion) => onSelect(agentSuggestionPrompt(suggestion))}
+      className={className}
+    />
   );
 }
 
@@ -3292,7 +3514,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const integration =
     value.role === "assistant" &&
     value.status === "complete" &&
-    thread.activeRunIds.length === 0
+    !hasActiveAgentRuns(thread)
       ? findMcpConnectionSuggestionIntegration({
           text,
           contextText,
@@ -3570,6 +3792,7 @@ function AgentKitRunFailure({
     error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
     error.code === "missing_api_key"
   ) {
+    if (surface.setupMissing) return null;
     return (
       <BuilderSetupCard
         fullWidth

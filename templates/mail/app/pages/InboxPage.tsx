@@ -2,12 +2,9 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
-import {
-  isInboxScopedAppLabel,
-  mailLabelsInclude,
-  mailLabelsIncludeAny,
-} from "@shared/gmail-labels";
-import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
@@ -50,6 +47,8 @@ import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
   inboxThreadKey,
+  isInboxScopedLabel,
+  resolveInboxEmailQueryScope,
   savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import {
@@ -357,8 +356,12 @@ export function InboxPage() {
       retry: 2,
     },
   );
+  const { refetch: refetchJevAvailability } = jevAvailability;
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const onJevAvailabilityChange = useCallback(() => {
+    void refetchJevAvailability();
+  }, [refetchJevAvailability]);
   const showPrioritySort =
     jevConfigured || (jevAvailability.isError && sortMode === "priority");
   const changeSortMode = useCallback((mode: MailSortMode) => {
@@ -377,6 +380,7 @@ export function InboxPage() {
   }, [changeSortMode, showPrioritySort, sortMode]);
   useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
   const [searchParams] = useSearchParams();
+  const isOnboardingPreview = searchParams.get("onboarding") === "preview";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -417,31 +421,7 @@ export function InboxPage() {
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
-  const activeLabelRecord = useMemo(() => {
-    if (!activeLabel) return undefined;
-    const normalizedId = activeLabel.includes("/")
-      ? activeLabel
-          .slice(activeLabel.lastIndexOf("/") + 1)
-          .replace(/_/g, " ")
-          .toLowerCase()
-      : activeLabel.toLowerCase();
-    return labels.find(
-      (label) =>
-        label.id === activeLabel ||
-        label.id === normalizedId ||
-        label.name.toLowerCase() === activeLabel.toLowerCase(),
-    );
-  }, [activeLabel, labels]);
-  const activeLabelIsInboxScoped =
-    !!activeLabel &&
-    activeLabelRecord?.type !== "user" &&
-    isInboxScopedAppLabel(activeLabelRecord?.id ?? activeLabel);
-  const shouldNormalizeCombinedInboxRoute =
-    combineInbox &&
-    view === "inbox" &&
-    (activeLabelIsInboxScoped ||
-      activeInboxTab === OTHER_INBOX_TAB_PARAM ||
-      activeInboxTab === ALL_TAB_PARAM);
+  const activeLabelIsInboxScoped = isInboxScopedLabel(activeLabel, labels);
 
   const activeSavedFilter = settings?.savedFilters?.find(
     (filter) => filter.id === activeFilterId,
@@ -452,6 +432,21 @@ export function InboxPage() {
   );
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
+  const {
+    shouldNormalizeCombinedInboxRoute,
+    clientSliceTab,
+    effectiveLabel,
+    emailView,
+  } = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped,
+    activeSavedFilter: !!activeSavedFilter,
+    combineInbox,
+    triageLabels,
+    searchQuery,
+  });
 
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
@@ -583,6 +578,7 @@ export function InboxPage() {
 
   useEffect(() => {
     if (
+      isOnboardingPreview ||
       settingsLoading ||
       settingsError ||
       !settings ||
@@ -610,6 +606,7 @@ export function InboxPage() {
     activeInboxTab,
     activeLabel,
     combineInbox,
+    isOnboardingPreview,
     isGoogleConnected,
     navigate,
     routeThreadId,
@@ -622,7 +619,7 @@ export function InboxPage() {
   ]);
 
   useEffect(() => {
-    if (!shouldNormalizeCombinedInboxRoute) return;
+    if (isOnboardingPreview || !shouldNormalizeCombinedInboxRoute) return;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("label");
     nextParams.delete("tab");
@@ -634,31 +631,18 @@ export function InboxPage() {
       },
       { replace: true },
     );
-  }, [navigate, searchParams, shouldNormalizeCombinedInboxRoute]);
+  }, [
+    isOnboardingPreview,
+    navigate,
+    searchParams,
+    shouldNormalizeCombinedInboxRoute,
+  ]);
 
-  const isPinnedTab =
-    !!activeLabel &&
-    view === "inbox" &&
-    mailLabelsInclude(triageLabels, activeLabel);
-  const mailboxWideLabelTab =
-    view === "inbox" && !!activeLabel && !activeLabelIsInboxScoped;
-  const clientSliceTab =
-    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
     !combineInbox &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
     !searchQuery;
-  const effectiveLabel = shouldNormalizeCombinedInboxRoute
-    ? undefined
-    : clientSliceTab
-      ? undefined
-      : (activeLabel ?? undefined);
-  const emailView = activeSavedFilter
-    ? "inbox"
-    : mailboxWideLabelTab
-      ? "all"
-      : view;
   const {
     data: fetchedEmails,
     isLoading: emailsIsLoading,
@@ -887,10 +871,7 @@ export function InboxPage() {
         : "/draft-queue";
       void navigate(target);
     } else if (targetView === "settings") {
-      const target = navCommand.settingsSection
-        ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
-        : "/settings";
-      void navigate(target);
+      void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
     } else if (navCommand.tab) {
       void navigate(inboxTabHref(navCommand.tab));
     } else if (targetFilter) {
@@ -1115,8 +1096,8 @@ export function InboxPage() {
               jevAvailability.isLoading || jevAvailability.isFetching
             }
             jevAvailabilityError={jevAvailability.isError}
-            onJevConnected={() => void jevAvailability.refetch()}
-            onJevRetry={() => void jevAvailability.refetch()}
+            onJevConnected={onJevAvailabilityChange}
+            onJevRetry={onJevAvailabilityChange}
             onSortModeChange={changeSortMode}
           />
         )}

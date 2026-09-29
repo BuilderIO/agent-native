@@ -133,7 +133,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("bg-muted/30");
   });
 
-  it("keeps collapsed footer actions and settings at the bottom of the rail", () => {
+  it("keeps collapsed footer actions at the bottom of the rail", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
     const collapsedReturn = sidebar.indexOf("return (", collapsedBranchStart);
@@ -141,9 +141,7 @@ describe("document sidebar layout", () => {
     const collapsedBranch = sidebar.slice(collapsedBranchStart, expandedReturn);
 
     expect(collapsedBranch).toContain('className="mt-auto shrink-0 w-full"');
-    expect(collapsedBranch.indexOf("<AppSidebarFooter")).toBeLessThan(
-      collapsedBranch.indexOf('to="/settings"'),
-    );
+    expect(collapsedBranch).toContain("<AppSidebarFooter");
   });
 
   it("gates page tree actions by document capabilities", () => {
@@ -665,7 +663,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
   });
 
-  it("keeps Trash in a fixed group and Settings in the footer only", () => {
+  it("keeps Trash in a fixed group and leaves Settings to the account menu", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const expandedBranch = sidebar.slice(
       sidebar.lastIndexOf("<AppSidebarHeader"),
@@ -675,7 +673,7 @@ describe("document sidebar layout", () => {
       expandedBranch.indexOf("{renderTrashSection()}"),
     );
     expect(sidebar).not.toContain("renderSettingsNavButton");
-    expect(expandedBranch.match(/to="\/settings"/g)).toHaveLength(1);
+    expect(sidebar).not.toContain('to="/settings"');
   });
 
   it("names tree toggles after the item instead of the sidebar", () => {

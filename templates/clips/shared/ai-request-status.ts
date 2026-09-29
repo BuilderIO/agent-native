@@ -48,3 +48,9 @@ export interface ClipsAiRequestStatus {
   requestedAt?: string;
   updatedAt?: string;
 }
+
+/** A recording the browser bridge may auto-title once it is old enough. */
+export interface AutoTitleCandidate {
+  id: string;
+  createdAt: string;
+}

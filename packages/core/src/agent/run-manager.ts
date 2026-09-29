@@ -18,6 +18,7 @@ import {
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
+  type AgentTurnInitiator,
   insertRun,
   insertRunEvent,
   updateRunStatusIfRunning,
@@ -60,6 +61,7 @@ export interface ActiveRun {
   threadId: string;
   parentId?: string | null;
   turnId: string;
+  agentKitApprovalContinuation?: boolean;
   events: RunEvent[];
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
@@ -293,11 +295,13 @@ export interface StartRunOptions {
   softTimeoutMs?: number;
   useHostedSoftTimeoutDefault?: boolean;
   turnId?: string;
+  agentKitApprovalContinuation?: boolean;
   parentId?: string | null;
   backgroundFunction?: boolean;
   noProgressTimeoutMs?: number;
   backgroundNoProgressTimeoutMs?: number;
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+  turnInitiator?: AgentTurnInitiator;
   runRowAlreadyInserted?: boolean;
   model?: string;
   engineName?: string;
@@ -736,6 +740,9 @@ export function startRun(
     threadId,
     ...(options?.parentId !== undefined ? { parentId: options.parentId } : {}),
     turnId: options?.turnId ?? runId,
+    ...(options?.agentKitApprovalContinuation
+      ? { agentKitApprovalContinuation: true }
+      : {}),
     events: [],
     status: "running",
     subscribers: new Set(),
@@ -783,9 +790,17 @@ export function startRun(
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
-  const insertOptions = options?.dispatchMode
-    ? { dispatchMode: options.dispatchMode }
-    : undefined;
+  const insertOptions =
+    options?.dispatchMode || options?.turnInitiator
+      ? {
+          ...(options?.dispatchMode
+            ? { dispatchMode: options.dispatchMode }
+            : {}),
+          ...(options?.turnInitiator
+            ? { turnInitiator: options.turnInitiator }
+            : {}),
+        }
+      : undefined;
   const insertRunPromise = (
     options?.runRowAlreadyInserted
       ? Promise.resolve()
@@ -854,6 +869,12 @@ export function startRun(
     }
     if (updated === false) {
       if (run.status !== "running") return;
+      const persistedStatus = await getRunStatus(runId);
+      if (run.status !== "running") return;
+      if (persistedStatus !== null && persistedStatus !== "running") {
+        abortInMemoryRun(run, "displaced");
+        return;
+      }
       recordProgressWriteFailure(
         new Error("Durable progress update affected no running run row"),
         "no-row",
@@ -2323,7 +2344,10 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   if (memRun && (memRun.status === "running" || memRun.events.length > 0)) {
     const sqlSnapshot = await fetchRunThreadSnapshot(memRun.runId, threadId);
 
-    if (!sqlSnapshot && memRun.status !== "running") {
+    if (
+      memRun.status !== "running" &&
+      (!sqlSnapshot || sqlSnapshot.status === "running")
+    ) {
       const successor = await fetchNewerNonTerminalRunForSameTurn(
         threadId,
         memRun,
@@ -2345,7 +2369,11 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       }
     }
 
-    const status = legacyWireRunStatus(sqlSnapshot?.status ?? memRun.status);
+    const sqlStatus =
+      sqlSnapshot?.status === "running" && memRun.status !== "running"
+        ? memRun.status
+        : (sqlSnapshot?.status ?? memRun.status);
+    const status = legacyWireRunStatus(sqlStatus);
     const heartbeatAt =
       status === "running"
         ? Date.now()

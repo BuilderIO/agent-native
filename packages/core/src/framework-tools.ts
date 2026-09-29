@@ -51,11 +51,23 @@ export interface FrameworkToolsOption {
   browserSessions?: boolean;
   web?: boolean;
   workspaceApps?: boolean;
+  /** `chat-history`, `manage-agent-engine`, `manage-agent-loop-settings`,
+   *  `preview-secret-removal`, `list-api-keys`, `delete-api-key`,
+   *  `check-provider-key`,
+   *  `manage-provider-key-policy`, `manage-builder-connection`,
+   *  `get-provider-models`, `manage-provider-models`,
+   *  `list-model-providers`. */
   chat?: boolean;
   email?: boolean;
   emailCatalog?: boolean;
   workspaceUserGroups?: boolean;
   orgServiceTokens?: boolean;
+  /** Administer app roles, app permission mappings, file storage
+   *  (`get-file-storage`, `manage-file-storage`), service providers
+   *  (`manage-service-providers`), the infrastructure read
+   *  (`get-infrastructure-status`), and messaging channels
+   *  (`list-messaging-channels`, `manage-messaging-channel`) for the active
+   *  org. */
   orgAdministration?: boolean;
   preset?: "minimal";
 }
@@ -180,8 +192,15 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-app-permission-roles": "orgAdministration",
   "list-workspace-app-access": "orgAdministration",
   "set-workspace-app-access": "orgAdministration",
+  "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
   "offboard-member": "orgAdministration",
+  "get-file-storage": "orgAdministration",
+  "manage-file-storage": "orgAdministration",
+  "manage-service-providers": "orgAdministration",
+  "get-infrastructure-status": "orgAdministration",
+  "list-messaging-channels": "orgAdministration",
+  "manage-messaging-channel": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
@@ -198,6 +217,15 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",
+  "preview-secret-removal": "chat",
+  "list-api-keys": "chat",
+  "delete-api-key": "chat",
+  "check-provider-key": "chat",
+  "manage-provider-key-policy": "chat",
+  "manage-builder-connection": "chat",
+  "get-provider-models": "chat",
+  "manage-provider-models": "chat",
+  "list-model-providers": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 
@@ -213,6 +241,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
   "get-builder-credit-usage": "automation",
+  "get-builder-credit-status": "automation",
   "get-builder-referral-info": "automation",
 
   "context-manifest-get": "contextXray",
@@ -236,6 +265,10 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-audit-events": "audit",
   "get-audit-event": "audit",
   "export-audit-events": "audit",
+  // Observability promotion reuses `labs` until a dedicated group exists.
+  // A new FRAMEWORK_TOOL_GROUPS member is filtered at thirteen composition
+  // sites; do not add `observability` in the same change as this action.
+  "promote-trace-eval": "labs",
 
   "create-resource-version": "history",
   "list-resource-versions": "history",

@@ -31,6 +31,7 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import { transcriptHasTextSql } from "./lib/transcript-text.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -320,10 +321,7 @@ export default defineAction({
         },
         transcriptStatus: schema.recordingTranscripts.status,
         transcriptHasText: sql<number>`(
-          CASE WHEN (
-            TRIM(COALESCE(${schema.recordingTranscripts.fullText}, '')) <> ''
-            OR COALESCE(${schema.recordingTranscripts.segmentsJson}, '') LIKE '%"text":"_%'
-          ) THEN 1 ELSE 0 END
+          CASE WHEN ${transcriptHasTextSql()} THEN 1 ELSE 0 END
         )`,
       })
       .from(schema.recordings)

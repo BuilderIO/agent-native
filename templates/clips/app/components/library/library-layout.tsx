@@ -3,6 +3,7 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -15,6 +16,7 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
@@ -192,8 +194,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
-  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
+  const isRecordingRoute = location.pathname.startsWith("/r/");
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
@@ -332,6 +335,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    (location.pathname === "/settings" ||
+      location.pathname.startsWith("/settings/")) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -609,6 +620,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           sidebarOpen
             ? "translate-x-0"
             : "-translate-x-full rtl:translate-x-full md:translate-x-0",
+          settingsOwnsChrome && "hidden",
         )}
       >
         <AppSidebarHeader
@@ -810,7 +822,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   ? "!size-9 !p-0 [&>svg]:!size-4"
                   : "min-w-0 flex-1",
               )}
-              settingsPath="/settings/organization"
               currentAppId="clips"
               utilityLinks={workspaceUtilityLinks}
             />
@@ -819,64 +830,65 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         />
       </aside>
 
-      <div className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col">
-        {!pageOwnsToolbar && (
-          <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
-            <button
-              ref={mobileMenuTriggerRef}
-              type="button"
-              aria-label={t("navigation.expandSidebar")}
-              aria-expanded={sidebarOpen}
-              aria-controls="clips-primary-navigation"
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
-            >
-              <IconMenu2 className="h-4 w-4" />
-            </button>
-            <div
-              ref={setHeaderSlot}
-              className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
-            />
-            <div className="ms-1 flex items-center border-s border-border ps-2">
-              <ClipsAgentToggleButton />
-            </div>
-          </header>
-        )}
-        <div className="flex min-h-0 flex-1 overflow-hidden [--agent-native-viewport-height:100%]">
-          {/* Open the rail atomically so dense recording grids do not reflow
-              through intermediate column widths while the panel animates. */}
-          <AgentSidebar
-            position="right"
-            defaultOpen={false}
-            animateDesktop={false}
-            showCollapseButton={isMobile}
-            emptyStateText={
-              recordingScope
-                ? t("recordingPage.askAboutClip")
-                : t("navigation.agentEmptyState")
-            }
-            suggestions={
-              recordingScope
-                ? [
-                    t("recordingPage.summarizeClip"),
-                    t("recordingPage.findKeyMoments"),
-                    t("recordingPage.listFollowUpActions"),
-                    t("recordingPage.draftQuestions"),
-                  ]
-                : [
-                    t("navigation.agentSuggestionSummary"),
-                    t("navigation.agentSuggestionPricing"),
-                    t("navigation.agentSuggestionFiller"),
-                  ]
-            }
-            agentPageHref="/settings/agent"
-            scope={recordingScope}
-            browserTabId={getBrowserTabId()}
-          >
+      <AgentSidebar
+        position="right"
+        defaultOpen={false}
+        enabled={!isRecordingRoute}
+        animateDesktop={false}
+        showCollapseButton={isMobile}
+        emptyStateText={
+          recordingScope
+            ? t("recordingPage.askAboutClip")
+            : t("navigation.agentEmptyState")
+        }
+        suggestions={
+          recordingScope
+            ? [
+                t("recordingPage.summarizeClip"),
+                t("recordingPage.findKeyMoments"),
+                t("recordingPage.listFollowUpActions"),
+                t("recordingPage.draftQuestions"),
+              ]
+            : [
+                t("navigation.agentSuggestionSummary"),
+                t("navigation.agentSuggestionPricing"),
+                t("navigation.agentSuggestionFiller"),
+              ]
+        }
+        agentPageHref="/settings/agent"
+        scope={recordingScope}
+        browserTabId={getBrowserTabId()}
+      >
+        <div className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col">
+          {!pageOwnsToolbar && !settingsOwnsChrome && (
+            <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
+              <button
+                ref={mobileMenuTriggerRef}
+                type="button"
+                aria-label={t("navigation.expandSidebar")}
+                aria-expanded={sidebarOpen}
+                aria-controls="clips-primary-navigation"
+                onClick={() => setSidebarOpen(true)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
+              >
+                <IconMenu2 className="h-4 w-4" />
+              </button>
+              <div
+                ref={setHeaderSlot}
+                className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
+              />
+              {!isRecordingRoute ? (
+                <div className="ms-1 flex items-center border-s border-border ps-2">
+                  <ClipsAgentToggleButton />
+                </div>
+              ) : null}
+            </header>
+          )}
+          <div className="flex min-h-0 flex-1 overflow-hidden [--agent-native-viewport-height:100%]">
             {pageContent}
-          </AgentSidebar>
+          </div>
         </div>
-      </div>
+      </AgentSidebar>
 
       <SpaceDialogs
         renameSpaceId={renameSpaceId}

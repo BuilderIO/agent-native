@@ -91,7 +91,7 @@ Read the relevant skill before deeper work:
 - `navigate` moves the UI via `view`, `tab` (`label`/`filter` aliases), `sort`
   (`newest` or `priority`), `threadId`, `settingsSection`, `queuedDraftId`,
   or `composeDraftId`.
-- `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
+- `settingsSection` opens a Settings tab: `rules` (inbox rules), `ai-filter`.
 
 Before building common workspace or agent UI, read `agent-native-toolkit`;
 read `customizing-agent-native` before adapting shared UI.

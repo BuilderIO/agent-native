@@ -44,6 +44,8 @@ const messages = {
     suggestionSurvey: "顧客フィードバック調査を作成",
     suggestionSubmissions: "日別の送信を表示",
     suggestionExport: "回答を CSV にエクスポート",
+    topSignal: "主な傾向",
+    draftFollowUp: "追加質問を下書き",
   },
   sidebar: {
     collapseSidebar: "サイドバーを折りたたむ",

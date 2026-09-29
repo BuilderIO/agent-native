@@ -22,6 +22,7 @@ import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
+import "@/lib/register-analysis-result-renderer";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";

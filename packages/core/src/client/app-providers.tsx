@@ -34,6 +34,7 @@ import {
 } from "./theme.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 import { useSession } from "./use-session.js";
+import { SettingsShortcut } from "./use-settings-shortcut.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -63,6 +64,8 @@ export interface AppProvidersProps {
   skeletonLayout?: AppShellSkeletonLayout;
 
   sessionBypass?: boolean;
+
+  skipFirstRunOnboarding?: boolean;
 
   documentTitleFallback?: string;
 
@@ -105,7 +108,11 @@ function EarlySessionBootstrapScript() {
   );
 }
 
-function RoutedAppEnhancements() {
+function RoutedAppEnhancements({
+  settingsShortcut,
+}: {
+  settingsShortcut: boolean;
+}) {
   const isInRouter = useInRouterContext();
   if (!isInRouter) return null;
 
@@ -113,6 +120,7 @@ function RoutedAppEnhancements() {
     <>
       <AgentNativeRouteWarmup />
       <RouteTransitionIndicator />
+      {settingsShortcut ? <SettingsShortcut /> : null}
     </>
   );
 }
@@ -356,6 +364,7 @@ function ProvidersInner({
   documentTitleFallback,
   showProductionEnvironmentBadge,
   showEnvironmentBadge,
+  settingsShortcut,
   children,
 }: {
   queryClient: QueryClient;
@@ -371,6 +380,7 @@ function ProvidersInner({
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
   showEnvironmentBadge: boolean;
+  settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -401,7 +411,7 @@ function ProvidersInner({
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
-          <RoutedAppEnhancements />
+          <RoutedAppEnhancements settingsShortcut={settingsShortcut} />
           {showEnvironmentBadge ? (
             <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
           ) : null}
@@ -425,6 +435,7 @@ export function AppProviders({
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
+  skipFirstRunOnboarding = false,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
@@ -457,6 +468,7 @@ export function AppProviders({
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
         showEnvironmentBadge={showEnvironmentBadge}
+        settingsShortcut={false}
       >
         {children}
       </ProvidersInner>
@@ -486,12 +498,16 @@ export function AppProviders({
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}
           showEnvironmentBadge={showEnvironmentBadge}
+          settingsShortcut={!sessionBypass}
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (
               children
             ) : (
-              <FirstRunOnboardingStartupGate fallback={fallback}>
+              <FirstRunOnboardingStartupGate
+                suppressSurface={skipFirstRunOnboarding}
+                fallback={fallback}
+              >
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

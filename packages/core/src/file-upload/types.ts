@@ -35,6 +35,12 @@ export interface FileUploadProvider {
   isConfigured: () => boolean;
   isConfiguredForRequest?: () => Promise<boolean>;
   isOwnedUrl?: (url: string) => boolean | Promise<boolean>;
+  /**
+   * True when the provider can serve files without a public base URL (for
+   * example by reading objects through signed requests). The shared storage
+   * settings form makes the Public URL field optional only then.
+   */
+  publicBaseUrlOptional?: boolean;
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
   delete?: (input: FileUploadDeleteInput) => Promise<boolean>;
   resumable?: {

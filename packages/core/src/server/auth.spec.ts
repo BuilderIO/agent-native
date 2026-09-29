@@ -3281,6 +3281,31 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("allows Better Auth endpoints under a custom framework route prefix", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        "/_platform",
+      );
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createJsonPostEvent("/_platform/auth/ba/sign-in/email", {})),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createJsonPostEvent("/_platform/actions/list", {})),
+      ).resolves.toEqual({ error: "Unauthorized" });
+    });
+
     it("allows public workspace app pages while keeping API and framework routes protected", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -6074,6 +6099,7 @@ describe("server/auth", () => {
       const result = await sessionHandler(event);
 
       expect(event.res.status).toBe(200);
+      expect(event.res.headers.get("Cache-Control")).toBe("no-store");
       expect(result).toEqual({ error: "Not authenticated" });
     });
 
@@ -8021,23 +8047,39 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("does not cache a legacy lookup that finishes after invalidation", async () => {
-      const {
-        getCachedSessionEmail,
-        getSessionEmailCacheGeneration,
-        invalidateSessionEmailCache,
-        setCachedSessionEmail,
-      } = await import("./session-email-cache.js");
-      const generation = getSessionEmailCacheGeneration();
+    it("rechecks the database after a legacy session is revoked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      let sessionPresent = true;
+      const sessionLookups = vi.fn(async () => ({
+        rows: sessionPresent
+          ? [{ email: "owner@example.com", created_at: Date.now() }]
+          : [],
+      }));
+      const execute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        return sql?.includes("SELECT email, created_at FROM sessions")
+          ? sessionLookups()
+          : { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("../db/widen-columns.js", () => ({
+        widenIntColumnsToBigInt: vi.fn(),
+      }));
 
-      invalidateSessionEmailCache();
-      setCachedSessionEmail(
-        "late-session-lookup",
+      const { getSessionEmail } = await import("./auth.js");
+      await expect(getSessionEmail("revoked-session-token")).resolves.toBe(
         "owner@example.com",
-        generation,
       );
-
-      expect(getCachedSessionEmail("late-session-lookup")).toBeUndefined();
+      sessionPresent = false;
+      await expect(
+        getSessionEmail("revoked-session-token"),
+      ).resolves.toBeNull();
+      expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
 
     it("records identity resolution start before asynchronous credential validation", async () => {
@@ -9530,7 +9572,7 @@ describe("server/auth", () => {
       expect(html).not.toContain("/dispatch/auth-marketing/");
     });
 
-    it("does not render legacy auth marketing CTAs", async () => {
+    it("renders app marketing beside Google sign-in", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({
         marketing: {
@@ -9539,8 +9581,9 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
-      expect(html).not.toContain("auth-marketing-visual");
+      expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain("Manage email with an agent.");
+      expect(html).toContain("auth-marketing-visual");
     });
 
     it("defaults the active tab from the login or signup path", async () => {

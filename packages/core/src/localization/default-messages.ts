@@ -214,6 +214,11 @@ const messages = {
     managedInVault:
       "Managed in the workspace Vault. Every app in this workspace uses this value.",
     openVault: "Open Vault",
+    managedByOwner: "Managed in {{owner}}",
+    removeCredentials: "Remove credentials",
+    confirmRemove: "Remove",
+    sharedKeysKept:
+      "Some shared keys were not removed. Only workspace admins can remove them.",
     setForWorkspace: "Set for everyone in this workspace.",
     fromEnvironment: "Provided by the deployment environment.",
     usePersonalKey: "Use a personal key instead",
@@ -640,6 +645,9 @@ const messages = {
       browserConnectFailed: "The browser extension did not connect.",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     uiError: {
       title: "Agent panel hit a glitch",
@@ -664,6 +672,7 @@ const messages = {
     newTerminal: "New terminal",
     loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -708,6 +717,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
     chatgptSubscriptionPopupBlocked:
       "Allow pop-ups for this site, then try again.",
     chatgptSubscriptionTitle: "ChatGPT subscription",
@@ -944,6 +955,8 @@ const messages = {
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
+    deleting: "Deleting…",
+    running: "Running…",
     updateError: "Could not update automation.",
     automationsEmptyTitle: "No automations yet",
     automationsEmptyDescription: "Describe what should happen and when.",
@@ -1449,7 +1462,12 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect",
+    connecting: "Connecting…",
     useApiToken: "Use API token",
+    customOAuthDefault: "Sign in with OAuth",
+    customHeadersMode: "Use an API key",
+    useApiKeyInstead: "Use an API key instead",
+    useOAuthInstead: "Use OAuth instead",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
       "Connect {{name}} with an API token to use it in chat",
@@ -1506,6 +1524,7 @@ const messages = {
     openSetupDocs: "Open setup docs",
     viewSetup: "Open setup guide",
     test: "Test",
+    testing: "Testing…",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
@@ -1776,6 +1795,12 @@ const messages = {
     notCaptured: "Not captured",
     openFullConversation: "Open full conversation",
     learnAboutTab: "Learn about this tab",
+    promoteToEval: "Promote to eval",
+    promotingToEval: "Promoting…",
+    promotedEval: "Eval dataset {{id}}",
+    promotedEvalHint:
+      "agent-native eval promote {{runId}} --write evals/from-trace.eval.ts",
+    promoteEvalFailed: "Could not promote this run",
     spans: "Spans",
     type: "Type",
     name: "Name",

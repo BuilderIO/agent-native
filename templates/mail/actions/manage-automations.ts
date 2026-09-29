@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -24,12 +28,10 @@ function parseActions(value: string): AutomationAction[] {
 }
 
 function isAiFilterRule(actions: AutomationAction[]): boolean {
-  return actions.every(
-    (action) => action.type === "label" || action.type === "archive",
-  );
+  return aiFilterRuleMode({ actions }) !== null;
 }
 
-type AgentRuleMode = "tag" | "important" | "filter" | "archive";
+type AgentRuleMode = "tag" | "important" | "notify" | "filter" | "archive";
 
 function actionsForAgentMode(
   mode: AgentRuleMode,
@@ -102,6 +104,7 @@ function ruleChange(
       kind: "mail-rule",
       title: title.slice(0, 180),
       ...(detail && detail !== title ? { detail: detail.slice(0, 500) } : {}),
+      url: settingsHref(rule.kind),
     },
   };
 }
@@ -144,8 +147,29 @@ async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
 export const createManageEmailRulesAction = (agentTool: boolean) =>
   defineAction({
     description:
-      "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, filter, or archive); the rule is saved and recent-mail work is queued before this action returns. Model checks and matching continue in the background. Star, mark-read, and trash rules keep the legacy automation behavior.",
+      "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, notify, filter, or archive); the rule is saved and recent-mail work is queued before this action returns. Model checks and matching continue in the background. Notify rules mark matches Important and notify the user only for new mail. Star, mark-read, and trash rules keep the legacy automation behavior.",
     agentTool,
+    ...(agentTool
+      ? {
+          chatUI: {
+            renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+            when: (args: Record<string, unknown>, result: unknown) =>
+              (args.action === "create" ||
+                args.action === "update" ||
+                args.action === "enable" ||
+                args.action === "disable") &&
+              !(
+                typeof result === "object" &&
+                result !== null &&
+                "backfillStatus" in result &&
+                result.backfillStatus === "failed"
+              ) &&
+              normalizeActionChangeResult(result) !== null,
+            projectResult: (_args: Record<string, unknown>, result: unknown) =>
+              normalizeActionChangeResult(result),
+          },
+        }
+      : {}),
     schema: z.object({
       action: z
         .enum(["list", "create", "update", "delete", "enable", "disable"])
@@ -161,7 +185,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         .optional()
         .describe("Natural-language condition for matching incoming email"),
       mode: z
-        .enum(["tag", "important", "filter", "archive"])
+        .enum(["tag", "important", "notify", "filter", "archive"])
         .optional()
         .describe("AI rule mode for a new inbox rule"),
       sentence: z
@@ -182,7 +206,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         .string()
         .optional()
         .describe(
-          'JSON array of actions, e.g. [{"type":"label","labelName":"newsletters"}]. Label/archive use Mail AI filtering; use labelName "agent-native-important" for priority rules and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.',
+          'JSON array of actions, e.g. [{"type":"label","labelName":"newsletters"}]. Label/archive/notify use Mail AI filtering; use labelName "agent-native-important" plus notify to highlight and notify about matching mail, and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.',
         ),
       enabled: z.coerce
         .boolean()

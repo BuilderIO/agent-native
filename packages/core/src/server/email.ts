@@ -44,11 +44,14 @@ export interface SendEmailArgs {
   appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
   references?: string;
+  headers?: Record<string, string>;
+  idempotencyKey?: string;
   attachments?: EmailAttachment[];
   timeoutMs?: number;
   templateId?: string;
   app?: string;
   orgId?: string;
+  signal?: AbortSignal;
 }
 
 let cachedAgentNativeLogo: Buffer | undefined;
@@ -79,6 +82,36 @@ function resolveAttachments(
     return args.attachments;
   }
   return [...(args.attachments ?? []), getAgentNativeLogoAttachment()];
+}
+
+function resolveEmailHeaders(
+  args: SendEmailArgs,
+): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  const setHeader = (name: string, value: string) => {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(value)) {
+      throw new Error(
+        "Email headers must have valid names and single-line values",
+      );
+    }
+    const existingName = Object.keys(headers).find(
+      (existing) => existing.toLowerCase() === name.toLowerCase(),
+    );
+    if (existingName) delete headers[existingName];
+    headers[name] = value;
+  };
+
+  for (const [name, value] of Object.entries(args.headers ?? {})) {
+    if (typeof value !== "string") {
+      throw new Error(
+        "Email headers must have valid names and single-line values",
+      );
+    }
+    setHeader(name, value);
+  }
+  if (args.inReplyTo) setHeader("In-Reply-To", args.inReplyTo);
+  if (args.references) setHeader("References", args.references);
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 interface EmailTransportConfig {
@@ -254,7 +287,7 @@ interface DeliveryOutcome {
  * distinguish "the provider rejected it" from a thrown error that never
  * reached the provider (network failure, timeout, credential resolution).
  */
-class EmailProviderError extends Error {
+export class EmailProviderError extends Error {
   readonly provider: EmailProvider;
   readonly from: string;
   readonly requestPayload: string;
@@ -297,6 +330,19 @@ function redactPayloadForLog(payload: Record<string, unknown>): string {
   const loggable: Record<string, unknown> = { ...payload };
   if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
   if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
+  if (
+    loggable.headers &&
+    typeof loggable.headers === "object" &&
+    !Array.isArray(loggable.headers)
+  ) {
+    const headers = { ...(loggable.headers as Record<string, unknown>) };
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "list-unsubscribe") {
+        headers[name] = "[REDACTED]";
+      }
+    }
+    loggable.headers = headers;
+  }
   if (Array.isArray(loggable.content)) {
     loggable.content = (loggable.content as Record<string, unknown>[]).map(
       (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
@@ -332,6 +378,7 @@ async function deliverEmail(
       : getFromAddress(config, args.from, args.fromName);
   const replyTo = args.replyTo ?? branded?.replyTo;
   const attachments = resolveAttachments(args);
+  const messageHeaders = resolveEmailHeaders(args);
 
   if (provider === "resend") {
     const payload: Record<string, unknown> = {
@@ -354,10 +401,7 @@ async function deliverEmail(
         content_id: a.contentId,
       }));
     }
-    const headers: Record<string, string> = {};
-    if (args.inReplyTo) headers["In-Reply-To"] = args.inReplyTo;
-    if (args.references) headers["References"] = args.references;
-    if (Object.keys(headers).length) payload.headers = headers;
+    if (messageHeaders) payload.headers = messageHeaders;
 
     const requestPayload = redactPayloadForLog(payload);
     const res = await fetch("https://api.resend.com/emails", {
@@ -365,6 +409,9 @@ async function deliverEmail(
       headers: {
         Authorization: `Bearer ${config.resendApiKey}`,
         "Content-Type": "application/json",
+        ...(args.idempotencyKey
+          ? { "Idempotency-Key": args.idempotencyKey }
+          : {}),
       },
       body: JSON.stringify(payload),
       signal,
@@ -426,10 +473,7 @@ async function deliverEmail(
         click_tracking: { enable: false },
       };
     }
-    const sgHeaders: Record<string, string> = {};
-    if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
-    if (args.references) sgHeaders["References"] = args.references;
-    if (Object.keys(sgHeaders).length) sgPayload.headers = sgHeaders;
+    if (messageHeaders) sgPayload.headers = messageHeaders;
     if (attachments?.length) {
       sgPayload.attachments = attachments.map((a) => ({
         filename: a.filename,
@@ -540,18 +584,32 @@ async function sendEmailWithSignal(
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {
+  if (
+    args.idempotencyKey !== undefined &&
+    (!args.idempotencyKey ||
+      args.idempotencyKey.length > 256 ||
+      args.idempotencyKey !== args.idempotencyKey.trim() ||
+      /[\r\n]/.test(args.idempotencyKey))
+  ) {
+    throw new Error(
+      "Email idempotency keys must be single-line values up to 256 characters",
+    );
+  }
   const requestedTimeoutMs = Number(args.timeoutMs);
   if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
-    return sendEmailWithSignal(args);
+    return sendEmailWithSignal(args, args.signal);
   }
 
   const timeoutMs = Math.floor(requestedTimeoutMs);
   const controller = new AbortController();
+  const signal = args.signal
+    ? AbortSignal.any([args.signal, controller.signal])
+    : controller.signal;
   const timeoutError = new Error(`Email send timed out after ${timeoutMs}ms`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      sendEmailWithSignal(args, controller.signal),
+      sendEmailWithSignal(args, signal),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
           controller.abort(timeoutError);

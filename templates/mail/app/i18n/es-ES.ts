@@ -45,9 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
-      aiSetupImportantHeadline: "Qué es importante",
-      aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
-      aiSetupTagsHeadline: "Elige tus pestañas",
+      aiSetupImportantHeadline: "¿Qué es importante para ti?",
+      aiSetupSkipInboxHeadline: "¿Qué puede saltarse tu bandeja de entrada?",
+      aiSetupTagsHeadline: "Ordena el correo en pestañas",
       aiSetupArchiveSpamHeadline: "Omitir bandeja de entrada y spam",
       aiSetupTagReceipts: "Recibos",
       aiSetupTagUpdates: "Actualizaciones de productos",
@@ -64,6 +64,16 @@ const messages = {
         "Omitir bandeja de entrada: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Listo",
+      aiSetupConnectGmailHeadline:
+        "Conecta Gmail para organizar tu bandeja de entrada",
+      aiSetupConnectGmailDescription:
+        "Conecta Google para aplicar tus reglas a los correos recientes.",
+      aiSetupConnectJevHeadline:
+        "Conecta Jev para organizar tu bandeja de entrada",
+      aiSetupConnectJevDescription:
+        "Conecta Jev para aplicar tus reglas a los correos recientes.",
+      aiSetupCustomTabName: "Nombre de pestaña",
+      aiSetupCustomTabExample: "p. ej., facturas de proveedores",
       aiSetupRunAgain: "Volver a configurar",
       aiSetupTagCalendar: "Calendario",
       aiSetupPromptCalendar:
@@ -77,13 +87,25 @@ const messages = {
       aiSetupFilteredExample:
         "Mensajes de ventas no solicitados y reclutadores a quienes no he respondido",
       aiSetupSortingHeadline: "Organizando tu bandeja de entrada",
+      aiSetupSortingDescription:
+        "Esto es lo que tus reglas encontraron en el correo reciente.",
       aiSetupFindingRecentMail: "Buscando mensajes recientes…",
+      aiSetupRetry: "Reintentar",
+      aiSetupGmailStatusFailed: "No se pudo comprobar la conexión con Gmail",
+      aiSetupAutomationSettingsFailed:
+        "No se pudo comprobar la configuración del modelo de IA",
       aiSetupSortingProgress:
         "Ordenando correo reciente: {{processed}} de {{total}}",
       aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupUndoBeforeRetry:
+        "Deshaz los cambios parciales antes de volver a intentarlo.",
       aiSetupSortingFailed:
         "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
       aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupUndoFailed:
+        "No se pudieron deshacer estos cambios en la bandeja de entrada. Inténtalo de nuevo.",
+      aiSetupUndoStatusFailed:
+        "Se solicitó deshacer, pero no se pudieron cargar los resultados más recientes.",
       aiSetupRuleCount: "{{count}} coincidencias",
       aiSetupNoMatches:
         "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
@@ -93,7 +115,28 @@ const messages = {
       aiSetupNoRules: "No seleccionaste ninguna regla.",
       aiSetupPartialFailure: "No se pudieron actualizar {{count}} mensajes.",
       aiSetupSortInbox: "Ordenar mi bandeja",
-      aiSetupImportantExample: "Todo lo de mi gerente, Priya…",
+      aiSetupImportantExample: "Todo lo de mi jefe, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "La IA etiqueta los mensajes que coinciden y crea una pestaña para cada etiqueta junto a Recibidos.",
+      aiSetupImportantDescription:
+        "La IA añade la etiqueta Importante a los mensajes que coinciden para mostrarlos en la pestaña Importantes.",
+      aiSetupSkipInboxDescription:
+        "La IA archiva los mensajes que coinciden para que no lleguen a Recibidos. Siguen disponibles en Todo el correo y en las búsquedas.",
+      aiSetupAddTab: "Añadir pestaña",
+      aiSetupAdjustRules: "Ajustar reglas",
+      aiSetupImportantBoss: "Mensajes de mi jefe, ",
+      aiSetupImportantBossChip: "Mensajes de mi jefe",
+      aiSetupImportantReply: "Necesita respuesta",
+      aiSetupImportantDeadlines: "Plazos",
+      aiSetupImportantCustomers: "Clientes",
+      aiSetupImportantGitHub: "Personas en GitHub",
+      aiSetupImportantCalendar: "Invitaciones",
+      aiSetupSkipNewsletters: "Boletines",
+      aiSetupSkipPromotions: "Promociones",
+      aiSetupSkipBots: "Alertas de bots y CI",
+      aiSetupSkipColdSales: "Ventas no solicitadas",
+      aiSetupSkipRecruiters: "Reclutadores",
+      aiSetupSkipSocial: "Alertas sociales",
       priorityFeedbackLabel: "Comentarios sobre importancia",
       priorityScoreHigh: "Importancia alta",
       priorityScoreMedium: "Importancia media",
@@ -453,6 +496,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Conecta tu cuenta de Google",
+      connectionNotConfigured:
+        "La conexión de Gmail no está configurada para esta aplicación. Pide a tu administrador que la habilite o salta este paso por ahora.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -623,6 +668,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} mensajes restaurados",
       ruleBackfillReview: "Revisar coincidencias",
       importantMode: "Importante",
+      notifyMode: "Notificar",
+      notifyModeHelp:
+        "Marca los mensajes coincidentes como importantes y muestra una ventana del navegador cuando Mail está abierto y las notificaciones están activadas desde la campana. La aplicación móvil llegará próximamente.",
+      manageAutomationsLink: "Más acciones de automatización",
       notImportantMode: "No importante",
       importantLabel: "Importante con IA",
       reviewImportant: "Ver importantes",
@@ -757,6 +806,7 @@ const messages = {
     markRead: "Marcar como leído",
     star: "Destacar",
     trash: "Papelera",
+    notify: "Notificar",
     labelName: "Nombre de etiqueta",
     addAction: "+ Añadir acción",
     ruleName: "Nombre de la regla",
@@ -835,8 +885,6 @@ const messages = {
     slackPostEndpoint: "Endpoint POST de Slack",
     slackPostEndpointHelp:
       "Úsalo en Slack Event Subscriptions. Un GET desde el navegador puede mostrar Not Found.",
-    teamDescription:
-      "Configura un equipo para compartir automatizaciones y ajustes de correo con tus compañeros.",
     title: "Configuracion",
     general: "General",
     generalDescription: "Idioma y preferencias de cuenta para Mail.",
@@ -862,12 +910,19 @@ const messages = {
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
     automations: "Automatizaciones",
+    rules: "Reglas",
+    rulesModel: "Modelo de reglas",
+    rulesModelDescription: "Compara el correo entrante con tus reglas.",
+    slackDraftRequests: "Solicitudes de borradores",
+    slackDraftQueue: "Poner en cola borradores desde Slack",
+    slackDraftQueueDescription:
+      "Tus compañeros mencionan al agente en Slack para pedir un borrador de correo. Los borradores esperan revisión en tu cola de borradores.",
+    openDraftQueue: "Abrir cola de borradores",
     aiFilter: "Clasificación con IA",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
     slack: "Slack",
-    team: "Equipo",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

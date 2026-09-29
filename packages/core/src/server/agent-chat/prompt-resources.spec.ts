@@ -96,18 +96,20 @@ describe("selectPromptSectionsWithinBudget", () => {
   it("sends required sections whole and reports the overflow when they alone exceed the budget", () => {
     const sections = [
       section("AGENTS.md", 900, "required"),
+      section("memory/INSTRUCTIONS.md", 500, "required"),
       section("workspace-index", 500),
       section("available-apps", 800, "required"),
     ];
 
     const result = selectPromptSectionsWithinBudget(sections, 1_000);
 
-    expect(result.sections.slice(0, 2)).toEqual([
+    expect(result.sections.slice(0, 3)).toEqual([
       sections[0]!.content,
-      sections[2]!.content,
+      sections[1]!.content,
+      sections[3]!.content,
     ]);
     expect(result.skipped).toEqual([
-      { label: "workspace-index (test)", chars: sections[1]!.content.length },
+      { label: "workspace-index (test)", chars: sections[2]!.content.length },
     ]);
     const rendered = joined(result.sections);
     expect(rendered.length).toBeGreaterThan(1_000);

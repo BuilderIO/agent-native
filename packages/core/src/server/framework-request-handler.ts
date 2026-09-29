@@ -184,6 +184,7 @@ export function getH3App(nitroApp: any): H3AppShim {
   getFrameworkRoutePrefix();
   ensureGlobalMiddlewareDispatch(nitroApp);
   installHttpResponseTelemetryHooks(nitroApp);
+  installDevConnectionCloseHook(nitroApp);
 
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
   if (cached) return cached;
@@ -323,6 +324,31 @@ function registerRequestContextBoundary(nitroApp: any): void {
   h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;
   h3["~middleware"].unshift(middleware);
   markRequestBoundaryInstalled();
+}
+
+const devConnectionCloseApps = new WeakSet<object>();
+
+/**
+ * In Vite dev, Nitro proxies every request to a worker-thread server through
+ * a keep-alive agent. The worker drops idle sockets after Node's 5 second
+ * keep-alive timeout, and a busy main thread can hand one of them to a new
+ * request just as it closes: every request in that burst fails with
+ * `read ECONNRESET`, which Nitro passes on without retrying. Closing each
+ * response's connection keeps the agent from ever reusing one.
+ */
+export function installDevConnectionCloseHook(nitroApp: any): void {
+  if (process.env.NODE_ENV !== "development") return;
+  if (!nitroApp?.hooks?.hook || devConnectionCloseApps.has(nitroApp)) return;
+  devConnectionCloseApps.add(nitroApp);
+  nitroApp.hooks.hook("request", (event: H3Event) => {
+    try {
+      event.res.headers.set("connection", "close");
+      event.res.errHeaders.set("connection", "close");
+    } catch {
+      // coercion-ok: an adapter without writable early headers keeps the
+      // default keep-alive; this only narrows a dev-only race.
+    }
+  });
 }
 
 function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
@@ -525,12 +551,16 @@ function isClientAbortError(error: unknown, event: H3Event): boolean {
   const err = error as any;
   const message = typeof err?.message === "string" ? err.message : "";
   const code = typeof err?.code === "string" ? err.code : "";
-  const node = (event as any).node;
+  // Only response-side state means the client left. Node's IncomingMessage
+  // auto-destroys once its body is fully read, so `req.destroyed` is true for
+  // every handler that threw after `readBody()` while the client still waits.
+  // srvx's `req.signal` aborts from the response's `close` without
+  // `writableEnded`, and `res.destroyed` covers a close before it was read.
   return (
     message === "aborted" ||
     code === "ECONNRESET" ||
-    node?.req?.destroyed === true ||
-    node?.res?.destroyed === true
+    (event as any).req?.signal?.aborted === true ||
+    (event as any).node?.res?.destroyed === true
   );
 }
 

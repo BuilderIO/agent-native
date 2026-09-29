@@ -152,7 +152,25 @@ describe("built-in Core chat translations", () => {
       contextXray: {
         panelTitle: "Kontext-Röntgen",
       },
+      mcpIntegrations: {
+        customTitle: "Eigene Agent-Integration hinzufügen",
+        status: { verified: "Verifiziert" },
+      },
     });
+  });
+
+  it("keeps English mcpIntegrations chat keys identical to the default catalog", () => {
+    const drifted = Object.entries(englishAgentChatMessages).filter(
+      ([key, value]) => {
+        if (!key.startsWith("mcpIntegrations.")) return false;
+        let fallback: unknown = defaultEnglishMessages;
+        for (const part of key.split(".")) {
+          fallback = (fallback as Record<string, unknown> | undefined)?.[part];
+        }
+        return fallback !== value;
+      },
+    );
+    expect(drifted).toEqual([]);
   });
 
   it.each([

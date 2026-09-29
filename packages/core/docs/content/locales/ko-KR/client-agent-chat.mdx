@@ -235,9 +235,10 @@ MCP 앱 임베드 내부에서 이를 실행하는 경우, 또는 사이드바�
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-앱 설정 페이지나 설정 카드가 표준 `/settings` 페이지를 열어야 할 때
-`openAgentSettings()`를 사용하세요. 특정 섹션을 열려면 `"llm"`, `"secrets"`,
-`"automations"`, `"voice"`, `"limits"`와 같은 섹션 id를 전달하세요.
+설정 카드나 채팅 화면에서 Settings를 열어야 할 때 `openAgentSettings()`를 사용하세요.
+`"llm"`, `"secrets"`, `"automations"`, `"voice"`, `"limits"` 같은 섹션 id를 전달하면
+Settings 리디렉션 표가 해당 섹션을 가진 페이지(Model, API keys, Automations,
+Preferences 또는 Model의 한도 행)를 엽니다.
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -246,6 +247,8 @@ openAgentSettings("secrets");
 ```
 
 `agent-panel:open-settings`를 직접 디스패치하는 것보다 이 헬퍼를 사용하는 것을 우선하세요.
+페이지를 id로 열려면 `openSettingsPage("integrations")`를 호출하거나
+`buildSettingsRoute(page, sub?)`로 링크하세요. [Settings Kit](/docs/toolkit-settings#links)를 참고하세요.
 
 ## Agent 채팅 컨텍스트 상태 {#agent-chat-context-state}
 

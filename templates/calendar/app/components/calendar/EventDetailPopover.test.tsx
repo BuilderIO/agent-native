@@ -1056,6 +1056,7 @@ describe("EventDetailPopover characterization", () => {
     expect(openSpy).toHaveBeenCalledWith(
       "https://zoom.us/j/1234567890",
       "_blank",
+      "noopener,noreferrer",
     );
 
     act(() => root.unmount());
