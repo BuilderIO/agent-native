@@ -1144,8 +1144,19 @@ function validateAnalyticsSqlFunctions(sql: string): void {
       );
     }
 
-    const schemaQualified = tokens[i - 1]?.value === ".";
-    const schema = schemaQualified ? tokens[i - 2] : undefined;
+    const schemaCandidate = tokens[i - 2];
+    const separator = tokens[i - 1];
+    const decimalPoint =
+      separator?.value === "." &&
+      /\d/.test(sql[separator.start - 1] ?? "") &&
+      /\d/.test(sql[separator.start + 1] ?? "");
+    const schemaQualified =
+      separator?.value === "." &&
+      !decimalPoint &&
+      (schemaCandidate?.quoted === true ||
+        (schemaCandidate?.quoted === false &&
+          /^[A-Za-z_][A-Za-z0-9_$]*$/.test(schemaCandidate.value)));
+    const schema = schemaQualified ? schemaCandidate : undefined;
     const allowedSchema =
       !schemaQualified ||
       (schema?.quoted === false &&

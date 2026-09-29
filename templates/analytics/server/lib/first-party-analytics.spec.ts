@@ -625,6 +625,11 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "SELECT pg_catalog /* split */ . date_trunc('day', event_date), COALESCE(SUM(event_count), 0) FROM analytics_event_daily_rollups WHERE (event_date IS NOT NULL) GROUP BY event_date",
       ),
     ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 1.0 * COUNT(*) FILTER (WHERE event_date IS NOT NULL) / COUNT(*) END AS rate FROM analytics_events",
+      ),
+    ).not.toThrow();
   });
 
   it("rejects direct replay chunk queries", () => {
