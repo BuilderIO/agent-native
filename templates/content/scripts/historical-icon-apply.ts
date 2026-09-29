@@ -12,17 +12,26 @@ import { fileURLToPath } from "node:url";
 
 import { and, eq, isNull } from "drizzle-orm";
 
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "../actions/_blocks-field-identity.js";
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   readPrivateIcon,
   uploadPrivateIcon,
 } from "../server/lib/private-icon-authority.js";
 import {
   syncPrivateIconReference,
+  syncPrivateCalloutReferences,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
 import {
   nextViewConfigRaw,
+  nextCalloutContentRaw,
   type IconReference,
   type RehostReceipt,
 } from "./migrate-historical-icon-urls.js";
@@ -158,6 +167,79 @@ export async function replaceHistoricalIconIfUnchanged(
   return db.transaction(async (tx) => {
     const scopedOrg = (column: typeof schema.documents.orgId) =>
       org === null ? isNull(column) : eq(column, org);
+    if (
+      reference.table === "documents" &&
+      reference.calloutIndex !== undefined
+    ) {
+      const content = nextCalloutContentRaw(reference, newRaw);
+      const condition = and(
+        eq(schema.documents.id, reference.rowId),
+        eq(schema.documents.ownerEmail, owner),
+        scopedOrg(schema.documents.orgId),
+        eq(schema.documents.content, reference.contentRaw!),
+      );
+      const [current] = await tx
+        .select()
+        .from(schema.documents)
+        .where(condition)
+        .limit(1)
+        .for("update");
+      if (!current) return false;
+      if (current.sourceMode === "local-files")
+        throw new Error(
+          "Local-file callout migration requires its file authority",
+        );
+      const transaction = tx as unknown as ReturnType<typeof getDb>;
+      const fields = await lockPrimaryBlocksFields(
+        transaction,
+        reference.rowId,
+      );
+      const now = nextDocumentUpdatedAt(current.updatedAt);
+      const changed = await tx
+        .update(schema.documents)
+        .set({
+          content,
+          bodyRevision: bodyRevisionForContent(content),
+          updatedAt: now,
+        })
+        .where(condition)
+        .returning({ id: schema.documents.id });
+      if (!changed.length) return false;
+      await syncPrivateCalloutReferences(transaction, {
+        documentId: reference.rowId,
+        before: current.content,
+        after: content,
+        userEmail: owner,
+        ownerEmail: owner,
+        orgId: org,
+      });
+      for (const field of fields)
+        await persistBlocksFieldIdentity({
+          db: transaction,
+          ownerEmail: field.ownerEmail,
+          documentId: reference.rowId,
+          propertyId: field.propertyId,
+          previousMarkdown: current.content,
+          markdown: content,
+          now,
+        });
+      await recordDocumentHistoryTransition({
+        db: transaction,
+        ownerEmail: owner,
+        documentId: reference.rowId,
+        before: { title: current.title, content: current.content },
+        after: { title: current.title, content },
+        beforeBodyRevision: current.bodyRevision,
+        afterBodyRevision: current.bodyRevision + 1,
+        cause: {
+          actorEmail: owner,
+          actorKind: "system",
+          operation: "migrate-historical-icon",
+        },
+        now,
+      });
+      return true;
+    }
     if (reference.table === "documents") {
       const changed = await tx
         .update(schema.documents)

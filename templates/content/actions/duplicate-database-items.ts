@@ -11,7 +11,7 @@ import {
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
-  verifyPrivateIconAssignment,
+  verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
 import {
   lockContentDatabaseMutation,
@@ -195,11 +195,15 @@ export default defineAction({
         );
 
       for (const duplicate of lockedDuplicates) {
-        await verifyPrivateIconAssignment({
-          icon: duplicate.row.document.icon,
-          userEmail: currentUserEmail,
-          orgId: duplicate.row.document.orgId,
-        });
+        await verifyPrivateIconCopiedFromDocument(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            sourceDocumentId: duplicate.row.document.id,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
       }
       await tx.insert(schema.documents).values(
         lockedDuplicates.map((duplicate) => ({
@@ -241,6 +245,10 @@ export default defineAction({
             userEmail: currentUserEmail,
             ownerEmail: duplicate.row.document.ownerEmail,
             orgId: duplicate.row.document.orgId,
+            source: {
+              kind: "document",
+              documentId: duplicate.row.document.id,
+            },
           },
         );
       }

@@ -12,7 +12,7 @@ import {
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
-  verifyPrivateIconAssignment,
+  verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
 import {
   lockContentDatabaseMutation,
@@ -210,11 +210,15 @@ export default defineAction({
           ),
         );
 
-      await verifyPrivateIconAssignment({
-        icon: lockedRow.document.icon,
-        userEmail: actor,
-        orgId: lockedRow.document.orgId,
-      });
+      await verifyPrivateIconCopiedFromDocument(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          sourceDocumentId: lockedRow.document.id,
+          icon: lockedRow.document.icon,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
         spaceId: row.database.spaceId,
@@ -252,6 +256,7 @@ export default defineAction({
           userEmail: actor,
           ownerEmail: lockedRow.document.ownerEmail,
           orgId: lockedRow.document.orgId,
+          source: { kind: "document", documentId: lockedRow.document.id },
         },
       );
 

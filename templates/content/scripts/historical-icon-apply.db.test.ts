@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { serializeIconValue } from "@agent-native/core/icons";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   migrateHistoricalIconUrls,
+  findLiveCalloutIconOccurrences,
   type IconReference,
   type RehostReceipt,
 } from "./migrate-historical-icon-urls.js";
@@ -58,6 +60,130 @@ afterAll(() => {
 });
 
 describe("historical icon CAS and reference index", () => {
+  it("migrates sibling live callouts atomically without changing fenced examples or unrelated body bytes", async () => {
+    const db = getDb();
+    const callout = `<callout icon="${oldRaw.replace(/"/g, "&quot;")}">\n\tKeep this prose.\n</callout>`;
+    const fenced = `\`\`\`md\n${callout}\n\`\`\`\n`;
+    const content = `${fenced}${callout}\n${callout}\n`;
+    const documentId = "historical-callout-siblings";
+    await db.insert(schema.documents).values({
+      id: documentId,
+      title: "Callouts",
+      content,
+      ownerEmail,
+      orgId: null,
+    });
+    const references: IconReference[] = findLiveCalloutIconOccurrences(
+      content,
+    ).map((occurrence, calloutIndex) => ({
+      table: "documents",
+      rowId: documentId,
+      path: `content.callouts[${calloutIndex}].icon`,
+      raw: occurrence.raw,
+      ownerEmail,
+      orgId: null,
+      contentRaw: content,
+      calloutIndex,
+    }));
+    const data = Uint8Array.of(1, 2, 3);
+    const sha256 = createHash("sha256").update(data).digest("hex");
+    const receipts = new Map<string, RehostReceipt>();
+    const uploadPrivate = vi.fn(async () => ({
+      id: "00000000-0000-4000-8000-000000000001",
+      sha256,
+    }));
+    const report = await migrateHistoricalIconUrls(
+      {
+        listReferences: async () => references,
+        verifyBuilderOwnership: async () => "owned",
+        fetchImage: async () => ({ data, mimeType: "image/png" }),
+        uploadPrivate,
+        readPrivate: async () => ({ data, sha256 }),
+        readReceipt: async (key) => receipts.get(key) ?? null,
+        saveReceipt: async (receipt) => {
+          receipts.set(receipt.sourceFingerprint, receipt);
+        },
+        replaceIfUnchanged: replace,
+      },
+      { apply: true },
+    );
+    expect(report).toMatchObject({ migrated: 2, deferred: [] });
+    expect(uploadPrivate).toHaveBeenCalledTimes(1);
+    const [stored] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    const changedCallout = callout.replace(
+      oldRaw.replace(/"/g, "&quot;"),
+      serializeIconValue(JSON.parse(newRaw))!.replace(/"/g, "&quot;"),
+    );
+    expect(stored.content).toBe(
+      `${fenced}${changedCallout}\n${changedCallout}\n`,
+    );
+    expect(stored.bodyRevision).toBe(2);
+    const indexed = await db
+      .select()
+      .from(schema.privateIconReferences)
+      .where(eq(schema.privateIconReferences.documentId, documentId));
+    expect(indexed).toMatchObject([
+      {
+        elementType: "callout",
+        assetId: "00000000-0000-4000-8000-000000000001",
+      },
+    ]);
+    expect(await replace(references[0], newRaw)).toBe(false);
+  });
+
+  it("preserves concurrent edits and rolls back body changes when callout ownership verification fails", async () => {
+    const db = getDb();
+    const documentId = "historical-callout-cas";
+    const content = `<callout icon="${oldRaw.replace(/"/g, "&quot;")}">\n\tOriginal\n</callout>`;
+    await db.insert(schema.documents).values({
+      id: documentId,
+      title: "CAS",
+      content,
+      ownerEmail,
+      orgId: null,
+    });
+    const reference: IconReference = {
+      table: "documents",
+      rowId: documentId,
+      path: "content.callouts[0].icon",
+      raw: oldRaw,
+      ownerEmail,
+      orgId: null,
+      contentRaw: content,
+      calloutIndex: 0,
+    };
+    await db
+      .update(schema.documents)
+      .set({ content: `${content}\nConcurrent edit` })
+      .where(eq(schema.documents.id, documentId));
+    expect(await replace(reference, newRaw)).toBe(false);
+    await db
+      .update(schema.documents)
+      .set({ content })
+      .where(eq(schema.documents.id, documentId));
+    const { assertPrivateIconOwner } =
+      await import("../server/lib/private-icon-authority.js");
+    vi.mocked(assertPrivateIconOwner)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("unavailable"));
+    await expect(replace(reference, newRaw)).rejects.toThrow("unavailable");
+    const [stored] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(stored.content).toBe(content);
+    expect(stored.bodyRevision).toBe(0);
+    expect(
+      await db
+        .select()
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, documentId)),
+    ).toEqual([]);
+  });
+
   it("replaces a current document icon and indexes it in the same transaction", async () => {
     const db = getDb();
     await db.insert(schema.documents).values({

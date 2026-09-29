@@ -33,6 +33,9 @@ let schema: typeof import("../db/schema.js");
 let refs: typeof import("./private-icon-references.js");
 let resolveEditablePrivateIconOrgId: typeof import("./private-icon-target.js").resolveEditablePrivateIconOrgId;
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
+let duplicateDatabaseItemAction: typeof import("../../actions/duplicate-database-item.js").default;
+let duplicateDatabaseItemsAction: typeof import("../../actions/duplicate-database-items.js").default;
+let restoreDocumentVersionAction: typeof import("../../actions/restore-document-version.js").default;
 let count = 0;
 
 function icon(id = ASSET) {
@@ -49,6 +52,8 @@ async function document(
     visibility?: "private" | "public";
     icon?: string | null;
     content?: string;
+    spaceId?: string;
+    parentId?: string;
   } = {},
 ) {
   const id = `private-icon-doc-${++count}`;
@@ -56,6 +61,8 @@ async function document(
     id,
     ownerEmail: OWNER,
     orgId: null,
+    spaceId: options.spaceId,
+    parentId: options.parentId,
     title: "Icon test",
     content: options.content ?? "",
     icon: options.icon ?? null,
@@ -75,6 +82,84 @@ async function share(documentId: string) {
   });
 }
 
+async function collectionWithIconRows(rowCount: number) {
+  const spaceId = `private-icon-space-${++count}`;
+  const filesDocumentId = await document({ spaceId });
+  const filesDatabaseId = `private-icon-files-${++count}`;
+  await db.insert(schema.contentDatabases).values({
+    id: filesDatabaseId,
+    spaceId,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesDocumentId,
+    title: "Files",
+  });
+  await db.insert(schema.contentSpaces).values({
+    id: spaceId,
+    name: "Icons",
+    kind: "personal",
+    ownerEmail: OWNER,
+    filesDatabaseId,
+    createdBy: OWNER,
+  });
+  const collectionDocumentId = await document({ spaceId });
+  const databaseId = `private-icon-db-${++count}`;
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId,
+    ownerEmail: OWNER,
+    documentId: collectionDocumentId,
+    title: "Icons",
+  });
+  await db.insert(schema.documentShares).values({
+    id: `private-icon-share-${++count}`,
+    resourceId: collectionDocumentId,
+    principalType: "user",
+    principalId: SHARED,
+    role: "editor",
+    createdBy: OWNER,
+  });
+  const sourceContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tShared\n</callout>`;
+  const rows = [];
+  for (let index = 0; index < rowCount; index += 1) {
+    const documentId = await document({
+      icon: icon(),
+      content: sourceContent,
+      spaceId,
+      parentId: collectionDocumentId,
+    });
+    const itemId = `private-icon-item-${++count}`;
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      databaseId,
+      documentId,
+      ownerEmail: OWNER,
+      position: index,
+    });
+    await share(documentId);
+    await refs.syncPrivateIconReference(db, {
+      elementType: "document",
+      elementId: documentId,
+      documentId,
+      icon: icon(),
+      ownerEmail: OWNER,
+      orgId: null,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      refs.syncPrivateCalloutReferences(db, {
+        documentId,
+        before: "",
+        after: sourceContent,
+        userEmail: OWNER,
+        ownerEmail: OWNER,
+        orgId: null,
+      }),
+    );
+    rows.push({ itemId, documentId });
+  }
+  return { databaseId, sourceContent, rows };
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const module = await import("../db/index.js");
@@ -85,6 +170,15 @@ beforeAll(async () => {
     .resolveEditablePrivateIconOrgId;
   updateDocumentAction = (await import("../../actions/update-document.js"))
     .default;
+  duplicateDatabaseItemAction = (
+    await import("../../actions/duplicate-database-item.js")
+  ).default;
+  duplicateDatabaseItemsAction = (
+    await import("../../actions/duplicate-database-items.js")
+  ).default;
+  restoreDocumentVersionAction = (
+    await import("../../actions/restore-document-version.js")
+  ).default;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
   checkOwner.mockImplementation(
@@ -232,6 +326,263 @@ describe("private icon references", () => {
     await expect(
       refs.resolveReadablePrivateIcon(ASSET, { userEmail: OWNER }),
     ).resolves.toEqual({ orgId: null });
+  });
+
+  it("copies only a live source icon and callout that the collaborator can view", async () => {
+    const sourceContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tShared\n</callout>`;
+    const sourceId = await document({ icon: icon(), content: sourceContent });
+    await share(sourceId);
+    await refs.syncPrivateIconReference(db, {
+      elementType: "document",
+      elementId: sourceId,
+      documentId: sourceId,
+      icon: icon(),
+      ownerEmail: OWNER,
+      orgId: null,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      refs.syncPrivateCalloutReferences(db, {
+        documentId: sourceId,
+        before: "",
+        after: sourceContent,
+        userEmail: OWNER,
+        ownerEmail: OWNER,
+        orgId: null,
+      }),
+    );
+    const copyId = await document({ icon: icon(), content: sourceContent });
+    checkOwner.mockClear();
+    await runWithRequestContext({ userEmail: SHARED }, async () => {
+      await refs.verifyPrivateIconCopiedFromDocument(db, {
+        sourceDocumentId: sourceId,
+        icon: icon(),
+        ownerEmail: OWNER,
+        orgId: null,
+      });
+      await refs.syncPrivateCalloutReferences(db, {
+        documentId: copyId,
+        before: "",
+        after: sourceContent,
+        userEmail: SHARED,
+        ownerEmail: OWNER,
+        orgId: null,
+        source: { kind: "document", documentId: sourceId },
+      });
+    });
+    expect(checkOwner).not.toHaveBeenCalled();
+    const copied = await db
+      .select()
+      .from(schema.privateIconReferences)
+      .where(eq(schema.privateIconReferences.elementId, `${copyId}:${ASSET}`));
+    expect(copied).toHaveLength(1);
+
+    await db
+      .delete(schema.privateIconReferences)
+      .where(eq(schema.privateIconReferences.elementId, sourceId));
+    await expect(
+      runWithRequestContext({ userEmail: SHARED }, () =>
+        refs.verifyPrivateIconCopiedFromDocument(db, {
+          sourceDocumentId: sourceId,
+          icon: icon(),
+          ownerEmail: OWNER,
+          orgId: null,
+        }),
+      ),
+    ).rejects.toThrow("unavailable");
+    await db
+      .delete(schema.privateIconReferences)
+      .where(
+        eq(schema.privateIconReferences.elementId, `${sourceId}:${ASSET}`),
+      );
+    await expect(
+      runWithRequestContext({ userEmail: SHARED }, () =>
+        refs.syncPrivateCalloutReferences(db, {
+          documentId: copyId,
+          before: "",
+          after: sourceContent,
+          userEmail: SHARED,
+          ownerEmail: OWNER,
+          orgId: null,
+          source: { kind: "document", documentId: sourceId },
+        }),
+      ),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      runWithRequestContext({ userEmail: OTHER }, () =>
+        refs.syncPrivateCalloutReferences(db, {
+          documentId: copyId,
+          before: "",
+          after: sourceContent,
+          userEmail: OTHER,
+          ownerEmail: OWNER,
+          orgId: null,
+          source: { kind: "document", documentId: sourceId },
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("restores a saved callout reference without granting arbitrary image assignment", async () => {
+    const savedContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+    const id = await document({ content: "Current" });
+    const versionId = `private-icon-version-${++count}`;
+    await db.insert(schema.documentVersions).values({
+      id: versionId,
+      documentId: id,
+      ownerEmail: OWNER,
+      title: "Saved",
+      content: savedContent,
+    });
+    await db.insert(schema.documentShares).values({
+      id: `private-icon-share-${++count}`,
+      resourceId: id,
+      principalType: "user",
+      principalId: SHARED,
+      role: "editor",
+      createdBy: OWNER,
+    });
+    checkOwner.mockClear();
+    await runWithRequestContext({ userEmail: SHARED }, () =>
+      refs.syncPrivateCalloutReferences(db, {
+        documentId: id,
+        before: "Current",
+        after: savedContent,
+        userEmail: SHARED,
+        ownerEmail: OWNER,
+        orgId: null,
+        source: { kind: "version", versionId },
+      }),
+    );
+    expect(checkOwner).not.toHaveBeenCalled();
+    await expect(
+      runWithRequestContext({ userEmail: SHARED }, () =>
+        refs.syncPrivateCalloutReferences(db, {
+          documentId: id,
+          before: "Current",
+          after: savedContent.replace(ASSET, FORGED),
+          userEmail: SHARED,
+          ownerEmail: OWNER,
+          orgId: null,
+          source: { kind: "version", versionId },
+        }),
+      ),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      runWithRequestContext({ userEmail: SHARED }, () =>
+        refs.syncPrivateCalloutReferences(db, {
+          documentId: id,
+          before: "Current",
+          after: savedContent,
+          userEmail: SHARED,
+          ownerEmail: OWNER,
+          orgId: null,
+        }),
+      ),
+    ).rejects.toThrow("unavailable");
+  });
+
+  it("duplicates a collaborator-visible row with its page and callout image references", async () => {
+    const { rows, sourceContent } = await collectionWithIconRows(1);
+    checkOwner.mockClear();
+    const result = await runWithRequestContext({ userEmail: SHARED }, () =>
+      duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+    );
+    const copyId = result.duplicatedDocumentId;
+    const [copy] = await db
+      .select({
+        icon: schema.documents.icon,
+        content: schema.documents.content,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, copyId));
+    expect(copy).toEqual({ icon: icon(), content: sourceContent });
+    const copiedReferences = await db
+      .select({ elementType: schema.privateIconReferences.elementType })
+      .from(schema.privateIconReferences)
+      .where(eq(schema.privateIconReferences.documentId, copyId));
+    expect(
+      copiedReferences.map((reference) => reference.elementType).sort(),
+    ).toEqual(["callout", "document"]);
+    expect(checkOwner).not.toHaveBeenCalled();
+  });
+
+  it("duplicates a collaborator-visible batch with each row's private icons", async () => {
+    const { databaseId, rows } = await collectionWithIconRows(2);
+    checkOwner.mockClear();
+    const result = await runWithRequestContext({ userEmail: SHARED }, () =>
+      duplicateDatabaseItemsAction.run({
+        databaseId,
+        itemIds: rows.map((row) => row.itemId),
+      }),
+    );
+    expect(result.duplicatedDocumentIds).toHaveLength(2);
+    for (const documentId of result.duplicatedDocumentIds ?? []) {
+      const copiedReferences = await db
+        .select({ elementType: schema.privateIconReferences.elementType })
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, documentId));
+      expect(
+        copiedReferences.map((reference) => reference.elementType).sort(),
+      ).toEqual(["callout", "document"]);
+    }
+    expect(checkOwner).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplication when the source icon no longer matches its authorized reference", async () => {
+    const { rows } = await collectionWithIconRows(1);
+    await db
+      .update(schema.documents)
+      .set({ icon: icon(FORGED) })
+      .where(eq(schema.documents.id, rows[0].documentId));
+    await expect(
+      runWithRequestContext({ userEmail: SHARED }, () =>
+        duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+      ),
+    ).rejects.toThrow("unavailable");
+  });
+
+  it("restores a collaborator-visible saved version containing a prior callout image", async () => {
+    const savedContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+    const id = await document({ content: "Current" });
+    const versionId = `private-icon-version-${++count}`;
+    await db.insert(schema.documentVersions).values({
+      id: versionId,
+      documentId: id,
+      ownerEmail: OWNER,
+      title: "Saved",
+      content: savedContent,
+    });
+    await db.insert(schema.documentShares).values({
+      id: `private-icon-share-${++count}`,
+      resourceId: id,
+      principalType: "user",
+      principalId: SHARED,
+      role: "editor",
+      createdBy: OWNER,
+    });
+    const [before] = await db
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    checkOwner.mockClear();
+    await runWithRequestContext({ userEmail: SHARED }, () =>
+      restoreDocumentVersionAction.run({
+        documentId: id,
+        versionId,
+        expectedUpdatedAt: before.updatedAt,
+      }),
+    );
+    const [restored] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    expect(restored.content).toBe(savedContent);
+    const [reference] = await db
+      .select({ assetId: schema.privateIconReferences.assetId })
+      .from(schema.privateIconReferences)
+      .where(eq(schema.privateIconReferences.elementId, `${id}:${ASSET}`));
+    expect(reference.assetId).toBe(ASSET);
+    expect(checkOwner).not.toHaveBeenCalled();
   });
 
   it("requires a real saved callout, ignoring a code-fenced lookalike", async () => {

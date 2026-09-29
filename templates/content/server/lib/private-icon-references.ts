@@ -1,5 +1,5 @@
 import { parseIconValue } from "@agent-native/core/icons";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { nfmToDoc } from "../../shared/nfm.js";
@@ -31,6 +31,59 @@ export async function verifyPrivateIconAssignment(input: {
     });
   }
   return assetId;
+}
+
+export async function verifyPrivateIconCopiedFromDocument(
+  db: Database,
+  input: {
+    sourceDocumentId: string;
+    icon: unknown;
+    ownerEmail: string;
+    orgId: string | null;
+  },
+): Promise<void> {
+  const assetId = privateIconAssetId(input.icon);
+  if (!assetId) return;
+  await assertAccess("document", input.sourceDocumentId, "viewer");
+  const [source] = await db
+    .select({
+      icon: schema.documents.icon,
+      ownerEmail: schema.documents.ownerEmail,
+      orgId: schema.documents.orgId,
+    })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, input.sourceDocumentId),
+        isNull(schema.documents.trashedAt),
+      ),
+    )
+    .limit(1);
+  const [reference] = await db
+    .select({ assetId: schema.privateIconReferences.assetId })
+    .from(schema.privateIconReferences)
+    .where(
+      and(
+        eq(schema.privateIconReferences.elementType, "document"),
+        eq(schema.privateIconReferences.elementId, input.sourceDocumentId),
+        eq(schema.privateIconReferences.documentId, input.sourceDocumentId),
+        eq(schema.privateIconReferences.assetId, assetId),
+        eq(schema.privateIconReferences.ownerEmail, input.ownerEmail),
+        input.orgId === null
+          ? isNull(schema.privateIconReferences.orgId)
+          : eq(schema.privateIconReferences.orgId, input.orgId),
+      ),
+    )
+    .limit(1);
+  if (
+    !source ||
+    source.ownerEmail !== input.ownerEmail ||
+    source.orgId !== input.orgId ||
+    privateIconAssetId(source.icon) !== assetId ||
+    !reference
+  ) {
+    throw new Error("Private icon is unavailable to this user.");
+  }
 }
 
 export async function syncPrivateIconReference(
@@ -92,19 +145,104 @@ export async function syncPrivateCalloutReferences(
     userEmail: string;
     ownerEmail: string;
     orgId: string | null;
+    source?:
+      | { kind: "document"; documentId: string }
+      | { kind: "version"; versionId: string };
   },
 ): Promise<void> {
   if (!input.before.includes("<callout") && !input.after.includes("<callout"))
     return;
   const before = calloutPrivateIconAssetIds(input.before);
   const after = calloutPrivateIconAssetIds(input.after);
+  let authorizedSourceAssets: Set<string> | undefined;
+  if (input.source) {
+    const [source] =
+      input.source.kind === "document"
+        ? await db
+            .select({
+              content: schema.documents.content,
+              ownerEmail: schema.documents.ownerEmail,
+              orgId: schema.documents.orgId,
+            })
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.id, input.source.documentId),
+                isNull(schema.documents.trashedAt),
+              ),
+            )
+            .limit(1)
+        : await db
+            .select({
+              content: schema.documentVersions.content,
+              ownerEmail: schema.documentVersions.ownerEmail,
+              orgId: schema.documents.orgId,
+            })
+            .from(schema.documentVersions)
+            .innerJoin(
+              schema.documents,
+              eq(schema.documents.id, schema.documentVersions.documentId),
+            )
+            .where(
+              and(
+                eq(schema.documentVersions.id, input.source.versionId),
+                eq(schema.documentVersions.documentId, input.documentId),
+              ),
+            )
+            .limit(1);
+    if (
+      !source ||
+      source.ownerEmail !== input.ownerEmail ||
+      source.orgId !== input.orgId ||
+      source.content !== input.after
+    ) {
+      throw new Error("Private icon is unavailable to this user.");
+    }
+    if (input.source.kind === "document") {
+      await assertAccess("document", input.source.documentId, "viewer");
+    } else {
+      await assertAccess("document", input.documentId, "editor");
+    }
+    authorizedSourceAssets = calloutPrivateIconAssetIds(source.content);
+  }
   for (const assetId of after) {
     if (before.has(assetId)) continue;
-    await assertPrivateIconOwner({
-      assetId,
-      ownerEmail: input.userEmail,
-      orgId: input.orgId,
-    });
+    if (authorizedSourceAssets) {
+      if (!authorizedSourceAssets.has(assetId))
+        throw new Error("Private icon is unavailable to this user.");
+      if (input.source?.kind === "document") {
+        const [reference] = await db
+          .select({ assetId: schema.privateIconReferences.assetId })
+          .from(schema.privateIconReferences)
+          .where(
+            and(
+              eq(schema.privateIconReferences.elementType, "callout"),
+              eq(
+                schema.privateIconReferences.elementId,
+                `${input.source.documentId}:${assetId}`,
+              ),
+              eq(
+                schema.privateIconReferences.documentId,
+                input.source.documentId,
+              ),
+              eq(schema.privateIconReferences.assetId, assetId),
+              eq(schema.privateIconReferences.ownerEmail, input.ownerEmail),
+              input.orgId === null
+                ? isNull(schema.privateIconReferences.orgId)
+                : eq(schema.privateIconReferences.orgId, input.orgId),
+            ),
+          )
+          .limit(1);
+        if (!reference)
+          throw new Error("Private icon is unavailable to this user.");
+      }
+    } else {
+      await assertPrivateIconOwner({
+        assetId,
+        ownerEmail: input.userEmail,
+        orgId: input.orgId,
+      });
+    }
     await db
       .insert(schema.privateIconReferences)
       .values({

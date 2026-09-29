@@ -261,6 +261,7 @@ export default defineAction({
           userEmail: actor,
           ownerEmail,
           orgId: current.orgId,
+          source: { kind: "version", versionId },
         },
       );
       if (current.title !== version.title) {

@@ -20,6 +20,7 @@ import {
 } from "./historical-icon-builder.js";
 import {
   migrateHistoricalIconUrls,
+  findLiveCalloutIconOccurrences,
   type IconReference,
   type RehostDependencies,
 } from "./migrate-historical-icon-urls.js";
@@ -38,7 +39,7 @@ export async function listCurrentScalarIconReferences(
   if (!scope.ownerEmail.trim()) throw new Error("--owner-email is required");
   const references: IconReference[] = [];
   for (const surface of [
-    { table: "documents", field: "icon" },
+    { table: "documents", field: "icon, content" },
     { table: "document_property_definitions", field: "icon" },
     { table: "content_databases", field: "view_config_json" },
   ] as const) {
@@ -58,6 +59,27 @@ export async function listCurrentScalarIconReferences(
             `${surface.table} exceeds scan limit; report is incomplete`,
           );
         if (surface.table !== "content_databases") {
+          if (surface.table === "documents") {
+            if (typeof row.content !== "string")
+              throw new Error(
+                `Unreadable Content body for ${row.id}; scan is incomplete`,
+              );
+            for (const [
+              calloutIndex,
+              occurrence,
+            ] of findLiveCalloutIconOccurrences(row.content).entries()) {
+              references.push({
+                table: "documents",
+                rowId: row.id,
+                path: `content.callouts[${calloutIndex}].icon`,
+                raw: occurrence.raw,
+                ownerEmail: scope.ownerEmail,
+                orgId: scope.orgId,
+                calloutIndex,
+                contentRaw: row.content,
+              });
+            }
+          }
           if (typeof row.icon === "string" && row.icon)
             references.push({
               table: surface.table,

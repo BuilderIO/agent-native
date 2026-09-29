@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 
+import { sanitizeIconSvg } from "@agent-native/core/icon-assets";
 import {
   safeParseIconValue,
   serializeIconValue,
 } from "@agent-native/core/icons";
+
+import { nfmToDoc, type PMNode } from "../shared/nfm.js";
 
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_MIME_TYPES = new Set([
@@ -22,6 +25,8 @@ export type IconReference = {
   orgId: string | null;
   viewId?: string;
   viewConfigRaw?: string;
+  calloutIndex?: number;
+  contentRaw?: string;
 };
 
 export type RehostReceipt = {
@@ -76,6 +81,93 @@ export type RehostDependencies = {
 
 function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function findLiveCalloutIconOccurrences(content: string) {
+  // Mark source spans, then let the NFM parser decide which are live callouts.
+  // Matching tag text alone would also rewrite code fences and raw examples.
+  const occurrences: Array<{ raw: string; start: number; end: number }> = [];
+  const prefix = `historical-icon-${sha256(content)}-`;
+  let marked = "";
+  let cursor = 0;
+  for (const tag of content.matchAll(/<callout\b[^\r\n]*?>/g)) {
+    const attributes = [
+      ...tag[0].matchAll(/([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g),
+    ];
+    const iconAttributes = attributes.filter(
+      (attribute) => attribute[1] === "icon",
+    );
+    const icon = iconAttributes[iconAttributes.length - 1];
+    if (!icon) continue;
+    const start = tag.index + icon.index + icon[0].indexOf('"') + 1;
+    const end = start + icon[2].length;
+    const raw = icon[2]
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+    if (!raw) continue;
+    marked += content.slice(cursor, start) + `${prefix}${occurrences.length}`;
+    cursor = end;
+    occurrences.push({ raw, start, end });
+  }
+  marked += content.slice(cursor);
+  const callouts = (source: string) => {
+    const icons: string[] = [];
+    const visit = (node: PMNode) => {
+      if (node.type === "notionCallout" && node.attrs?.icon) {
+        if (typeof node.attrs.icon !== "string")
+          throw new Error("Unreadable callout icon; scan is incomplete");
+        icons.push(node.attrs.icon);
+      }
+      for (const child of node.content ?? []) visit(child);
+    };
+    visit(nfmToDoc(source));
+    return icons;
+  };
+  const original = callouts(content);
+  const located = callouts(marked).map((value, index) => {
+    const occurrence = value.startsWith(prefix)
+      ? occurrences[Number(value.slice(prefix.length))]
+      : undefined;
+    if (!occurrence || occurrence.raw !== original[index])
+      throw new Error(
+        "Callout source cannot be located exactly; scan is incomplete",
+      );
+    return occurrence;
+  });
+  if (located.length !== original.length)
+    throw new Error(
+      "Callout source cannot be located exactly; scan is incomplete",
+    );
+  return located;
+}
+
+export function nextCalloutContentRaw(
+  reference: IconReference,
+  newRaw: string,
+): string {
+  if (
+    reference.table !== "documents" ||
+    reference.contentRaw === undefined ||
+    reference.calloutIndex === undefined
+  )
+    throw new Error("Callout icon has no stable compare-and-swap source");
+  const occurrence = findLiveCalloutIconOccurrences(reference.contentRaw)[
+    reference.calloutIndex
+  ];
+  if (!occurrence || occurrence.raw !== reference.raw)
+    throw new Error("Callout icon source changed");
+  const escaped = newRaw
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return (
+    reference.contentRaw.slice(0, occurrence.start) +
+    escaped +
+    reference.contentRaw.slice(occurrence.end)
+  );
 }
 
 export function normalizedBuilderAssetUrl(raw: string): string | null {
@@ -155,7 +247,7 @@ export async function migrateHistoricalIconUrls(
     ambiguous: [],
     providerRevocationEligible: false,
     remainingReferenceSurfaces: [
-      "document versions, preview drafts, sidecars, block fields, and callout bodies",
+      "document versions, preview drafts, sidecars, and secondary block fields",
       "organization copies and other applications",
       "browser caches and recent-item stores",
     ],
@@ -239,6 +331,19 @@ export async function migrateHistoricalIconUrls(
       `${url}\0${reference.ownerEmail}\0${reference.orgId ?? ""}`,
     );
     try {
+      const source = await dependencies.fetchImage(url);
+      if (
+        !SUPPORTED_MIME_TYPES.has(source.mimeType) ||
+        source.data.byteLength < 1 ||
+        source.data.byteLength > MAX_ICON_BYTES
+      )
+        throw new Error("unsupported image MIME or size");
+      const sourceSha256 = sha256(source.data);
+      const expectedPrivateSha256 = sha256(
+        source.mimeType === "image/svg+xml"
+          ? sanitizeIconSvg(source.data)
+          : source.data,
+      );
       let receipt = await dependencies.readReceipt(
         sourceFingerprint,
         reference.ownerEmail,
@@ -251,22 +356,23 @@ export async function migrateHistoricalIconUrls(
           receipt.orgId !== reference.orgId
         )
           throw new Error("receipt scope mismatch");
-      } else {
-        const source = await dependencies.fetchImage(url);
         if (
-          !SUPPORTED_MIME_TYPES.has(source.mimeType) ||
-          source.data.byteLength < 1 ||
-          source.data.byteLength > MAX_ICON_BYTES
+          receipt.sourceSha256 !== sourceSha256 ||
+          receipt.privateSha256 !== expectedPrivateSha256
         )
-          throw new Error("unsupported image MIME or size");
+          throw new Error("private receipt does not match fetched source");
+      } else {
         const uploaded = await dependencies.uploadPrivate({
           ...source,
+          data: new Uint8Array(source.data),
           ownerEmail: reference.ownerEmail,
           orgId: reference.orgId,
         });
+        if (uploaded.sha256 !== expectedPrivateSha256)
+          throw new Error("private image does not match fetched source");
         receipt = {
           sourceFingerprint,
-          sourceSha256: sha256(source.data),
+          sourceSha256,
           privateAssetId: uploaded.id,
           privateSha256: uploaded.sha256,
           ownerEmail: reference.ownerEmail,
@@ -290,12 +396,27 @@ export async function migrateHistoricalIconUrls(
         throw new Error("private receipt is unreadable or changed");
       const newRaw = replacement(reference.raw, receipt.privateAssetId);
       const previousViewConfig = reference.viewConfigRaw;
+      const previousContent = reference.contentRaw;
+      const rolledContent =
+        reference.calloutIndex !== undefined
+          ? nextCalloutContentRaw(reference, newRaw)
+          : null;
       const rolledViewConfig =
         reference.table === "content_databases"
           ? nextViewConfigRaw(reference, newRaw)
           : null;
       if (await dependencies.replaceIfUnchanged(reference, newRaw)) {
         report.migrated++;
+        if (rolledContent !== null) {
+          for (const sibling of references) {
+            if (
+              sibling.table === "documents" &&
+              sibling.rowId === reference.rowId &&
+              sibling.contentRaw === previousContent
+            )
+              sibling.contentRaw = rolledContent;
+          }
+        }
         if (rolledViewConfig && previousViewConfig) {
           for (const sibling of references) {
             if (
@@ -323,6 +444,9 @@ export async function migrateHistoricalIconUrls(
             "private image readback failed integrity check",
             "private receipt is unreadable or changed",
             "receipt scope mismatch",
+            "private receipt does not match fetched source",
+            "private image does not match fetched source",
+            "Local-file callout migration requires its file authority",
           ].includes(error.message)
             ? error.message
             : "image fetch, upload, receipt, or icon update failed",
