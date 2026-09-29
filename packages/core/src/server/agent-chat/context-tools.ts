@@ -156,7 +156,7 @@ Agent-Native Plan, a Plan artifact, or the Plans app.
 - The user explicitly asks you to communicate with a different app
 - The requested outcome depends on data or a capability only another deployed app can provide
 
-For brand-consistent generated media, use "assets" only when this app has no native generation action; keep returned asset IDs and URLs verbatim.
+For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there. Keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 

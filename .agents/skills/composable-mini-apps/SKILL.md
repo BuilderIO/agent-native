@@ -39,8 +39,9 @@ The main agent should discover available siblings before assuming capability:
   It reads each peer's live `/.well-known/agent-card.json` and returns its
   purpose plus any optional stable machine contracts; pass `app: "<id>"` for
   one peer's full description. Use it only when the requested outcome depends
-  on peer-exclusive data or capability and the owner is unclear, or when the
-  user asks which app can do the job.
+  on peer-exclusive data or capability and you cannot tell which peer owns it
+  or whether a known peer can provide it, or when the user asks which app can
+  do the job.
 - Never hand-maintain a markdown or code list of what each workspace app does.
   A stale catalog is worse than none: it reads as authoritative while pointing
   at capabilities that moved or vanished. An app's purpose belongs in its own

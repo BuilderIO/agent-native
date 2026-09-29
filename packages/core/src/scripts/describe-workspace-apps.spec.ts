@@ -80,6 +80,9 @@ describe("describe-workspace-apps", () => {
       "Use only when the current request needs another app's data or capability",
     );
     expect(tool.description).toContain(
+      "cannot tell which peer owns it or whether a known peer can provide it",
+    );
+    expect(tool.description).toContain(
       "Do not use it as a preflight for ordinary local work",
     );
     expect(tool.description).not.toContain(

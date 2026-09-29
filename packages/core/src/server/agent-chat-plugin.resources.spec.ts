@@ -1080,6 +1080,9 @@ describe("loadResourcesForPrompt", () => {
       expect(prompt).toContain(
         "Use `describe-workspace-apps` only when that relevant cross-app need exists",
       );
+      expect(prompt).toContain(
+        "you cannot tell which peer owns it or whether a known peer can provide it",
+      );
       expect(prompt).not.toContain(
         "Before building a capability another app may already own",
       );

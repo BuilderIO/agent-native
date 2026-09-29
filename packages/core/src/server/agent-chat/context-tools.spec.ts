@@ -21,9 +21,13 @@ describe("peer-app delegation guidance", () => {
     expect(FRAMEWORK_CONTEXT_SECTIONS["call-agent"]).toContain(
       "The requested outcome depends on data or a capability only another deployed app can provide",
     );
+    expect(FRAMEWORK_CONTEXT_SECTIONS["call-agent"]).toContain(
+      "unless the current app has its own generation action that already delegates there",
+    );
     expect(skill).toContain(
       "requested outcome depends on peer-exclusive data or capability",
     );
+    expect(skill).toContain("whether a known peer can provide it");
     expect(skill).not.toContain(
       "before building something a sibling may already own",
     );
