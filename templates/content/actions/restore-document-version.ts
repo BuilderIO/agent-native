@@ -1,6 +1,7 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -19,6 +20,7 @@ import {
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -79,6 +81,17 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     const db = getDb();
+    const [versionForScope] = await db
+      .select({ title: schema.documentVersions.title })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.id, versionId),
+          eq(schema.documentVersions.documentId, documentId),
+          eq(schema.documentVersions.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
     const [beforeFlush] = await db
       .select({ updatedAt: schema.documents.updatedAt })
       .from(schema.documents)
@@ -110,7 +123,10 @@ export default defineAction({
     }
     await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
     const [afterFlush] = await db
-      .select({ updatedAt: schema.documents.updatedAt })
+      .select({
+        title: schema.documents.title,
+        updatedAt: schema.documents.updatedAt,
+      })
       .from(schema.documents)
       .where(
         and(
@@ -126,6 +142,15 @@ export default defineAction({
       });
     }
     const expectedUpdatedAt = afterFlush.updatedAt;
+    const requestUserEmail = getRequestUserEmail();
+    const titleOrganizationIds =
+      versionForScope &&
+      versionForScope.title !== afterFlush.title &&
+      requestUserEmail
+        ? (await listContentOrganizationMemberships(requestUserEmail)).map(
+            (membership) => membership.orgId,
+          )
+        : [];
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
@@ -230,6 +255,7 @@ export default defineAction({
           documentId,
           title: version.title,
           updatedAt: now,
+          organizationIds: titleOrganizationIds,
         });
       }
       for (const field of primaryBlocksFields) {

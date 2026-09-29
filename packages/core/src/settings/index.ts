@@ -4,7 +4,6 @@ export {
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
-  getAllSettings,
   listSettingsByPrefix,
   getSettingsEmitter,
   type StoreWriteOptions,

@@ -17,11 +17,15 @@ import {
   resumePendingIdentityRekeys,
 } from "./rekey.js";
 
-function dbAdapter(db: {
-  query: (sql: string, args?: unknown[]) => Promise<any>;
-}) {
+function dbAdapter(
+  db: {
+    query: (sql: string, args?: unknown[]) => Promise<any>;
+  },
+  calls?: Array<{ sql: string; args: unknown[] }>,
+) {
   return {
     async unsafe(sql: string, args: unknown[] = []) {
+      calls?.push({ sql, args });
       const result = await db.query(sql, args);
       const rows = result.rows as Array<Record<string, unknown>> & {
         count?: number;
@@ -266,6 +270,7 @@ describe("rekeyIdentity", () => {
     const pg = await createTestPglite();
     try {
       await seed(pg);
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
       await pg.exec(`
         CREATE TABLE discovered_owned_rows (id TEXT PRIMARY KEY, owner_email TEXT);
         INSERT INTO discovered_owned_rows VALUES ('dynamic1', 'OLD@example.test');
@@ -273,7 +278,11 @@ describe("rekeyIdentity", () => {
         INSERT INTO settings VALUES ('o:org1:feature-flag:editor', '{"mode":"rules","emails":["old@example.test"],"updatedBy":"someone@example.test"}');
       `);
       const result = await pg.db.transaction((tx) =>
-        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+        ),
       );
       expect(Object.keys(result.counts)).toContain("org_members.email");
       expect(result.sessionCount).toBe(1);
@@ -290,6 +299,11 @@ describe("rekeyIdentity", () => {
         "new@example.test",
         "other@example.test",
       ]);
+      const groupRead = calls.find((call) =>
+        call.sql.includes("FROM workspace_user_groups"),
+      );
+      expect(groupRead?.sql).toContain("WHERE EXISTS");
+      expect(groupRead?.args).toEqual(["old@example.test"]);
       const secrets = await pg
         .prepare("SELECT scope_id FROM app_secrets ORDER BY id")
         .all();

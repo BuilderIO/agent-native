@@ -709,6 +709,7 @@ export function AgentJobsTab({
       compact={hideHeader || settingsVariant}
       title={t("jobs.pageTitle", { defaultValue: "Automations" })}
       description={t("jobs.pageDescription", {
+        // guard:allow-unscoped — localized UI copy mentions webhooks, not SQL
         defaultValue:
           "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
       })}
