@@ -284,20 +284,18 @@ async function drainReadyTriggerQueue(
 
   const expireStaleMailEventBatches = async () => {
     if (deps.appId !== "mail") return;
+    if (!hasDrainBudget()) return;
     const emittedBefore = new Date(
       Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS,
     ).toISOString();
-    while (hasDrainBudget()) {
-      const expired = await expireStaleAutomationTriggerEvents({
-        appId: deps.appId,
-        eventName: MAIL_RECEIVED_EVENT,
-        emittedBefore,
-        reason: "Expired because the mail event was older than 60 minutes.",
-        limit: AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
-      });
-      reclaimedExpiredCount += expired;
-      if (expired < AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE) return;
-    }
+    const expired = await expireStaleAutomationTriggerEvents({
+      appId: deps.appId,
+      eventName: MAIL_RECEIVED_EVENT,
+      emittedBefore,
+      reason: "Expired because the mail event was older than 60 minutes.",
+      limit: AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
+    });
+    reclaimedExpiredCount += expired;
   };
 
   const findNextReadyTriggerId = async (): Promise<string | null> => {
