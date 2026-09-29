@@ -83,6 +83,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "No capturado",
   "observability.openFullConversation": "Abrir conversación completa",
   "observability.learnAboutTab": "Más información sobre esta pestaña",
+  "observability.promoteMustContain": "La respuesta debe contener…",
+  "observability.promoteMustContainLabel":
+    "Texto que debe contener la respuesta de la evaluación promocionada",
+  "observability.promoteMustContainOptional":
+    "La respuesta debe contener (opcional)",
+  "observability.promoteNeedsContains":
+    "Esta ejecución no tiene ninguna llamada a herramienta correcta. Escribe el texto que debe contener la respuesta antes de promocionar la evaluación.",
   "observability.summarizeWithAgent": "Resumir con el agente",
   "observability.regenerateSummary": "Regenerar resumen",
   "observability.summarizeWithAgentHelp":
@@ -92,11 +99,6 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "Enviando solicitud al agente…",
   "observability.summaryQueued":
     "Solicitud en cola. El resumen aparecerá aquí cuando el agente lo guarde.",
-  "observability.promoteMustContain": "La respuesta debe incluir…",
-  "observability.promoteMustContainLabel":
-    "Texto que debe incluir la respuesta de la evaluación promocionada",
-  "observability.promoteNeedsContains":
-    "Esta ejecución no tiene ninguna llamada exitosa a una herramienta. Indica el texto que debe incluir la respuesta antes de promocionarla.",
   "observability.summaryFailed":
     "No se pudo enviar la solicitud. Inténtalo de nuevo.",
   "observability.summaryExpired":
@@ -399,6 +401,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
   "mcpIntegrations.menuLabel": "Integraciones",
+  "mcpApps.optionalPeerRequired":
+    "Esta aplicación MCP requiere el paquete {{packageName}}. Instálalo con {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Conectar herramientas y servicios al agente",
   "mcpIntegrations.title": "Conectar integraciones",

@@ -1069,6 +1069,12 @@ const messages = {
     createFirstDeck: "Crie seu primeiro deck",
     emptyDescription: "Crie belas apresentações com geração por IA.",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
+  },
 };
 
 export default messages;

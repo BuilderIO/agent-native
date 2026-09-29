@@ -86,6 +86,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "Non capturé",
   "observability.openFullConversation": "Ouvrir la conversation complète",
   "observability.learnAboutTab": "En savoir plus sur cet onglet",
+  "observability.promoteMustContain": "La réponse doit contenir…",
+  "observability.promoteMustContainLabel":
+    "Texte que la réponse de l’évaluation promue doit contenir",
+  "observability.promoteMustContainOptional":
+    "La réponse doit contenir (facultatif)",
+  "observability.promoteNeedsContains":
+    "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir l’évaluation.",
   "observability.summarizeWithAgent": "Résumer avec l’agent",
   "observability.regenerateSummary": "Régénérer le résumé",
   "observability.summarizeWithAgentHelp":
@@ -95,11 +102,6 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "Envoi de la demande à l’agent…",
   "observability.summaryQueued":
     "Demande mise en file d’attente. Le résumé apparaîtra ici lorsque l’agent l’aura enregistré.",
-  "observability.promoteMustContain": "Réponse devant contenir…",
-  "observability.promoteMustContainLabel":
-    "Texte que la réponse de l’évaluation promue doit contenir",
-  "observability.promoteNeedsContains":
-    "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de la promouvoir.",
   "observability.summaryFailed": "Impossible d’envoyer la demande. Réessayez.",
   "observability.summaryExpired":
     "Aucun résumé n’est encore apparu. Vous pouvez réessayer, mais l’agent est peut-être toujours en train de travailler.",
@@ -401,6 +403,8 @@ const messages: AgentChatTranslation = {
   "integrations.subtitle":
     "Connectez les outils que votre agent peut utiliser.",
   "mcpIntegrations.menuLabel": "Intégrations",
+  "mcpApps.optionalPeerRequired":
+    "Cette application MCP nécessite le paquet {{packageName}}. Installez-le avec {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Connecter les outils et services à l’agent",
   "mcpIntegrations.title": "Connecter des intégrations",

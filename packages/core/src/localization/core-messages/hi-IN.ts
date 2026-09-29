@@ -82,6 +82,12 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "कैप्चर नहीं किया गया",
   "observability.openFullConversation": "पूरी बातचीत खोलें",
   "observability.learnAboutTab": "इस टैब के बारे में जानें",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainLabel":
+    "प्रमोट किए गए मूल्यांकन के जवाब में शामिल किया जाने वाला टेक्स्ट",
+  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.summarizeWithAgent": "एजेंट से सारांश बनवाएँ",
   "observability.regenerateSummary": "सारांश फिर से बनाएँ",
   "observability.summarizeWithAgentHelp":
@@ -91,11 +97,6 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "एजेंट को अनुरोध भेजा जा रहा है…",
   "observability.summaryQueued":
     "अनुरोध कतार में है। एजेंट के सारांश सहेजने पर वह यहाँ दिखाई देगा।",
-  "observability.promoteMustContain": "जवाब में यह शामिल होना चाहिए…",
-  "observability.promoteMustContainLabel":
-    "प्रचारित मूल्यांकन के जवाब में शामिल किया जाने वाला टेक्स्ट",
-  "observability.promoteNeedsContains":
-    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जिसे जवाब में शामिल होना चाहिए।",
   "observability.summaryFailed": "अनुरोध नहीं भेजा जा सका। फिर से कोशिश करें।",
   "observability.summaryExpired":
     "अभी तक कोई सारांश दिखाई नहीं दिया है। आप फिर से कोशिश कर सकते हैं, लेकिन एजेंट अभी भी काम कर रहा हो सकता है।",
@@ -632,6 +633,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "अनुशंसित",
   "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "mcpIntegrations.menuLabel": "इंटीग्रेशन",
+  "mcpApps.optionalPeerRequired":
+    "इस MCP ऐप के लिए {{packageName}} पैकेज ज़रूरी है। इसे {{installCommand}} से इंस्टॉल करें।",
   "mcpIntegrations.menuDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
   "mcpIntegrations.title": "इंटीग्रेशन कनेक्ट करें",
   "mcpIntegrations.description":

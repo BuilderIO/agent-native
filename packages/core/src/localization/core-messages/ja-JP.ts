@@ -84,6 +84,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未取得",
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
+  "observability.promoteMustContain": "返信に含めるテキスト…",
+  "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
+  "observability.promoteMustContainOptional": "返信に含めるテキスト（任意）",
+  "observability.promoteNeedsContains":
+    "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.summarizeWithAgent": "エージェントで要約",
   "observability.regenerateSummary": "要約を再生成",
   "observability.summarizeWithAgentHelp":
@@ -93,10 +98,6 @@ const messages: AgentChatTranslation = {
   "observability.summarySending": "エージェントにリクエストを送信中…",
   "observability.summaryQueued":
     "リクエストをキューに追加しました。エージェントが要約を保存するとここに表示されます。",
-  "observability.promoteMustContain": "回答に含めるテキスト…",
-  "observability.promoteMustContainLabel": "昇格した評価の回答に含めるテキスト",
-  "observability.promoteNeedsContains":
-    "この実行ではツール呼び出しが成功していません。昇格する前に、回答に含めるテキストを入力してください。",
   "observability.summaryFailed":
     "リクエストを送信できませんでした。もう一度お試しください。",
   "observability.summaryExpired":
@@ -655,6 +656,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
   "mcpIntegrations.menuLabel": "連携",
+  "mcpApps.optionalPeerRequired":
+    "この MCP アプリには {{packageName}} が必要です。{{installCommand}} でインストールしてください。",
   "mcpIntegrations.menuDescription": "ツールやサービスをエージェントに接続",
   "mcpIntegrations.title": "連携を接続",
   "mcpIntegrations.description":

@@ -1062,6 +1062,11 @@ const messages = {
     emptyDescription:
       "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+  },
 };
 
 export default messages;
