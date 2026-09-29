@@ -20,9 +20,11 @@ interface StoredTokens {
   expiry_date?: number;
 }
 
+type GmailScopeUse = "write" | "reply" | "attachment";
+
 function hasGmailScope(
   tokens: Record<string, unknown>,
-  requiresMessageRead = false,
+  use: GmailScopeUse = "write",
 ): boolean {
   const scope = tokens.scope;
   if (typeof scope !== "string" || !scope.trim()) return true;
@@ -33,14 +35,18 @@ function hasGmailScope(
       value === "https://www.googleapis.com/auth/gmail.compose" ||
       value === "https://www.googleapis.com/auth/gmail.modify",
   );
-  if (!canWrite || !requiresMessageRead) return canWrite;
-  return scopes.some(
+  const canReadAttachment = scopes.some(
     (value) =>
       value === "https://mail.google.com/" ||
-      value === "https://www.googleapis.com/auth/gmail.metadata" ||
       value === "https://www.googleapis.com/auth/gmail.modify" ||
       value === "https://www.googleapis.com/auth/gmail.readonly",
   );
+  const canReadMessageMetadata =
+    canReadAttachment ||
+    scopes.includes("https://www.googleapis.com/auth/gmail.metadata");
+  if (use === "write") return canWrite;
+  if (use === "reply") return canWrite && canReadMessageMetadata;
+  return canReadAttachment;
 }
 
 async function getAccessToken(
@@ -77,11 +83,11 @@ async function getAccessToken(
 async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
-  requiresMessageRead = false,
+  use: GmailScopeUse = "write",
 ): Promise<string | null> {
   const accounts = (
     await listOAuthAccountsByOwner("google", ownerEmail)
-  ).filter((account) => hasGmailScope(account.tokens, requiresMessageRead));
+  ).filter((account) => hasGmailScope(account.tokens, use));
   if (requested) {
     if (!accounts.some((account) => account.accountId === requested)) {
       throw new Error("Account not owned by current user");
@@ -167,7 +173,7 @@ export async function saveGmailDraft(args: {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
     args.ownerEmail,
-    Boolean(args.replyToId),
+    args.replyToId ? "reply" : "write",
   );
   if (!accountEmail) return null;
   const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
@@ -181,6 +187,7 @@ export async function saveGmailDraft(args: {
         const attachmentAccountEmail = await resolveAccountEmail(
           attachment.accountEmail ?? accountEmail,
           args.ownerEmail,
+          "attachment",
         );
         if (!attachmentAccountEmail) return null;
         const attachmentAccessToken =

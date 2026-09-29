@@ -366,6 +366,12 @@ export default defineAction({
           throw new Error(`Draft "${safeId}" has invalid ${key}`);
         }
       }
+      if (
+        draft.attachments !== undefined &&
+        !Array.isArray(draft.attachments)
+      ) {
+        throw new Error(`Draft "${safeId}" has invalid attachments`);
+      }
       const ownerEmail = getRequestUserEmail();
       const savedDraftBackend = draft.savedDraftBackend;
       if (

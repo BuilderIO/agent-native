@@ -313,6 +313,27 @@ describe("manage-draft local fallback", () => {
     );
   });
 
+  it("rejects malformed attachment state instead of replacing a draft without it", async () => {
+    appState.set("compose-ui-draft", {
+      id: "ui-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Original draft",
+      mode: "compose",
+      attachments: { filename: "brief.pdf" },
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "ui-draft",
+        body: "Updated draft",
+      }),
+    ).rejects.toThrow('Draft "ui-draft" has invalid attachments');
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
   it("can create and update a local draft without an account marker", async () => {
     const created = await action.run({
       action: "create",

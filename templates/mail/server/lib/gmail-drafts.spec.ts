@@ -236,6 +236,56 @@ describe("saveGmailDraft", () => {
     expect(raw).toContain(Buffer.from("attachment body").toString("base64"));
   });
 
+  it("reads an attachment from a read-only Gmail account", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "draft@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.compose" },
+      },
+      {
+        accountId: "source@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.readonly" },
+      },
+    ]);
+    mocks.gmailGetAttachment.mockResolvedValue({
+      data: Buffer.from("source attachment").toString("base64url"),
+    });
+
+    await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "draft@example.com",
+      to: "recipient@example.com",
+      subject: "Forwarded file",
+      body: "See attached",
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 17,
+          url: "/api/attachments/brief.pdf",
+          source: "gmail",
+          gmailMessageId: "source-message-1",
+          gmailAttachmentId: "source-attachment-1",
+          accountEmail: "source@example.com",
+        },
+      ],
+    });
+
+    expect(mocks.getOAuthTokens).toHaveBeenCalledWith(
+      "google",
+      "source@example.com",
+    );
+    expect(mocks.gmailGetAttachment).toHaveBeenCalledWith(
+      "token",
+      "source-message-1",
+      "source-attachment-1",
+    );
+  });
+
   it("does not use a compose-only account for reply drafts", async () => {
     mocks.listOAuthAccountsByOwner.mockResolvedValue([
       {
