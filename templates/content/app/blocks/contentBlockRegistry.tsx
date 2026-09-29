@@ -1,16 +1,18 @@
 import {
-  BlockView,
   BlockRegistry,
-  registerLibraryBlocks,
   type BlockRenderContext,
   type NestedBlock,
-} from "@agent-native/core/blocks";
+} from "@agent-native/core/blocks/server";
 import {
-  BuilderSetupCard,
   sendToAgentChat,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  BlockView,
+  registerLibraryBlocks,
+} from "@agent-native/toolkit/app/blocks";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { useEffect, useRef, useState } from "react";
 
 import { uploadImageFile } from "@/components/editor/image-upload";

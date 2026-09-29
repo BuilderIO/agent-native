@@ -1,10 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   BlockView,
   SchemaBlockEditor,
   blockEditSurface,
   useOptionalBlockRegistry,
-} from "@agent-native/core/blocks";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/blocks";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {

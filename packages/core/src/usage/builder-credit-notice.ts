@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { renderTransactionalEmail } from "../email-catalog/templates.js";
-import { loadAgentChatMessagesForLocale } from "../localization/core-messages.js";
+import { loadBillingNoticeMessagesForLocale } from "../localization/billing-notice-messages.js";
 import {
   LOCALIZATION_SETTING_KEY,
   normalizeLocalizationPreference,
@@ -107,10 +107,10 @@ export async function sendBuilderCreditLimitNotice(input: {
       await getUserSetting(input.ownerEmail, LOCALIZATION_SETTING_KEY),
     );
     const locale = preference.locale === "system" ? "en-US" : preference.locale;
-    const messages = await loadAgentChatMessagesForLocale(locale);
-    const subject = messages["billing.builderCreditLimitTitle"];
-    const body = messages["billing.builderCreditLimitEmailBody"];
-    const upgradeLabel = messages["billing.builderCreditUpgrade"];
+    const messages = await loadBillingNoticeMessagesForLocale(locale);
+    const subject = messages.builderCreditLimitTitle;
+    const body = messages.builderCreditLimitEmailBody;
+    const upgradeLabel = messages.builderCreditUpgrade;
     const upgradeUrl = builderSubscriptionUpgradeUrl(
       "builder_credit_limit_email",
     );

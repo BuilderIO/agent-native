@@ -1435,7 +1435,9 @@ describe("template/core version compatibility", () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
-      expect(_getToolkitDependencyVersion()).toBe("latest");
+      expect(_getToolkitDependencyVersion()).toBe(
+        `^${_getCorePackageVersion()}`,
+      );
       expect(_getAgentKitDependencyVersion()).toBe(
         `^${readPkg(path.join(__dirname, "../../../agentkit")).version}`,
       );

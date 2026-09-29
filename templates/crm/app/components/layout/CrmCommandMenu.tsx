@@ -1,10 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  buildSettingsRoute,
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconAlertTriangle,
   IconBuilding,

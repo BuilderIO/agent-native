@@ -8,7 +8,6 @@ import {
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { type ReviewThread } from "@agent-native/core/client/review";
 import {
   clampZoomFactor,
   normalizeWheelDeltaPx,
@@ -18,6 +17,7 @@ import {
 } from "@agent-native/core/client/zoom-gesture";
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
+import { type ReviewThread } from "@agent-native/toolkit/app/review";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,

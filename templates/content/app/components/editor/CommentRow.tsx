@@ -4,7 +4,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
-} from "@agent-native/core/client/markdown";
+} from "@agent-native/toolkit/app/review";
 import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 

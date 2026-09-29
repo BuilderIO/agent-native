@@ -13,11 +13,11 @@ Agent-Native는 전체 사이드바를 제공하지만 사이드바는 계약이
 중점 클라이언트 하위 경로에서 브라우저 UI 가져오기:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -185,12 +185,12 @@ Toolkit 스타일에는 공유 치수가 포함됩니다. `@agent-native/toolkit
 
 | API                                  | 가져오기 경로                          | 다음 경우에 사용                                                                   |
 | ------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | 앱 주변에 완전한 사이드바가 필요합니다.                                            |
-| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | 사이드바에 헤더 버튼을 직접 렌더링합니다.                                          |
-| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | 자신만의 레이아웃, 경로, 대화 상자 또는 측면 열에 전체 패널이 포함되기를 원합니다. |
-| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | 사이드바 래퍼 없이 패널 또는 페이지 모드에서 채팅을 원합니다.                      |
-| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | 표준 대화 및 작성기 런타임을 유지하면서 주변 크롬을 소유하고 싶습니다.             |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | `AgentPanel` 크롬이 없는 프레임워크의 스레드 탭을 원합니다.                        |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | 앱 주변에 완전한 사이드바가 필요합니다.                                            |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | 사이드바에 헤더 버튼을 직접 렌더링합니다.                                          |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | 자신만의 레이아웃, 경로, 대화 상자 또는 측면 열에 전체 패널이 포함되기를 원합니다. |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | 사이드바 래퍼 없이 패널 또는 페이지 모드에서 채팅을 원합니다.                      |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | 표준 대화 및 작성기 런타임을 유지하면서 주변 크롬을 소유하고 싶습니다.             |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | `AgentPanel` 크롬이 없는 프레임워크의 스레드 탭을 원합니다.                        |
 | `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 정규화된 채팅 이벤트를 스트리밍하는 BYO 에이전트 엔드포인트가 있습니다.            |
 | `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | OpenAI 상담원 SDK 스트림이 있고 그 주변에 표준 채팅 UI가 있기를 원합니다.          |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | OpenAI 응답 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.               |
@@ -212,7 +212,7 @@ Agent-Native가 작곡가, 대본, 도구 카드를 보관하는 동안 대화
 가장 짧은 사용자 정의 경로는 여전히 사전 배선된 표면입니다:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -222,10 +222,8 @@ export default function ChatRoute() {
 표준 런타임에 대한 맞춤 크롬의 경우:
 
 ```tsx
-import {
-  AssistantChat,
-  useChatThreads,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -252,7 +250,7 @@ BYOD(Bring-Your-Own) 에이전트 엔드포인트의 경우 다음 중 하나를
 
 ## 채팅 필드 및 작성기 {#composer}
 
-맞춤 UI에서 사이드바와 같은 채팅 필드가 필요하면 `@agent-native/core/client/composer`를 사용하세요.
+맞춤 UI에서 사이드바와 같은 채팅 필드가 필요하면 `@agent-native/toolkit/app/chat/composer`를 사용하세요.
 `@agent-native/toolkit/composer`는 이식 가능한 순수 Tiptap 및 UI 구현을 제공합니다. 프레임워크 서비스를
 사용하려면 `ComposerRuntimeAdaptersProvider`로 감싸고 서비스를 제공해야 합니다. Core는 첨부 파일, 멘션, 스킬, 음성 및 모델 선택을 이미 연결한 래퍼입니다.
 
@@ -267,7 +265,7 @@ BYOD(Bring-Your-Own) 에이전트 엔드포인트의 경우 다음 중 하나를
 대부분의 사용자 정의 UI는 `PromptComposer`로 시작해야 합니다:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -319,7 +317,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 앱은 이미 접근이 확인된 선택지를 등록할 수 있습니다. 여기서 `labels`는 번역된 앱 문구이고 `stageReference`는 호스트의 준비된 컨텍스트를 갱신합니다.
 
 ```tsx
-import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
 import { Link } from "react-router";
 
 const contextMenuItems: ComposerContextMenuItem[] = [
@@ -423,7 +421,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 ## 대화 렌더링 {#conversation}
 
-대본 스타일 렌더링에 `@agent-native/core/client/conversation` 사용
+대본 스타일 렌더링에 `@agent-native/toolkit/app/chat/conversation` 사용
 전체 에이전트 런타임 외부
 
 | API                                             | 다음 경우에 사용                                      |
@@ -540,7 +538,7 @@ import {
 
 ## 리치 에디터 {#rich-editor}
 
-공유 마크다운 편집기가 필요할 때 `@agent-native/core/client/editor`를 사용하세요
+공유 마크다운 편집기가 필요할 때 `@agent-native/toolkit/editor`를 사용하세요
 계획, 콘텐츠, 리소스 및 공동 작업 문서에서 사용되는 표면
 경험.
 
@@ -558,7 +556,7 @@ import {
 기본 제어 편집기는 마크다운 인과 마크다운 아웃입니다:
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -575,7 +573,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -671,9 +669,9 @@ function WorkspaceResources() {
 | 알림        | `<NotificationsBell>`                             | `@agent-native/core/client/notifications` |
 | 진행상황    | `<RunsTray>`, 진행 후크 및 유형                   | `@agent-native/core/client/progress`      |
 | 온보딩      | `useOnboarding()`, 온보딩 패널 후크               | `@agent-native/core/client/onboarding`    |
-| 관측성      | `<ObservabilityDashboard>`, `<ThumbsFeedback>`    | `@agent-native/core/client/observability` |
+| 관측성      | `<ObservabilityDashboard>`, `<ThumbsFeedback>`    | `@agent-native/toolkit/app/observability` |
 | 자원        | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크 | `@agent-native/core/client/resources`     |
-| 리치 에디터 | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크 | `@agent-native/core/client/editor`        |
+| 리치 에디터 | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크 | `@agent-native/toolkit/editor`            |
 
 ## 일회성 텍스트 완성 {#one-off-text-completion}
 

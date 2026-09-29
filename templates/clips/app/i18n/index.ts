@@ -3,6 +3,7 @@ import {
   type LocaleCode,
   type LocaleMessages,
 } from "@agent-native/core/client/i18n";
+import { createToolkitI18nCatalog } from "@agent-native/toolkit/app/i18n";
 
 import enUS from "./en-US";
 
@@ -37,8 +38,8 @@ export async function loadI18nMessages(
   }
 }
 
-export const i18nCatalog = {
+export const i18nCatalog = createToolkitI18nCatalog({
   sourceLocale: "en-US",
   messages: enUS,
   loadMessages: loadI18nMessages,
-} satisfies AgentNativeI18nCatalog;
+});

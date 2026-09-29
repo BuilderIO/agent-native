@@ -1,4 +1,4 @@
-import englishMessages from "../localization/core-messages/en-US.js";
+import { BILLING_NOTICE_MESSAGES } from "../localization/billing-notice-messages.js";
 import { resolveEmailBrandApp } from "../server/email-templates.js";
 import { builderSubscriptionUpgradeUrl } from "../shared/builder-link-tracking.js";
 import { defineTransactionalEmail } from "./registry.js";
@@ -58,10 +58,10 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
     ...corePreview(CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID, () => ({
-      subject: englishMessages["billing.builderCreditLimitTitle"],
-      heading: englishMessages["billing.builderCreditLimitTitle"],
-      body: englishMessages["billing.builderCreditLimitEmailBody"],
-      upgradeLabel: englishMessages["billing.builderCreditUpgrade"],
+      subject: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
+      heading: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
+      body: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitEmailBody,
+      upgradeLabel: BILLING_NOTICE_MESSAGES["en-US"].builderCreditUpgrade,
       upgradeUrl: builderSubscriptionUpgradeUrl("builder_credit_limit_email"),
     })),
   });

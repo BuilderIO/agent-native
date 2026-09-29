@@ -1,6 +1,6 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import {
   IconPlus,
   IconCheck,

@@ -1,13 +1,13 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { RunsTray } from "@agent-native/core/client/progress";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   CreativeContextShareTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,

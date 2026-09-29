@@ -1,4 +1,4 @@
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 

@@ -1,8 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { DevOverlay } from "@agent-native/core/client/dev-overlay";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   getBrowserTabId,
   useDbSync,
@@ -17,6 +15,8 @@ import {
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { DevOverlay } from "@agent-native/toolkit/app/dev-overlay";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { IconCheck } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -54,7 +54,7 @@ import {
   isStandalonePublicPath,
 } from "@/lib/public-ssr-paths";
 
-import { i18nCatalog, loadI18nMessages } from "./i18n";
+import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
@@ -83,7 +83,7 @@ export async function loader({
 }: LoaderFunctionArgs): Promise<RootLoaderData> {
   const resolved = resolveLocaleFromRequest({ request });
   const messages =
-    (await loadI18nMessages(resolved.locale)) ?? i18nCatalog.messages;
+    (await i18nCatalog.loadMessages?.(resolved.locale)) ?? i18nCatalog.messages;
   return {
     locale: resolved.locale,
     preference: resolved.preference,
@@ -409,4 +409,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

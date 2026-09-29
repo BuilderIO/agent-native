@@ -1,0 +1,167 @@
+---
+title: "기존 앱을 Core 0.198.0으로 업그레이드"
+description: "Core 0.198.0 마이그레이션, Toolkit import, 선택적 peer 패키지 및 검증을 위한 단계별 가이드입니다."
+---
+
+# 기존 앱을 Core 0.198.0으로 업그레이드
+
+이 가이드를 따라 기존 앱을 Core 0.198.0으로 업그레이드하세요. 앱 또는
+workspace 루트에서 명령을 실행하고 시작 전에 검토 가능한 소스 관리 diff를
+남기세요. 원격 배포 설정은 별도로 확인해야 합니다. CLI는 로컬 환경 파일은
+읽을 수 있지만 원격 환경이나 데이터베이스에 저장된 기능 설정을 확인할 수
+없습니다.
+
+## 1. 업그레이드와 import codemod 미리 보기
+
+Core 0.198.0에 포함된 CLI를 사용해 해당 릴리스의 migration manifest를
+불러옵니다.
+
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
+
+앱에 Core 0.198.0을 설치한 뒤에는 로컬 CLI 바이너리로 같은 미리보기를 실행할 수 있습니다:
+
+    npx agent-native upgrade --codemods --dry-run
+
+`--codemods` 명령은 `ts-morph`를 사용합니다. 앱에서 아직 이 패키지를 확인할 수 없다면 먼저 개발 의존성으로 설치하세요: `pnpm add -D ts-morph`.
+
+`--codemods`는 지원되는 import 변경을 기본적으로 적용합니다. 예정된 dependency 변경,
+파일 diff, 경고를 미리 확인하려면 `--dry-run`을 추가하세요. 이제 `--yes`는 필요하지 않습니다.
+
+codemod는 활성 Core 및 Toolkit migration manifest를 사용합니다. 선언 파일,
+생성 파일, dependency 디렉터리를 제외한 .ts 및 .tsx 파일만 검색해 지원되는
+import와 re-export specifier를 다시 씁니다. 이름이 지정된 export가 여러
+모듈로 이동하면 선언을 symbol별로 나누면서 alias와 type-only import를
+유지할 수 있습니다. 간단한 CSS @import 경로도 바꾸고, 해결된 경로가 패키지
+경계를 넘어가면 누락된 dependency를 추가합니다.
+
+진단은 CommonJS `require()` 형식과 동적 `import()` 형식도 감지하지만 codemod는 이러한 호출식을 다시 쓰지 않습니다. 보고된 새 경로를 사용해 직접 바꾼 다음 Vite 또는 `agent-native doctor`를 다시 실행하세요. CSS `@import url(...)` 경로는 따옴표가 있거나 없어도 codemod가 다시 씁니다.
+
+호출 위치를 바꾸거나 파일을 옮기지는 않습니다. 해결되지 않았거나 planned인
+이동은 경고와 함께 그대로 둡니다. default, namespace, side-effect, star
+import/export는 나눌 수 없습니다. symbol 단위 CSS import도 분리할 수 없습니다. 이런 경우는 직접 검토하세요. 제거된
+export는 코드 변경이 필요할 수 있으므로 CLI 경고에 나온 migration guide를
+따르세요.
+
+미리 보기에는 전체 업그레이드 계획도 표시됩니다. 업그레이드를 막는
+framework override 또는 patch, 대기 중인 @agent-native/\* 버전 갱신, 로컬
+설정에서 추론한 기능 dependency, package manager 설치, scaffold skill 갱신,
+루트 package에 typecheck script가 있을 때의 typecheck가 포함됩니다.
+명령은 package spec을 registry의 현재 latest로 바꾼 뒤 설치에서 해결된
+버전을 pin합니다. 0.198.0을 의도한 현재 릴리스로 사용할 시점에 실행하고,
+나중에 정확한 버전이 필요하면 해결된 pin을 확인하세요.
+
+## 2. Toolkit 및 선택적 패키지 확인
+
+`@agent-native/toolkit/*`으로 이동한 import에는 `@agent-native/toolkit`이 필요합니다. 지원되고 해석 가능한 import 또는 export를 이동하면 codemod가 Toolkit을 추가합니다. 앱에서 Toolkit export를 사용하는데 dependency가 추가되지 않았다면 Core 0.198.0에 맞는 Toolkit 버전을 설치하세요:
+
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
+
+### 업그레이드 CLI가 선택하는 dependency
+
+로컬 환경 검사 조건이 맞으면 CLI가 다음 dependency를 추가합니다. PGlite는 정규화된 앱 이름의 `${APP_NAME}_DATABASE_URL`을 먼저 확인한 다음 `DATABASE_URL`을 확인하며, URL이 없거나 `pglite:`로 시작하면 선택됩니다. 원격 환경이나 데이터베이스에 저장된 기능 설정은 확인할 수 없으므로 프로덕션과 프리뷰를 따로 확인하세요.
+
+| 기능                          | 선택적 패키지                | 버전                  | CLI가 확인하는 로컬 설정                                                          |
+| ----------------------------- | ---------------------------- | --------------------- | --------------------------------------------------------------------------------- |
+| PGlite 데이터베이스           | @electric-sql/pglite         | ^0.5.8                | 정규화한 `${APP_NAME}_DATABASE_URL`, 다음 `DATABASE_URL`; 없거나 `pglite:`로 시작 |
+| 서버 Sentry                   | @sentry/node                 | ^10.60.0 또는 ^11.0.0 | `SENTRY_SERVER_DSN`, `SENTRY_DSN` 또는 Sentry 키 조합                             |
+| 브라우저 Sentry               | @sentry/browser              | ^10.60.0 또는 ^11.0.0 | 클라이언트 Sentry DSN, `SENTRY_DSN` 또는 키 조합                                  |
+| 빌드 시 Sentry 소스 맵 업로드 | @sentry/vite-plugin          | ^5.4.0                | `SENTRY_AUTH_TOKEN`, 조직 및 프로젝트가 설정됨                                    |
+| SSO 인증                      | @better-auth/sso             | 1.7.4                 | `AUTH_SSO`가 활성화됨                                                             |
+| SCIM 인증                     | @better-auth/scim            | 1.7.4                 | `AUTH_SCIM`이 활성화됨                                                            |
+| Amplitude                     | @amplitude/analytics-browser | ^2.45.8               | `VITE_AMPLITUDE_API_KEY`가 설정됨                                                 |
+| Microsoft Teams               | botframework-connector       | ^4.23.3               | `MICROSOFT_TEAMS_APP_ID` 및 `MICROSOFT_TEAMS_APP_PASSWORD`가 설정됨               |
+
+### 사용하는 기능에 따라 추가할 런타임 peer
+
+CLI는 다음 peer를 자동으로 추론하지 않습니다. 앱에서 사용하는 기능의 패키지를 추가하고 로컬 및 배포 설정을 확인하세요. AI SDK 엔진에는 `ai`와 엔진이 선택한 provider 패키지가 필요합니다:
+
+| 기능                                                          | 선택적 패키지                                                                                    | 버전             |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- |
+| AI SDK 엔진                                                   | ai                                                                                               | >=6              |
+| Anthropic, Cohere, Google, Groq, Mistral 또는 OpenAI provider | @ai-sdk/anthropic, @ai-sdk/cohere, @ai-sdk/google, @ai-sdk/groq, @ai-sdk/mistral, @ai-sdk/openai | >=3 each         |
+| OpenRouter provider                                           | @openrouter/ai-sdk-provider                                                                      | >=2              |
+| Ollama provider                                               | ai-sdk-ollama                                                                                    | >=3              |
+| Context X-Ray의 정확한 Anthropic 토큰 계산                    | @anthropic-ai/tokenizer                                                                          | ^0.0.4           |
+| Builder 디자인 시스템 인덱싱 유형                             | @builder.io/ai-utils                                                                             | ^0.84.0          |
+| Jev 직접 TypeSafe AI 요청                                     | @typesafe-ai/sdk                                                                                 | ^0.6.0           |
+| Office 문서 수집                                              | officeparser; mammoth                                                                            | ^7.3.0; ^1.12.0  |
+| 스프레드시트 수집                                             | xlsx                                                                                             | ^0.18.5          |
+| PowerPoint 수집                                               | jszip; fast-xml-parser                                                                           | ^3.10.1; ^5.10.1 |
+| 미디어 메타데이터 및 이미지 변환                              | sharp                                                                                            | ^0.35.3          |
+| 소셜 미리보기 / Open Graph SVG 렌더링                         | @resvg/resvg-js                                                                                  | ^2.6.2           |
+| 브라우저 세션 리플레이 기록                                   | @rrweb/record                                                                                    | ^2.1.0           |
+| OpenTelemetry 추적 통합                                       | @opentelemetry/api                                                                               | ^1.9.1           |
+| LaunchDarkly 서버 측 기능 플래그                              | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
+| 임베디드 터미널 세션                                          | node-pty; ws                                                                                     | >=1; >=8         |
+| 확장 HTML 서식 지정                                           | prettier                                                                                         | ^3.8.3           |
+| 기본 템플릿 소스 검색                                         | @agent-native/core-corpus                                                                        | 0.198.0          |
+
+**Core에 이미 포함됨:** 웹 페이지를 Markdown으로 추출할 때 `linkedom`, `@mozilla/readability`, `turndown`을 사용합니다. Core가 일반 package dependency로 제공하므로 앱에서 따로 추가할 필요가 없습니다. Vite, React Router, Tailwind, Drizzle Kit 같은 빌드 및 프레임워크 peer는 이 표의 앱 기능이 아닙니다. 앱의 프레임워크 설정에 맞춰 유지하세요.
+
+기본 템플릿 소스 검색을 사용하려면 같은 버전의 코퍼스 패키지를 개발 의존성으로 추가하세요: `pnpm add -D @agent-native/core-corpus@0.198.0`.
+
+## 3. 업그레이드 적용
+
+미리 보기를 검토하고 기능 패키지를 확인한 다음 계획을 적용합니다.
+
+    npx agent-native upgrade --codemods
+
+이 한 번의 명령으로 해당되는 @agent-native/\* dependency spec을 갱신하고
+감지된 기능 dependency를 맞춘 뒤 package manager를 실행합니다. 해결된
+Agent-Native 버전을 pin하고 지원되는 codemod를 적용하며 scaffold skill을
+갱신합니다. 루트에 typecheck script가 있으면 실행합니다. codemod 적용만
+위해 upgrade를 다시 실행하지 마세요. 경고와 앱 수준 오류는 앱 코드에서
+해결하고 framework override나 patch는 추가하지 마세요.
+
+## 4. 결과 확인
+
+생략된 codemod 경고와 dependency 버전을 포함해 전체 diff를 검토한 뒤
+실행합니다.
+
+    npx @agent-native/core@0.198.0 upgrade check
+    pnpm typecheck
+
+npm 또는 Yarn에서는 해당 typecheck 명령을 사용하고 앱에 필요한 테스트와
+빌드도 실행하세요. 로컬 및 배포된 기능 설정이 선택적 peer 표에 반영됐는지
+확인하세요. 아래 표에 있는 이전 import를 검색하고, 남은 항목은 의도된
+경우이거나 manifest가 지원하지 않거나 경고로 설명되어 있어야 합니다.
+
+## 이전 경로와 대표 목적지
+
+migration manifest는 symbol별로 이동을 정의하므로 같은 이전 모듈의 export도
+서로 다른 위치로 이동할 수 있습니다. 아래 표는 대표 사례이며 이동되는
+모든 symbol을 나열하지는 않습니다.
+
+| 이전 경로와 symbol                                                                                                               | 새 경로                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| @agent-native/core/client/settings                                                                                               | @agent-native/toolkit/app/settings                                                                                                                           |
+| @agent-native/core/client/agent-chat: AgentPanel, AgentSidebar, AgentChatHome, AgentChatSurface                                  | @agent-native/toolkit/app/chat                                                                                                                               |
+| @agent-native/core/client/agent-chat: guided-question export                                                                     | @agent-native/toolkit/app/chat/agentkit-chat                                                                                                                 |
+| @agent-native/core/client/changelog: ChangelogDialog, ChangelogSettingsCard                                                      | @agent-native/toolkit/app/changelog                                                                                                                          |
+| @agent-native/core/client/org: OrgSwitcher, BuilderCreditNotice                                                                  | @agent-native/toolkit/app/org                                                                                                                                |
+| @agent-native/core/client/org: TeamPage                                                                                          | @agent-native/toolkit/app/org/TeamPage                                                                                                                       |
+| @agent-native/core/client/org: OrgInfo, DomainMatchOrg, OrgInvitationSummary                                                     | @agent-native/core/org/types                                                                                                                                 |
+| @agent-native/core/client/setup-connections: BuilderConnectCard, SetupConnectionsPage                                            | @agent-native/toolkit/app/setup-connections                                                                                                                  |
+| @agent-native/core/client/setup-connections: FileStorageSetupPopover                                                             | @agent-native/toolkit/app/chat/FileStorageSetupPopover                                                                                                       |
+| @agent-native/core/client/setup-connections: settings, onboarding, resources, integrations UI export                             | @agent-native/toolkit/app/settings, @agent-native/toolkit/app/onboarding, @agent-native/toolkit/app/resources, @agent-native/toolkit/app/integrations로 분리 |
+| @agent-native/core/client/host: buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox                              | @agent-native/toolkit/app/extensions/portable-extension                                                                                                      |
+| @agent-native/core/client/ui: 공용 UI export와 feedback export                                                                   | @agent-native/toolkit/app/shared; @agent-native/toolkit/app/feedback                                                                                         |
+| @agent-native/core/client/ui: buildSignInReturnHref                                                                              | @agent-native/core/client/sign-in-return                                                                                                                     |
+| @agent-native/core/blocks: client registry, renderer, editor, server block type와 registration                                   | @agent-native/toolkit/app/blocks; @agent-native/core/blocks/server                                                                                           |
+| @agent-native/core/client/hooks: AppProviders, AppProvidersProps                                                                 | @agent-native/toolkit/app/providers                                                                                                                          |
+| @agent-native/core/client: PromptComposer와 TiptapComposer를 포함한 composer 및 음성 심볼                                        | @agent-native/toolkit/app/chat                                                                                                                               |
+| @agent-native/core/client/components/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                  | @agent-native/toolkit/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                                                             |
+| @agent-native/core/client/editor 및 @agent-native/core/client/rich-markdown-editor: RegistryBlockDataProvider                    | @agent-native/toolkit/app/blocks                                                                                                                             |
+| @agent-native/core/client/editor 및 @agent-native/core/client/rich-markdown-editor: 기타 editor export                           | @agent-native/toolkit/editor                                                                                                                                 |
+| @agent-native/core/client/editor 및 @agent-native/core/client/rich-markdown-editor: uploadEditorImage                            | @agent-native/core/client/uploads                                                                                                                            |
+| @agent-native/core/client/components/{AgentPresenceChip,PresenceBar,LiveCursorOverlay,RecentEditHighlights,RemoteSelectionRings} | @agent-native/toolkit/collab-ui                                                                                                                              |
+| @agent-native/core/styles/agent-native.css                                                                                       | @agent-native/toolkit/styles.css                                                                                                                             |
+| @agent-native/core/styles/agent-conversation.css                                                                                 | @agent-native/toolkit/app/styles/agent-conversation.css                                                                                                      |
+| @agent-native/core/styles/chat-history-list.css                                                                                  | @agent-native/toolkit/app/styles/chat-history-list.css                                                                                                       |
+| @agent-native/agentkit/react/styles.css                                                                                          | @agent-native/toolkit/app/agentkit/react/styles.css                                                                                                          |
+| @agent-native/agentkit/react 및 React 하위 경로                                                                                  | @agent-native/toolkit/app/agentkit                                                                                                                           |
+
+정식 source URL:
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

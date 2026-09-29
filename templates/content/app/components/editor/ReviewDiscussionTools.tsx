@@ -1,5 +1,4 @@
 import { appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -11,6 +10,7 @@ import type {
   ReviewCommentReaction,
   ReviewDiscussionState,
 } from "@agent-native/core/review";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { contentSuggestionPath } from "@shared/suggestion-link";
 import { IconDots } from "@tabler/icons-react";
 import { toast } from "sonner";

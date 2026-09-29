@@ -34,8 +34,8 @@ vi.mock("../settings/user-settings.js", () => ({
     mocks.settings.delete(`${email}:${key}`),
   ),
 }));
-vi.mock("../localization/core-messages.js", () => ({
-  loadAgentChatMessagesForLocale: mocks.loadMessages,
+vi.mock("../localization/billing-notice-messages.js", () => ({
+  loadBillingNoticeMessagesForLocale: mocks.loadMessages,
 }));
 
 import {
@@ -48,9 +48,9 @@ describe("Builder credit limit email notice", () => {
     mocks.settings.clear();
     mocks.sendEmail.mockReset().mockResolvedValue(undefined);
     mocks.loadMessages.mockReset().mockResolvedValue({
-      "billing.builderCreditLimitTitle": "Credits used up",
-      "billing.builderCreditLimitEmailBody": "No credits remain.",
-      "billing.builderCreditUpgrade": "Upgrade plan",
+      builderCreditLimitTitle: "Credits used up",
+      builderCreditLimitEmailBody: "No credits remain.",
+      builderCreditUpgrade: "Upgrade plan",
     });
   });
 

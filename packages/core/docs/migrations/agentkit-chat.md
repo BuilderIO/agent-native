@@ -18,10 +18,10 @@ The `AssistantChat` name still works, but now renders the AgentKit-backed
 implementation. New chat imports should use the canonical
 `@agent-native/core/client/agent-chat` entrypoint.
 
-The `@agent-native/core/client/chat` compatibility entry remains useful for a
-small number of exports that have not moved, including
-`createAgentKitProtocolAdapter()`. Keep using that entry for those exports; do
-not rewrite every `/client/chat` import without checking the imported symbol.
+`createAgentKitProtocolAdapter()` remains available from
+`@agent-native/core/client/agent-chat` for apps with a custom Core runtime. The
+old `@agent-native/core/client/chat` entry is removed and throws a migration
+error.
 
 ## Removed APIs
 
@@ -76,6 +76,22 @@ export function SupportChat({ transport }: { transport: AgentTransport }) {
 5. Recheck the app's thread restore, send, attachment, tool, approval, and
    message-action flows. Keep existing actions, data, auth, access checks, and
    application-state keys where the app contract still applies.
+
+## Move AgentKit React imports to Toolkit
+
+AgentKit 1.0 removes its old React entrypoints. Install Toolkit and replace
+`@agent-native/agentkit/react` and its focused subpaths with the matching
+`@agent-native/toolkit/app/agentkit/react` imports. Move the stylesheet import
+to `@agent-native/toolkit/app/agentkit/react/styles.css`.
+
+For Core-managed apps, run `npx @agent-native/core@latest upgrade --codemods`.
+The codemod rewrites those module and stylesheet imports. Standalone AgentKit
+consumers should use the old-to-new import table in the AgentKit README and
+make the changes manually.
+
+Core's `styles/agent-conversation.css` and `styles/chat-history-list.css`
+exports also moved to the corresponding `@agent-native/toolkit/app/styles/*`
+paths. The Core migration codemod rewrites those imports.
 
 TypeScript reports a normal missing-export error for removed named exports.
 The package cannot customize that compiler diagnostic. Run the migration

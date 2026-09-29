@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { CommandMenu } from "@agent-native/core/client/navigation";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import type { CalendarEvent } from "@shared/api";
 import { timezoneFormatter } from "@shared/timezone";
 import {

@@ -2,7 +2,6 @@ import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   sendToAgentChat,
   type AgentChatSubmitResult,
-  useGuidedQuestionFlow,
 } from "@agent-native/core/client/agent-chat";
 import {
   getAnalyticsSessionId,
@@ -21,8 +20,9 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
   DndContext,
   DragOverlay,

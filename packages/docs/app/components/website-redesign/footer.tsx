@@ -1,5 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";

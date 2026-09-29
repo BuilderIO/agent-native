@@ -99,7 +99,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 가장 간단한 전체 페이지 채팅:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -109,9 +109,8 @@ export default function ChatRoute() {
 앱에 전체 페이지 채팅 탭과 `AgentSidebar`가 모두 있을 때, 두 서피스에서 동일한 `storageKey`를 사용하고, `chatViewTransition`을 활성화하며, 레이아웃에 chat-home 핸드오프 헬퍼를 설치하세요. 채팅 페이지에서 나가는 일반 인앱 링크는 활성 스레드를 유지하면서 전체 채팅을 사이드바로 변환할 수 있습니다:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -147,7 +146,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 자체 크롬이 있는 가장 간단한 임베디드 채팅:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -250,7 +249,7 @@ sandbox로 자동 제한됩니다.
 퍼스트파티 템플릿은 이를 마운트하지 않습니다. Settings가 같은 범위(Agent › Model, Instructions, Memory, Skills, Files, Sub-agents와 앱의 Automations 및 MCP server 페이지)를 다루고, `/agent`는 Settings로 리디렉션되며, `AgentSidebar`의 `agentPageHref="/settings/agent"`는 Settings › Agent › Model을 엽니다. 앱에서 에이전트 화면 전체를 한 페이지에 보여 주려면 `AgentTabsPage`를 별도 경로에 마운트하세요.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -515,7 +514,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 가장 간단한 전체 페이지 채팅:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -529,9 +528,8 @@ export default function ChatRoute() {
 스레드:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -567,7 +565,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 나만의 크롬을 사용한 가장 간단한 임베디드 채팅:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -583,10 +581,8 @@ iframe이 없는 채팅 구성요소. [Native 채팅 UI](/docs/native-chat-ui)�
 에이전트가 이미 다른 프레임워크나 런타임으로 구축되었고 Agent-Native의 채팅 UI를 감싸고 싶을 때 이 경로를 사용하세요. `AgentChatRuntime`이 경계입니다: 런타임이 정규화된 이벤트를 스트리밍하면 Agent-Native가 작성기, 트랜스크립트, 도구 호출, 승인, 네이티브 위젯, 앱 레이아웃을 렌더링합니다.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

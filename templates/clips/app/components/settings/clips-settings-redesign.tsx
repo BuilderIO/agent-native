@@ -4,7 +4,7 @@ import {
   SettingsGroup,
   type SettingsAppArea,
   type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { CLIPS_MEETINGS } from "@shared/labs";
 import { useMemo } from "react";
 

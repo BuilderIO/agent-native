@@ -1,10 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { docsUrl } from "@agent-native/core/shared";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArchive,
   IconPhoto,
