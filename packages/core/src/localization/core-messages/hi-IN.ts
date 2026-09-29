@@ -82,6 +82,12 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "कैप्चर नहीं किया गया",
   "observability.openFullConversation": "पूरी बातचीत खोलें",
   "observability.learnAboutTab": "इस टैब के बारे में जानें",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainLabel":
+    "प्रमोट किए गए मूल्यांकन के जवाब में शामिल किया जाने वाला टेक्स्ट",
+  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.summarizeWithAgent": "एजेंट से सारांश बनवाएँ",
   "observability.regenerateSummary": "सारांश फिर से बनाएँ",
   "observability.summarizeWithAgentHelp":
