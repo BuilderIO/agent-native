@@ -97,6 +97,20 @@ describe("suggestions on an MCP-created Markdown page", () => {
 describe("verified formatting coordinates in stored Markdown", () => {
   const find = "old phrase";
   const replace = "new wording";
+  it("refuses the reviewer's invisible-emphasis repro", () => {
+    const before = "x***\n**marked**";
+    for (const from of [1, 3]) {
+      expect(
+        suggestionFormattingSourceRange(before, from, from + 1),
+      ).toBeNull();
+      expect(
+        suggestionFormattingSourceSlice(before, from, from + 1),
+      ).toBeNull();
+    }
+    expect(() => suggestionMarkedSourceRanges(before)).toThrow(
+      SuggestionFormattingMappingError,
+    );
+  });
   const divergences = [
     { name: "blank block separators", body: "Above\n\nold phrase\n\nBelow" },
     { name: "literal dollars", body: "Cost $60 for old phrase" },
@@ -106,18 +120,6 @@ describe("verified formatting coordinates in stored Markdown", () => {
     {
       name: "parenthesized ordered lists",
       body: "1) old phrase\n2) Another item",
-    },
-    {
-      name: "self-closing hard breaks",
-      body: "Above<br/>old phrase<br/>Below",
-    },
-    {
-      name: "pipe tables",
-      body: "| Heading | Other |\n| --- | --- |\n| old phrase | Value |",
-    },
-    {
-      name: "long code fences",
-      body: "``````ts\nconst label = 'old phrase';\nconst next = 1;\n``````",
     },
   ];
 
@@ -153,9 +155,7 @@ describe("verified formatting coordinates in stored Markdown", () => {
         "+ Plus item",
         "* Asterisk item",
         "1) Ordered item",
-        "First<br/>Second",
-        "| H |\n| --- |\n| Cell |",
-        "``````ts\nconst value = 1;\n``````",
+        "```ts\nconst value = 1;\n```",
       ].join("\n\n");
       const before = `${context}\n\n${body}`.replace(/\r?\n/g, "\r\n");
       suggestDocumentEdit(before, { find, replace });
@@ -168,6 +168,110 @@ describe("verified formatting coordinates in stored Markdown", () => {
       ).toEqual([{ type: "text", text: find, marks: [] }]);
     },
   );
+
+  it.each(["\n", "\n\n", "\r\n"])(
+    "maps a page with %j before the first block and after the last",
+    (edge) => {
+      const before = `${edge}Cost $60 for old phrase\n\n**marked** text${edge}`;
+      expect(docToNfm(nfmToDoc(before))).not.toBe(before);
+      suggestDocumentEdit(before, { find, replace });
+      const markedStart = before.indexOf("**marked**");
+      expect(suggestionMarkedSourceRanges(before)).toEqual([
+        { from: markedStart, to: markedStart + "**marked**".length },
+      ]);
+    },
+  );
+
+  it.each(["\n", "\r\n", "\r"])(
+    "maps a range crossing blank structural lines with %j endings",
+    (ending) => {
+      const before = `Above${ending}${ending}**marked** lower costs $60`;
+      const from = before.indexOf("ove");
+      const to = before.indexOf("lower") + "lower".length;
+      const mapped = suggestionFormattingSourceRange(before, from, to);
+      expect(mapped).not.toBeNull();
+      expect(mapped!.text.slice(mapped!.from, mapped!.to)).toBe(
+        "ovemarked lower",
+      );
+      expect(suggestionFormattingSourceSlice(before, from, to)).toEqual([
+        { type: "text", text: "ove", marks: [] },
+        { type: "break", text: "↵" },
+        { type: "break", text: "↵" },
+        { type: "text", text: "marked", marks: [{ type: "bold" }] },
+        { type: "text", text: " lower", marks: [] },
+      ]);
+    },
+  );
+
+  it.each(attemptedEdits)(
+    "keeps B4 anchors for '$find' with CRLF, blank lines, and alternate list markers",
+    (edit) => {
+      const before =
+        `${source.replace("- **Release:**", "+ **Release:**").replace("- **Styles:**", "* **Styles:**")}\n\n7) First ordered item\n8) Second ordered item`.replace(
+          /\n/g,
+          "\r\n",
+        );
+      suggestDocumentEdit(before, edit);
+    },
+  );
+
+  it("keeps inline math in its gap and a neighbouring literal dollar in its run", () => {
+    const before = "Math $x+y$ costs $60 for old phrase **marked**";
+    expect(nfmToDoc(before).content[0]!.content).toContainEqual(
+      expect.objectContaining({
+        type: "notionInlineAtom",
+        attrs: expect.objectContaining({ tagName: "math", label: "x+y" }),
+      }),
+    );
+    suggestDocumentEdit(before, { find, replace });
+    const from = before.indexOf("$60");
+    expect(suggestionFormattingSourceSlice(before, from, from + 3)).toEqual([
+      { type: "text", text: "$60", marks: [] },
+    ]);
+    const mapped = suggestionFormattingSourceRange(before, from, from + 3);
+    expect(mapped!.text.slice(mapped!.from, mapped!.to)).toBe("$60");
+  });
+
+  it("charges only compared characters while searching for a long mark prefix", () => {
+    const before =
+      '![](https://example.test/image-with-a-long-name.png)\n\n<span color="blue" underline="true">old phrase</span>';
+    const from = before.indexOf("<span");
+    expect(suggestionMarkedSourceRanges(before)).toEqual([
+      { from, to: before.length },
+    ]);
+    suggestDocumentEdit(before, { find, replace });
+  });
+
+  it.each(["\r\n", "\r"])(
+    "proves normalized newline offsets inside a code run with %j endings",
+    (ending) => {
+      const before =
+        "Above\n\n```ts\nconst one = 1;\nconst two = 2;\n```\n**marked**".replace(
+          /\n/g,
+          ending,
+        );
+      const from = before.indexOf("1;");
+      const to = before.indexOf("two") + 3;
+      expect(suggestionFormattingSourceSlice(before, from, to)).toEqual([
+        { type: "text", text: "1;\nconst two", marks: [] },
+      ]);
+    },
+  );
+
+  it.each([
+    "x**\n**marked**",
+    "**\nx\n**marked**",
+    "x\n**marked**\n**",
+    "Above<br/>old phrase<br/>Below\n**marked**",
+    "| Heading | Other |\n| --- | --- |\n| old phrase | Value |\n**marked**",
+    "``````ts\nconst label = 'old phrase';\n``````\n**marked**",
+  ])("refuses unsupported or stray gap bytes in %s", (before) => {
+    expect(() => suggestionMarkedSourceRanges(before)).toThrow(
+      SuggestionFormattingMappingError,
+    );
+    expect(suggestionFormattingSourceRange(before, 0, 1)).toBeNull();
+    expect(suggestionFormattingSourceSlice(before, 0, 1)).toBeNull();
+  });
 
   it.each(["$60", "\\$60"])(
     "proves each inner character offset beside bold delimiters in %s",
