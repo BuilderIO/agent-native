@@ -819,7 +819,7 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
 );
 
 const PR_REVIEW_DIRECT_READY_MERGE_RE =
-  /\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}(?:\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b|\b(?:don't|do\s+not|never)\s+wait\s+for\s+(?:another\s+)?(?:approval|reviewer)\b[^.!?\n]{0,50}\bmerge(?:\s+(?:it|the\s+PR))?\b)[^.!?]*/gi;
+  /\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}(?:\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b|\b(?:don't|do\s+not|never)\s+wait\s+for\s+(?:another\s+)?(?:approval|reviewer)\b[^.!?\n]{0,50}\bmerge(?:\s+(?:it|the\s+PR))?\b|\bmerge\s+(?:it|the\s+PR)\b)[^.!?]*/gi;
 
 function followingPrReviewMergeRequirement(text, match) {
   const following = text.slice(match.index + match[0].length);
@@ -991,6 +991,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, merge with the security team's sign-off notes.",
   ],
   [true, "This PR is ready to merge. Merge it without another approval."],
+  [true, "This PR is ready to merge. Merge it."],
+  [false, "This PR is ready to merge. Merge it once CI passes."],
   [
     true,
     "This PR is ready to merge. Don't wait for another approval; merge it.",
