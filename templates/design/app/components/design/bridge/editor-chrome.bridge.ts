@@ -9591,6 +9591,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             handle.style.display = "none";
             return;
           }
+          if (radiusTransformDeterminant(screenMatrix) === null) {
+            handle.style.display = "none";
+            return;
+          }
           var overlayBox = borderBoxDimensions(
             window.getComputedStyle(selectionOverlay),
           );
@@ -9608,6 +9612,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               screenMatrix.d * vertex.y +
               screenMatrix.f,
           );
+          if (!overlayPoint) {
+            handle.style.display = "none";
+            return;
+          }
           handle.style.left = overlayPoint.x - size / 2 + "px";
           handle.style.top = overlayPoint.y - size / 2 + "px";
           return;
@@ -9625,6 +9633,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           box.width,
           box.height,
         );
+        var targetDeterminant = radiusTransformDeterminant(
+          targetGeometry.matrix,
+        );
+        if (targetDeterminant === null) {
+          handle.style.display = "none";
+          return;
+        }
         var targetPoint = radiusLocalBoxPointToViewport(
           targetGeometry,
           west ? radii.x : box.width - radii.x,
@@ -9656,6 +9671,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           targetPoint.x,
           targetPoint.y,
         );
+        if (!overlayPoint) {
+          handle.style.display = "none";
+          return;
+        }
         handle.style.left = overlayPoint.x - size / 2 + "px";
         handle.style.top = overlayPoint.y - size / 2 + "px";
       });
@@ -11502,6 +11521,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(node instanceof HTMLElement)) return;
         node.style.display = visible ? "" : "none";
       });
+    if (visible && selectedEl) applySelectionHandleHitGeometry(selectedEl);
   }
 
   var textCaretOverlay: HTMLElement | null = null;
@@ -12829,6 +12849,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function radiusTransformDeterminant(matrix) {
+    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    return Number.isFinite(determinant) && Math.abs(determinant) >= 0.0001
+      ? determinant
+      : null;
+  }
+
   function radiusLocalBoxPointToViewport(geometry, x, y) {
     var matrix = geometry.matrix;
     return {
@@ -12839,12 +12866,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function radiusViewportPointToLocalBox(geometry, x, y) {
     var matrix = geometry.matrix;
-    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    var determinant = radiusTransformDeterminant(matrix);
     var dx = x - geometry.originX;
     var dy = y - geometry.originY;
-    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
-      return { x: dx, y: dy };
-    }
+    if (determinant === null) return null;
     return {
       x: (matrix.d * dx - matrix.c * dy) / determinant,
       y: (-matrix.b * dx + matrix.a * dy) / determinant,
@@ -12853,10 +12878,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function radiusLocalDelta(el, screenDx, screenDy) {
     var matrix = radiusViewportLinearTransform(el);
-    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
-      return { x: screenDx, y: screenDy };
-    }
+    var determinant = radiusTransformDeterminant(matrix);
+    if (determinant === null) return null;
     return {
       x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
       y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
@@ -22781,6 +22804,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (readOnly) return;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
+    var radiusEl = selectedEl;
+    if (
+      radiusTransformDeterminant(radiusViewportLinearTransform(radiusEl)) ===
+      null
+    ) {
+      return;
+    }
     if (String(corner).indexOf("vertex-") === 0) {
       startVectorRadiusDrag(corner, e);
       return;
@@ -22788,7 +22818,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
-    var radiusEl = selectedEl;
     var cs = window.getComputedStyle(radiusEl);
     var cornerProperty =
       CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
@@ -22864,8 +22893,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
       if (screenDx === 0 && screenDy === 0) return;
-      radiusMoved = true;
       var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      if (!local) return;
+      radiusMoved = true;
       applyRadius(
         originRadius.x + local.x * signX,
         originRadius.y + local.y * signY,
@@ -23022,8 +23052,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
       if (screenDx === 0 && screenDy === 0) return;
-      radiusMoved = true;
       var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      if (!local) return;
+      radiusMoved = true;
       var localX = local.x * (pathData.viewBox.width / cssBox.width);
       var localY = local.y * (pathData.viewBox.height / cssBox.height);
       var projected = localX * vertex.bisector.x + localY * vertex.bisector.y;

@@ -6668,7 +6668,7 @@ it(
 );
 
 it(
-  "shows radius handles only on rectangles and does not require a fill",
+  "shows rectangle radius handles without a fill and hides unsupported shapes",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -6819,6 +6819,95 @@ it(
   },
 );
 
+it(
+  "hides radius handles and ignores radius drags through a singular transform",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <div style="position:absolute;left:160px;top:120px;transform:rotate(45deg) scale(0,1);transform-origin:0 0"><div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px"></div></div>
+</body></html>`);
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "#target" },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+
+      const before = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        const handles = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "[data-agent-native-radius-handle]",
+          ),
+        );
+        return {
+          radius: target.style.borderRadius,
+          handleCount: handles.length,
+          displays: handles.map((entry) => getComputedStyle(entry).display),
+        };
+      });
+      await page.evaluate(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        )!;
+        handle.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 200,
+            clientY: 160,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 220,
+            clientY: 180,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mouseup", { bubbles: true, button: 0 }),
+        );
+      });
+      const after = await page.evaluate(() => ({
+        radius:
+          document.querySelector<HTMLElement>("#target")!.style.borderRadius,
+      }));
+      const messages = await readBridgeMessages(page);
+
+      expect(before.radius).toBe("16px");
+      expect(before.handleCount).toBe(4);
+      expect(before.displays, JSON.stringify(before)).toEqual(
+        Array(4).fill("none"),
+      );
+      expect(after.radius).toBe("16px");
+      expect(
+        messages.filter((message) => message.type === "visual-style-change"),
+      ).toEqual([]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it.each(["polygon", "star"] as const)(
   "rounds %s geometry and moves its radius handle during the drag",
   { timeout: 30_000 },
@@ -6851,7 +6940,7 @@ it.each(["polygon", "star"] as const)(
       const pageErrors: string[] = [];
       browserPage.on("pageerror", (error) => pageErrors.push(error.message));
       await browserPage.setContent(`<!doctype html><html><body>
-  <div style="position:absolute;left:150px;top:120px;transform:rotate(23deg) scale(1.35,.72);transform-origin:30px 40px"><svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:45px;width:100px;height:100px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg></div>
+  <div style="position:absolute;left:150px;top:120px;transform:rotate(23deg) scale(1.35,.72);transform-origin:30px 40px"><svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:45px;width:100px;height:100px;transform:rotate(-11deg) scale(.83,1.4);transform-origin:50px 50px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg></div>
 </body></html>`);
       await browserPage.addScriptTag({
         content: hydratedEditorChromeBridgeScript(),
@@ -6860,7 +6949,16 @@ it.each(["polygon", "star"] as const)(
         '[data-agent-native-edit-overlay="shield"]',
       );
       await collectBridgeMessages(browserPage);
-      await selectElementDirect(browserPage, "#shape");
+      // The shared selector helper assumes an untransformed AABB overlay.
+      await browserPage.evaluate(() => {
+        window.postMessage({ type: "select-element", selector: "#shape" }, "*");
+      });
+      await browserPage.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
 
       const expectedStart = await browserPage.evaluate(() => {
         const svg = document.querySelector<SVGSVGElement>("#shape")!;
