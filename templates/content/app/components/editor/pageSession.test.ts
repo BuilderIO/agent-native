@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { mayClearRecoveryDraft, savePageWithRecovery } from "./pageSession";
+import {
+  mayClearRecoveryDraft,
+  ownRecoveryDraftSupersededBySave,
+  savePageWithRecovery,
+} from "./pageSession";
 
 describe("savePageWithRecovery", () => {
   it("retains a rejected primary edit before surfacing the failure", async () => {
@@ -129,6 +133,43 @@ describe("recovery draft cleanup", () => {
     expect(mayClearRecoveryDraft(draft, { ...draft })).toBe(true);
     expect(
       mayClearRecoveryDraft(draft, { ...draft, title: "Another title" }),
+    ).toBe(false);
+  });
+});
+
+describe("own recovery draft supersession", () => {
+  const save = { editorSessionId: "live", editGeneration: 40 };
+  const draft = {
+    editorSessionId: "live",
+    editGeneration: 32,
+    supersedable: true,
+  };
+
+  it("clears a draft from an earlier unsaved attempt once a later own save lands", () => {
+    expect(ownRecoveryDraftSupersededBySave(draft, save)).toBe(true);
+    expect(
+      ownRecoveryDraftSupersededBySave(draft, { ...save, editGeneration: 32 }),
+    ).toBe(true);
+  });
+
+  it("keeps drafts from newer generations, other sessions, and conflicts or displaced text", () => {
+    expect(
+      ownRecoveryDraftSupersededBySave({ ...draft, editGeneration: 41 }, save),
+    ).toBe(false);
+    expect(
+      ownRecoveryDraftSupersededBySave(
+        { ...draft, editorSessionId: "other-tab" },
+        save,
+      ),
+    ).toBe(false);
+    expect(
+      ownRecoveryDraftSupersededBySave({ ...draft, supersedable: false }, save),
+    ).toBe(false);
+    expect(
+      ownRecoveryDraftSupersededBySave(
+        { ...draft, editGeneration: null },
+        save,
+      ),
     ).toBe(false);
   });
 });

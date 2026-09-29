@@ -139,6 +139,7 @@ type BackfillState = {
   failedKeys: string[];
   retryCount?: number;
   retryAfterAt?: number;
+  incompleteCoverage?: boolean;
   undoProcessedIds: string[];
   undoFailedKeys: string[];
   snapshots: Record<string, UndoThreadSnapshot>;
@@ -306,6 +307,8 @@ function parseState(raw: string): BackfillState {
       (!Number.isInteger(state.retryCount) || state.retryCount < 0)) ||
     (state.retryAfterAt !== undefined &&
       !Number.isFinite(state.retryAfterAt)) ||
+    (state.incompleteCoverage !== undefined &&
+      typeof state.incompleteCoverage !== "boolean") ||
     !state.snapshots ||
     typeof state.snapshots !== "object"
   ) {
@@ -320,8 +323,8 @@ export function sanitizeBackfillError(error: unknown): string {
     .replace(/\nparams:[\s\S]*/i, "")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(
-      /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
-      "$1=[redacted]",
+      /(["']?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|token)\b["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^"'\s,}&]+)/gi,
+      "$1[redacted]",
     )
     .slice(0, 500);
 }
@@ -389,13 +392,44 @@ export async function dispatchMailAiFilterBackfill(
 }
 
 function googleClientErrorsError(
-  message: string,
-  errors: Array<{ retryable?: boolean }>,
+  errors: Array<{ email: string; retryable?: boolean }>,
 ): Error {
-  const error = new Error(message);
+  const error = new Error(
+    errors.length > 0
+      ? errors
+          .map(
+            ({ email }) =>
+              `${email}: Gmail account authorization could not be refreshed.`,
+          )
+          .join("; ")
+      : "Gmail account is unavailable.",
+  );
   if (errors.some(({ retryable }) => retryable))
     Object.assign(error, { retryable: true });
   return error;
+}
+
+function shouldRetryPartialGmailRefresh(
+  errors: Array<{ retryable?: boolean }>,
+  state: BackfillState,
+): boolean {
+  return (
+    errors.some(({ retryable }) => retryable) &&
+    (state.retryCount ?? 0) < MAX_BACKFILL_RETRIES
+  );
+}
+
+function appendBackfillError(
+  previous: string | undefined,
+  message: string,
+): string {
+  if (!previous) return message;
+  if (previous.includes(message)) return previous;
+  const available = 498;
+  const previousLimit = Math.min(previous.length, Math.ceil(available / 2));
+  const messageLimit = Math.min(message.length, available - previousLimit);
+  const remaining = available - previousLimit - messageLimit;
+  return `${previous.slice(0, previousLimit + remaining)}; ${message.slice(0, messageLimit)}`;
 }
 
 function retryAfterAtFromState(raw: string): number | undefined {
@@ -429,7 +463,7 @@ function resultStatus(
     (row.undoExpiresAt ?? 0) > Date.now()
       ? { undoToken: row.undoToken }
       : {}),
-    ...(state.error ? { error: state.error } : {}),
+    ...(state.error ? { error: sanitizeBackfillError(state.error) } : {}),
   };
 }
 
@@ -950,13 +984,16 @@ async function captureGmailCandidates(
 
 async function captureCandidates(
   ownerEmail: string,
+  state: BackfillState,
 ): Promise<BackfillCandidate[]> {
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    throw googleClientErrorsError(
-      errors.map((error) => `${error.email}: ${error.error}`).join("; "),
-      errors,
-    );
+    const error = googleClientErrorsError(errors);
+    if (clients.length === 0 || shouldRetryPartialGmailRefresh(errors, state)) {
+      throw error;
+    }
+    state.incompleteCoverage = true;
+    state.error ??= sanitizeBackfillError(error);
   }
   return clients.length > 0
     ? captureGmailCandidates(clients)
@@ -1492,6 +1529,8 @@ function preserveUndoRequestState(
   state.retryCount = current.retryCount;
   if (current.retryAfterAt === undefined) delete state.retryAfterAt;
   else state.retryAfterAt = current.retryAfterAt;
+  if (current.incompleteCoverage === undefined) delete state.incompleteCoverage;
+  else state.incompleteCoverage = current.incompleteCoverage;
   if (current.error === undefined) delete state.error;
   else state.error = current.error;
 }
@@ -1659,7 +1698,7 @@ async function processRunningBatch(
   }
 
   if (state.candidates.length === 0 && state.candidateIndex === 0) {
-    const candidates = await captureCandidates(ownerEmail);
+    const candidates = await captureCandidates(ownerEmail, state);
     state.candidates = candidates;
     if (!(await saveRunState(row.id, claimId, state, "running"))) return;
     if (candidates.length === 0) {
@@ -1667,8 +1706,12 @@ async function processRunningBatch(
         return;
       state.retryCount = 0;
       delete state.retryAfterAt;
-      delete state.error;
-      await saveRunState(row.id, claimId, state, "completed");
+      await saveRunState(
+        row.id,
+        claimId,
+        state,
+        state.incompleteCoverage || state.error ? "failed" : "completed",
+      );
       return;
     }
   }
@@ -1683,17 +1726,23 @@ async function processRunningBatch(
       return;
     state.retryCount = 0;
     delete state.retryAfterAt;
-    delete state.error;
-    await saveRunState(row.id, claimId, state, "completed");
+    await saveRunState(
+      row.id,
+      claimId,
+      state,
+      state.incompleteCoverage || state.error ? "failed" : "completed",
+    );
     return;
   }
 
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    throw googleClientErrorsError(
-      errors.map((error) => `${error.email}: ${error.error}`).join("; "),
-      errors,
-    );
+    const error = googleClientErrorsError(errors);
+    if (clients.length === 0 || shouldRetryPartialGmailRefresh(errors, state)) {
+      throw error;
+    }
+    state.incompleteCoverage = true;
+    state.error ??= sanitizeBackfillError(error);
   }
   const clientsByEmail = new Map(
     clients.map((client) => [client.email.toLowerCase(), client]),
@@ -1705,7 +1754,17 @@ async function processRunningBatch(
     if (candidateMatched && !state.matchedThreadKeys.includes(candidate.key)) {
       state.matchedThreadKeys.push(candidate.key);
     }
-    let candidateFailed = false;
+    const client = candidate.accountEmail
+      ? clientsByEmail.get(candidate.accountEmail.toLowerCase())
+      : undefined;
+    const candidateSkipped = !!candidate.accountEmail && !client;
+    if (candidateSkipped) {
+      state.incompleteCoverage = true;
+      state.error ??= sanitizeBackfillError(
+        new Error(`Gmail account ${candidate.accountEmail} is unavailable.`),
+      );
+    }
+    let candidateHasUnavailableAction = false;
     for (const match of matches) {
       const rule = state.rules.find((item) => item.id === match.ruleId);
       const progress = state.perRule.find(
@@ -1722,6 +1781,12 @@ async function processRunningBatch(
       }
       if (disposition === "ignore") {
         state.processedIds.push(key);
+        continue;
+      }
+      if (candidateSkipped) {
+        candidateHasUnavailableAction = true;
+        if (!state.failedKeys.includes(candidate.key))
+          state.failedKeys.push(candidate.key);
         continue;
       }
       const existingSnapshot = state.snapshots[candidate.key];
@@ -1763,14 +1828,6 @@ async function processRunningBatch(
         return saved;
       };
       try {
-        const client = candidate.accountEmail
-          ? clientsByEmail.get(candidate.accountEmail.toLowerCase())
-          : undefined;
-        if (candidate.accountEmail && !client) {
-          throw new Error(
-            `Gmail account ${candidate.accountEmail} is unavailable.`,
-          );
-        }
         if (client) {
           const cache =
             labelCaches.get(client.email.toLowerCase()) ??
@@ -1795,11 +1852,8 @@ async function processRunningBatch(
           );
         }
       } catch (error) {
-        candidateFailed = true;
-        const message = sanitizeBackfillError(error);
         if (!state.failedKeys.includes(candidate.key))
           state.failedKeys.push(candidate.key);
-        state.error = message;
         throw error;
       }
       state.snapshots[candidate.key] = applied.snapshot;
@@ -1831,21 +1885,26 @@ async function processRunningBatch(
         return;
       }
     }
-    if (!candidateFailed) {
+    if (!candidateHasUnavailableAction)
       state.failedKeys = state.failedKeys.filter(
         (key) => key !== candidate.key,
       );
-      state.processedThreads += 1;
-      state.candidateIndex += 1;
-    }
+    state.processedThreads += 1;
+    state.candidateIndex += 1;
   }
 
   if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state))) return;
-  state.retryCount = 0;
-  delete state.retryAfterAt;
-  delete state.error;
+  if (!state.incompleteCoverage) {
+    state.retryCount = 0;
+    delete state.retryAfterAt;
+  }
   if (state.candidateIndex >= state.candidates.length) {
-    await saveRunState(row.id, claimId, state, "completed");
+    await saveRunState(
+      row.id,
+      claimId,
+      state,
+      state.incompleteCoverage || state.error ? "failed" : "completed",
+    );
   } else {
     await saveRunState(row.id, claimId, state, "running");
   }
@@ -1947,9 +2006,7 @@ async function restoreGmailSnapshot(
   );
   if (!client) {
     throw googleClientErrorsError(
-      clients.errors.map((error) => error.error).join("; ") ||
-        "Gmail account is unavailable.",
-      clients.errors,
+      clients.errors.length > 0 ? clients.errors : [{ email: accountEmail }],
     );
   }
   const current = await gmailGetThread(
@@ -2091,7 +2148,7 @@ async function claimRun(row: BackfillRow): Promise<ClaimedBackfill | null> {
     if (retryAfterAt !== undefined) {
       const state = parseState(currentRow.stateJson);
       delete state.retryAfterAt;
-      delete state.error;
+      if (!state.incompleteCoverage) delete state.error;
       stateJsonForClaim = JSON.stringify(state);
     }
     const requested = new Set(ruleIdsForBackfillRow(currentRow));
@@ -2338,7 +2395,7 @@ export async function processMailAiFilterBackfills(
         if (retryDelay !== null && retryCount < MAX_BACKFILL_RETRIES) {
           state.retryCount = retryCount + 1;
           state.retryAfterAt = Date.now() + retryDelay;
-          delete state.error;
+          if (!state.incompleteCoverage) delete state.error;
           const activeStatus =
             claimedRow.status === "undoing" ? "undoing" : "running";
           const [scheduled] = await db
@@ -2363,7 +2420,9 @@ export async function processMailAiFilterBackfills(
           }
           continue;
         }
-        state.error = sanitizeBackfillError(error);
+        const message = sanitizeBackfillError(error);
+        if (!state.incompleteCoverage) state.error = message;
+        else state.error = appendBackfillError(state.error, message);
         if (state.pendingDecisions.length > 0) {
           try {
             await recordAiFilterDecisions(
