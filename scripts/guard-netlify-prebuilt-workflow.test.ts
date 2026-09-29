@@ -1062,6 +1062,8 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(betaMirrorScript, /ref: 'heads\/beta'/);
     assert.match(betaMirrorScript, /status === 'behind'/);
     assert.match(betaMirrorScript, /force: status === 'diverged'/);
+    assert.match(betaMirrorScript, /updateRefs\(/);
+    assert.match(betaMirrorScript, /beforeOid: betaSha/);
     const confirmCurrentSourceStep = (
       (
         (betaResolveSource.jobs as Workflow)[

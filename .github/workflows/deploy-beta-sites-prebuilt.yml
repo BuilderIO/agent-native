@@ -86,17 +86,20 @@ jobs:
         with:
           script: |
             const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const repositoryId =
+              context.payload.repository?.node_id ??
+              (await github.rest.repos.get(repo)).data.node_id;
             for (let attempt = 1; attempt <= 5; attempt++) {
-              const mainSha = (await github.rest.git.getRef({ ...repo, ref: 'heads/main' }))
-                .data.object.sha;
-              let betaSha = null;
               try {
-                betaSha = (await github.rest.git.getRef({ ...repo, ref: 'heads/beta' }))
+                const mainSha = (await github.rest.git.getRef({ ...repo, ref: 'heads/main' }))
                   .data.object.sha;
-              } catch (error) {
-                if (error.status !== 404) throw error;
-              }
-              try {
+                let betaSha = null;
+                try {
+                  betaSha = (await github.rest.git.getRef({ ...repo, ref: 'heads/beta' }))
+                    .data.object.sha;
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
                 if (!betaSha) {
                   await github.rest.git.createRef({ ...repo, ref: 'refs/heads/beta', sha: mainSha });
                   core.info(`Created beta at ${mainSha}.`);
@@ -113,17 +116,27 @@ jobs:
                   core.info(`beta ${betaSha} already includes main ${mainSha}.`);
                   return;
                 }
-                await github.rest.git.updateRef({
-                  ...repo,
-                  ref: 'heads/beta',
-                  sha: mainSha,
-                  force: status === 'diverged',
-                });
+                // beforeOid is a server-side lease: the update is rejected if
+                // another run moved beta after the read above.
+                await github.graphql(
+                  `mutation($repositoryId: ID!, $afterOid: GitObjectID!, $beforeOid: GitObjectID!, $force: Boolean!) {
+                    updateRefs(input: {
+                      repositoryId: $repositoryId,
+                      refUpdates: [{ name: "refs/heads/beta", afterOid: $afterOid, beforeOid: $beforeOid, force: $force }]
+                    }) { clientMutationId }
+                  }`,
+                  {
+                    repositoryId,
+                    afterOid: mainSha,
+                    beforeOid: betaSha,
+                    force: status === 'diverged',
+                  },
+                );
                 core.info(`Mirrored main ${mainSha} to beta (was ${betaSha}, ${status}).`);
                 return;
               } catch (error) {
                 if (attempt === 5) throw error;
-                core.info(`Beta moved during attempt ${attempt}: ${error.message}; retrying.`);
+                core.info(`Beta mirror attempt ${attempt} failed: ${error.message}; retrying.`);
                 await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
               }
             }
