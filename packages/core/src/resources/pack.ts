@@ -78,6 +78,7 @@ const CREDENTIAL_NAME = [
   "password",
   "secret",
   "token",
+  "jwt",
   "access[_ -]?token",
   "refresh[_ -]?token",
   "private[_ -]?key",
@@ -108,12 +109,16 @@ export function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareCodeUnits(left, right))
         .map(([key, child]) => [key, sortKeysDeep(child)]),
     );
   }
@@ -128,7 +133,7 @@ export function checksumResourcePackResources(
   resources: ResourcePackResource[],
 ): string {
   const sorted = [...resources].sort((left, right) =>
-    left.path.localeCompare(right.path),
+    compareCodeUnits(left.path, right.path),
   );
   return sha256Hex(canonicalJson(sorted));
 }
@@ -225,6 +230,60 @@ function isJsonLiteral(value: string): boolean {
   );
 }
 
+function redactYamlBlockScalar(
+  input: string,
+  start: number,
+  labelStart: number,
+): { end: number; replacement: string } | null {
+  const header =
+    /^([|>](?:[1-9][+-]?|[+-][1-9]?)?)[ \t]*(?:#[^\r\n]*)?(\r\n|\n|\r)/.exec(
+      input.slice(start),
+    );
+  if (!header) return null;
+
+  const lineStart = input.lastIndexOf("\n", labelStart - 1) + 1;
+  const prefix = input.slice(lineStart, labelStart);
+  if (!/^ *$/.test(prefix) && !/^ *- *$/.test(prefix)) return null;
+  const parentIndent = prefix.length;
+  const explicitIndent = /[1-9]/.exec(header[1]!)?.[0];
+  let contentIndent = explicitIndent
+    ? parentIndent + Number(explicitIndent)
+    : null;
+  const body: string[] = [];
+  let end = start + header[0].length;
+  let sawContent = false;
+
+  while (end < input.length) {
+    const newline = input.indexOf("\n", end);
+    const lineEnd = newline < 0 ? input.length : newline;
+    const textEnd =
+      lineEnd > end && input[lineEnd - 1] === "\r" ? lineEnd - 1 : lineEnd;
+    const line = input.slice(end, textEnd);
+    const indent = /^ */.exec(line)![0].length;
+    const blank = line.slice(indent).trim().length === 0;
+
+    if (!blank) {
+      if (contentIndent === null) {
+        if (indent <= parentIndent) break;
+        contentIndent = indent;
+      } else if (indent < contentIndent) {
+        break;
+      }
+      sawContent = true;
+    }
+
+    const ending = input.slice(textEnd, newline < 0 ? lineEnd : newline + 1);
+    body.push(
+      `${blank ? line : `${line.slice(0, indent)}[REDACTED]`}${ending}`,
+    );
+    end = newline < 0 ? lineEnd : newline + 1;
+    if (newline < 0) break;
+  }
+
+  if (!sawContent) return null;
+  return { end, replacement: header[0] + body.join("") };
+}
+
 function redactLabeledCredentials(value: string): {
   content: string;
   redacted: boolean;
@@ -246,6 +305,16 @@ function redactLabeledCredentials(value: string): {
     if (!credentialName.test(label)) continue;
 
     const valueStart = match.index + match[0].length;
+    const blockScalar = redactYamlBlockScalar(value, valueStart, match.index);
+    if (blockScalar) {
+      content += value.slice(cursor, valueStart);
+      content += blockScalar.replacement;
+      cursor = blockScalar.end;
+      redacted = true;
+      pattern.lastIndex = cursor;
+      continue;
+    }
+
     const valueEnd = endOfCredentialValue(value, valueStart);
     if (valueEnd <= valueStart) continue;
 
@@ -349,7 +418,7 @@ export function buildResourcePack(
       content: entry.content,
       sha256: sha256Hex(entry.content),
     }))
-    .sort((left, right) => left.path.localeCompare(right.path));
+    .sort((left, right) => compareCodeUnits(left.path, right.path));
   return {
     version: RESOURCE_PACK_VERSION,
     exportedAt: options?.exportedAt ?? Date.now(),

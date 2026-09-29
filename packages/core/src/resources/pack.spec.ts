@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import {
   buildResourcePack,
+  canonicalJson,
   checksumResourcePackResources,
   redactResourceContent,
   sha256Hex,
@@ -65,6 +67,27 @@ describe("buildResourcePack / verifyResourcePack", () => {
           },
         ]),
       ),
+    );
+  });
+
+  it("sorts canonical keys and paths by Unicode code unit order", () => {
+    expect(canonicalJson({ é: 1, z: 2, a: 3 })).toBe('{"a":3,"z":2,"é":1}');
+    const pack = buildResourcePack(
+      [
+        { path: "é.md", scope: "personal", content: "accented" },
+        { path: "z.md", scope: "personal", content: "z" },
+        { path: "a.md", scope: "personal", content: "a" },
+      ],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+
+    expect(pack.resources.map((resource) => resource.path)).toEqual([
+      "a.md",
+      "z.md",
+      "é.md",
+    ]);
+    expect(checksumResourcePackResources([...pack.resources].reverse())).toBe(
+      pack.checksum,
     );
   });
 
@@ -287,6 +310,50 @@ describe("redactResourceContent", () => {
     expect(result.redacted).toBe(true);
     expect(result.content).not.toContain(token);
     expect(result.content).toContain("copied key: [REDACTED]");
+  });
+
+  it("redacts JWT-labeled values from the serialized pack", () => {
+    const jwt =
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fake-signature-material";
+    const result = redactResourceContent("settings.yaml", `jwt: ${jwt}\n`);
+    const pack = buildResourcePack(
+      [{ path: "settings.yaml", scope: "personal", content: result.content }],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).toBe("jwt: [REDACTED]\n");
+    expect(JSON.stringify(pack)).not.toContain(jwt);
+  });
+
+  it("redacts YAML literal and folded block scalar contents without breaking YAML", () => {
+    const token = "literal-block-secret-line";
+    const jwt = "folded-block-jwt-part.one.two";
+    const source = [
+      "credentials:",
+      "  token: |2-",
+      `    ${token}`,
+      "  jwt: >+",
+      `    ${jwt}`,
+      "  keep: visible",
+    ].join("\n");
+
+    const result = redactResourceContent("settings.yaml", source);
+    const pack = buildResourcePack(
+      [{ path: "settings.yaml", scope: "personal", content: result.content }],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+
+    expect(result.redacted).toBe(true);
+    expect(parse(result.content)).toEqual({
+      credentials: {
+        token: "[REDACTED]",
+        jwt: "[REDACTED]\n",
+        keep: "visible",
+      },
+    });
+    expect(JSON.stringify(pack)).not.toContain(token);
+    expect(JSON.stringify(pack)).not.toContain(jwt);
   });
 
   it("keeps escaped quotes inside a redacted JSON value", () => {

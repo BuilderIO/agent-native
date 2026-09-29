@@ -13,10 +13,12 @@ import {
 } from "../pack.js";
 import {
   ownerForPackTarget,
-  resourceGetByPath,
   resourcePut,
   resourcePutIfAbsent,
 } from "../store.js";
+import { mapWithConcurrency } from "./map-with-concurrency.js";
+
+const IMPORT_RESOURCE_WRITE_CONCURRENCY = 8;
 
 export const importResourcePackSchema = z.object({
   pack: z
@@ -67,9 +69,33 @@ function rawPackOverCap(pack: unknown): {
   const resources = (pack as { resources?: unknown }).resources;
   if (!Array.isArray(resources)) return null;
   const redactions = (pack as { redactions?: unknown }).redactions;
+  const resourcePaths = new Set(
+    resources.flatMap((resource) =>
+      resource &&
+      typeof resource === "object" &&
+      typeof (resource as { path?: unknown }).path === "string"
+        ? [(resource as { path: string }).path]
+        : [],
+    ),
+  );
+  const redactionPaths = new Set<string>();
+  let redactionOnlyCount = 0;
+  if (Array.isArray(redactions)) {
+    for (const redaction of redactions) {
+      const path =
+        redaction && typeof redaction === "object"
+          ? (redaction as { path?: unknown }).path
+          : undefined;
+      if (typeof path !== "string") {
+        redactionOnlyCount += 1;
+      } else if (!resourcePaths.has(path) && !redactionPaths.has(path)) {
+        redactionPaths.add(path);
+        redactionOnlyCount += 1;
+      }
+    }
+  }
 
-  const fileCount =
-    resources.length + (Array.isArray(redactions) ? redactions.length : 0);
+  const fileCount = resources.length + redactionOnlyCount;
   if (fileCount > RESOURCE_PACK_MAX_FILES) {
     return { fileCount, byteCount: 0 };
   }
@@ -171,39 +197,41 @@ export async function importResourcePackForCaller(
   let imported = 0;
   let skipped = 0;
 
-  for (const resource of pack.resources) {
-    try {
-      const mimeType = mimeTypeForPath(resource.path);
-      if (args.onConflict === "overwrite") {
-        await resourcePut(owner, resource.path, resource.content, mimeType);
-        imported += 1;
-        continue;
+  const results = await mapWithConcurrency(
+    pack.resources,
+    IMPORT_RESOURCE_WRITE_CONCURRENCY,
+    async (resource) => {
+      try {
+        const mimeType = mimeTypeForPath(resource.path);
+        if (args.onConflict === "overwrite") {
+          await resourcePut(owner, resource.path, resource.content, mimeType);
+          return { imported: 1, skipped: 0 };
+        }
+        const created = await resourcePutIfAbsent(
+          owner,
+          resource.path,
+          resource.content,
+          mimeType,
+        );
+        return created
+          ? { imported: 1, skipped: 0 }
+          : { imported: 0, skipped: 1 };
+      } catch (error) {
+        return {
+          imported: 0,
+          skipped: 0,
+          error: {
+            path: resource.path,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        };
       }
-      const existing = await resourceGetByPath(owner, resource.path, {
-        userEmail,
-        orgId: ctx?.orgId ?? null,
-      });
-      if (existing) {
-        skipped += 1;
-        continue;
-      }
-      const created = await resourcePutIfAbsent(
-        owner,
-        resource.path,
-        resource.content,
-        mimeType,
-      );
-      if (created) {
-        imported += 1;
-      } else {
-        skipped += 1;
-      }
-    } catch (error) {
-      errors.push({
-        path: resource.path,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    },
+  );
+  for (const result of results) {
+    imported += result.imported;
+    skipped += result.skipped;
+    if (result.error) errors.push(result.error);
   }
 
   return {

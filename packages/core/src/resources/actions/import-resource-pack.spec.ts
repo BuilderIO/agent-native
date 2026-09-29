@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourcePutIfAbsent = vi.fn();
 const mockGetOrgRoleForEmail = vi.fn();
@@ -16,7 +15,6 @@ vi.mock("../store.js", () => ({
       : orgId
         ? `__organization__:${orgId}`
         : "__shared__",
-  resourceGetByPath: (...args: unknown[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: unknown[]) => mockResourcePut(...args),
   resourcePutIfAbsent: (...args: unknown[]) => mockResourcePutIfAbsent(...args),
 }));
@@ -49,7 +47,6 @@ function packOf(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockResourceGetByPath.mockResolvedValue(null);
   mockResourcePut.mockImplementation(async (_owner: string, path: string) => ({
     id: path,
     path,
@@ -62,9 +59,9 @@ beforeEach(() => {
 
 describe("import-resource-pack", () => {
   it("imports into personal scope and skips existing paths by default", async () => {
-    mockResourceGetByPath.mockImplementation(
+    mockResourcePutIfAbsent.mockImplementation(
       async (_owner: string, path: string) =>
-        path === "AGENTS.md" ? { id: "existing", path } : null,
+        path === "AGENTS.md" ? null : { id: path, path },
     );
 
     const result = await importResourcePack.run(
@@ -93,11 +90,6 @@ describe("import-resource-pack", () => {
   });
 
   it("overwrites existing paths when requested", async () => {
-    mockResourceGetByPath.mockResolvedValue({
-      id: "existing",
-      path: "AGENTS.md",
-    });
-
     const result = await importResourcePack.run(
       {
         pack: packOf([{ path: "AGENTS.md", content: "# Overwrite\n" }]),
@@ -114,6 +106,7 @@ describe("import-resource-pack", () => {
       "# Overwrite\n",
       "text/markdown",
     );
+    expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
   it("refuses workspace import", async () => {
@@ -227,7 +220,34 @@ describe("import-resource-pack", () => {
     expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
-  it("counts redaction records toward the file cap", async () => {
+  it("deduplicates resource redactions against the file cap", async () => {
+    const resources = Array.from({ length: 101 }, (_, index) => ({
+      path: `file-${index}.md`,
+      scope: "personal" as const,
+      content: "x",
+    }));
+    const pack = buildResourcePack(resources, {
+      exportedAt: 1,
+      source: { scope: "personal" },
+      redactions: resources.map(({ path }) => ({
+        path,
+        reason: "secret" as const,
+      })),
+    });
+
+    const result = await importResourcePack.run(
+      { pack },
+      { userEmail: "alice@x.com", caller: "http" },
+    );
+    expect(result).toMatchObject({
+      imported: 101,
+      skipped: 0,
+      redacted: 101,
+      errors: [],
+    });
+  });
+
+  it("rejects more than the cap of redaction-only paths", async () => {
     const pack = buildResourcePack([], {
       exportedAt: 1,
       source: { scope: "personal" },
@@ -275,6 +295,41 @@ describe("import-resource-pack", () => {
     expect(result.errors).toEqual([
       { path: "blocked.md", error: "not allowed" },
     ]);
+  });
+
+  it("writes with bounded concurrency and retains per-file counts", async () => {
+    let active = 0;
+    let maxActive = 0;
+    mockResourcePutIfAbsent.mockImplementation(
+      async (_owner: string, path: string) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        active -= 1;
+        return path === "file-0.md" ? null : { id: path, path };
+      },
+    );
+
+    const result = await importResourcePack.run(
+      {
+        pack: packOf(
+          Array.from({ length: 16 }, (_, index) => ({
+            path: `file-${index}.md`,
+            content: "x",
+          })),
+        ),
+      },
+      { userEmail: "alice@x.com", caller: "http" },
+    );
+
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(8);
+    expect(result).toMatchObject({
+      imported: 15,
+      skipped: 1,
+      redacted: 0,
+      errors: [],
+    });
   });
 
   it("fails closed on checksum mismatch", async () => {
