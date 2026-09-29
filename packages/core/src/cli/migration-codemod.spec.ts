@@ -154,8 +154,17 @@ describe("runMigrationCodemods", () => {
     expect(result.changes.map((change) => change.file)).toContain(stylesheet);
   });
 
-  it("moves app stylesheet imports to their Toolkit exports", () => {
-    const { root, packageFile } = fixture();
+  it("migrates AgentKit React entrypoints and stylesheet with the Core manifest", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import * as AgentKitReact from "@agent-native/agentkit/react";',
+        'import { AgentKitRoot } from "@agent-native/agentkit/react/root";',
+        "void AgentKitReact; void AgentKitRoot;",
+        "",
+      ].join("\n"),
+    );
     const stylesheet = path.join(root, "app", "global.css");
     fs.mkdirSync(path.dirname(stylesheet), { recursive: true });
     fs.writeFileSync(
@@ -174,12 +183,21 @@ describe("runMigrationCodemods", () => {
       targetExists: () => true,
     });
 
+    expect(fs.readFileSync(source, "utf-8")).toBe(
+      [
+        'import * as AgentKitReact from "@agent-native/toolkit/app/agentkit";',
+        'import { AgentKitRoot } from "@agent-native/toolkit/app/agentkit";',
+        "void AgentKitReact; void AgentKitRoot;",
+        "",
+      ].join("\n"),
+    );
     expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
       '@import "@agent-native/toolkit/app/agentkit/react/styles.css";\n@import "@agent-native/toolkit/app/styles/agent-conversation.css";\n@import "@agent-native/toolkit/app/styles/chat-history-list.css";\n',
     );
     expect(
       JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
     ).toMatchObject({ "@agent-native/toolkit": ">=0.23.0" });
+    expect(result.changes.map((change) => change.file)).toContain(source);
     expect(result.changes.map((change) => change.file)).toContain(stylesheet);
   });
 
