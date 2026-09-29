@@ -9663,6 +9663,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     applySelectionHandleHitGeometry(selectedEl);
   }
 
+  function clearRadiusHandleHover() {
+    lastHoverClientPoint = null;
+    hoveredRadiusHandleKey = "";
+    applySelectionHandleHitGeometry(selectedEl);
+  }
+
   function applyEditorChromeScale() {
     syncEditorChromeScaleVars();
     var sx = chromeScaleX();
@@ -24818,6 +24824,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "pointerleave",
     function (e) {
       stopNativeInteraction(e);
+      if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
         updateSpacingOverlay(selectedEl);
         return;
@@ -24833,13 +24840,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "pointerleave",
     function (e) {
       stopNativeInteraction(e);
+      if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
         updateSpacingOverlay(selectedEl);
         return;
       }
-      lastHoverClientPoint = null;
-      hoveredRadiusHandleKey = "";
-      applySelectionHandleHitGeometry(selectedEl);
       clearHoverGate();
       if (!spacingDrag) {
         scheduleSpacingHoverClear(e);

@@ -6779,7 +6779,7 @@ it(
 );
 
 it(
-  "clears radius-handle hover when the pointer exits before selection changes",
+  "clears radius-handle hover after exiting the selection overlay",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -6789,7 +6789,6 @@ it(
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
   <div id="first" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
-  <div id="second" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6808,18 +6807,17 @@ it(
       );
 
       await page.evaluate(() => {
-        const shield = document.querySelector<HTMLElement>(
-          '[data-agent-native-edit-overlay="shield"]',
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
         )!;
-        shield.dispatchEvent(
+        overlay.dispatchEvent(
           new PointerEvent("pointerleave", {
             clientX: 800,
             clientY: 600,
-            relatedTarget: document.body,
+            relatedTarget: null,
           }),
         );
       });
-      await selectElementDirect(page, "#second");
       await page.waitForFunction(
         () =>
           getComputedStyle(

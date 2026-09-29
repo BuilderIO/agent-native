@@ -7830,6 +7830,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       hoveredRadiusHandleKey = nextHoveredKey;
       applySelectionHandleHitGeometry(selectedEl);
     }
+    function clearRadiusHandleHover() {
+      lastHoverClientPoint = null;
+      hoveredRadiusHandleKey = "";
+      applySelectionHandleHitGeometry(selectedEl);
+    }
     function applyEditorChromeScale() {
       syncEditorChromeScaleVars();
       var sx = chromeScaleX();
@@ -19494,6 +19499,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "pointerleave",
       function(e) {
         stopNativeInteraction(e);
+        if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
         if (shouldKeepSpacingOverlayForLeave(e)) {
           updateSpacingOverlay(selectedEl);
           return;
@@ -19508,13 +19514,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       "pointerleave",
       function(e) {
         stopNativeInteraction(e);
+        if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
         if (shouldKeepSpacingOverlayForLeave(e)) {
           updateSpacingOverlay(selectedEl);
           return;
         }
-        lastHoverClientPoint = null;
-        hoveredRadiusHandleKey = "";
-        applySelectionHandleHitGeometry(selectedEl);
         clearHoverGate();
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
