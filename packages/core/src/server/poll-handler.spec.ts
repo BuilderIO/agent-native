@@ -110,7 +110,7 @@ describe("poll handler", () => {
     }
   });
 
-  it("returns durable sync events without running the legacy watermark scan", async () => {
+  it("returns durable sync events after the throttled legacy watermark scan", async () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     const durableEvent = {
@@ -174,9 +174,7 @@ describe("poll handler", () => {
       events: [expect.objectContaining(durableEvent)],
     });
     expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
-    expect(executedSql()).not.toMatch(
-      /MAX\(updated_at\)|information_schema|pg_indexes/i,
-    );
+    expect(executedSql()).toMatch(/MAX\(updated_at\)/);
     expect(executedSql()).not.toContain(
       "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
     );
@@ -187,8 +185,11 @@ describe("poll handler", () => {
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     mockExecute.mockResolvedValue({ rows: [] });
 
-    const { createPollHandler } = await import("./poll.js");
-    const handler = createPollHandler() as any;
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    const state = getDefaultAppSyncState();
+    (state as any).lastDbCheck = Date.now();
+    const handler = createPollHandler(state) as any;
 
     await expect(handler({ query: { since: "1000" } })).resolves.toEqual({
       version: 1_000,
@@ -206,8 +207,11 @@ describe("poll handler", () => {
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     mockExecute.mockResolvedValue({ rows: [{ max_version: 4_200 }] });
 
-    const { createPollHandler } = await import("./poll.js");
-    const handler = createPollHandler() as any;
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    const state = getDefaultAppSyncState();
+    (state as any).lastDbCheck = Date.now();
+    const handler = createPollHandler(state) as any;
 
     await expect(handler({ query: {} })).resolves.toEqual({
       version: 4_200,

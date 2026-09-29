@@ -1023,6 +1023,7 @@ class SyncTransport {
   };
 
   private handleFocus = (): void => {
+    this.idleActivityGeneration++;
     this.idlePollBackoffIndex = 0;
     this.pollNow();
   };
@@ -1590,7 +1591,7 @@ export function useDbSync(
       if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
     }
 
-    const sideEffectToolsByTab = new Map<string, Set<string>>();
+    const sideEffectToolsByTab = new Map<string, Map<string, boolean>>();
     const eventsForTool = (
       tool: string,
       completedSideEffect: boolean,
@@ -1665,8 +1666,13 @@ export function useDbSync(
           typeof detail.tabId === "string" && detail.tabId
             ? detail.tabId
             : "__default__";
-        const tools = sideEffectToolsByTab.get(tabId) ?? new Set<string>();
-        tools.add(tool);
+        const tools =
+          sideEffectToolsByTab.get(tabId) ?? new Map<string, boolean>();
+        const previouslyFailed = tools.get(tool);
+        tools.set(
+          tool,
+          previouslyFailed === false ? false : detail.isError === true,
+        );
         sideEffectToolsByTab.set(tabId, tools);
       }
       applyRunEvents(event, events, processedRunToolEvents);
@@ -1693,7 +1699,9 @@ export function useDbSync(
       sideEffectToolsByTab.delete(tabId);
       applyRunEvents(
         event,
-        [...tools].flatMap((tool) => eventsForTool(tool, true, false)),
+        [...tools].flatMap(([tool, failed]) =>
+          eventsForTool(tool, true, failed),
+        ),
         processedRunEndEvents,
       );
     };

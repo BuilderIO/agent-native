@@ -72,7 +72,7 @@ test("rejects public and unguarded routes", () => {
       "templates/example/app/root.tsx",
       [
         "useDbSync({",
-        '  realtime: isPrivatePath(location.pathname) ? { reason: "collaborators edit" } : undefined,',
+        '  realtime: looksPrivatePath(location.pathname) ? { reason: "collaborators edit" } : undefined,',
         "});",
       ].join("\n"),
       new Set([2]),

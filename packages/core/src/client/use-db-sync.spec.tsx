@@ -967,6 +967,70 @@ describe("useDbSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps the one-minute idle cadence when focus occurs during a poll", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let finishSecondPoll!: (response: Response) => void;
+    const fetchMock = vi.fn(() => {
+      if (fetchMock.mock.calls.length === 2) {
+        return new Promise<Response>((resolve) => {
+          finishSecondPoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function AdaptiveProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test idle focus timing" },
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<AdaptiveProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      finishSecondPoll(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(59_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("does not let a paged response high-water mark skip its durable cursor", async () => {
     vi.useFakeTimers();
     const queryClient = new QueryClientProbe();
@@ -1475,6 +1539,38 @@ describe("useDbSync", () => {
       );
     });
     expect(screenKeyValue).toBe(1);
+  });
+
+  it("does not replay a failed refresh-screen tool at run end", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => root.render(<ScreenKeyProbe enabled />));
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "refresh-screen",
+            completedSideEffect: true,
+            isError: true,
+            tabId: "tab-failed-refresh",
+          },
+        }),
+      );
+    });
+    expect(screenKeyValue).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "tab-failed-refresh" },
+        }),
+      );
+    });
+    expect(screenKeyValue).toBe(0);
   });
 
   it("fans events to both useDbSync and useScreenRefreshKey subscribers", async () => {
