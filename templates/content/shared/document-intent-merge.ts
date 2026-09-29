@@ -104,23 +104,75 @@ function textHunks(before: string, after: string): TextHunk[] {
 
 const EMPTY_BLOCK = "<empty-block/>";
 
+// Typing into an empty paragraph replaces its marker, so empty paragraphs
+// compare as empty lines. Null when the blocks don't serialize on their own.
+function comparableText(content: string, blocks: PMNode[]): string | null {
+  const serialized = blocks.map((block) =>
+    docToNfm({ type: "doc", content: [block] }),
+  );
+  if (serialized.join("\n") !== content) return null;
+  return blocks
+    .map((block, index) =>
+      block.type === "paragraph" &&
+      !block.content?.length &&
+      serialized[index] === EMPTY_BLOCK
+        ? ""
+        : serialized[index],
+    )
+    .join("\n");
+}
+
+// A diff can place a change anywhere along repeated text, so the range covers
+// every position the hunk could slide to. `lastFrom` is its latest start.
+function slidRange(
+  text: string,
+  hunk: TextHunk,
+): { from: number; to: number; lastFrom: number } {
+  const last = (value: string, fallback: string) =>
+    value ? value[value.length - 1] : fallback;
+  let removed = text.slice(hunk.from, hunk.to);
+  let added = hunk.insert;
+  let from = hunk.from;
+  while (from > 0) {
+    const char = text[from - 1];
+    if (last(removed, char) !== last(added, char)) break;
+    if (removed) removed = char + removed.slice(0, -1);
+    if (added) added = char + added.slice(0, -1);
+    from -= 1;
+  }
+  removed = text.slice(hunk.from, hunk.to);
+  added = hunk.insert;
+  let to = hunk.to;
+  while (to < text.length) {
+    const char = text[to];
+    if ((removed[0] ?? char) !== (added[0] ?? char)) break;
+    if (removed) removed = removed.slice(1) + char;
+    if (added) added = added.slice(1) + char;
+    to += 1;
+  }
+  return { from, to, lastFrom: hunk.from + to - hunk.to };
+}
+
 // Collaboration delivers each editor's changes to the others, so a body
 // authored against an older revision can already hold every change another
 // body made since then. The holder is then the merge, with nothing lost. Its
-// edits must stay clear of the other body's changes, except for text typed
-// into or right after text the other body added. Typing into an empty
-// paragraph replaces its marker, so markers are left out of the comparison.
+// edits must stay clear of the other body's changes, except for typing into
+// or right after text the other body added without replacing anything.
 function holdsChanges(base: string, holder: string, other: string): boolean {
-  const text = (body: string) => body.split(EMPTY_BLOCK).join("");
-  const changes = textHunks(text(other), text(base));
-  return textHunks(text(other), text(holder)).every((edit) =>
-    changes.every(
+  const changes = textHunks(other, base).map((hunk) => ({
+    ...slidRange(other, hunk),
+    added: !hunk.insert,
+  }));
+  return textHunks(other, holder).every((hunk) => {
+    const edit = slidRange(other, hunk);
+    const typed = hunk.from === hunk.to;
+    return changes.every(
       (change) =>
-        edit.from > change.to ||
         edit.to < change.from ||
-        (edit.from === edit.to && change.from < edit.from),
-    ),
-  );
+        edit.from > change.to ||
+        (typed && change.added && edit.from > change.lastFrom),
+    );
+  });
 }
 
 function textHunksOverlap(left: TextHunk, right: TextHunk): boolean {
@@ -226,13 +278,15 @@ export function mergeDocumentBodyIntents(args: {
   const baseKeys = base.map(stableBlock);
   const candidateKeys = candidate.map(stableBlock);
   const currentKeys = current.map(stableBlock);
-  if (
-    holdsChanges(
-      args.authoredBaseContent,
-      args.authoredCandidateContent,
-      args.currentContent,
-    )
-  ) {
+  const baseText = comparableText(args.authoredBaseContent, base);
+  const candidateText = comparableText(
+    args.authoredCandidateContent,
+    candidate,
+  );
+  const currentText = comparableText(args.currentContent, current);
+  const comparable =
+    baseText !== null && candidateText !== null && currentText !== null;
+  if (comparable && holdsChanges(baseText, candidateText, currentText)) {
     return {
       status: "resolved",
       content: args.authoredCandidateContent,
@@ -245,13 +299,7 @@ export function mergeDocumentBodyIntents(args: {
       displaced: false,
     };
   }
-  if (
-    holdsChanges(
-      args.authoredBaseContent,
-      args.currentContent,
-      args.authoredCandidateContent,
-    )
-  ) {
+  if (comparable && holdsChanges(baseText, currentText, candidateText)) {
     return {
       status: "resolved",
       content: args.currentContent,

@@ -304,6 +304,18 @@ describe("document body intent merge", () => {
         "Seed one\nLine one.\n<empty-block/>",
         "Seed one\nLine one.\nLine two",
       ],
+      [
+        "text it typed into the middle of",
+        "Seed one\nLine one",
+        "Seed one peer line\nLine one",
+        "Seed one peer new line\nLine one\nLine two",
+      ],
+      [
+        "a line ending in the same character as its new line",
+        "Seed one\nLine seven.\n<empty-block/>",
+        "Seed one\nLine seven.\nLine eight.",
+        "Seed one\nLine seven.\nLine eight.\nLine nine.",
+      ],
     ])(
       "writes a candidate that holds %s",
       (_case, base, current, candidate) => {
@@ -383,11 +395,29 @@ describe("document body intent merge", () => {
         "Seed one\nSeed one\nLine one",
         "Seed one\nLine one\nLine two",
       ],
+      [
+        "lacks literal empty-block text the current body added to code",
+        "```\nconst a = '';\n```\nLine one",
+        "```\nconst a = '<empty-block/>';\n```\nLine one",
+        "```\nconst a = '';\n```\nLine one\nLine two",
+      ],
     ])("preserves a candidate that %s", (_case, base, current, candidate) => {
       expect(merge({ base, current, candidate })).toEqual({
         status: "preservation-required",
         reason: "structure",
       });
+    });
+
+    it("does not guess which repeated word each body changed", () => {
+      // The current body inserted "foo " and the candidate replaced "bar"
+      // with "foo". Either body alone reads as holding the other's change.
+      expect(
+        merge({
+          base: "foo bar",
+          current: "foo foo bar",
+          candidate: "foo foo",
+        }),
+      ).toMatchObject({ status: "preservation-required" });
     });
   });
 
