@@ -4,18 +4,7 @@ import {
   IconPlugConnectedX,
   IconX,
 } from "@tabler/icons-react";
-import { useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,7 +30,6 @@ export function LocalNetworkAccessPrompt({
   proactive?: boolean;
 }) {
   const t = useT();
-  const [confirmClose, setConfirmClose] = useState(false);
   // "unreachable" is the one confident case (permission is confirmed
   // granted, so it's confirmed NOT the cause) — every other kind is
   // deliberately hedged copy, never a diagnosed permission claim. See
@@ -102,13 +90,25 @@ export function LocalNetworkAccessPrompt({
   if (proactive) {
     return (
       <>
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setConfirmClose(true);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
+        <Dialog defaultOpen>
+          <DialogContent
+            className="sm:max-w-md"
+            overlayClassName="backdrop-blur-[4px]"
+            hideClose
+            onInteractOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => event.preventDefault()}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("designEditor.close")}
+              className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={onDismiss}
+            >
+              <IconX className="size-4" />
+              <span className="sr-only">{t("designEditor.close")}</span>
+            </Button>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <IconPlugConnected className="size-4" />
@@ -126,38 +126,6 @@ export function LocalNetworkAccessPrompt({
             {permissionHelp}
           </DialogContent>
         </Dialog>
-        <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {t("designCanvas.localBridge.permissionCloseTitle", {
-                  defaultValue: "Close setup?",
-                })}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {t("designCanvas.localBridge.permissionCloseDescription", {
-                  defaultValue:
-                    "Live editing won't work until you allow access in Chrome.",
-                })}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>
-                {t("designCanvas.localBridge.permissionCloseStay", {
-                  defaultValue: "Keep setup open",
-                })}
-              </AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={onDismiss}
-              >
-                {t("designCanvas.localBridge.permissionCloseAnyway", {
-                  defaultValue: "Close anyway",
-                })}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </>
     );
   }
