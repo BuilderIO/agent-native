@@ -194,6 +194,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
   "SLACK_BOT_TOKEN",
+  // Signs events from the deployed Slack app, not the integration owner's identity.
+  "SLACK_SIGNING_SECRET",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
 ]);
