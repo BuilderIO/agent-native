@@ -330,6 +330,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "予約送信をキャンセル",
+      deliveryUnknownWarning:
+        "配信状況を確認できません。解決する前に Gmail の送信済みを確認してください。",
+      markSentAfterChecking: "送信済みを確認しました。送信済みとしてマーク",
+      sendNewCopy: "新しいコピーを送信",
+      sendingStatus:
+        "予約したメールを処理中です。操作は一時的に利用できません。",
+      confirmSendNewCopyTitle: "もう一通送信しますか？",
+      confirmSendNewCopyDescription:
+        "元のメールはすでに配信されている可能性があります。先に Gmail の送信済みを確認してください。もう一通送ると重複する可能性があります。",
       dateInput: "日時",
       noDateMatch: "一致する未来の時間がありません",
       inputPlaceholder: "例: 午前8時、3日後、8月7日",
@@ -440,6 +449,12 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "予約メールを送信しました。",
       scheduledSendFailed: "予約メールの送信に失敗しました",
+      uncertainScheduledMarkedSent:
+        "予約メールを送信済みとしてマークしました。",
+      uncertainScheduledResolveFailed:
+        "予約メールの状態を解決できませんでした。",
+      uncertainScheduledRetryStarted: "新しいコピーを送信しています。",
+      uncertainScheduledRetryFailed: "新しいコピーを送信できませんでした。",
       scheduledCancelled: "予約メールをキャンセルしました。",
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",

@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
-import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
@@ -185,24 +185,25 @@ export default defineAction({
       unreadOnly: args.unreadOnly,
     };
 
-    const [oauthAccounts, managedConnections, syncAccounts] = await Promise.all(
-      [
-        listOAuthAccountsByOwner("google", ownerEmail),
-        listWorkspaceConnectionsForApp({ appId: "mail", provider: "gmail" }),
-        readSyncAccounts(ownerEmail),
-      ],
-    );
+    const [oauthAccounts, managedConnection, syncAccounts] = await Promise.all([
+      listOAuthAccountsByOwner("google", ownerEmail),
+      resolveWorkspaceConnectionForApp({
+        appId: "mail",
+        provider: "gmail",
+        requireConnected: true,
+      }),
+      readSyncAccounts(ownerEmail),
+    ]);
     const connectedAccounts = [
       ...new Set([
         ...oauthAccounts
           .filter((account) => hasGmailScope(account.tokens))
           .map((account) => account.accountId.toLowerCase()),
-        ...managedConnections
-          .filter(
-            (connection) =>
-              connection.status === "connected" && connection.accountId,
-          )
-          .map((connection) => connection.accountId!.toLowerCase()),
+        ...(managedConnection.available &&
+        managedConnection.connection?.status === "connected" &&
+        managedConnection.connection.accountId
+          ? [managedConnection.connection.accountId.toLowerCase()]
+          : []),
       ]),
     ].filter((accountEmail) =>
       args.accountEmails?.length

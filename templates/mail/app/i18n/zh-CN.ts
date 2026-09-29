@@ -319,6 +319,14 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "取消定时发送",
+      deliveryUnknownWarning:
+        "送达状态未知；处理前请先检查 Gmail 的“已发送”文件夹。",
+      markSentAfterChecking: "我已检查“已发送”；标记为已发送",
+      sendNewCopy: "发送新副本",
+      sendingStatus: "正在处理定时邮件。暂时无法使用相关操作。",
+      confirmSendNewCopyTitle: "要再发送一份吗？",
+      confirmSendNewCopyDescription:
+        "原邮件可能已经送达。请先检查 Gmail 的“已发送”文件夹。再次发送可能会造成重复邮件。",
       dateInput: "日期和时间",
       noDateMatch: "没有匹配的未来时间",
       inputPlaceholder: "试试：上午 8 点、3 天后、8 月 7 日",
@@ -428,6 +436,10 @@ const messages = {
       trashedMany: "已将 {{count}} 个会话移到垃圾箱。",
       scheduledSent: "定时邮件已发送。",
       scheduledSendFailed: "发送定时邮件失败",
+      uncertainScheduledMarkedSent: "已将定时邮件标记为已发送。",
+      uncertainScheduledResolveFailed: "无法处理定时邮件的状态。",
+      uncertainScheduledRetryStarted: "正在发送新副本。",
+      uncertainScheduledRetryFailed: "发送新副本失败。",
       scheduledCancelled: "定时邮件已取消。",
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",

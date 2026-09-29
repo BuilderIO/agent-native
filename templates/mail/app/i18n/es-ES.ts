@@ -338,6 +338,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
+      deliveryUnknownWarning:
+        "Se desconoce el estado de entrega; revisa Enviados de Gmail antes de resolverlo.",
+      markSentAfterChecking: "Revisé Enviados; marcar como enviado",
+      sendNewCopy: "Enviar una copia nueva",
+      sendingStatus:
+        "El envío programado se está procesando. Las acciones no están disponibles temporalmente.",
+      confirmSendNewCopyTitle: "¿Enviar otra copia?",
+      confirmSendNewCopyDescription:
+        "Es posible que el mensaje original ya se haya entregado. Revisa primero Enviados de Gmail. Enviar otra copia podría crear un duplicado.",
       dateInput: "Fecha y hora",
       noDateMatch: "No hay una hora futura coincidente",
       inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",
@@ -448,6 +457,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
       scheduledSendFailed: "No se pudo enviar el email programado",
+      uncertainScheduledMarkedSent: "Email programado marcado como enviado.",
+      uncertainScheduledResolveFailed:
+        "No se pudo resolver el email programado.",
+      uncertainScheduledRetryStarted: "Se está enviando una copia nueva.",
+      uncertainScheduledRetryFailed: "No se pudo enviar una copia nueva.",
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",

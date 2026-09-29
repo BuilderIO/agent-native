@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     listOAuthAccountsByOwner: vi.fn(),
+    resolveWorkspaceConnectionForApp: vi.fn(),
     getConnectedAccountsWithErrors: vi.fn(),
     getRequestUserEmail: vi.fn(),
     readSettings: vi.fn(),
@@ -66,7 +67,7 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
-  listWorkspaceConnectionsForApp: vi.fn().mockResolvedValue([]),
+  resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
 }));
 
 vi.mock("./mail-settings.js", () => ({
@@ -214,6 +215,12 @@ beforeEach(() => {
   mocks.listOAuthAccountsByOwner.mockResolvedValue([
     { accountId: ACCOUNT, displayName: null, tokens: {} },
   ]);
+  mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+    available: false,
+    connection: null,
+    appAccess: null,
+    reason: "No available Gmail workspace connection was found for Mail.",
+  });
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.readSettings.mockResolvedValue({
     combineInbox: false,

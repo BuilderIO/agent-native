@@ -24,6 +24,7 @@ import {
   createOAuth2Client,
   gmailBatchGetMessages,
   gmailBatchGetThreads,
+  gmailGetMessage,
   gmailGetProfile,
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
@@ -2386,6 +2387,63 @@ describe("gmailBatchArchiveByAccount", () => {
     expect(result.remaining).toEqual(targets.slice(100).map(({ id }) => id));
     expect(googleFetch).toHaveBeenCalledOnce();
     expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("archives a threadless prefix and advances retries past completed targets", async () => {
+    const targets = Array.from({ length: 101 }, (_, index) => ({
+      id: `message-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    vi.mocked(gmailGetMessage).mockImplementation(
+      async (_accessToken, messageId) =>
+        ({ threadId: `thread-${messageId}` }) as any,
+    );
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: {
+            messages: [{ id: threadId.replace("thread-", "") }],
+          },
+        })),
+    );
+
+    const first = await gmailBatchArchiveByAccount(OWNER, targets);
+
+    expect(first.succeeded).toEqual(targets.slice(0, 50).map(({ id }) => id));
+    expect(first.remaining).toEqual(targets.slice(50).map(({ id }) => id));
+    expect(gmailGetMessage).toHaveBeenCalledTimes(50);
+    expect(vi.mocked(gmailGetMessage).mock.calls.map(([, id]) => id)).toEqual(
+      targets.slice(0, 50).map(({ id }) => id),
+    );
+
+    const retryTargets = targets.filter(({ id }) =>
+      first.remaining.includes(id),
+    );
+    const second = await gmailBatchArchiveByAccount(OWNER, retryTargets);
+
+    expect(second.succeeded).toEqual(
+      targets.slice(50, 100).map(({ id }) => id),
+    );
+    expect(second.remaining).toEqual([targets[100].id]);
+    expect(
+      vi
+        .mocked(gmailGetMessage)
+        .mock.calls.slice(50)
+        .map(([, id]) => id),
+    ).toEqual(targets.slice(50, 100).map(({ id }) => id));
+
+    const final = await gmailBatchArchiveByAccount(OWNER, [targets[100]]);
+
+    expect(final.succeeded).toEqual([targets[100].id]);
+    expect(final.remaining).toEqual([]);
+    expect(
+      vi
+        .mocked(gmailGetMessage)
+        .mock.calls.slice(100)
+        .map(([, id]) => id),
+    ).toEqual([targets[100].id]);
+    expect(gmailModifyThread).toHaveBeenCalledOnce();
   });
 
   it("returns every selected target when refreshing threads hits a quota cooldown", async () => {

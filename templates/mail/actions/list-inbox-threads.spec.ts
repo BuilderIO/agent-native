@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   listOAuthAccountsByOwner: vi.fn(),
   listWorkspaceConnectionsForApp: vi.fn(),
+  resolveWorkspaceConnectionForApp: vi.fn(),
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
   readCachedLabels: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => {
@@ -110,6 +112,10 @@ beforeEach(() => {
     },
   ]);
   mocks.listWorkspaceConnectionsForApp.mockResolvedValue([]);
+  mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+    available: false,
+    connection: null,
+  });
   mocks.readSyncAccounts.mockResolvedValue([
     {
       accountEmail: OWNER,
@@ -614,14 +620,19 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 });
 
 describe("list-inbox-threads action — managed workspace grant (no per-user OAuth row)", () => {
-  it("discovers a connected managed account before its first sync row exists", async () => {
+  it("discovers only the canonical managed account before its first sync row exists", async () => {
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.listWorkspaceConnectionsForApp.mockResolvedValue([
-      {
+      { accountId: "managed@example.com", status: "connected" },
+      { accountId: "other-managed@example.com", status: "connected" },
+    ]);
+    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
         accountId: "managed@example.com",
         status: "connected",
       },
-    ]);
+    });
     mocks.readSyncAccounts.mockResolvedValue([]);
 
     const result = await action.run(
@@ -629,10 +640,12 @@ describe("list-inbox-threads action — managed workspace grant (no per-user OAu
       undefined as any,
     );
 
-    expect(mocks.listWorkspaceConnectionsForApp).toHaveBeenCalledWith({
+    expect(mocks.resolveWorkspaceConnectionForApp).toHaveBeenCalledWith({
       appId: "mail",
       provider: "gmail",
+      requireConnected: true,
     });
+    expect(mocks.listWorkspaceConnectionsForApp).not.toHaveBeenCalled();
     expect(mocks.readInboxThreads).toHaveBeenCalledWith(OWNER, {
       accountEmails: ["managed@example.com"],
     });

@@ -330,6 +330,14 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "إلغاء الإرسال المجدول",
+      deliveryUnknownWarning:
+        "حالة التسليم غير معروفة؛ تحقّق من مجلد «المرسلة» في Gmail قبل حلّ المشكلة.",
+      markSentAfterChecking: "تحققت من «المرسلة»؛ وضع علامة «تم الإرسال»",
+      sendNewCopy: "إرسال نسخة جديدة",
+      sendingStatus: "جارٍ إرسال البريد المجدول. الإجراءات غير متاحة مؤقتًا.",
+      confirmSendNewCopyTitle: "إرسال نسخة أخرى؟",
+      confirmSendNewCopyDescription:
+        "ربما تم تسليم الرسالة الأصلية بالفعل. تحقّق من مجلد «المرسلة» في Gmail أولًا. قد يؤدي إرسال نسخة أخرى إلى تكرار الرسالة.",
       dateInput: "التاريخ والوقت",
       noDateMatch: "لا يوجد وقت مستقبلي مطابق",
       inputPlaceholder: "جرّب: 8 صباحًا، 3 أيام، 7 أغسطس",
@@ -439,6 +447,10 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "تم إرسال البريد المجدول.",
       scheduledSendFailed: "فشل إرسال البريد المجدول",
+      uncertainScheduledMarkedSent: "تم وضع علامة الإرسال على البريد المجدول.",
+      uncertainScheduledResolveFailed: "تعذّر حل حالة البريد المجدول.",
+      uncertainScheduledRetryStarted: "جارٍ إرسال نسخة جديدة.",
+      uncertainScheduledRetryFailed: "تعذّر إرسال نسخة جديدة.",
       scheduledCancelled: "تم إلغاء البريد المجدول.",
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",

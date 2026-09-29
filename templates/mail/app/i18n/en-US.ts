@@ -329,6 +329,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancel scheduled send",
+      deliveryUnknownWarning:
+        "Delivery status unknown; check Gmail Sent before resolving.",
+      markSentAfterChecking: "I checked Sent; mark as sent",
+      sendNewCopy: "Send a new copy",
+      sendingStatus:
+        "Scheduled send is processing. Actions are temporarily unavailable.",
+      confirmSendNewCopyTitle: "Send another copy?",
+      confirmSendNewCopyDescription:
+        "The original may already have been delivered. Check Gmail Sent first. Sending another copy can create a duplicate email.",
       dateInput: "Date and time",
       laterToday: "Later today",
       noDateMatch: "No matching future time",
@@ -438,6 +447,10 @@ const messages = {
       scheduledSendFailed: "Failed to send scheduled email",
       scheduledCancelled: "Scheduled email cancelled.",
       scheduledCancelFailed: "Failed to cancel scheduled email",
+      uncertainScheduledMarkedSent: "Scheduled email marked as sent.",
+      uncertainScheduledResolveFailed: "Failed to resolve scheduled email.",
+      uncertainScheduledRetryStarted: "A new copy is being sent.",
+      uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
       failedToSendEmail: "Failed to send email",

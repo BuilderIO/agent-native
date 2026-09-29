@@ -2284,19 +2284,21 @@ async function gmailBatchModifyThreadsByAccountInternal(
       target: BatchModifyTarget;
       threadId: string;
     }> = [];
-    let resolutionDeferred = false;
-    for (const target of accountTargets) {
+    let quotaDeferred = false;
+    for (const [targetIndex, target] of accountTargets.entries()) {
       let threadId = target.threadId;
       if (!threadId) {
-        if (threadLookupsUsed >= GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS) {
+        const pendingThreadRefreshes = new Set(
+          knownTargets.map(({ threadId: knownThreadId }) => knownThreadId),
+        ).size;
+        const requiredLookups = useThreadModifyForSmallSelection ? 1 : 2;
+        if (
+          threadLookupsUsed + pendingThreadRefreshes + requiredLookups >
+          GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS
+        ) {
           remaining.push(
-            ...accountEntries
-              .slice(accountIndex)
-              .flatMap(([, targetsForAccount]) =>
-                targetsForAccount.map((candidate) => candidate.id),
-              ),
+            ...accountTargets.slice(targetIndex).map(({ id }) => id),
           );
-          resolutionDeferred = true;
           break;
         }
         threadLookupsUsed += 1;
@@ -2317,7 +2319,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
                 ),
             );
             retryAfterSeconds = error.details.retryAfterSeconds;
-            resolutionDeferred = true;
+            quotaDeferred = true;
             break;
           }
           failed.push({
@@ -2341,7 +2343,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
       knownTargets.push({ target, threadId });
     }
 
-    if (resolutionDeferred) break;
+    if (quotaDeferred) break;
 
     const threadIdsToRefresh = [
       ...new Set(knownTargets.map(({ threadId }) => threadId)),

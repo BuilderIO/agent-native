@@ -411,6 +411,15 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
     },
     {
       version: 34,
+      name: "mail-scheduled-job-uncertain-send-recovery",
+      sql: `ALTER TABLE scheduled_jobs
+  DROP CONSTRAINT IF EXISTS scheduled_jobs_status_check;
+ALTER TABLE scheduled_jobs
+  ADD CONSTRAINT scheduled_jobs_status_check
+  CHECK(status IN ('pending', 'processing', 'done', 'cancelled', 'uncertain', 'retry_queued'));`,
+    },
+    {
+      version: 35,
       name: "mail-gmail-account-quota-budget",
       sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
     id TEXT PRIMARY KEY,
@@ -426,10 +435,10 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
     updated_at INTEGER NOT NULL
   );
 CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
-  ON mail_gmail_quota_budgets(owner_email);`,
+      ON mail_gmail_quota_budgets(owner_email);`,
     },
     {
-      version: 35,
+      version: 36,
       name: "mail-inbox-id-reconciliation",
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;
@@ -441,7 +450,7 @@ ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_reconcile_passes INTEGER NOT NULL DEFAULT 0;`,
     },
     {
-      version: 36,
+      version: 37,
       name: "mail-gmail-quota-budget-timestamps-bigint",
       sql: `-- guard:allow-destructive-ddl — widen quota timestamps so Date.now() values fit without losing existing data.
 ALTER TABLE mail_gmail_quota_budgets

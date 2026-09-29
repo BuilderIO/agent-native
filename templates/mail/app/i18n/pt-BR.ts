@@ -338,6 +338,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envio agendado",
+      deliveryUnknownWarning:
+        "Status da entrega desconhecido; confira a pasta Enviados do Gmail antes de resolver.",
+      markSentAfterChecking: "Conferi Enviados; marcar como enviada",
+      sendNewCopy: "Enviar uma nova cópia",
+      sendingStatus:
+        "O envio agendado está em processamento. As ações estão temporariamente indisponíveis.",
+      confirmSendNewCopyTitle: "Enviar outra cópia?",
+      confirmSendNewCopyDescription:
+        "A original talvez já tenha sido entregue. Confira primeiro a pasta Enviados do Gmail. Enviar outra cópia pode gerar uma mensagem duplicada.",
       dateInput: "Data e hora",
       noDateMatch: "Nenhum horário futuro correspondente",
       inputPlaceholder: "Tente: 8h, 3 dias, 7 de ago.",
@@ -447,6 +456,10 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email agendado enviado.",
       scheduledSendFailed: "Falha ao enviar email agendado",
+      uncertainScheduledMarkedSent: "Email agendado marcado como enviado.",
+      uncertainScheduledResolveFailed: "Falha ao resolver o email agendado.",
+      uncertainScheduledRetryStarted: "Uma nova cópia está sendo enviada.",
+      uncertainScheduledRetryFailed: "Falha ao enviar uma nova cópia.",
       scheduledCancelled: "Email agendado cancelado.",
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
