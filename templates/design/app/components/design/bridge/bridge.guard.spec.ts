@@ -9744,15 +9744,23 @@ it(
         () =>
           ((window as any).__bridgeMessages ?? []).some(
             (message: any) =>
-              message.type ===
-                "agent-native:runtime-layer-snapshot-unchanged" &&
-              message.payload?.readinessRequestId === 72,
+              message.type === "agent-native:runtime-layer-snapshot" &&
+              message.payload?.readinessRequestId === 72 &&
+              message.payload?.reservationToken === "capture-two",
           ),
         undefined,
         { timeout: 5_000 },
       );
-      expect(snapshots.at(-1)?.payload).toMatchObject({
-        requestId: requestIds[1],
+      const readinessSnapshot = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot" &&
+            message.payload?.readinessRequestId === 72,
+        ),
+      );
+      expect(readinessSnapshot.payload).toMatchObject({
+        requestId: thirdRequest.requestId,
+        readinessRequestId: 72,
         reservationToken: "capture-two",
         html: expect.stringContaining("Latest canvas"),
       });

@@ -2443,7 +2443,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var snapshotReservationToken = reservationToken || "";
     if (
       snapshot.html === lastRuntimeLayerSnapshotHtml &&
-      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken
+      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken &&
+      !Number.isSafeInteger(readinessRequestId)
     ) {
       (window.parent as Window).postMessage(
         {

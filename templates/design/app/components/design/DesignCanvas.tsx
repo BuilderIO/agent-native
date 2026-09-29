@@ -1528,6 +1528,7 @@ export function DesignCanvas({
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
   const readyRuntimeLayerDocumentIdRef = useRef<string | null>(null);
+  const runtimeLayerSnapshotDocumentIdRef = useRef<string | null>(null);
   const runtimeLayerSnapshotReadinessRequestIdRef = useRef(0);
   const expectedRuntimeLayerSnapshotReadinessRequestIdRef = useRef<
     number | null
@@ -3292,6 +3293,7 @@ export function DesignCanvas({
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     readyRuntimeLayerDocumentIdRef.current = null;
+    runtimeLayerSnapshotDocumentIdRef.current = null;
     expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       bridgeReadyRef.current = false;
@@ -3578,12 +3580,23 @@ export function DesignCanvas({
           editorChromeReadyRef.current &&
           onRuntimeLayerSnapshotReadinessChange &&
           documentId === readyRuntimeLayerDocumentIdRef.current &&
+          documentId === runtimeLayerSnapshotDocumentIdRef.current &&
           Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
           e.data.payload.readinessRequestId ===
             expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
         ) {
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
           onRuntimeLayerSnapshotReadinessChange(true);
+        }
+        if (
+          e.data.type === "agent-native:runtime-layer-snapshot-error" &&
+          documentId === readyRuntimeLayerDocumentIdRef.current &&
+          Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
+          e.data.payload.readinessRequestId ===
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
+        ) {
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange?.(false);
         }
         if (
           Number.isSafeInteger(requestId) &&
@@ -3744,6 +3757,7 @@ export function DesignCanvas({
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
           readyRuntimeLayerDocumentIdRef.current = null;
+          runtimeLayerSnapshotDocumentIdRef.current = null;
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
           onRuntimeLayerSnapshotReadinessChange?.(false);
           liveRoutePathRef.current = null;
@@ -3865,11 +3879,18 @@ export function DesignCanvas({
             ? (payload.readinessRequestId as number)
             : undefined;
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (onRuntimeLayerSnapshot) {
+            runtimeLayerSnapshotDocumentIdRef.current = documentId;
+          }
           if (
             editorChromeReadyRef.current &&
             onRuntimeLayerSnapshotReadinessChange &&
-            readinessRequestId ===
-              expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
+            documentId === runtimeLayerSnapshotDocumentIdRef.current &&
+            (readinessRequestId ===
+              expectedRuntimeLayerSnapshotReadinessRequestIdRef.current ||
+              (readinessRequestId === undefined &&
+                expectedRuntimeLayerSnapshotReadinessRequestIdRef.current ===
+                  null))
           ) {
             expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
             onRuntimeLayerSnapshotReadinessChange(true);

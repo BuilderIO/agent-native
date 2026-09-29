@@ -221,17 +221,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       readinessRequestId,
     });
     expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
-    await sendSnapshot(
-      40,
-      "<body>Uncorrelated current iframe</body>",
-      undefined,
-      {
-        readinessRequestId: readinessRequestId + 1,
-      },
-    );
-    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
-      true,
-    );
     await sendBridgeMessage({
       type: "agent-native:runtime-layer-snapshot-unchanged",
       payload: { requestId: 40, documentId },
@@ -242,6 +231,12 @@ describe("DesignCanvas one-shot bridge queue", () => {
     await sendBridgeMessage({
       type: "agent-native:runtime-layer-snapshot-unchanged",
       payload: { requestId: 40, documentId, readinessRequestId },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
+      true,
+    );
+    await sendSnapshot(40, "<body>Current iframe</body>", undefined, {
+      readinessRequestId,
     });
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
       true,
@@ -363,6 +358,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
         ([ready]) => ready === true,
       ),
     ).toHaveLength(readyCallCountBeforeMatchingError);
+    await sendSnapshot(43, "<body>Current iframe after recovery</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      true,
+    );
   });
 
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
