@@ -636,10 +636,7 @@ function TraceDetailView({
       </div>
       {needsNeedle && needle.length === 0 && (
         <p className="mb-3 text-xs text-muted-foreground">
-          {t("observability.promoteNeedsContains", {
-            defaultValue:
-              "This run has no successful tool call. Enter text the reply must contain before promoting.",
-          })}
+          {t("observability.promoteNeedsContains")}
         </p>
       )}
 
