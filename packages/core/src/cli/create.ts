@@ -4,6 +4,8 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
@@ -310,7 +312,7 @@ export async function runCreateCommand(
       : parsed.filter((template) => template !== COMMUNITY_OPTION.name),
     initialCommunityTemplate,
     installedApps,
-    addToWorkspace: Boolean(workspace && requestedCommunityTemplate),
+    addToWorkspace: Boolean(workspace),
     validateName(value: string) {
       if (!/^[a-z][a-z0-9-]*$/.test(value)) {
         return "Use lowercase letters, numbers, and hyphens (must start with a letter).";
@@ -341,11 +343,22 @@ export async function runCreateCommand(
     return;
   }
 
+  const communityAppPicker = async (apps: CommunityWorkspaceAppOption[]) => {
+    const { promptInkChoice } = await loadCreateTui();
+    const selection = await promptInkChoice(
+      "Choose an app from this community workspace",
+      apps.map((app) => ({ value: app.name, label: app.label })),
+    );
+    if (!selection) throw new CreateWizardCancelledError();
+    return selection;
+  };
+
   if (answers.addToWorkspace) {
     await addSelectedAppsToWorkspace(
       answers.kind === "community"
         ? [parseCommunityPromptValue(answers.communityTemplate ?? "").canonical]
         : answers.templates,
+      communityAppPicker,
     );
     return;
   }
@@ -364,15 +377,7 @@ export async function runCreateCommand(
     standalone: answers.kind === "standalone" || answers.kind === "headless",
     forceWorkspace:
       answers.kind === "chat-workspace" || answers.kind === "first-party",
-    _communityAppPicker: async (apps) => {
-      const { promptInkChoice } = await loadCreateTui();
-      const selection = await promptInkChoice(
-        "Choose an app from this community workspace",
-        apps.map((app) => ({ value: app.name, label: app.label })),
-      );
-      if (!selection) throw new CreateWizardCancelledError();
-      return selection;
-    },
+    _communityAppPicker: communityAppPicker,
   });
 }
 
@@ -937,7 +942,7 @@ export async function addAppToWorkspace(
   }
 
   for (const t of templates) {
-    await scaffoldOneAppIntoWorkspace(
+    const added = await scaffoldOneAppIntoWorkspace(
       workspace,
       t,
       t,
@@ -945,10 +950,14 @@ export async function addAppToWorkspace(
       true,
       opts?._communityAppPicker,
     );
+    if (!added) return;
   }
 }
 
-async function addSelectedAppsToWorkspace(templates: string[]): Promise<void> {
+async function addSelectedAppsToWorkspace(
+  templates: string[],
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
+): Promise<void> {
   const clack = await import("@clack/prompts");
   const workspace = detectWorkspace(process.cwd());
   if (!workspace) {
@@ -961,13 +970,15 @@ async function addSelectedAppsToWorkspace(templates: string[]): Promise<void> {
   }
 
   for (const template of templates) {
-    await scaffoldOneAppIntoWorkspace(
+    const added = await scaffoldOneAppIntoWorkspace(
       workspace,
       workspaceAppNameForTemplateSelection(template),
       template,
       clack,
       false,
+      appPicker,
     );
+    if (!added) return;
   }
 
   clack.outro(
@@ -989,7 +1000,7 @@ async function scaffoldOneAppIntoWorkspace(
   clack: typeof import("@clack/prompts"),
   showOutro = true,
   appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
-): Promise<void> {
+): Promise<boolean> {
   applyLocalWorkspaceOverrides(workspace.workspaceRoot);
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
@@ -1070,7 +1081,7 @@ async function scaffoldOneAppIntoWorkspace(
       s.stop("Cancelled.");
       cleanupOnFailure(appDir);
       clack.outro("Cancelled. No app was added.");
-      return;
+      return false;
     }
     s.stop(`Failed to scaffold apps/${appName}.`);
     cleanupOnFailure(appDir);
@@ -1090,6 +1101,7 @@ async function scaffoldOneAppIntoWorkspace(
       ].join("\n"),
     );
   }
+  return true;
 }
 
 async function createStandaloneApp(
@@ -3288,9 +3300,20 @@ function mergeWorkspaceYamlSections(
   let result = yaml;
   for (const [section, entries] of Object.entries(sections)) {
     for (const [key, value] of Object.entries(entries)) {
-      if (workspaceYamlSectionHasEntry(result, section, key)) continue;
       const existingSection = findWorkspaceYamlSection(result, section);
-      if (existingSection) {
+      if (existingSection?.kind === "flow") {
+        if (workspaceYamlFlowMappingHasEntry(existingSection, section, key)) {
+          continue;
+        }
+        result = appendWorkspaceYamlFlowEntry(
+          result,
+          existingSection,
+          `${formatWorkspaceYamlString(normalizeYamlScalar(key))}: ${formatWorkspaceYamlScalar(value)}`,
+        );
+      } else if (existingSection?.kind === "scalar") {
+        throw unsupportedWorkspaceYamlSection(section, "mapping");
+      } else if (existingSection) {
+        if (workspaceYamlSectionHasEntry(existingSection, key)) continue;
         result =
           result.slice(0, existingSection.insertAt) +
           `\n${existingSection.indent}${key}: ${value}` +
@@ -3307,13 +3330,9 @@ function mergeWorkspaceYamlSections(
 }
 
 function workspaceYamlSectionHasEntry(
-  yaml: string,
-  section: string,
+  existingSection: Extract<WorkspaceYamlSection, { kind: "block" }>,
   key: string,
 ): boolean {
-  const existingSection = findWorkspaceYamlSection(yaml, section);
-  if (!existingSection) return false;
-
   return existingSection.body.split(/\r?\n/).some((line) => {
     const entry = parseYamlMappingKey(line, existingSection.indent);
     return (
@@ -3323,20 +3342,78 @@ function workspaceYamlSectionHasEntry(
   });
 }
 
+type WorkspaceYamlSection =
+  | { kind: "block"; body: string; indent: string; insertAt: number }
+  | {
+      kind: "flow";
+      collection: "mapping" | "sequence";
+      value: Record<string, unknown> | unknown[];
+      start: number;
+      end: number;
+    }
+  | { kind: "scalar" };
+
 function findWorkspaceYamlSection(
   yaml: string,
   section: string,
-): { body: string; indent: string; insertAt: number } | undefined {
-  const sectionHeader = new RegExp(
-    `^${escapeRegExp(section)}:[ \\t]*(?:#.*)?$`,
-    "m",
-  );
+): WorkspaceYamlSection | undefined {
+  const sectionHeader = new RegExp(`^${escapeRegExp(section)}:[ \\t]*`, "m");
   const match = sectionHeader.exec(yaml);
   if (!match) return undefined;
 
-  const insertAt = match.index + match[0].length;
+  const valueStart = match.index + match[0].length;
+  const remainingValue = yaml.slice(valueStart);
+  if (remainingValue.startsWith("{") || remainingValue.startsWith("[")) {
+    let end: number;
+    try {
+      end = findFlowCollectionEnd(remainingValue);
+    } catch (error) {
+      throw new Error(
+        `Cannot update flow-style ${section} in pnpm-workspace.yaml. Convert it to block style before scaffolding.`,
+        { cause: error },
+      );
+    }
+    const source = remainingValue.slice(0, end + 1);
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(source);
+    } catch (error) {
+      throw new Error(
+        `Cannot update flow-style ${section} in pnpm-workspace.yaml. Convert it to block style before scaffolding.`,
+        { cause: error },
+      );
+    }
+    if (source.startsWith("{") && isPlainRecord(parsed)) {
+      return {
+        kind: "flow",
+        collection: "mapping",
+        value: parsed,
+        start: valueStart,
+        end: valueStart + end + 1,
+      };
+    }
+    if (source.startsWith("[") && Array.isArray(parsed)) {
+      return {
+        kind: "flow",
+        collection: "sequence",
+        value: parsed,
+        start: valueStart,
+        end: valueStart + end + 1,
+      };
+    }
+    throw unsupportedWorkspaceYamlSection(section, "mapping or sequence");
+  }
+  const lineEnd = yaml.indexOf("\n", valueStart);
+  const scalar = yaml
+    .slice(valueStart, lineEnd === -1 ? yaml.length : lineEnd)
+    .trim();
+  if (scalar && !scalar.startsWith("#")) {
+    return { kind: "scalar" };
+  }
+
+  const insertAt = lineEnd === -1 ? yaml.length : lineEnd;
   const remaining = yaml.slice(insertAt);
-  const nextSection = /^(?!#)\S[^:\n]*:[ \t]*(?:#.*)?$/m.exec(remaining);
+  const nextSection = /^(?!#)\S[^:\n]*:[^\n]*$/m.exec(remaining);
   const body = remaining.slice(0, nextSection?.index ?? remaining.length);
   const indent = body
     .split(/\r?\n/)
@@ -3345,10 +3422,162 @@ function findWorkspaceYamlSection(
     .filter((value): value is string => value !== undefined)
     .sort((a, b) => a.length - b.length)[0];
   return {
+    kind: "block",
     body,
     indent: indent ?? "  ",
     insertAt,
   };
+}
+
+function findFlowCollectionEnd(source: string): number {
+  const closingFor: Record<string, string> = { "{": "}", "[": "]" };
+  const first = source[0];
+  const firstClose = first ? closingFor[first] : undefined;
+  if (!firstClose) throw new Error("Expected a flow-style YAML collection.");
+
+  const stack = [firstClose];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 1; index < source.length; index++) {
+    const char = source[index]!;
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && source[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (!quote && (char === "{" || char === "[")) {
+      stack.push(closingFor[char]!);
+    } else if (!quote && (char === "}" || char === "]")) {
+      if (stack.pop() !== char) {
+        throw new Error("Cannot update an invalid flow-style YAML collection.");
+      }
+      if (stack.length === 0) return index;
+    } else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t\r\n]/.test(source[index - 1]!))
+    ) {
+      const newline = source.indexOf("\n", index);
+      if (newline < 0) break;
+      index = newline;
+    }
+    escaped = false;
+  }
+  throw new Error("Cannot update an unterminated flow-style YAML collection.");
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function unsupportedWorkspaceYamlSection(
+  section: string,
+  expected: string,
+): Error {
+  return new Error(
+    `Cannot merge ${section} in pnpm-workspace.yaml because its value is not a supported flow-style ${expected}. Convert it to block style before scaffolding.`,
+  );
+}
+
+function workspaceYamlFlowMappingHasEntry(
+  section: Extract<WorkspaceYamlSection, { kind: "flow" }>,
+  sectionName: string,
+  key: string,
+): boolean {
+  if (section.collection !== "mapping" || Array.isArray(section.value)) {
+    throw unsupportedWorkspaceYamlSection(sectionName, "mapping");
+  }
+  return Object.keys(section.value).some(
+    (existingKey) =>
+      normalizeYamlScalar(existingKey) === normalizeYamlScalar(key),
+  );
+}
+
+function appendWorkspaceYamlFlowEntry(
+  yaml: string,
+  section: Extract<WorkspaceYamlSection, { kind: "flow" }>,
+  entry: string,
+): string {
+  const collection = yaml.slice(section.start, section.end);
+  const inner = collection.slice(1, -1);
+  if (hasUnquotedFlowComment(inner)) {
+    throw new Error(
+      "Cannot update a flow-style YAML collection with comments. Convert it to block style before scaffolding.",
+    );
+  }
+  const content = inner.trimEnd();
+  const trailing = inner.slice(content.length);
+  const separator = !content.trim()
+    ? ""
+    : content.endsWith(",")
+      ? " "
+      : inner.includes("\n")
+        ? `,\n${inner.match(/(?:^|\r?\n)([ \t]*)\S/)?.[1] ?? "  "}`
+        : ", ";
+  const nextCollection = `${collection[0]}${content}${separator}${entry}${trailing}${collection.at(-1)}`;
+  return (
+    yaml.slice(0, section.start) + nextCollection + yaml.slice(section.end)
+  );
+}
+
+function hasUnquotedFlowComment(source: string): boolean {
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!;
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && source[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t\r\n]/.test(source[index - 1]!))
+    ) {
+      return true;
+    }
+    escaped = false;
+  }
+  return false;
+}
+
+function formatWorkspaceYamlScalar(value: string): string {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(value);
+  } catch (error) {
+    throw new Error(
+      "Cannot merge an invalid YAML scalar into pnpm-workspace.yaml.",
+      {
+        cause: error,
+      },
+    );
+  }
+  if (parsed !== null && typeof parsed === "object") {
+    throw new Error(
+      "Cannot merge a non-scalar value into pnpm-workspace.yaml.",
+    );
+  }
+  return stringifyYaml(parsed).trim();
+}
+
+function formatWorkspaceYamlString(value: string): string {
+  return stringifyYaml(value).trim();
 }
 
 function parseYamlMappingKey(line: string, indent: string): string | undefined {
@@ -3423,12 +3652,37 @@ function mergeWorkspaceYamlListItems(
   let result = yaml;
   for (const item of items) {
     const existingSection = findWorkspaceYamlSection(result, section);
+    if (existingSection?.kind === "flow") {
+      if (
+        existingSection.collection !== "sequence" ||
+        !Array.isArray(existingSection.value)
+      ) {
+        throw unsupportedWorkspaceYamlSection(section, "sequence");
+      }
+      const normalizedItem = normalizeYamlScalar(item);
+      const isPresent = existingSection.value.some(
+        (value) => normalizeYamlScalar(String(value)) === normalizedItem,
+      );
+      if (isPresent) continue;
+      result = appendWorkspaceYamlFlowEntry(
+        result,
+        existingSection,
+        formatWorkspaceYamlString(normalizedItem),
+      );
+      continue;
+    }
+    if (existingSection?.kind === "scalar") {
+      throw unsupportedWorkspaceYamlSection(section, "sequence");
+    }
     const isPresent = existingSection?.body.split(/\r?\n/).some((line) => {
       if (!line.startsWith(existingSection.indent)) return false;
       const entry = line
         .slice(existingSection.indent.length)
         .match(/^-[ \t]+(.+)$/);
-      return entry !== null && normalizeYamlScalar(entry[1]!) === item;
+      return (
+        entry !== null &&
+        normalizeYamlScalar(entry[1]!) === normalizeYamlScalar(item)
+      );
     });
     if (isPresent) continue;
     if (existingSection) {

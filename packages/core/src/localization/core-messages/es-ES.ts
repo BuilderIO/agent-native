@@ -81,6 +81,11 @@ const messages: AgentChatTranslation = {
   "observability.error": "Error",
   "observability.metadata": "Metadatos",
   "observability.notCaptured": "No capturado",
+  "observability.promoteMustContain": "La respuesta debe incluir…",
+  "observability.promoteMustContainLabel":
+    "Texto que debe incluir la respuesta de la evaluación promovida",
+  "observability.promoteNeedsContains":
+    "Esta ejecución no tiene ninguna llamada a herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla.",
   "observability.openFullConversation": "Abrir conversación completa",
   "observability.learnAboutTab": "Más información sobre esta pestaña",
   "observability.summarizeWithAgent": "Resumir con el agente",

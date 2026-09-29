@@ -1574,6 +1574,28 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /pnpm --filter crm migrate:production/);
   });
 
+  it("falls back to scoped Netlify environment variables for Mail migrations", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Mail release migrations",
+    );
+    const nextStep = workflow.indexOf(
+      "name: Unlock the published production deploy",
+      migrationStart,
+    );
+    assert.ok(migrationStart >= 0 && nextStep > migrationStart);
+    const migration = workflow.slice(migrationStart, nextStep);
+    assert.match(migration, /netlify api getSiteDatabase/);
+    assert.match(migration, /netlify api getEnvVars/);
+    assert.match(migration, /account_id.*builder-io/);
+    assert.match(migration, /site_id.*NETLIFY_SITE_ID/);
+    assert.match(migration, /if \[\[ -z "\$migration_database_url" \]\]/);
+    assert.match(migration, /pnpm --filter mail migrate:production/);
+  });
+
   it("keeps Chat assembly independent of masked runtime secrets", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",

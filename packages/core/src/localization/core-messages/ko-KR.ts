@@ -81,6 +81,10 @@ const messages: AgentChatTranslation = {
   "observability.error": "오류",
   "observability.metadata": "메타데이터",
   "observability.notCaptured": "캡처되지 않음",
+  "observability.promoteMustContain": "답변에 포함할 내용…",
+  "observability.promoteMustContainLabel": "평가로 승격된 답변에 포함할 텍스트",
+  "observability.promoteNeedsContains":
+    "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.openFullConversation": "전체 대화 열기",
   "observability.learnAboutTab": "이 탭 알아보기",
   "observability.summarizeWithAgent": "에이전트로 요약",

@@ -82,6 +82,10 @@ const messages: AgentChatTranslation = {
   "observability.error": "エラー",
   "observability.metadata": "メタデータ",
   "observability.notCaptured": "未取得",
+  "observability.promoteMustContain": "返信に含めるテキスト…",
+  "observability.promoteMustContainLabel": "昇格した評価の返信に含めるテキスト",
+  "observability.promoteNeedsContains":
+    "この実行ではツール呼び出しが成功していません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
   "observability.summarizeWithAgent": "エージェントで要約",

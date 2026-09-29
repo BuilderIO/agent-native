@@ -1795,6 +1795,16 @@ const messages = {
     notCaptured: "Not captured",
     openFullConversation: "Open full conversation",
     learnAboutTab: "Learn about this tab",
+    promoteToEval: "Promote to eval",
+    promotingToEval: "Promoting…",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
+    promotedEval: "Eval dataset {{id}}",
+    promotedEvalHint:
+      "agent-native eval promote {{runId}} --write evals/from-trace.eval.ts",
+    promoteEvalFailed: "Could not promote this run",
     spans: "Spans",
     type: "Type",
     name: "Name",

@@ -78,6 +78,11 @@ const messages = {
   "observability.error": "Error",
   "observability.metadata": "Metadata",
   "observability.notCaptured": "Not captured",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.openFullConversation": "Open full conversation",
   "observability.learnAboutTab": "Learn about this tab",
   "observability.summarizeWithAgent": "Summarize with agent",

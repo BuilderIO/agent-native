@@ -1272,6 +1272,10 @@ Usage:
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,
                                 --threshold N to override all thresholds.
+                                eval promote <runId> [--write path] [--json]
+                                turns a completed production trace into a
+                                defineEval case (SQL dataset; --write emits
+                                the *.eval.ts CI already discovers).
 
 Options:
   -h, --help                    Show this help message

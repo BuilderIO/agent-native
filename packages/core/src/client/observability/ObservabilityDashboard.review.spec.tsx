@@ -17,6 +17,7 @@ const {
   mockOpenThread,
   mockUseActionQuery,
   mockConfirmAgentChat,
+  mockPromoteTraceEval,
 } = vi.hoisted(() => ({
   mockOutputReviews: vi.fn(),
   mockOutputReviewDetail: vi.fn(),
@@ -28,6 +29,7 @@ const {
   mockOpenThread: vi.fn(),
   mockUseActionQuery: vi.fn(),
   mockConfirmAgentChat: vi.fn(),
+  mockPromoteTraceEval: vi.fn(),
 }));
 
 vi.mock("../agent-chat.js", async (importOriginal) => ({
@@ -73,6 +75,12 @@ vi.mock("./useObservability.js", () => ({
   useOutputReviews: () => mockOutputReviews(),
   useOutputReviewDetail: (runId: string | null) =>
     mockOutputReviewDetail(runId),
+  usePromoteTraceEval: () => ({
+    mutate: mockPromoteTraceEval,
+    isPending: false,
+    isSuccess: false,
+    data: undefined,
+  }),
   useSaveInstructionUpdate: () => ({
     mutate: mockSaveInstructionUpdate,
     isPending: false,

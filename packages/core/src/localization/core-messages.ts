@@ -150,8 +150,11 @@ function nestAgentChatMessages(
   return messages;
 }
 
-function observabilitySummaryMessages(messages: AgentChatTranslation) {
+function observabilityMessages(messages: AgentChatTranslation) {
   return {
+    promoteMustContain: messages["observability.promoteMustContain"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
+    promoteNeedsContains: messages["observability.promoteNeedsContains"],
     summarizeWithAgent: messages["observability.summarizeWithAgent"],
     regenerateSummary: messages["observability.regenerateSummary"],
     summarizeWithAgentHelp: messages["observability.summarizeWithAgentHelp"],
@@ -218,7 +221,7 @@ export async function loadCoreMessagesForLocale(
   ]);
   return {
     ...nestAgentChatMessages(agentChatMessages),
-    observability: observabilitySummaryMessages(agentChatMessages),
+    observability: observabilityMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
     iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
@@ -230,7 +233,7 @@ export async function loadCoreMessagesForLocale(
 
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
-  observability: observabilitySummaryMessages(englishAgentChatMessages),
+  observability: observabilityMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {

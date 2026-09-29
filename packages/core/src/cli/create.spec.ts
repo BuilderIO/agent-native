@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import {
   createApp,
@@ -98,6 +99,60 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(merged).toContain("    @agent-native/agentkit: '2.3.4'");
   });
 
+  it("merges missing entries into flow-style workspace mappings", () => {
+    const workspaceYaml = [
+      'overrides: { nf3: "0.3.17" }',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: { "new-lib": '"1.0.0"' },
+    });
+
+    expect(merged.match(/^overrides:/gm)).toHaveLength(1);
+    expect(parseYaml(merged)).toMatchObject({
+      overrides: { nf3: "0.3.17", "new-lib": "1.0.0" },
+    });
+  });
+
+  it("merges and deduplicates quoted entries in flow-style lists", () => {
+    const workspaceYaml = [
+      'minimumReleaseAgeExclude: ["@agent-native/toolkit"]',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ['"@agent-native/toolkit"', '"@agent-native/recap-cli"'],
+    );
+
+    expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
+    expect(parseYaml(merged).minimumReleaseAgeExclude).toEqual([
+      "@agent-native/toolkit",
+      "@agent-native/recap-cli",
+    ]);
+  });
+
+  it("fails clearly for scalar values in sections it needs to merge", () => {
+    expect(() =>
+      _mergeWorkspaceYamlSections("overrides: null", {
+        overrides: { "new-lib": '"1.0.0"' },
+      }),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("does not corrupt commented flow-style YAML collections", () => {
+    expect(() =>
+      _mergeWorkspaceYamlSections(
+        'overrides: { nf3: "0.3.17", # keep this pin documented\n  }',
+        { overrides: { "new-lib": '"1.0.0"' } },
+      ),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
   it("does not treat commented release-age items as configured exceptions", () => {
     const workspaceYaml = [
       "minimumReleaseAgeExclude: # Exact internal packages",
@@ -131,11 +186,11 @@ describe("createApp", { timeout: 30000 }, () => {
     const merged = _mergeWorkspaceYamlListItems(
       workspaceYaml,
       "minimumReleaseAgeExclude",
-      ["@agent-native/core", "@agent-native/recap"],
+      ['"@agent-native/core"', '"@agent-native/recap"'],
     );
 
     expect(merged.match(/^    - "@agent-native\/core"/gm)).toHaveLength(1);
-    expect(merged).toContain("    - @agent-native/recap");
+    expect(merged).toContain('    - "@agent-native/recap"');
   });
 
   it("adds the guard contract to a community-style build without overwriting its doctor", () => {

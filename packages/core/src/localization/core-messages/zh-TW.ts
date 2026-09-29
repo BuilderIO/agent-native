@@ -78,6 +78,10 @@ const messages: AgentChatTranslation = {
   "observability.error": "錯誤",
   "observability.metadata": "中繼資料",
   "observability.notCaptured": "未擷取",
+  "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainLabel": "提升後的評估回覆必須包含的文字",
+  "observability.promoteNeedsContains":
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行提升。",
   "observability.openFullConversation": "開啟完整對話",
   "observability.learnAboutTab": "了解此分頁",
   "observability.summarizeWithAgent": "請代理程式摘要",

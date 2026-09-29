@@ -80,6 +80,11 @@ const messages: AgentChatTranslation = {
   "observability.error": "त्रुटि",
   "observability.metadata": "मेटाडेटा",
   "observability.notCaptured": "कैप्चर नहीं किया गया",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainLabel":
+    "प्रमोट किए गए मूल्यांकन के जवाब में शामिल होने वाला टेक्स्ट",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले जवाब में शामिल होने वाला टेक्स्ट दर्ज करें।",
   "observability.openFullConversation": "पूरी बातचीत खोलें",
   "observability.learnAboutTab": "इस टैब के बारे में जानें",
   "observability.summarizeWithAgent": "एजेंट से सारांश बनवाएँ",
