@@ -669,7 +669,7 @@ describe("startMailAiFilterBackfill", () => {
     const row = runningRow([activeRule]);
     const state: any = JSON.parse(row.stateJson);
     state.incompleteCoverage = true;
-    state.error = "unavailable@example.test: refresh failed.";
+    state.error = `Partial Gmail coverage: ${"c".repeat(476)}`;
     row.stateJson = JSON.stringify(state);
     database.rows.push(row);
     mocks.writeLocalEmails.mockRejectedValueOnce(
@@ -681,7 +681,7 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(row.stateJson);
     expect(row.status).toBe("failed");
     expect(saved.error).toContain("Mail write failed permanently.");
-    expect(saved.error.startsWith(state.error)).toBe(true);
+    expect(saved.error.startsWith(state.error.slice(0, 249))).toBe(true);
     expect(saved.error.length).toBeLessThanOrEqual(500);
     expect(saved.failedKeys).toEqual(["local:thread-a"]);
   });

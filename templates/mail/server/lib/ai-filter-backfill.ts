@@ -425,7 +425,11 @@ function appendBackfillError(
 ): string {
   if (!previous) return message;
   if (previous.includes(message)) return previous;
-  return `${previous}; ${message}`.slice(0, 500);
+  const available = 498;
+  const previousLimit = Math.min(previous.length, Math.ceil(available / 2));
+  const messageLimit = Math.min(message.length, available - previousLimit);
+  const remaining = available - previousLimit - messageLimit;
+  return `${previous.slice(0, previousLimit + remaining)}; ${message.slice(0, messageLimit)}`;
 }
 
 function retryAfterAtFromState(raw: string): number | undefined {
