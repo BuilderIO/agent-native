@@ -1607,11 +1607,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           <>
             {tabsLoading ? (
               <nav className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar">
-                {[1, 2, 3].map((i) => (
+                {[96, 128, 98, 72, 84, 62].map((width, index) => (
                   <span
-                    key={i}
-                    className="h-4 shrink-0 rounded bg-muted animate-pulse"
-                    style={{ width: `${48 + i * 12}px` }}
+                    key={index}
+                    className="h-8 shrink-0 rounded-md bg-muted animate-pulse"
+                    style={{ width }}
                   />
                 ))}
               </nav>
