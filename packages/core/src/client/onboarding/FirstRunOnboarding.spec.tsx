@@ -21,14 +21,6 @@ const mocks = vi.hoisted(() => ({
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
-  redesign: false,
-}));
-
-vi.mock("../feature-flags/use-feature-flag.js", () => ({
-  useFeatureFlagState: () => ({
-    status: "ready",
-    enabled: mocks.redesign,
-  }),
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -70,7 +62,6 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
-    mocks.redesign = false;
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
@@ -1543,33 +1534,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("opens the AI key settings page without opening the agent sidebar", async () => {
-    act(() => {
-      root.render(
-        <TooltipProvider>
-          <FirstRunOnboarding />
-        </TooltipProvider>,
-      );
-    });
-    act(() => {
-      document.body
-        .querySelector("[data-testid='first-run-role-skip']")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    await act(async () => {
-      document.body
-        .querySelector("[data-testid='first-run-open-key-settings']")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(window.location.pathname).toBe("/settings/keys");
-    expect(mocks.completeFirstRun).toHaveBeenCalled();
-    window.history.replaceState(null, "", "/");
-  });
-
-  it("lands on Agent › Model when the redesign is on", async () => {
-    mocks.redesign = true;
+  it("opens Agent › Model without opening the agent sidebar", async () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -1621,16 +1586,11 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/dispatch/settings/keys");
+    expect(window.location.pathname).toBe("/dispatch/settings/model");
   });
 
-  it("picks the manual setup page from the flag", () => {
-    expect(manualSetupSettingsRoute({ redesign: true })).toBe(
-      "/settings/model",
-    );
-    expect(manualSetupSettingsRoute({ redesign: false })).toBe(
-      "/settings/keys",
-    );
+  it("sends manual setup to Agent › Model", () => {
+    expect(manualSetupSettingsRoute()).toBe("/settings/model");
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

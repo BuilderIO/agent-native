@@ -137,9 +137,9 @@ against `@agent-native/toolkit/conformance` in customer CI before adopting it.
 ## Settings Direction
 
 Durable settings belong in Settings. The agent sidebar should not become a
-second settings app; it can show contextual quick controls and deep links. The
-redesigned Settings (`settings-redesign` flag) has the same groups in every app,
-and page ids are stable URL segments (`/settings/<page>/<sub>`):
+second settings app; it can show contextual quick controls and deep links.
+Settings has the same groups in every app, and page ids are stable URL segments
+(`/settings/<page>/<sub>`):
 
 - Account: `profile`, `preferences`, `security`
 - Connections: `integrations` (`integrations/builder`), `api-keys`
@@ -163,9 +163,9 @@ dialog on Model, other keys on API keys, channels on Channels, and app-only
 preferences in the app's group. Only add sidebar UI when it is needed in the
 moment of agent use.
 
-### The app's group in the redesigned Settings
+### The app's group in Settings
 
-Behind the `settings-redesign` flag, Settings has a group named after the app.
+Settings has a group named after the app.
 Core owns its pages: General, Notifications, Automations, Channels, MCP server,
 Creative context, plus Labs and What's new in the footer. A template supplies
 only its own content, through these `SettingsTabsPage` props:

@@ -2,12 +2,10 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useAppearanceSync } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -215,13 +213,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
   const isCalendarPage = location.pathname === "/";
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  // The redesigned Settings shell brings its own navigation, header, and
-  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
-  // so the app chrome stays out then too instead of appearing and vanishing.
-  const settingsOwnsChrome =
-    isSettingsPage &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  // The Settings shell brings its own navigation, header, and agent toggle.
+  const settingsOwnsChrome = isSettingsPage;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);

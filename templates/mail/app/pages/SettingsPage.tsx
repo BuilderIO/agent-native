@@ -1,29 +1,19 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { STANDARD_APP_ROUTES } from "@agent-native/core/client/navigation";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  AccountSettingsCard,
   SettingsGroup,
   SettingsRow,
-  SettingsShellSkeleton,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsAppArea,
-  type SettingsSearchEntry,
-  type SettingsTabItem,
 } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
-  legacyMailSettingsTab,
-  legacyMailSettingsTabForPath,
   mailSettingsRedirect,
   mailSettingsSectionFromPath,
   type MailSettingsAreaId,
@@ -50,17 +40,11 @@ import {
   IconSignature,
   IconPhoto,
   IconFilter,
-  IconInfoCircle,
   IconMessage2,
 } from "@tabler/icons-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
-import {
-  Navigate,
-  useLocation,
-  useNavigate,
-  useSearchParams,
-} from "react-router";
+import { Navigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { AiFilterSection } from "@/components/settings/AiFilterSection";
@@ -1099,8 +1083,8 @@ function AutomationsSection({ embedded = false }: { embedded?: boolean }) {
     </div>
   );
 
-  // The redesigned Settings lists event-triggered automations on the core
-  // Automations page, so this area holds only Mail's inbox rules.
+  // Settings lists event-triggered automations on the core Automations page,
+  // so this area holds only Mail's inbox rules.
   if (embedded) {
     return (
       <div className="flex flex-col gap-8">
@@ -1653,174 +1637,9 @@ function TrackingSection({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-type SlackStatus = {
-  enabled: boolean;
-  configured: boolean;
-  webhookUrl?: string;
-  error?: string;
-};
-
-function SlackIntakeSection() {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery<SlackStatus>({
-    queryKey: ["integration-status", "slack"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/integrations/slack/status"),
-      );
-      if (!res.ok) throw new Error(t("settings.slackLoadFailed"));
-      return res.json();
-    },
-    retry: false,
-  });
-
-  const toggle = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      const res = await fetch(
-        agentNativePath(
-          `/_agent-native/integrations/slack/${enabled ? "enable" : "disable"}`,
-        ),
-        { method: "POST" },
-      );
-      if (!res.ok) throw new Error(t("settings.slackUpdateFailed"));
-      return res.json();
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["integration-status", "slack"],
-      }),
-  });
-  const slackStatusDescription = data?.configured
-    ? t("settings.slackConfigured")
-    : t("settings.slackNeedsCredentials");
-
-  return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-foreground">
-          {t("settings.slackIntake")}
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          {t("settings.slackDescription")}
-        </p>
-      </div>
-
-      <div className="max-w-2xl space-y-3">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </>
-        ) : (
-          <>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border/20 bg-card/50 px-4 py-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  {data?.configured ? (
-                    <IconCircleCheck className="h-4 w-4 text-green-400" />
-                  ) : (
-                    <IconCircleX className="h-4 w-4 text-red-400" />
-                  )}
-                  <span className="text-[13px] font-semibold text-foreground">
-                    {data?.enabled
-                      ? t("settings.enabled")
-                      : t("settings.disabled")}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[12px] text-muted-foreground">
-                  {slackStatusDescription}
-                </p>
-                {data?.configured && data?.error && (
-                  <p className="mt-1 text-[11px] text-red-400">{data.error}</p>
-                )}
-              </div>
-              <Button
-                size="sm"
-                disabled={!data?.configured || toggle.isPending}
-                onClick={() => toggle.mutate(!data?.enabled)}
-              >
-                {toggle.isPending && (
-                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                )}
-                {data?.enabled ? t("settings.disable") : t("settings.enable")}
-              </Button>
-            </div>
-            {data?.configured && data?.webhookUrl && (
-              <div>
-                <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("settings.slackPostEndpoint")}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <IconInfoCircle className="h-3.5 w-3.5" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("settings.slackPostEndpointHelp")}
-                    </TooltipContent>
-                  </Tooltip>
-                </label>
-                <Input readOnly value={data.webhookUrl} className="font-mono" />
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function GeneralSection() {
-  const t = useT();
-  return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-foreground">
-          {t("settings.general")}
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          {t("settings.generalDescription")}
-        </p>
-      </div>
-
-      <SettingsGroup className="max-w-2xl border-border/20 bg-card/50">
-        <SettingsRow
-          id="language"
-          label={t("settings.languageTitle")}
-          description={t("settings.languageDescription")}
-          control={
-            <div className="w-56">
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </div>
-          }
-        />
-      </SettingsGroup>
-    </div>
-  );
-}
-
-function WhatsNewSection() {
-  const t = useT();
-  return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-foreground">
-          {t("settings.whatsNew")}
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          {t("settings.whatsNewDescription")}
-        </p>
-      </div>
-
-      <div className="max-w-2xl">
-        <ChangelogSettingsCard markdown={changelog} />
-      </div>
-    </div>
-  );
-}
-
 type MailSettingsAppArea = SettingsAppArea & { id: MailSettingsAreaId };
 
-/** Mail's areas: tabs on Mail › General in the redesigned Settings. */
+/** Mail's areas: tabs on Mail › General. */
 function useMailSettingsAreas(): MailSettingsAppArea[] {
   const t = useT();
   return useMemo<MailSettingsAppArea[]>(
@@ -1934,20 +1753,12 @@ function useMailSettingsAreas(): MailSettingsAppArea[] {
   );
 }
 
-export function SettingsPage() {
-  const flag = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  if (flag.status === "loading") {
-    return <SettingsShellSkeleton className="flex-1" />;
-  }
-  return flag.enabled ? <MailSettingsShell /> : <LegacyMailSettings />;
-}
-
 /**
  * Mail › General with Mail's areas as tabs. Language is on Account ›
  * Preferences, members on Organization › Members, and Slack draft requests
  * on Channels › Slack (see `slack-channel-extension`).
  */
-function MailSettingsShell() {
+export function SettingsPage() {
   const agentSettingsTabs = useAgentSettingsTabs();
   const appAreas = useMailSettingsAreas();
   const [searchParams] = useSearchParams();
@@ -1978,170 +1789,6 @@ function MailSettingsShell() {
       extraTabs={agentSettingsTabs}
       appAreas={appAreas}
       whatsNewMarkdown={changelog}
-    />
-  );
-}
-
-function LegacyMailSettings() {
-  const t = useT();
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const navState = useNavigationState();
-  const agentSettingsTabs = useAgentSettingsTabs();
-  const [activeSection, setActiveSection] = useState<string>("integrations");
-  // Links use the redesigned routes in both Settings; today's tabs can't
-  // resolve Mail's area paths (`/settings/app/rules`) on their own.
-  const pathTab = legacyMailSettingsTabForPath(location.pathname);
-
-  const mailTabs = useMemo<SettingsTabItem[]>(
-    () => [
-      {
-        id: "drafting",
-        label: t("settings.drafting"),
-        icon: IconSignature,
-        content: <DraftingSection />,
-        keywords: "signature writing style compose reply draft",
-      },
-      {
-        id: "snippets",
-        label: t("settings.snippets"),
-        icon: IconMessage2,
-        content: <SnippetsSection />,
-        keywords: "snippets templates canned responses shortcuts",
-      },
-      {
-        id: "ai-filter",
-        label: t("settings.aiFilter"),
-        icon: IconFilter,
-        group: "automation",
-        content: <AiFilterSection />,
-        keywords:
-          "ai filter spam auto label unwanted mail suggestions feedback",
-      },
-      {
-        id: "automations",
-        label: t("settings.automations"),
-        icon: IconBolt,
-        group: "automation",
-        content: <AutomationsSection />,
-        keywords: "automations rules triggers events labels model",
-      },
-      {
-        id: "gmail-filters",
-        label: t("settings.gmailFilters"),
-        icon: IconFilter,
-        group: "integrations",
-        content: <GmailFiltersSection />,
-        keywords: "gmail filters import rules",
-      },
-      {
-        id: "aliases",
-        label: t("settings.aliases"),
-        icon: IconUsers,
-        content: <AliasesSection />,
-        keywords: "aliases groups distribution lists recipients",
-      },
-      {
-        id: "tracking",
-        label: t("settings.tracking"),
-        icon: IconChartBar,
-        content: <TrackingSection />,
-        keywords: "tracking opens clicks pixel analytics",
-      },
-      {
-        id: "slack",
-        label: t("settings.slack"),
-        icon: IconBolt,
-        group: "integrations",
-        content: <SlackIntakeSection />,
-        keywords: "slack intake integration webhook",
-      },
-    ],
-    [t],
-  );
-
-  const extraTabs = useMemo<SettingsTabItem[]>(
-    () => [...mailTabs, ...agentSettingsTabs],
-    [agentSettingsTabs, mailTabs],
-  );
-
-  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
-    () => [
-      {
-        id: "mail-language",
-        label: t("settings.languageTitle"),
-        keywords: "language locale translation i18n",
-        hash: "language",
-      },
-    ],
-    [t],
-  );
-
-  const validSectionIds = useMemo(() => {
-    const ids = new Set<string>(["general", "account", "whats-new"]);
-    for (const tab of extraTabs) ids.add(tab.id);
-    return ids;
-  }, [extraTabs]);
-
-  // Deep links arrive as /settings?section=<id>. Adopt that section, then
-  // strip the param so later tab switches aren't overridden by a stale query
-  // value.
-  useEffect(() => {
-    const requested = searchParams.get("section");
-    const section = legacyMailSettingsTab(requested) ?? requested;
-    if (!section || !validSectionIds.has(section)) return;
-    setActiveSection(section);
-    const next = new URLSearchParams(searchParams);
-    next.delete("section");
-    const search = next.toString();
-    navigate(
-      {
-        pathname: location.pathname,
-        search: search ? `?${search}` : "",
-        hash: location.hash,
-      },
-      { replace: true },
-    );
-  }, [
-    location.hash,
-    location.pathname,
-    navigate,
-    searchParams,
-    validSectionIds,
-  ]);
-
-  useEffect(() => {
-    navState.sync({ view: "settings", settingsSection: activeSection });
-  }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (pathTab) {
-    const next = new URLSearchParams(location.search);
-    next.set("section", pathTab);
-    return (
-      <Navigate
-        to={{
-          pathname: STANDARD_APP_ROUTES.settings,
-          search: `?${next}`,
-          hash: location.hash,
-        }}
-        replace
-      />
-    );
-  }
-
-  return (
-    <SettingsTabsPage
-      account={<AccountSettingsCard />}
-      className="flex-1"
-      generalLabel={t("settings.general")}
-      whatsNewLabel={t("settings.whatsNew")}
-      extraTabs={extraTabs}
-      generalSearchEntries={generalSearchEntries}
-      value={activeSection}
-      onValueChange={setActiveSection}
-      general={<GeneralSection />}
-      whatsNew={<WhatsNewSection />}
     />
   );
 }
