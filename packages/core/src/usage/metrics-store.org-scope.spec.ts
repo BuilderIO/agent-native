@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
+vi.mock("./alerts-store.js", () => ({
+  enqueueUsageAlertEvaluation: vi.fn(async () => undefined),
+}));
+
 const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
   vi.fn<() => Promise<Record<string, unknown> | null>>(),
 );

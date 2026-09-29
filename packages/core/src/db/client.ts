@@ -5,7 +5,17 @@ import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import {
+  hasCloudflareRuntime,
+  isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
+export {
+  isHostedFunctionInvocationRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
   recordDatabaseQueryResult,
@@ -72,14 +82,6 @@ export function getActivePgliteTransactionClient(url: string): any | undefined {
 function getActivePgliteTransactionExec(url: string): DbExec | undefined {
   return pgliteTransactionStorage?.getStore()?.get(pgliteClientKeyFromUrl(url))
     ?.exec;
-}
-
-function hasCloudflareRuntime(): boolean {
-  const runtime = globalThis as typeof globalThis & {
-    __cf_env?: unknown;
-    __env__?: unknown;
-  };
-  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
 }
 
 export function getDatabaseUrl(fallback = ""): string {
@@ -991,45 +993,6 @@ export function isServerlessRuntime(): boolean {
   );
 }
 
-export function isProductionServerlessFunctionRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY === "true" ||
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_VERSION ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION ||
-    env.VERCEL === "1",
-  );
-}
-
-export function isHostedFunctionInvocationRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (hasCloudflareRuntime()) return true;
-
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION,
-  );
-}
-
 export class HostedRuntimeLocalDatabaseError extends Error {
   constructor(source: string) {
     super(
@@ -1045,7 +1008,7 @@ export class HostedRuntimeLocalDatabaseError extends Error {
 export function assertHostedRuntimeDatabase(): void {
   if (isMigrationAuthorizedRuntime()) return;
   if (!isLocalDatabase()) return;
-  if (isHostedFunctionInvocationRuntime()) {
+  if (isHostedFunctionInvocationRuntime() || hasCloudflareRuntime()) {
     throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
   if (isEmbeddedRuntimeAuthorized()) return;
@@ -1072,9 +1035,12 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * is the only supported production opt-in.
  */
 export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+  const migrationRuntimeCanMutate =
+    isMigrationExecutingRuntime() ||
+    (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
   if (
     isProductionServerlessFunctionRuntime() &&
-    !isMigrationAuthorizedRuntime() &&
+    !migrationRuntimeCanMutate &&
     isSchemaMutationStatement(statement)
   ) {
     throw new Error(

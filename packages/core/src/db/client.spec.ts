@@ -105,6 +105,10 @@ describe("db/client Postgres URL handling", () => {
     );
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+    );
     vi.resetModules();
   });
 
@@ -309,16 +313,114 @@ describe("db/client Postgres URL handling", () => {
     });
   });
 
-  it("recognizes production serverless execution and honors local emulation", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    const { isProductionServerlessFunctionRuntime } =
-      await import("./client.js");
+  it("recognizes hosted function markers without NODE_ENV and honors local emulation", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
 
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NETLIFY_LOCAL", "true");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
   });
+
+  it("does not classify local Vercel development as a hosted production function", async () => {
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    const vercelDevEnv = {
+      NODE_ENV: "production",
+      VERCEL: "1",
+      VERCEL_ENV: "development",
+      VERCEL_REGION: "local",
+      VERCEL_FUNCTION_ID: "local-function",
+    };
+
+    expect(isHostedFunctionInvocationRuntime(vercelDevEnv)).toBe(false);
+    expect(isProductionServerlessFunctionRuntime(vercelDevEnv)).toBe(false);
+  });
+
+  it.each([
+    ["Netlify CLI", { NODE_ENV: "development", NETLIFY_DEV: "true" }],
+    ["AWS SAM", { NODE_ENV: "development", AWS_SAM_LOCAL: "true" }],
+  ])("keeps %s emulation on the local schema path", async (_name, env) => {
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime(env)).toBe(false);
+    expect(isProductionServerlessFunctionRuntime(env)).toBe(false);
+  });
+
+  it("recognizes production Cloudflare Workers but excludes unmarked Wrangler dev", async () => {
+    vi.stubGlobal("__env__", {});
+    vi.stubEnv("NODE_ENV", "");
+    const {
+      isServerlessRuntime,
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it("uses the compiled Cloudflare deployment marker when runtime NODE_ENV is absent", async () => {
+    vi.stubGlobal("__env__", {});
+    vi.stubEnv("NODE_ENV", "");
+    const {
+      assertSchemaMutationAllowed,
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", true);
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE worker_guard (id TEXT)"),
+    ).toThrow(/release job/);
+
+    vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", false);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it.each([
+    ["Netlify", { NETLIFY: "true" }],
+    ["Vercel", { VERCEL: "1" }],
+  ])(
+    "recognizes the %s deployment marker without NODE_ENV but not as an invocation",
+    async (_provider, markers) => {
+      const {
+        isHostedFunctionInvocationRuntime,
+        isProductionServerlessFunctionRuntime,
+      } = await import("./client.js");
+      const env = { NODE_ENV: "", ...markers };
+
+      expect(isProductionServerlessFunctionRuntime(env)).toBe(true);
+      expect(isHostedFunctionInvocationRuntime(env)).toBe(false);
+    },
+  );
 
   it("rejects request-time schema mutations but permits release migrations", async () => {
     vi.stubEnv("NODE_ENV", "production");
@@ -338,7 +440,74 @@ describe("db/client Postgres URL handling", () => {
       assertSchemaMutationAllowed(
         "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
       ),
-    ).not.toThrow();
+    ).toThrow(/release job/);
+
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("NETLIFY", "true");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    await expect(
+      withMigrationRuntime(async () => {
+        expect(() =>
+          assertSchemaMutationAllowed(
+            "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+          ),
+        ).not.toThrow();
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("allows DDL only while a hosted runtime migration is executing", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    await withMigrationExecutionRuntime(async () => {
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+    });
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+  });
+
+  it("does not grant concurrent requests a runtime migration's DDL permission", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    let migrationEntered!: () => void;
+    let finishMigration!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      migrationEntered = resolve;
+    });
+    const waitForFinish = new Promise<void>((resolve) => {
+      finishMigration = resolve;
+    });
+
+    const migration = withMigrationExecutionRuntime(async () => {
+      migrationEntered();
+      await waitForFinish;
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+    });
+    await entered;
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    finishMigration();
+    await migration;
   });
 
   it("uses one foreground connection when only the dispatch marker is set", async () => {
@@ -704,9 +873,13 @@ describe("initClient hosted-runtime local database guard", () => {
     vi.stubEnv("VERCEL_FUNCTION_ID", "");
     vi.stubEnv("VERCEL_REGION", "");
 
-    const { isHostedFunctionInvocationRuntime } = await import("./client.js");
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
 
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
   });
 
   it("throws on a production Node/Docker server (server-runtime marker, no invocation env var) with no database URL", async () => {
