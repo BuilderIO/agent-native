@@ -60,4 +60,13 @@ describe("recordingShareHeroHtml", () => {
       ),
     ).toBeUndefined();
   });
+
+  it("gives a screenshot no preview, since an email cannot pass its gate", () => {
+    expect(
+      recordingShareHeroHtml(
+        { kind: "image", thumbnailUrl: "https://cdn.example.com/shot.png" },
+        { href: "https://clips.example.com/share/shot-1" },
+      ),
+    ).toBeUndefined();
+  });
 });
