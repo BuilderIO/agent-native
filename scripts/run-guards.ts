@@ -74,6 +74,7 @@ const guards = [
   "guard:no-default-chrome",
   "guard:single-search-clear",
   "guard:no-boot-data-work",
+  "guard:realtime-opt-in",
   "guard:tracking-event-names",
   "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",
