@@ -369,10 +369,11 @@ describe("notifications registry", () => {
 
     it("waits for notification.sent subscribers before completing its receipt", async () => {
       let acceptEvent!: () => void;
-      mockEmitAsync.mockReturnValueOnce(
-        new Promise<void>((resolve) => {
-          acceptEvent = resolve;
-        }),
+      mockEmitAsync.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            acceptEvent = resolve;
+          }),
       );
       const input = {
         severity: "info" as const,

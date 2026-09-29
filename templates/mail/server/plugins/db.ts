@@ -409,6 +409,15 @@ UPDATE scheduled_jobs
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
   ON scheduled_jobs(status, processing_lease_until, run_at, id);`,
     },
+    {
+      version: 34,
+      name: "mail-scheduled-job-uncertain-send-recovery",
+      sql: `ALTER TABLE scheduled_jobs
+  DROP CONSTRAINT IF EXISTS scheduled_jobs_status_check;
+ALTER TABLE scheduled_jobs
+  ADD CONSTRAINT scheduled_jobs_status_check
+  CHECK(status IN ('pending', 'processing', 'done', 'cancelled', 'uncertain', 'retry_queued'));`,
+    },
   ],
   { table: "mail_migrations" },
 );
