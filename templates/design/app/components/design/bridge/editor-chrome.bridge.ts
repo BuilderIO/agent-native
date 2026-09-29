@@ -9583,13 +9583,33 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             handle.style.display = "none";
             return;
           }
-          var pathWidth = readPx(selectionOverlay.style.width) || elWidth;
-          var pathHeight = readPx(selectionOverlay.style.height) || elHeight;
-          var viewBox = pathData.viewBox;
-          var vertexX = ((vertex.x - viewBox.x) / viewBox.width) * pathWidth;
-          var vertexY = ((vertex.y - viewBox.y) / viewBox.height) * pathHeight;
-          handle.style.left = vertexX - size / 2 + "px";
-          handle.style.top = vertexY - size / 2 + "px";
+          var screenMatrix =
+            typeof (el as SVGSVGElement).getScreenCTM === "function"
+              ? (el as SVGSVGElement).getScreenCTM()
+              : null;
+          if (!screenMatrix) {
+            handle.style.display = "none";
+            return;
+          }
+          var overlayBox = borderBoxDimensions(
+            window.getComputedStyle(selectionOverlay),
+          );
+          var overlayGeometry = radiusViewportBoxGeometry(
+            selectionOverlay,
+            overlayBox.width,
+            overlayBox.height,
+          );
+          var overlayPoint = radiusViewportPointToLocalBox(
+            overlayGeometry,
+            screenMatrix.a * vertex.x +
+              screenMatrix.c * vertex.y +
+              screenMatrix.e,
+            screenMatrix.b * vertex.x +
+              screenMatrix.d * vertex.y +
+              screenMatrix.f,
+          );
+          handle.style.left = overlayPoint.x - size / 2 + "px";
+          handle.style.top = overlayPoint.y - size / 2 + "px";
           return;
         }
         var cs = window.getComputedStyle(el);

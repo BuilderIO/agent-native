@@ -6851,7 +6851,7 @@ it.each(["polygon", "star"] as const)(
       const pageErrors: string[] = [];
       browserPage.on("pageerror", (error) => pageErrors.push(error.message));
       await browserPage.setContent(`<!doctype html><html><body>
-  <svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg>
+  <div style="position:absolute;left:150px;top:120px;transform:rotate(23deg) scale(1.35,.72);transform-origin:30px 40px"><svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:45px;width:100px;height:100px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg></div>
 </body></html>`);
       await browserPage.addScriptTag({
         content: hydratedEditorChromeBridgeScript(),
@@ -6862,6 +6862,16 @@ it.each(["polygon", "star"] as const)(
       await collectBridgeMessages(browserPage);
       await selectElementDirect(browserPage, "#shape");
 
+      const expectedStart = await browserPage.evaluate(() => {
+        const svg = document.querySelector<SVGSVGElement>("#shape")!;
+        const matrix = svg.getScreenCTM()!;
+        const parsed = JSON.parse(svg.getAttribute("data-an-pen-nodes")!);
+        const tuple = parsed[1] as number[];
+        return {
+          x: matrix.a * tuple[0]! + matrix.c * tuple[1]! + matrix.e,
+          y: matrix.b * tuple[0]! + matrix.d * tuple[1]! + matrix.f,
+        };
+      });
       const hiddenHandle = await browserPage.evaluate(() => {
         const handle = document.querySelector<HTMLElement>(
           '[data-agent-native-radius-handle="vertex-0"]',
@@ -6869,17 +6879,23 @@ it.each(["polygon", "star"] as const)(
         return {
           found: !!handle,
           visibility: handle ? getComputedStyle(handle).visibility : null,
-          rect: handle?.getBoundingClientRect().toJSON(),
+          center: handle
+            ? {
+                x:
+                  handle.getBoundingClientRect().left +
+                  handle.getBoundingClientRect().width / 2,
+                y:
+                  handle.getBoundingClientRect().top +
+                  handle.getBoundingClientRect().height / 2,
+              }
+            : null,
         };
       });
       expect(hiddenHandle).toMatchObject({
         found: true,
         visibility: "hidden",
       });
-      await browserPage.mouse.move(
-        hiddenHandle.rect.x + hiddenHandle.rect.width / 2,
-        hiddenHandle.rect.y + hiddenHandle.rect.height / 2,
-      );
+      await browserPage.mouse.move(expectedStart.x, expectedStart.y);
       const handle = browserPage.locator(
         '[data-agent-native-radius-handle="vertex-0"]',
       );
@@ -6892,6 +6908,12 @@ it.each(["polygon", "star"] as const)(
           ).visibility,
       );
       expect(initialHandleVisibility).toBe("visible");
+      expect(Math.abs(hiddenHandle.center!.x - expectedStart.x)).toBeLessThan(
+        1.5,
+      );
+      expect(Math.abs(hiddenHandle.center!.y - expectedStart.y)).toBeLessThan(
+        1.5,
+      );
       expect(pageErrors).toEqual([]);
       const handleBox = await handle.boundingBox();
       if (!handleBox) throw new Error("vector radius handle is not visible");
@@ -6918,9 +6940,12 @@ it.each(["polygon", "star"] as const)(
           y: incoming.y + outgoing.y,
         };
         const bisectorLength = Math.hypot(bisector.x, bisector.y);
+        const matrix = svg.getScreenCTM()!;
+        const unitX = bisector.x / bisectorLength;
+        const unitY = bisector.y / bisectorLength;
         return {
-          dx: (bisector.x / bisectorLength) * 16,
-          dy: (bisector.y / bisectorLength) * 16,
+          dx: (matrix.a * unitX + matrix.c * unitY) * 16,
+          dy: (matrix.b * unitX + matrix.d * unitY) * 16,
           sinHalfAngle: Math.sin(
             Math.acos(incoming.x * outgoing.x + incoming.y * outgoing.y) / 2,
           ),
@@ -6931,11 +6956,21 @@ it.each(["polygon", "star"] as const)(
         handleBox.y + handleBox.height / 2,
       );
       await browserPage.mouse.down();
-      await browserPage.mouse.move(
-        handleBox.x + handleBox.width / 2 + move.dx,
-        handleBox.y + handleBox.height / 2 + move.dy,
-        { steps: 4 },
-      );
+      for (let step = 1; step <= 4; step += 1) {
+        const pointerX =
+          handleBox.x + handleBox.width / 2 + (move.dx * step) / 4;
+        const pointerY =
+          handleBox.y + handleBox.height / 2 + (move.dy * step) / 4;
+        await browserPage.mouse.move(pointerX, pointerY);
+        const movedHandleBox = await handle.boundingBox();
+        expect(movedHandleBox).not.toBeNull();
+        expect(
+          Math.abs(movedHandleBox!.x + movedHandleBox!.width / 2 - pointerX),
+        ).toBeLessThan(1.5);
+        expect(
+          Math.abs(movedHandleBox!.y + movedHandleBox!.height / 2 - pointerY),
+        ).toBeLessThan(1.5);
+      }
       const preview = await browserPage.evaluate(() => ({
         radius: document
           .querySelector("#shape")!
@@ -6946,8 +6981,6 @@ it.each(["polygon", "star"] as const)(
       expect(Number(preview.radius)).toBeGreaterThan(0);
       expect(preview.d).toContain(" A ");
       expect(movedHandleBox).not.toBeNull();
-      expect(movedHandleBox!.x - handleBox.x).toBeCloseTo(move.dx, 1);
-      expect(movedHandleBox!.y - handleBox.y).toBeCloseTo(move.dy, 1);
       await browserPage.mouse.up();
       const messages = await readBridgeMessages(browserPage);
       expect(
