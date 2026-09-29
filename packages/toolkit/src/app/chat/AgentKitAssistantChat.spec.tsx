@@ -101,10 +101,16 @@ vi.mock("../agentkit/react/index.js", async () => {
           ? React.createElement(EmptyState, { threadId: chatMocks.threadId })
           : null,
         Transcript
-          ? React.createElement(Transcript, {
-              threadId: chatMocks.threadId,
-              children: null,
-            })
+          ? React.createElement(
+              "div",
+              { className: "agentkit-transcript-content" },
+              React.createElement(Transcript, {
+                threadId: chatMocks.threadId,
+                children: React.createElement("div", {
+                  "data-testid": "first-transcript-message",
+                }),
+              }),
+            )
           : null,
         Failure
           ? React.createElement(Failure, {
@@ -252,7 +258,10 @@ vi.mock("./agentkit-chat/index.js", async () => {
       return null;
     },
     McpConnectionSuggestion: () => null,
-    AgentKitHistoryBeginningRevert: () => null,
+    AgentKitHistoryBeginningRevert: () =>
+      React.createElement("div", {
+        "data-testid": "history-beginning-revert",
+      }),
     AgentKitHistoryMessageSupplement: () => null,
     AgentKitHistoryProvider: ({ children }: any) =>
       React.createElement(React.Fragment, null, children),
@@ -759,6 +768,26 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
     expect(container.textContent).toContain("Existing conversation content");
     expect(container.querySelector(".agentkit-home-intro")).toBeNull();
+  });
+
+  it("puts the beginning revert before messages inside the scrollable transcript", async () => {
+    chatMocks.thread.messages = [
+      { id: "first-message", role: "user", parts: [] },
+    ];
+    await mount(baseProps());
+
+    const revert = container.querySelector(
+      '[data-testid="history-beginning-revert"]',
+    );
+    const firstMessage = container.querySelector(
+      '[data-testid="first-transcript-message"]',
+    );
+    expect(chatMocks.chatProps.toolbar).toBeUndefined();
+    expect(revert?.closest(".agentkit-transcript-content")).not.toBeNull();
+    expect(
+      revert!.compareDocumentPosition(firstMessage!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("provides the host-pinned thinking display to the direct AgentKit surface", async () => {

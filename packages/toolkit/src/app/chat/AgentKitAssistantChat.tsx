@@ -2648,7 +2648,6 @@ const AgentKitAssistantChatBody = forwardRef<
           props.centerComposerWhenEmpty ? "center" : "bottom"
         }
         title={props.showHeader === false ? undefined : props.emptyStateText}
-        toolbar={<AgentKitHistoryBeginningRevert />}
         autoScroll
       />
     </AgentKitSurfaceContext.Provider>
@@ -2935,6 +2934,9 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   }
   return (
     <>
+      {thread.messages.length > 0 || surface.hasRenderedMessages ? (
+        <AgentKitHistoryBeginningRevert />
+      ) : null}
       {surface.threadRestore.status === "error" ? (
         <div
           className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
