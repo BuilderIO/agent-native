@@ -350,6 +350,46 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  test("stops preparing when live bridge registration is rejected", async ({
+    browser,
+    page,
+  }) => {
+    const created = await createOwnedVisualEditDesign(browser);
+    let registrationAttempts = 0;
+    await page.route("**/live-edit-bridge", async (route) => {
+      registrationAttempts += 1;
+      await route.fulfill({ status: 409, body: "Bridge is not ready" });
+    });
+
+    try {
+      await page.goto(
+        appUrl(`/visual-edit/${created.designId}?editorView=overview`),
+        { waitUntil: "domcontentloaded" },
+      );
+      const frame = page.locator("iframe[data-design-preview-iframe]").first();
+      await expect(frame).toBeAttached();
+      await expect(
+        page
+          .getByText(
+            "The running app is shielded until Design connects to the local bridge.",
+          )
+          .first(),
+      ).toBeVisible();
+
+      const preparing = page.getByText(/prepar.*live editor/i);
+      await expect(preparing).toBeHidden();
+      const settledSource = await frame.getAttribute("src");
+      await page.waitForTimeout(2_500);
+
+      expect(registrationAttempts).toBeGreaterThan(0);
+      await expect(preparing).toBeHidden();
+      await expect(frame).toHaveAttribute("src", settledSource!);
+    } finally {
+      await page.unroute("**/live-edit-bridge");
+      await deleteDesign(browser, created.designId);
+    }
+  });
+
   test("rejects forged bare-link editor access", async ({ browser }) => {
     const context = await browser.newContext({
       storageState: { cookies: [], origins: [] },
