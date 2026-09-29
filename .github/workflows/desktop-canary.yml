@@ -6,8 +6,11 @@ on:
     branches:
       - main
     paths:
-      # desktop-app plus its workspace dependency closure.
+      # desktop-app plus its workspace dependency closure, and the bundled
+      # Chrome extension (`pnpm build:chrome-extension`) plus its closure.
       - "packages/desktop-app/**"
+      - "packages/agent-chrome-extension/**"
+      - "packages/browser-control-extension-core/**"
       - "packages/code-agents-ui/**"
       - "packages/core/**"
       - "packages/shared-app-config/**"
