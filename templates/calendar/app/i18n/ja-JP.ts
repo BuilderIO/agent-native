@@ -617,6 +617,7 @@ export default {
     fieldRequired: "{{label}} は必須です",
     linkDisabled: "{{title}}は無効です",
     linkEnabled: "{{title}}有効",
+    advanced: "詳細設定",
     linkVisibility: "リンクの可視性",
     linkVisibilityDescription:
       "公開ページを無効にするには、これをオフにします。",
