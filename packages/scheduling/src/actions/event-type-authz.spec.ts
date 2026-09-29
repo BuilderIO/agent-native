@@ -19,6 +19,7 @@ import duplicateEventType from "./duplicate-event-type.js";
 import getEventType from "./get-event-type.js";
 import listRoutingFormResponses from "./list-routing-form-responses.js";
 import revokePrivateLink from "./revoke-private-link.js";
+import submitRoutingFormResponse from "./submit-routing-form-response.js";
 
 const OWNER_EMAIL = "owner@example.com";
 
@@ -231,6 +232,11 @@ async function eventTypeCount(): Promise<number> {
   return rows.length;
 }
 
+async function routingFormResponseCount(): Promise<number> {
+  const { rows } = await execute("SELECT * FROM routing_form_responses");
+  return rows.length;
+}
+
 describe("revoke-private-link authorization", () => {
   it("returns the same idempotent result for an inaccessible link and keeps it", async () => {
     const result: any = await runWithRequestContext(
@@ -314,5 +320,34 @@ describe("list-routing-form-responses authorization", () => {
     );
     expect(result.responses).toHaveLength(1);
     expect(result.responses[0].id).toBe("resp-1");
+  });
+});
+
+describe("submit-routing-form-response public boundary", () => {
+  it("rejects private and disabled forms before storing a response", async () => {
+    await expect(
+      submitRoutingFormResponse.run({ formId: "form-1", response: {} }),
+    ).rejects.toThrow(/Routing form not found/);
+    await execute({
+      sql: "UPDATE routing_forms SET visibility = 'public', disabled = true WHERE id = ?",
+      args: ["form-1"],
+    });
+    await expect(
+      submitRoutingFormResponse.run({ formId: "form-1", response: {} }),
+    ).rejects.toThrow(/Routing form not found/);
+    expect(await routingFormResponseCount()).toBe(1);
+  });
+
+  it("accepts a public enabled form", async () => {
+    await execute({
+      sql: "UPDATE routing_forms SET visibility = 'public', disabled = false WHERE id = ?",
+      args: ["form-1"],
+    });
+    const result = await submitRoutingFormResponse.run({
+      formId: "form-1",
+      response: { email: "lead@example.com" },
+    });
+    expect(result.id).toBeTruthy();
+    expect(await routingFormResponseCount()).toBe(2);
   });
 });

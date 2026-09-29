@@ -3983,6 +3983,9 @@ function DesignEditor() {
     design?.visibility === "public";
   const canApplyPendingVisualEditsWithAgent =
     canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+  const canApplyPendingVisualEditsFromToolbar =
+    canApplyPendingVisualEditsWithAgent &&
+    (!isVisualEditSurface || hostEmbeddedEditor);
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
@@ -27015,14 +27018,14 @@ function DesignEditor() {
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
                             "min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
                             (!shellMode ||
-                              !canApplyPendingVisualEditsWithAgent) &&
+                              !canApplyPendingVisualEditsFromToolbar) &&
                               "rounded-r-none",
                           )}
                           aria-label={t(
                             showSharedVisualEditApply &&
-                              canApplyPendingVisualEditsWithAgent
+                              canApplyPendingVisualEditsFromToolbar
                               ? "designEditor.pendingVisualStyles.applySharedEdits"
-                              : canApplyPendingVisualEditsWithAgent
+                              : canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.applyAria"
                                 : "designEditor.pendingVisualStyles.copyPrompt",
                           )}
@@ -27032,7 +27035,7 @@ function DesignEditor() {
                             pendingStructureVerificationBusy
                           }
                           onClick={
-                            canApplyPendingVisualEditsWithAgent
+                            canApplyPendingVisualEditsFromToolbar
                               ? () =>
                                   handleApplyPendingVisualStylesWithAgent(
                                     remoteVisualEditPrompt,
@@ -27048,7 +27051,7 @@ function DesignEditor() {
                           ) : null}
                           <span className="truncate">
                             {t(
-                              !canApplyPendingVisualEditsWithAgent
+                              !canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.copyPrompt"
                                 : applyingViaHost
                                   ? "designEditor.pendingVisualStyles.applying"
@@ -27063,9 +27066,9 @@ function DesignEditor() {
                             )}
                           </span>
                         </Button>
-                        {/* Keep explicit copy and cancel available when no in-page agent can receive the handoff. */}
+                        {/* Keep the handoff actions available whenever toolbar Apply is unavailable. */}
                         {shellMode &&
-                        canApplyPendingVisualEditsWithAgent ? null : (
+                        canApplyPendingVisualEditsFromToolbar ? null : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button

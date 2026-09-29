@@ -178,11 +178,13 @@ function extractOwnableExports(contents) {
   return exports;
 }
 
-async function collectOwnableTables() {
+export async function collectOwnableTables(root = REPO_ROOT) {
   const byDir = new Map();
-  for await (const file of walk(REPO_ROOT)) {
-    if (!file.endsWith("/db/schema.ts")) continue;
-    const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+  for await (const file of walk(root)) {
+    const rel = path.relative(root, file).replaceAll("\\", "/");
+    if (!/^(?:packages|templates)\//.test(rel)) continue;
+    if (!/\.[cm]?tsx?$/.test(file) || /\.(?:spec|test)\.[cm]?tsx?$/.test(file))
+      continue;
     let contents;
     try {
       contents = readFileSync(file, "utf8");
@@ -192,7 +194,10 @@ async function collectOwnableTables() {
     if (!/ownableColumns\s*\(/.test(contents)) continue;
     const ownables = extractOwnableExports(contents);
     if (ownables.size > 0) {
-      byDir.set(path.dirname(rel), ownables);
+      const dir = path.dirname(rel);
+      const inDir = byDir.get(dir) ?? new Set();
+      for (const ownable of ownables) inDir.add(ownable);
+      byDir.set(dir, inDir);
     }
   }
   return byDir;
@@ -588,7 +593,7 @@ function isOptedOutWithinBlock(blockText) {
   return OPT_OUT_MARKER.test(blockText);
 }
 
-async function scanFiles(ownablesByDir) {
+export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
   const allOwnableNames = new Set();
   const allOwnableSqlNames = new Set();
   for (const set of ownablesByDir.values()) {
@@ -601,10 +606,11 @@ async function scanFiles(ownablesByDir) {
 
   const violations = [];
 
-  for await (const file of walk(REPO_ROOT)) {
+  for await (const file of walk(root)) {
     if (!file.endsWith(".ts") && !file.endsWith(".tsx")) continue;
     if (file.endsWith(".d.ts")) continue;
-    const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+    const rel = path.relative(root, file).replaceAll("\\", "/");
+    if (/\.(?:spec|test)\.[^.]+$/.test(rel)) continue;
     if (FILE_ALLOWLIST.has(rel)) continue;
     if (rel.endsWith("/db/schema.ts")) continue;
     if (
@@ -637,11 +643,6 @@ async function scanFiles(ownablesByDir) {
       allOwnableSqlNames,
     );
     if (statements.length === 0) continue;
-
-    const fileHasAccessControl =
-      ACCESS_CONTROL_HELPERS.some((re) => re.test(contents)) ||
-      EXPLICIT_OWNER_FILTERS.some((re) => re.test(contents));
-    if (!fileHasAccessControl) continue;
 
     const blocks = buildBlockTree(contents);
     const accessControlBindings = collectAccessControlBindings(contents);
@@ -745,6 +746,7 @@ async function scanMentionProviders(ownablesByDir) {
     if (!file.endsWith(".ts") && !file.endsWith(".tsx")) continue;
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+    if (/\.(?:spec|test)\.[^.]+$/.test(rel)) continue;
     if (FILE_ALLOWLIST.has(rel)) continue;
     if (
       !/^templates\/[^/]+\/server\//.test(rel) &&
@@ -872,106 +874,124 @@ async function scanMentionProviders(ownablesByDir) {
   return violations;
 }
 
-const ownablesByDir = await collectOwnableTables();
-if (ownablesByDir.size === 0) {
-  console.log(
-    "guard-no-unscoped-queries: no ownable tables found — nothing to check.",
-  );
-  process.exit(0);
-}
-const violations = await scanFiles(ownablesByDir);
-const mentionViolations = await scanMentionProviders(ownablesByDir);
+async function main() {
+  const ownablesByDir = await collectOwnableTables();
+  if (ownablesByDir.size === 0) {
+    console.log(
+      "guard-no-unscoped-queries: no ownable tables found — nothing to check.",
+    );
+    return;
+  }
+  const violations = await scanFiles(ownablesByDir);
+  const mentionViolations = await scanMentionProviders(ownablesByDir);
 
-if (violations.length > 0 || mentionViolations.length > 0) {
-  const bar = "=".repeat(72);
-  console.error(`\n${bar}`);
-  console.error("ERROR: unscoped query against an ownable resource table.");
-  console.error(bar);
-  console.error("");
-
-  if (violations.length > 0) {
-    console.error(
-      "These statements query a table that includes `ownableColumns()`",
-    );
-    console.error("but do NOT use `accessFilter` / `resolveAccess` /");
-    console.error(
-      "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
-    );
-    console.error("`orgId` in their WHERE clause (or in the enclosing block).");
-    console.error("That is how the slides leak happened on 2026-04-28 —");
-    console.error("anyone signing in saw every other user's decks. Same");
-    console.error(
-      "class of bug for inserts that don't set ownerEmail from the",
-    );
-    console.error("request context.");
+  if (violations.length > 0 || mentionViolations.length > 0) {
+    const bar = "=".repeat(72);
+    console.error(`\n${bar}`);
+    console.error("ERROR: unscoped query against an ownable resource table.");
+    console.error(bar);
     console.error("");
-    for (const v of violations) {
-      console.error(`  ${v.file}`);
-      for (const hit of v.hits) {
+
+    if (violations.length > 0) {
+      console.error(
+        "These statements query a table that includes `ownableColumns()`",
+      );
+      console.error("but do NOT use `accessFilter` / `resolveAccess` /");
+      console.error(
+        "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
+      );
+      console.error(
+        "`orgId` in their WHERE clause (or in the enclosing block).",
+      );
+      console.error("That is how the slides leak happened on 2026-04-28 —");
+      console.error("anyone signing in saw every other user's decks. Same");
+      console.error(
+        "class of bug for inserts that don't set ownerEmail from the",
+      );
+      console.error("request context.");
+      console.error("");
+      for (const v of violations) {
+        console.error(`  ${v.file}`);
+        for (const hit of v.hits) {
+          console.error(
+            `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
+          );
+        }
+        console.error("");
+      }
+    }
+
+    if (mentionViolations.length > 0) {
+      console.error(
+        "These mentionProviders search closures query an ownable table",
+      );
+      console.error(
+        "without `accessFilter` / `resolveAccess` / `assertAccess` /",
+      );
+      console.error(
+        "`getRequestUserEmail` / `getCurrentOwnerEmail` / explicit owner filter.",
+      );
+      console.error(
+        "mentionProviders run in a shared server context — every user who",
+      );
+      console.error(
+        "types `@` in the chat would see rows owned by other users.",
+      );
+      console.error("");
+      for (const v of mentionViolations) {
         console.error(
-          `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
+          `  ${v.file}  line ${v.line}: unscoped select on "${v.table}" in ${v.context}`,
         );
       }
       console.error("");
     }
+
+    console.error(bar);
+    console.error("Fix:");
+    console.error("");
+    console.error("  - For list/read of many rows, add to the WHERE clause:");
+    console.error(
+      "      .where(accessFilter(schema.<table>, schema.<table>Shares))",
+    );
+    console.error('      from "@agent-native/core/sharing"');
+    console.error("  - For read-by-id, replace the manual select with:");
+    console.error('      const access = await resolveAccess("<type>", id);');
+    console.error("  - For write/delete-by-id, gate with:");
+    console.error('      await assertAccess("<type>", id, "editor"|"admin");');
+    console.error("  - For inserts, set ownerEmail from the request context:");
+    console.error("      ownerEmail: getRequestUserEmail()");
+    console.error(
+      "  - HTTP handlers that don't auto-mount a request context must",
+    );
+    console.error(
+      "    wrap the call with `runWithRequestContext({ userEmail, orgId },",
+    );
+    console.error(
+      "    fn)` after reading the session via `getSession(event)`.",
+    );
+    console.error(
+      "  - mentionProviders search closures: use accessFilter() or",
+    );
+    console.error(
+      "    eq(table.ownerEmail, getCurrentOwnerEmail()) in the WHERE clause.",
+    );
+    console.error("");
+    console.error("  Last-resort opt-out (requires reviewer approval):");
+    console.error("    // guard:allow-unscoped — explain why this is safe");
+    console.error("    (place inside the search closure, or as a file header)");
+    console.error(`${bar}\n`);
+    process.exitCode = 1;
+    return;
   }
 
-  if (mentionViolations.length > 0) {
-    console.error(
-      "These mentionProviders search closures query an ownable table",
-    );
-    console.error(
-      "without `accessFilter` / `resolveAccess` / `assertAccess` /",
-    );
-    console.error(
-      "`getRequestUserEmail` / `getCurrentOwnerEmail` / explicit owner filter.",
-    );
-    console.error(
-      "mentionProviders run in a shared server context — every user who",
-    );
-    console.error("types `@` in the chat would see rows owned by other users.");
-    console.error("");
-    for (const v of mentionViolations) {
-      console.error(
-        `  ${v.file}  line ${v.line}: unscoped select on "${v.table}" in ${v.context}`,
-      );
-    }
-    console.error("");
-  }
-
-  console.error(bar);
-  console.error("Fix:");
-  console.error("");
-  console.error("  - For list/read of many rows, add to the WHERE clause:");
-  console.error(
-    "      .where(accessFilter(schema.<table>, schema.<table>Shares))",
+  console.log(
+    `guard-no-unscoped-queries: clean (${ownablesByDir.size} schema dirs scanned).`,
   );
-  console.error('      from "@agent-native/core/sharing"');
-  console.error("  - For read-by-id, replace the manual select with:");
-  console.error('      const access = await resolveAccess("<type>", id);');
-  console.error("  - For write/delete-by-id, gate with:");
-  console.error('      await assertAccess("<type>", id, "editor"|"admin");');
-  console.error("  - For inserts, set ownerEmail from the request context:");
-  console.error("      ownerEmail: getRequestUserEmail()");
-  console.error(
-    "  - HTTP handlers that don't auto-mount a request context must",
-  );
-  console.error(
-    "    wrap the call with `runWithRequestContext({ userEmail, orgId },",
-  );
-  console.error("    fn)` after reading the session via `getSession(event)`.");
-  console.error("  - mentionProviders search closures: use accessFilter() or");
-  console.error(
-    "    eq(table.ownerEmail, getCurrentOwnerEmail()) in the WHERE clause.",
-  );
-  console.error("");
-  console.error("  Last-resort opt-out (requires reviewer approval):");
-  console.error("    // guard:allow-unscoped — explain why this is safe");
-  console.error("    (place inside the search closure, or as a file header)");
-  console.error(`${bar}\n`);
-  process.exit(1);
 }
 
-console.log(
-  `guard-no-unscoped-queries: clean (${ownablesByDir.size} schema dirs scanned).`,
-);
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  await main();
+}

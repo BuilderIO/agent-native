@@ -80,8 +80,8 @@ export function LocalNetworkAccessPrompt({
         src="/local-network-access-settings.png"
         alt={permissionSettingsInstructions}
         className="mt-3 block w-full rounded-md border border-border"
-        width={1000}
-        height={620}
+        width={1686}
+        height={933}
         loading="lazy"
       />
     </details>
@@ -120,8 +120,8 @@ export function LocalNetworkAccessPrompt({
               src="/local-network-access-permission.png"
               alt={description}
               className="block w-full rounded-md border border-border"
-              width={1050}
-              height={664}
+              width={1654}
+              height={951}
             />
             {permissionHelp}
           </DialogContent>
