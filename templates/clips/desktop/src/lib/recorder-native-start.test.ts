@@ -87,12 +87,21 @@ class TestMediaRecorder {
 
   state: RecordingState = "inactive";
   ondataavailable: ((event: BlobEvent) => void) | null = null;
+  private eventListeners = new Map<string, Set<(event: Event) => void>>();
   start = vi.fn(() => {
     mediaRecorderStart();
     this.state = "recording";
   });
   stop = vi.fn(() => {
+    if (emitStopChunk) {
+      this.ondataavailable?.({
+        data: new Blob(["clip"], { type: "video/webm" }),
+      } as BlobEvent);
+    }
     this.state = "inactive";
+    for (const listener of this.eventListeners.get("stop") ?? []) {
+      listener(new Event("stop"));
+    }
   });
   pause = vi.fn(() => {
     this.state = "paused";
@@ -101,10 +110,84 @@ class TestMediaRecorder {
     this.state = "recording";
   });
   requestData = vi.fn();
-  addEventListener = vi.fn();
+  addEventListener = vi.fn((type: string, listener: (event: Event) => void) => {
+    const listeners = this.eventListeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.eventListeners.set(type, listeners);
+  });
 }
 
 const mediaRecorderStart = vi.fn();
+let emitStopChunk = false;
+
+function installRecordingBackupStore() {
+  const stores = new Set<string>();
+  const database = {
+    objectStoreNames: { contains: (name: string) => stores.has(name) },
+    createObjectStore(name: string) {
+      stores.add(name);
+      return { createIndex: vi.fn() };
+    },
+    transaction() {
+      const tx: {
+        error: null;
+        oncomplete: (() => void) | null;
+        onabort: (() => void) | null;
+        onerror: (() => void) | null;
+        objectStore: () => {
+          put: ReturnType<typeof vi.fn>;
+          delete: ReturnType<typeof vi.fn>;
+          index: () => {
+            openCursor: () => {
+              result: null;
+              onsuccess: (() => void) | null;
+            };
+          };
+        };
+      } = {
+        error: null,
+        oncomplete: null,
+        onabort: null,
+        onerror: null,
+        objectStore: () => ({
+          put: vi.fn(),
+          delete: vi.fn(),
+          index: () => ({
+            openCursor: () => {
+              const request = {
+                result: null,
+                onsuccess: null as (() => void) | null,
+              };
+              queueMicrotask(() => request.onsuccess?.());
+              return request;
+            },
+          }),
+        }),
+      };
+      queueMicrotask(() => tx.oncomplete?.());
+      return tx;
+    },
+    close: vi.fn(),
+  };
+  const indexedDB = {
+    open: vi.fn(() => {
+      const request = {
+        result: database,
+        onupgradeneeded: null as (() => void) | null,
+        onsuccess: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+        error: null,
+      };
+      queueMicrotask(() => {
+        request.onupgradeneeded?.();
+        request.onsuccess?.();
+      });
+      return request;
+    }),
+  };
+  vi.stubGlobal("indexedDB", indexedDB as unknown as IDBFactory);
+  vi.stubGlobal("IDBKeyRange", { only: (key: string) => key });
+}
 
 function createLocalExport() {
   return {
@@ -146,6 +229,7 @@ async function flush() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
+  emitStopChunk = false;
   handlers.clear();
   nativeCommands.clear();
   getUserMedia = vi.fn(() => new Promise(() => {}));
@@ -198,17 +282,33 @@ beforeEach(() => {
     return undefined;
   });
   let nextRecordingId = 0;
-  fetchMock = vi.fn(async (url: string) => {
+  fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const requestBody = (
+      typeof init?.body === "string" ? JSON.parse(init.body) : {}
+    ) as {
+      id?: string;
+    };
+    const isFinalChunk =
+      url.includes("/chunk?") &&
+      new URL(url).searchParams.get("isFinal") === "1";
     return new Response(
       JSON.stringify(
         url.endsWith("/create-recording")
           ? {
               result: {
-                id: `recording-${++nextRecordingId}`,
+                id: requestBody.id ?? `recording-${++nextRecordingId}`,
                 uploadMode: "streaming",
               },
             }
-          : {},
+          : isFinalChunk
+            ? {
+                ok: true,
+                finalized: true,
+                status: "ready",
+                sourceSizeBytes: 4,
+                durationMs: 100,
+              }
+            : {},
       ),
       { status: 200 },
     );
@@ -217,10 +317,18 @@ beforeEach(() => {
   mocks.transcribe.mockResolvedValue(capture());
 });
 
+function createdRecordingId() {
+  const request = fetchMock.mock.calls.find(([url]) =>
+    String(url).endsWith("/create-recording"),
+  );
+  return JSON.parse(String(request?.[1]?.body ?? "{}")).id as string;
+}
+
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  emitStopChunk = false;
 });
 
 describe("native recording startup", () => {
@@ -685,6 +793,7 @@ describe("browser recording startup cancellation", () => {
     });
 
     await reachCue(audioCue.playBeforeCapture);
+    const id = createdRecordingId();
     await mocks.emit("clips:recorder-cancel");
     cue.resolve();
     await failed;
@@ -692,12 +801,96 @@ describe("browser recording startup cancellation", () => {
 
     expect(mediaRecorderStart).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/uploads/recording-1/abort"),
+      expect.stringContaining(`/api/uploads/${id}/abort`),
       expect.objectContaining({
         body: expect.stringContaining('"failureCode":"user_cancelled"'),
       }),
     );
     expect(audioCue.cleanup).toHaveBeenCalled();
+  });
+
+  it("aborts a created row when cancelled before the create response arrives", async () => {
+    useBrowserCameraCapture();
+    const createResponse = deferred<Response>();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/create-recording")) return createResponse.promise;
+      return new Response("{}", { status: 200 });
+    });
+    const controller = new AbortController();
+    const pending = startRecording({
+      ...params,
+      mode: "camera",
+      cameraOn: true,
+      micOn: false,
+      systemAudioOn: false,
+      signal: controller.signal,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await flush();
+    const id = createdRecordingId();
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      id,
+    });
+    controller.abort();
+    await failed;
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/uploads/${id}/abort`),
+      expect.objectContaining({
+        body: expect.stringContaining('"failureCode":"user_cancelled"'),
+      }),
+    );
+    expect(mediaRecorderStart).not.toHaveBeenCalled();
+
+    createResponse.resolve(
+      new Response(
+        JSON.stringify({ result: { id, uploadMode: "streaming" } }),
+        { status: 200 },
+      ),
+    );
+    await flush();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("cancels startup when Stop arrives during the countdown", async () => {
+    useBrowserCameraCapture();
+    const playBeforeCapture = vi.fn(async () => {});
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        micOn: false,
+        systemAudioOn: false,
+      },
+      { playBeforeCapture, cleanup: vi.fn() },
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await flush();
+    expect(calls("show_countdown")).toHaveLength(1);
+    const id = createdRecordingId();
+    await mocks.emit("clips:recorder-stop");
+    await failed;
+
+    expect(playBeforeCapture).not.toHaveBeenCalled();
+    expect(mediaRecorderStart).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/uploads/${id}/abort`),
+      expect.objectContaining({
+        body: expect.stringContaining('"failureCode":"user_cancelled"'),
+      }),
+    );
   });
 
   it("cancels a live upload when Cancel arrives during transcription startup", async () => {
@@ -728,11 +921,12 @@ describe("browser recording startup cancellation", () => {
     await flush();
     expect(mediaRecorderStart).toHaveBeenCalledOnce();
     expect(mocks.transcribe).toHaveBeenCalledOnce();
+    const id = createdRecordingId();
 
     await mocks.emit("clips:recorder-cancel");
     await flush();
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/uploads/recording-1/abort"),
+      expect.stringContaining(`/api/uploads/${id}/abort`),
       expect.objectContaining({
         body: expect.stringContaining('"failureCode":"user_cancelled"'),
       }),
@@ -743,5 +937,67 @@ describe("browser recording startup cancellation", () => {
     await flush();
     expect(transcript.cancel).toHaveBeenCalledOnce();
     expect(audioCue.cleanup).toHaveBeenCalled();
+  });
+
+  it("returns the stopped handle when Stop arrives during transcription startup", async () => {
+    useBrowserCameraCapture();
+    installRecordingBackupStore();
+    emitStopChunk = true;
+    const cue = deferred<void>();
+    const transcription = deferred<TranscriptionCapture>();
+    const transcript = capture();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    mocks.transcribe.mockReturnValueOnce(transcription.promise);
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        systemAudioOn: false,
+      },
+      audioCue,
+    );
+
+    await reachCue(audioCue.playBeforeCapture);
+    cue.resolve();
+    await flush();
+    expect(mediaRecorderStart).toHaveBeenCalledOnce();
+    expect(mocks.transcribe).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(100);
+
+    await mocks.emit("clips:recorder-stop");
+    transcription.resolve(transcript);
+    const handle = await pending;
+    const id = createdRecordingId();
+    await expect(handle.stop()).resolves.toMatchObject({
+      recordingId: id,
+      viewUrl: `/r/${id}`,
+    });
+    expect(transcript.cancel).toHaveBeenCalledOnce();
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => {
+        if (
+          !String(url).includes("/api/uploads/") ||
+          !String(url).includes("/chunk?")
+        ) {
+          return false;
+        }
+        const requestUrl = new URL(String(url));
+        return (
+          requestUrl.searchParams.get("isFinal") === "1" &&
+          init?.method === "POST"
+        );
+      }),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) =>
+          String(url).includes("/api/uploads/") &&
+          String(url).endsWith("/abort"),
+      ),
+    ).toBe(false);
   });
 });

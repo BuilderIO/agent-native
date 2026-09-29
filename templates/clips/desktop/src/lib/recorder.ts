@@ -232,6 +232,7 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
+  onCaptureStarted?: (recordingId: string | null) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -1600,64 +1601,73 @@ async function createServerRecording(
   },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
+  const recordingId = options?.id ?? crypto.randomUUID();
+  throwIfRecordingStartAborted(options?.signal);
   console.log("[clips-recorder] POST", url, {
     hasCamera,
     hasAudio,
     title: titleContext?.title,
     requestStreaming: options?.requestStreaming ?? false,
   });
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: buildCreateRecordingRequestHeaders(options?.authToken),
-      credentials: "include",
-      signal: options?.signal,
-      body: JSON.stringify(
-        buildCreateRecordingRequestBody(
-          hasCamera,
-          hasAudio,
-          titleContext,
-          options,
+  const createPromise = (async () => {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: buildCreateRecordingRequestHeaders(options?.authToken),
+        credentials: "include",
+        body: JSON.stringify(
+          buildCreateRecordingRequestBody(hasCamera, hasAudio, titleContext, {
+            ...options,
+            id: recordingId,
+          }),
         ),
-      ),
-    });
-  } catch (err) {
-    console.error("[clips-recorder] fetch failed:", url, err);
-    if (
-      options?.signal?.aborted ||
-      (err instanceof DOMException && err.name === "AbortError")
-    ) {
-      throw err;
-    }
-    throw new Error(RECORDING_SERVER_UNAVAILABLE);
-  }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("[clips-recorder] bad response:", url, res.status, body);
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(RECORDING_SESSION_EXPIRED);
-    }
-    if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
-      throw new Error(body.slice(0, 200));
-    }
-    if (res.status >= 500) {
+      });
+    } catch (err) {
+      console.error("[clips-recorder] fetch failed:", url, err);
       throw new Error(RECORDING_SERVER_UNAVAILABLE);
     }
-    throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as {
-    result?: { id: string; uploadMode?: string };
-    id?: string;
-    uploadMode?: string;
+    if (!res.ok) {
+      const body = await res.text();
+      console.error("[clips-recorder] bad response:", url, res.status, body);
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(RECORDING_SESSION_EXPIRED);
+      }
+      if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
+        throw new Error(body.slice(0, 200));
+      }
+      if (res.status >= 500) {
+        throw new Error(RECORDING_SERVER_UNAVAILABLE);
+      }
+      throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as {
+      result?: { id: string; uploadMode?: string };
+      id?: string;
+      uploadMode?: string;
+    };
+    const result = data.result ?? data;
+    if (!result.id) {
+      throw new Error("create-recording did not return an id");
+    }
+    const uploadMode: UploadMode =
+      result.uploadMode === "streaming" ? "streaming" : "buffered";
+    return { id: result.id, uploadMode };
+  })();
+  const abortCreatedRecording = () => {
+    void abortRecordingUpload(
+      serverUrl,
+      recordingId,
+      "Recording cancelled during startup",
+      "user_cancelled",
+    );
   };
-  const result = data.result ?? data;
-  if (!result.id) {
-    throw new Error("create-recording did not return an id");
-  }
-  const uploadMode: UploadMode =
-    result.uploadMode === "streaming" ? "streaming" : "buffered";
-  return { id: result.id, uploadMode };
+  return guardRecordingStart(createPromise, {
+    signal: options?.signal,
+    timeoutMs: null,
+    onCancel: abortCreatedRecording,
+    onLateResolve: abortCreatedRecording,
+  });
 }
 
 export async function createPrivateAgentRewindRecording(
@@ -2816,6 +2826,7 @@ async function tryStartRewindFullscreenRecording(
           invoke<RewindClipBackendStatus>("rewind_clip_start"),
           { signal: params.signal },
         );
+        params.onCaptureStarted?.(preparedRecording.id || null);
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -3384,6 +3395,7 @@ async function startNativeFullscreenRecording(
       { signal: params.signal },
     );
     assertStartupActive();
+    params.onCaptureStarted?.(localOnly ? null : id || null);
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
@@ -4469,6 +4481,7 @@ async function startRecordingInner(
       let pausedAt: number | null = null;
       let accumulatedPauseMs = 0;
       let stopped = false;
+      let cancelRequestedDuringStartup = false;
       let stateUnlistens: UnlistenFn[] = [];
       let tickHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -4511,6 +4524,11 @@ async function startRecordingInner(
         }),
         listen("clips:recorder-stop", () => {
           console.log("[clips-recorder] local stop event received");
+          if (startedAt === 0) {
+            cancelRequestedDuringStartup = true;
+            void emit("clips:countdown-cancel").catch(() => {});
+            return;
+          }
           handle.stop().catch((err) => {
             console.error("[clips-recorder] local handle.stop() threw:", err);
           });
@@ -4635,10 +4653,14 @@ async function startRecordingInner(
 
       try {
         await runRecordingCountdown(wantsScreen, params.signal);
+        if (cancelRequestedDuringStartup) {
+          throw new RecordingStartCancelledError();
+        }
         await audioCue.playBeforeCapture();
         throwIfRecordingStartAborted(params.signal);
         if (stopped) throw new RecordingStartCancelledError();
         localExport.start(2_000);
+        params.onCaptureStarted?.(null);
       } catch (err) {
         if (!stopped) {
           stopped = true;
@@ -4853,6 +4875,9 @@ async function startRecordingInner(
     let stopped = false;
     let handle: RecorderHandle | null = null;
     let cancelRequestedDuringStartup = false;
+    let transcriptionStartupPending = false;
+    let stopDuringTranscriptionStartup: Promise<RecorderStopResult> | null =
+      null;
     let stateUnlistens: UnlistenFn[] = [];
     let tickHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -4929,7 +4954,16 @@ async function startRecordingInner(
       }),
       listen("clips:recorder-stop", () => {
         console.log("[clips-recorder] stop event received");
-        handle?.stop().catch((err) => {
+        if (!handle) {
+          cancelRequestedDuringStartup = true;
+          void emit("clips:countdown-cancel").catch(() => {});
+          return;
+        }
+        const stopPromise = handle.stop();
+        if (transcriptionStartupPending) {
+          stopDuringTranscriptionStartup = stopPromise;
+        }
+        stopPromise.catch((err) => {
           console.error("[clips-recorder] handle.stop() threw:", err);
         });
       }),
@@ -4956,12 +4990,16 @@ async function startRecordingInner(
 
     try {
       await runRecordingCountdown(wantsScreen, params.signal);
+      if (cancelRequestedDuringStartup) {
+        throw new RecordingStartCancelledError();
+      }
       await audioCue.playBeforeCapture();
       throwIfRecordingStartAborted(params.signal);
       if (cancelRequestedDuringStartup || stopped) {
         throw new RecordingStartCancelledError();
       }
       recorder.start(LIVE_UPLOAD_CHUNK_MS);
+      params.onCaptureStarted?.(id);
     } catch (err) {
       stateUnlistens.forEach((unlisten) => unlisten());
       stateUnlistens = [];
@@ -5406,20 +5444,24 @@ async function startRecordingInner(
       once: true,
     });
     try {
+      transcriptionStartupPending = true;
       if (canTranscribeLocally) await restartHandoff.transcriptionTornDown;
       throwIfRecordingStartAborted(params.signal);
-      if (stopped) throw new RecordingStartCancelledError();
+      if (stopped && !stopDuringTranscriptionStartup) {
+        throw new RecordingStartCancelledError();
+      }
 
-      transcriptionCapture = canTranscribeLocally
-        ? await startTranscriptionCapture(
-            {
-              deviceId: params.micId,
-              label: params.micLabel,
-            },
-            wantsSystemAudio,
-            { voiceProcessing: false },
-          )
-        : null;
+      transcriptionCapture =
+        !stopped && canTranscribeLocally
+          ? await startTranscriptionCapture(
+              {
+                deviceId: params.micId,
+                label: params.micLabel,
+              },
+              wantsSystemAudio,
+              { voiceProcessing: false },
+            )
+          : null;
       if (stopped || params.signal?.aborted) {
         await transcriptionCapture?.cancel().catch((err) => {
           console.warn(
@@ -5429,7 +5471,9 @@ async function startRecordingInner(
         });
         transcriptionCapture = null;
         throwIfRecordingStartAborted(params.signal);
-        throw new RecordingStartCancelledError();
+        if (!stopDuringTranscriptionStartup) {
+          throw new RecordingStartCancelledError();
+        }
       }
       if (pausedAt != null && transcriptionCapture) {
         console.log(
@@ -5444,6 +5488,7 @@ async function startRecordingInner(
         void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
       }
     } finally {
+      transcriptionStartupPending = false;
       params.signal?.removeEventListener("abort", cancelOnStartupAbort);
     }
 
