@@ -63,7 +63,7 @@ describe("isPrivateInboxPath", () => {
 });
 
 describe("createMailSyncEventHandler", () => {
-  it("refreshes Mail's raw queries after an agent action mutation", async () => {
+  it("refreshes Mail's raw queries after a Mail mailbox mutation", async () => {
     const queryClient = new QueryClient();
     const invalidate = vi
       .spyOn(queryClient, "invalidateQueries")
@@ -80,6 +80,24 @@ describe("createMailSyncEventHandler", () => {
     expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(
       expect.arrayContaining([["emails"], ["email"], LABELS_QUERY_KEY]),
     );
+    queryClient.clear();
+  });
+
+  it("ignores unrelated action completions", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({
+      source: "action",
+      type: "action-change",
+      key: "create-calendar-event",
+    });
+    await Promise.resolve();
+
+    expect(invalidate).not.toHaveBeenCalled();
     queryClient.clear();
   });
 });

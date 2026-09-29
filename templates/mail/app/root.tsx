@@ -336,6 +336,25 @@ type MailSyncEvent = {
   requestSource?: string;
 };
 
+const MAIL_QUERY_MUTATION_ACTIONS = new Set([
+  "apply-ai-filter",
+  "archive-email",
+  "bulk-archive",
+  "manage-draft",
+  "mark-read",
+  "mark-thread-read",
+  "move-email",
+  "resync-inbox",
+  "send-email",
+  "send-queued-drafts",
+  "send-scheduled-email-now",
+  "star-email",
+  "trash-email",
+  "unarchive-email",
+  "untrash-email",
+  "update-queued-draft",
+]);
+
 export function createMailSyncEventHandler(qc: QueryClient) {
   let refreshSignalInvalidationScheduled = false;
   let actionQueryInvalidationScheduled = false;
@@ -398,6 +417,7 @@ export function createMailSyncEventHandler(qc: QueryClient) {
         invalidateSettingsSurfaces();
       }
     } else if (data.source === "action") {
+      if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
       if (!actionQueryInvalidationScheduled) {
         actionQueryInvalidationScheduled = true;
         queueMicrotask(() => {
