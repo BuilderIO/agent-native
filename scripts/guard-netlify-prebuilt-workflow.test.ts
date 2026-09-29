@@ -690,6 +690,43 @@ describe("production Netlify site concurrency guard", () => {
       "./.github/workflows/deploy-netlify-prebuilt.yml",
     );
     assert.deepEqual(betaBuild.needs, ["resolve-source", "discover-sites"]);
+    assert.equal(
+      betaBuild.if,
+      "needs.discover-sites.outputs.has_sites == 'true'",
+    );
+    const betaDiscover = (beta.jobs as Workflow)["discover-sites"] as Workflow;
+    const betaDiscoverSteps = betaDiscover.steps as Array<Workflow>;
+    const betaBasesIndex = betaDiscoverSteps.findIndex(
+      (step) => step.id === "bases",
+    );
+    const betaBases = betaDiscoverSteps[betaBasesIndex];
+    assert.equal(betaBases?.if, "github.event_name == 'push'");
+    assert.equal(
+      (betaBases?.env as Workflow)?.NETLIFY_AUTH_TOKEN,
+      "${{ secrets.NETLIFY_AUTH_TOKEN }}",
+    );
+    assert.ok(
+      betaBasesIndex <
+        betaDiscoverSteps.findIndex((step) =>
+          String(step.uses ?? "").startsWith("actions/checkout@"),
+        ),
+      "the Netlify token step must run before repository code is checked out",
+    );
+    assert.match(
+      String((betaBases?.with as Workflow)?.script),
+      /published_deploy\?\.title/,
+    );
+    assert.equal(
+      betaDiscoverSteps.some((step) =>
+        String(step.uses ?? "").startsWith("actions/checkout@"),
+      ) && betaDiscover.permissions === undefined,
+      true,
+      "discover-sites checks out code and must keep the read-only workflow permissions",
+    );
+    assert.match(
+      String(betaDiscoverSteps.find((step) => step.id === "matrix")?.run ?? ""),
+      /scripts\/netlify-beta-targets\.ts/,
+    );
     assert.equal((betaBuild.with as Workflow).target, "beta");
     assert.equal((betaBuild.with as Workflow).deploy, false);
     assert.equal((betaBuild.with as Workflow).deploy_mode, "draft");
@@ -1188,6 +1225,104 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /BUILD_CONTEXT="\$BUILD_CONTEXT" node --experimental-strip-types scripts\/netlify-migration-url\.ts/,
     );
+  });
+
+  it("publishes every beta site when the published-source lookup fails", async () => {
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const discover = (beta.jobs as Workflow)["discover-sites"] as Workflow;
+    const script = String(
+      (
+        (discover.steps as Array<Workflow>).find((step) => step.id === "bases")
+          ?.with as Workflow
+      )?.script,
+    );
+    const runnerTemp = mkdtempSync(join(tmpdir(), "beta-site-bases-"));
+    const run = async (
+      getContent: () => Promise<unknown>,
+      fetchSite: (url: string) => Promise<unknown>,
+    ) => {
+      const warnings: string[] = [];
+      const outputs: Record<string, string> = {};
+      await new Function(
+        "require",
+        "github",
+        "context",
+        "core",
+        "process",
+        "fetch",
+        `return (async () => {\n${script}\n})();`,
+      )(
+        (id: string) =>
+          id === "node:fs"
+            ? { writeFileSync }
+            : { join: (...parts: string[]) => join(...parts) },
+        { rest: { repos: { getContent } } },
+        { repo: { owner: "BuilderIO", repo: "agent-native" } },
+        {
+          warning: (message: string) => warnings.push(message),
+          setOutput: (name: string, value: string) => {
+            outputs[name] = value;
+          },
+        },
+        {
+          env: {
+            NETLIFY_AUTH_TOKEN: "fake-token",
+            SOURCE_SHA: "a".repeat(40),
+            RUNNER_TEMP: runnerTemp,
+          },
+        },
+        fetchSite,
+      );
+      return { warnings, outputs };
+    };
+    const encoded = (value: string) => ({
+      data: { content: Buffer.from(value).toString("base64") },
+    });
+    try {
+      for (const getContent of [
+        async () => {
+          throw new Error("HTTP 502");
+        },
+        async () => encoded("not json"),
+        async () => encoded('{"id":"docs"}'),
+      ]) {
+        const { warnings, outputs } = await run(getContent, async () => {
+          throw new Error("unexpected Netlify lookup");
+        });
+        assert.equal(outputs.bases_file, undefined);
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0], /publishing every beta site/);
+      }
+
+      const { warnings, outputs } = await run(
+        async () =>
+          encoded(
+            JSON.stringify([
+              { id: "docs", siteId: "docs-site" },
+              { id: "mail", siteId: "mail-site" },
+            ]),
+          ),
+        async (url: string) => {
+          if (url.endsWith("/mail-site")) throw new Error("timeout");
+          return {
+            ok: true,
+            json: async () => ({
+              published_deploy: { title: `beta ${"B".repeat(40)}` },
+            }),
+          };
+        },
+      );
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], /beta mail: timeout/);
+      assert.deepEqual(JSON.parse(readFileSync(outputs.bases_file, "utf8")), {
+        docs: "b".repeat(40),
+        mail: null,
+      });
+    } finally {
+      rmSync(runnerTemp, { recursive: true, force: true });
+    }
   });
 
   it("requeues the latest beta source after every production operation", () => {
