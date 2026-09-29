@@ -6,6 +6,11 @@
 
 @source "./**/*.{ts,tsx}";
 
+.agent-sidebar-shell[data-agent-sidebar-position="right"]
+  > .agent-sidebar-resize-handle {
+  background-color: hsl(var(--border) / 0.72);
+}
+
 :root {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
