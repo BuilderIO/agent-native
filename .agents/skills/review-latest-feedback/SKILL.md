@@ -533,11 +533,13 @@ branches. Behind/pending never justify syncing.
 
 Ship requests authorize new PRs. Push to someone else's PR requires explicit
 authorization for that exact PR in the current request; links or inherited
-authority don't count. Push authorization doesn't authorize merging; use
-`ship_mode=ready-only` and leave the PR open pending separate merge
-authorization. Without push authorization, hand off and mark publishing
-pending. Carry channel cursors, reports, evidence, owning seams, sibling
-results, and dispositions into the PR body.
+authority don't count. For an exact external PR, push-only authorization uses
+`ship_mode=ready-only` and leaves the PR open. Use
+`ship_mode=merge-authorized` only when the same current request separately
+authorizes merging that exact PR, then follow `/ship`'s guarded merge gate.
+Without push authorization, hand off and mark publishing pending. Carry
+channel cursors, reports, evidence, owning seams, sibling results, and
+dispositions into the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
 If a tracker was supplied, carry its exact row ids and the reproduction ledger
