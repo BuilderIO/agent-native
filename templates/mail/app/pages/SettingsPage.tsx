@@ -2011,14 +2011,6 @@ function LegacyMailSettings() {
         keywords: "snippets templates canned responses shortcuts",
       },
       {
-        id: "automations",
-        label: t("settings.automations"),
-        icon: IconBolt,
-        group: "automation",
-        content: <AutomationsSection />,
-        keywords: "automations rules triggers events labels model",
-      },
-      {
         id: "ai-filter",
         label: t("settings.aiFilter"),
         icon: IconFilter,
@@ -2026,6 +2018,14 @@ function LegacyMailSettings() {
         content: <AiFilterSection />,
         keywords:
           "ai filter spam auto label unwanted mail suggestions feedback",
+      },
+      {
+        id: "automations",
+        label: t("settings.automations"),
+        icon: IconBolt,
+        group: "automation",
+        content: <AutomationsSection />,
+        keywords: "automations rules triggers events labels model",
       },
       {
         id: "gmail-filters",

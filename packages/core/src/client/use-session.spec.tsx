@@ -10,6 +10,7 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
+import { fetchAuthSessionStatus } from "./client-status-requests.js";
 import {
   notifySessionInvalidated,
   recheckSessionAfterUnauthorized,
@@ -658,7 +659,31 @@ describe("useSession", () => {
     expect(container.textContent).toBe("signing-out");
   });
 
-  it("revalidates a cached session when the browser regains focus", async () => {
+  it("keeps a signed-in answer inside its lifetime when the browser regains focus", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-5", email: "focus@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("focus@example.com");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    delete (document as { visibilityState?: string }).visibilityState;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("focus@example.com");
+  });
+
+  it("revalidates on focus once the signed-in answer outlives its lifetime", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -675,6 +700,7 @@ describe("useSession", () => {
     await renderConsumers(["first"]);
     expect(container.textContent).toBe("focus@example.com");
 
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -682,6 +708,144 @@ describe("useSession", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toBe("signed-out");
+  });
+
+  it("re-reads a signed-out answer on focus, where signing in elsewhere shows up", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ userId: "user-6", email: "returned@example.com" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("signed-out");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("returned@example.com");
+  });
+
+  describe("a focus inside the answer's lifetime", () => {
+    async function focusThenExpire(options: { focusedAtExpiry: boolean }) {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-a", email: "before@example.com" }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "after@example.com" }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+
+      try {
+        await renderConsumers(["first"]);
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        vi.spyOn(Date, "now").mockReturnValue(now + 10_000);
+        await act(async () => {
+          window.dispatchEvent(new Event("focus"));
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        hasFocus.mockReturnValue(options.focusedAtExpiry);
+        vi.spyOn(Date, "now").mockReturnValue(now + 30_000);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        return fetchMock;
+      } finally {
+        delete (document as { visibilityState?: string }).visibilityState;
+      }
+    }
+
+    it("re-reads the answer when it expires while the tab still has focus", async () => {
+      const fetchMock = await focusThenExpire({ focusedAtExpiry: true });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toBe("after@example.com");
+    });
+
+    it("leaves a tab that lost focus to its next focus instead", async () => {
+      const fetchMock = await focusThenExpire({ focusedAtExpiry: false });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toBe("before@example.com");
+    });
+  });
+
+  it("joins the read in flight when focus arrives before the first answer", async () => {
+    let respond!: (response: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          respond = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      respond(jsonResponse({ userId: "user-7", email: "early@example.com" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("early@example.com");
+  });
+});
+
+describe("one session read per page load", () => {
+  it("answers useSession from the read analytics started, long after it landed", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-8", email: "shared@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchAuthSessionStatus()).resolves.toMatchObject({
+      state: "available",
+    });
+    vi.spyOn(Date, "now").mockReturnValue(now + 5_000);
+    await renderConsumers(["gate", "header"]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("shared@example.comshared@example.com");
+  });
+
+  it("answers analytics and useSession from the shell's bootstrap read with no request", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: "unexpected fetch" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-9", email: "bootstrap@example.com" },
+    });
+
+    await fetchAuthSessionStatus();
+    vi.spyOn(Date, "now").mockReturnValue(now + 2_000);
+    await renderConsumers(["gate"]);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await fetchAuthSessionStatus();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.textContent).toBe("bootstrap@example.com");
   });
 });
 

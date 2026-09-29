@@ -8,8 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addAgentNativeSkill,
   AGENT_NATIVE_SKILL_METADATA_FILE,
+  CONNECTION_REFERENCE_MD,
   parseSkillsArgs,
   runSkills,
+  VISUAL_RECAP_SKILL_MD,
 } from "./skills.js";
 
 const tmpRoots: string[] = [];
@@ -1303,6 +1305,15 @@ describe("agent-native skills", () => {
     expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toContain(
       "create-visual-recap",
     );
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toBe(
+      VISUAL_RECAP_SKILL_MD,
+    );
+    expect(
+      fs.readFileSync(
+        path.join(skillDir, "references", "connection.md"),
+        "utf-8",
+      ),
+    ).toBe(CONNECTION_REFERENCE_MD);
     expect(
       fs.readFileSync(
         path.join(skillDir, "references", "wireframe.md"),

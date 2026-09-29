@@ -76,11 +76,8 @@ import {
   registerFeatureFlags,
   SETTINGS_REDESIGN_FLAG,
 } from "../feature-flags/registry.js";
-import {
-  uploadFile,
-  getActiveFileUploadProviderForRequest,
-  listFileUploadProviders,
-} from "../file-upload/index.js";
+import { uploadFile } from "../file-upload/index.js";
+import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { registerLabs } from "../labs/registry.js";
@@ -5719,7 +5716,13 @@ export function createCoreRoutesPlugin(
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
           const resolveStatus = async () => {
-            const active = await getActiveFileUploadProviderForRequest();
+            const providerStatuses =
+              await listFileUploadProviderStatusesForRequest();
+            // The Builder fallback that `getActiveFileUploadProviderForRequest`
+            // adds after these is `builderUploadConfigured` below.
+            const active =
+              providerStatuses.find((status) => status.configured)?.provider ??
+              null;
             let builderConfigured = false;
             let builderUploadConfigured = false;
             const {
@@ -5731,16 +5734,11 @@ export function createCoreRoutesPlugin(
               BUILDER_ASSETS_WRITE_SCOPE,
             );
 
-            const providers = await Promise.all(
-              listFileUploadProviders().map(async (p) => {
-                const scopedConfigured = p.isConfiguredForRequest
-                  ? await p.isConfiguredForRequest()
-                  : false;
-                return {
-                  id: p.id,
-                  name: p.name,
-                  configured: p.isConfigured() || scopedConfigured,
-                };
+            const providers = providerStatuses.map(
+              ({ provider, configured }) => ({
+                id: provider.id,
+                name: provider.name,
+                configured,
               }),
             );
 

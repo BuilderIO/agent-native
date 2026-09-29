@@ -1044,6 +1044,11 @@ const messages = {
     createFirstDeck: "첫 덱 만들기",
     emptyDescription: "AI 생성으로 아름다운 프레젠테이션을 만드세요.",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+  },
 };
 
 export default messages;

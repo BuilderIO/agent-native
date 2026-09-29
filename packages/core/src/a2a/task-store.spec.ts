@@ -150,6 +150,17 @@ describe("task-store (SQL)", () => {
     return import("./task-store.js");
   }
 
+  it("indexes only active task states for stale-task recovery scans", async () => {
+    const { ensureTable } = await loadStore();
+    await ensureTable();
+
+    expect(executeDdlMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "ON a2a_tasks(created_at) WHERE status_state IN ('submitted', 'working', 'processing')",
+      ),
+    );
+  });
+
   describe("createTask", () => {
     it("creates a task with submitted state", async () => {
       const { createTask } = await loadStore();

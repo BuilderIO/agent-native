@@ -1,5 +1,4 @@
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
-import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconChevronRight,
@@ -29,28 +28,12 @@ import {
   type SecretSource,
   type SecretStatus,
 } from "../secrets.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { cn } from "../utils.js";
 import { KeyProviderTile } from "./KeyProviderTile.js";
 import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
 import { SettingsCrossLinkHint } from "./SettingsCrossLinkHint.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
-
-const Button = React.forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
-      props.emphasis === "solid" ? null : "hover:text-inherit",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "SecretsPrimitiveButton";
 
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",

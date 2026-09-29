@@ -51,6 +51,7 @@ export interface SendEmailArgs {
   templateId?: string;
   app?: string;
   orgId?: string;
+  signal?: AbortSignal;
 }
 
 let cachedAgentNativeLogo: Buffer | undefined;
@@ -596,16 +597,19 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
   }
   const requestedTimeoutMs = Number(args.timeoutMs);
   if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
-    return sendEmailWithSignal(args);
+    return sendEmailWithSignal(args, args.signal);
   }
 
   const timeoutMs = Math.floor(requestedTimeoutMs);
   const controller = new AbortController();
+  const signal = args.signal
+    ? AbortSignal.any([args.signal, controller.signal])
+    : controller.signal;
   const timeoutError = new Error(`Email send timed out after ${timeoutMs}ms`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      sendEmailWithSignal(args, controller.signal),
+      sendEmailWithSignal(args, signal),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
           controller.abort(timeoutError);

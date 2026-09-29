@@ -1940,7 +1940,15 @@ export async function callAgent(
         state === "canceled" ||
         state === "input-required"
       ) {
-        throw new A2ATaskTerminalError(task, state, responseText);
+        const rawErrorCode =
+          state === "failed"
+            ? task.status.message?.metadata?.agentNativeErrorCode
+            : undefined;
+        const errorCode =
+          typeof rawErrorCode === "string" && rawErrorCode.trim()
+            ? rawErrorCode.trim().slice(0, 200)
+            : undefined;
+        throw new A2ATaskTerminalError(task, state, responseText, errorCode);
       }
       if (state !== "completed") {
         throw new A2ATaskTerminalError(
