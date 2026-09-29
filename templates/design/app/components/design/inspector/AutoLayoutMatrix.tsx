@@ -269,7 +269,8 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   onPaddingChange: (
     padding: AutoLayoutPadding,
-    meta?: ScrubInputChangeMeta,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutPadding>,
   ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
   onMarginChange?: (

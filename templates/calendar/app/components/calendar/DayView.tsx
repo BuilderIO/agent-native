@@ -24,7 +24,10 @@ import {
   useViewPreferences,
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
-import { partitionAllDayEvents } from "@/lib/all-day-layout";
+import {
+  isCompactCalendarEvent,
+  partitionAllDayEvents,
+} from "@/lib/all-day-layout";
 import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
   dateToCalendarDateKey,
@@ -32,7 +35,6 @@ import {
   getDateKeyInTimezone,
   getEventDateKey,
   getEventSegmentForCalendarDay,
-  isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
@@ -536,7 +538,7 @@ export const DayView = memo(function DayView({
     () =>
       events.filter(
         (event) =>
-          isAllDayCalendarEvent(event) ||
+          isCompactCalendarEvent(event) ||
           fullDayOutOfOfficeCoversDate(event, date),
       ),
     [date, events],
@@ -549,7 +551,7 @@ export const DayView = memo(function DayView({
     () =>
       events.filter(
         (event) =>
-          !isAllDayCalendarEvent(event) &&
+          !isCompactCalendarEvent(event) &&
           isOutOfOfficeEvent(event) &&
           !isFullDayOutOfOfficeEvent(event),
       ),
@@ -558,7 +560,7 @@ export const DayView = memo(function DayView({
   const timedEvents = useMemo(
     () =>
       events.filter(
-        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+        (event) => !isCompactCalendarEvent(event) && !isOutOfOfficeEvent(event),
       ),
     [events],
   );

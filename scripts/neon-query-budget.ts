@@ -22,6 +22,8 @@ const METRIC_NAMES = [
 const BUDGETED_METRICS = [
   "queries",
   "rowsReturned",
+  "catalogQueries",
+  "migrationTableQueries",
   "poolAcquisitions",
 ] as const;
 const PGLITE_DATABASE_URL = "pglite:memory";
@@ -70,9 +72,9 @@ export interface QueryBudgetMetrics {
 export interface TemplateQueryBudget {
   action: string | null;
   budget?: {
-    page: Partial<QueryBudgetMetrics>;
-    listAction: Partial<QueryBudgetMetrics> | null;
-    idlePoll: Partial<QueryBudgetMetrics>;
+    page: QueryBudgetMetrics;
+    listAction: QueryBudgetMetrics | null;
+    idlePoll: QueryBudgetMetrics;
     pollRequests: number;
   };
   observed?: {
@@ -485,7 +487,16 @@ export function compareQueryBudget(
     }
     for (const key of BUDGETED_METRICS) {
       const expectedValue = expected[key];
-      if (expectedValue === undefined) continue;
+      if (
+        typeof expectedValue !== "number" ||
+        !Number.isFinite(expectedValue) ||
+        expectedValue < 0
+      ) {
+        errors.push(
+          `${report.template} ${pathName}.${key}: budget baseline is missing or invalid`,
+        );
+        continue;
+      }
       const allowed =
         expectedValue +
         Math.max(

@@ -552,6 +552,7 @@ interface DesignCanvasProps {
     documentId?: string;
     reservationToken?: string;
   }) => void;
+  onRuntimeLayerSnapshotReadinessChange?: (ready: boolean) => void;
   onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
     reservationToken: string;
   }>;
@@ -1259,6 +1260,7 @@ export function DesignCanvas({
   blockPreviewInteraction = false,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onRuntimeLayerSnapshotReadinessChange,
   onReserveVisualEditSnapshot,
   onBridgeReady,
   onPreviewTokenChange,
@@ -1525,6 +1527,12 @@ export function DesignCanvas({
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
+  const readyRuntimeLayerDocumentIdRef = useRef<string | null>(null);
+  const runtimeLayerSnapshotDocumentIdRef = useRef<string | null>(null);
+  const runtimeLayerSnapshotReadinessRequestIdRef = useRef(0);
+  const expectedRuntimeLayerSnapshotReadinessRequestIdRef = useRef<
+    number | null
+  >(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const pendingRuntimeDeletePreviewRef = useRef<{
@@ -1620,9 +1628,24 @@ export function DesignCanvas({
     },
     [probeBridgeReadinessUntilDrained],
   );
-  const requestRuntimeLayerSnapshot = useCallback(() => {
-    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
-  }, [postOneShotBridgeMessage]);
+  const requestRuntimeLayerSnapshot = useCallback(
+    (readinessRequestId?: number) => {
+      postOneShotBridgeMessage({
+        type: "request-runtime-layer-snapshot",
+        ...(readinessRequestId !== undefined ? { readinessRequestId } : {}),
+      });
+    },
+    [postOneShotBridgeMessage],
+  );
+  const refreshRuntimeLayerSnapshotAfterReady = useCallback(() => {
+    if (!onRuntimeLayerSnapshotReadinessChange) return;
+    const readinessRequestId =
+      ++runtimeLayerSnapshotReadinessRequestIdRef.current;
+    expectedRuntimeLayerSnapshotReadinessRequestIdRef.current =
+      readinessRequestId;
+    onRuntimeLayerSnapshotReadinessChange(false);
+    requestRuntimeLayerSnapshot(readinessRequestId);
+  }, [onRuntimeLayerSnapshotReadinessChange, requestRuntimeLayerSnapshot]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
   const requestSharedSnapshotAfterEdit = useCallback(() => {
     if (sourceType !== "localhost" || snapshotOnly) return;
@@ -3269,6 +3292,9 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
+    readyRuntimeLayerDocumentIdRef.current = null;
+    runtimeLayerSnapshotDocumentIdRef.current = null;
+    expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       bridgeReadyRef.current = false;
       editorChromeReadyRef.current = false;
@@ -3550,6 +3576,29 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
+          e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
+          editorChromeReadyRef.current &&
+          onRuntimeLayerSnapshotReadinessChange &&
+          documentId === readyRuntimeLayerDocumentIdRef.current &&
+          documentId === runtimeLayerSnapshotDocumentIdRef.current &&
+          Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
+          e.data.payload.readinessRequestId ===
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
+        ) {
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange(true);
+        }
+        if (
+          e.data.type === "agent-native:runtime-layer-snapshot-error" &&
+          documentId === readyRuntimeLayerDocumentIdRef.current &&
+          Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
+          e.data.payload.readinessRequestId ===
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
+        ) {
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange?.(false);
+        }
+        if (
           Number.isSafeInteger(requestId) &&
           typeof documentId === "string" &&
           typeof e.data.payload?.reservationToken === "string"
@@ -3707,6 +3756,10 @@ export function DesignCanvas({
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
+          readyRuntimeLayerDocumentIdRef.current = null;
+          runtimeLayerSnapshotDocumentIdRef.current = null;
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange?.(false);
           liveRoutePathRef.current = null;
           onBootStart?.();
           liveEditHealthProbeGenerationRef.current += 1;
@@ -3800,13 +3853,18 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
+          const documentId =
+            typeof payload.documentId === "string" ? payload.documentId : null;
+          if (
+            !documentId ||
+            documentId !== readyRuntimeLayerDocumentIdRef.current
+          ) {
+            return;
+          }
           const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
+            documentId,
           };
           const reservationToken =
             typeof payload.reservationToken === "string"
@@ -3815,7 +3873,28 @@ export function DesignCanvas({
           const requestId = Number.isSafeInteger(payload.requestId)
             ? (payload.requestId as number)
             : undefined;
+          const readinessRequestId = Number.isSafeInteger(
+            payload.readinessRequestId,
+          )
+            ? (payload.readinessRequestId as number)
+            : undefined;
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (onRuntimeLayerSnapshot) {
+            runtimeLayerSnapshotDocumentIdRef.current = documentId;
+          }
+          if (
+            editorChromeReadyRef.current &&
+            onRuntimeLayerSnapshotReadinessChange &&
+            documentId === runtimeLayerSnapshotDocumentIdRef.current &&
+            (readinessRequestId ===
+              expectedRuntimeLayerSnapshotReadinessRequestIdRef.current ||
+              (readinessRequestId === undefined &&
+                expectedRuntimeLayerSnapshotReadinessRequestIdRef.current ===
+                  null))
+          ) {
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+            onRuntimeLayerSnapshotReadinessChange(true);
+          }
           if (
             reservationToken &&
             requestId !== undefined &&
@@ -3837,10 +3916,16 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:editor-chrome-ready") {
+        const documentId =
+          typeof e.data.documentId === "string" && e.data.documentId
+            ? e.data.documentId
+            : null;
+        const shouldRefreshRuntimeLayerSnapshot =
+          !editorChromeReadyRef.current ||
+          documentId !== readyRuntimeLayerDocumentIdRef.current;
         liveEditHealthProbeGenerationRef.current += 1;
         liveEditRestartInFlightRef.current = false;
         if (trustedLateLiveEditReady && lateReadyRecovery) {
-          lateLiveEditReadyRecoveryRef.current = null;
           if (lateReadyRecovery.registrationHandoffKey) {
             liveEditRegistrationHandoff.set(
               lateReadyRecovery.registrationHandoffKey,
@@ -3851,13 +3936,26 @@ export function DesignCanvas({
             current?.bridgeKey === lateReadyRecovery.bridgeKey ? null : current,
           );
           setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
+          lateLiveEditReadyRecoveryRef.current = null;
+          liveEditRestartAttemptRef.current = 0;
+          if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
+            window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
+            liveEditSameInstanceRearmTimerRef.current = undefined;
+          }
+          liveEditSameInstanceElapsedMsRef.current = 0;
+          liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
+          setLiveEditSameInstanceStalledError(null);
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
+        readyRuntimeLayerDocumentIdRef.current = documentId;
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
+        if (shouldRefreshRuntimeLayerSnapshot) {
+          refreshRuntimeLayerSnapshotAfterReady();
+        }
         liveEditRestartAttemptRef.current = 0;
         if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
           window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
@@ -4858,8 +4956,10 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onRuntimeLayerSnapshotReadinessChange,
     onReserveVisualEditSnapshot,
     onBridgeReady,
+    refreshRuntimeLayerSnapshotAfterReady,
     onBootReady,
     markPreviewFrameReady,
     onBootStart,
@@ -5136,17 +5236,24 @@ export function DesignCanvas({
       if (bridgeReadyRef.current) {
         if (editorChromeReadyRef.current) return;
         editorChromeReadyRef.current = true;
+        refreshRuntimeLayerSnapshotAfterReady();
         flushPendingOneShotMessages();
         return;
       }
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
     iframe.addEventListener("load", handleLoadReadyFallback);
     return () => iframe.removeEventListener("load", handleLoadReadyFallback);
-  }, [flushPendingOneShotMessages, onBridgeReady, usesLiveEditEditorBridge]);
+  }, [
+    flushPendingOneShotMessages,
+    onBridgeReady,
+    refreshRuntimeLayerSnapshotAfterReady,
+    usesLiveEditEditorBridge,
+  ]);
 
   useEffect(() => {
     if (!onBootReady) return;
@@ -5160,6 +5267,19 @@ export function DesignCanvas({
     iframe.addEventListener("load", handleLoad);
     return () => iframe.removeEventListener("load", handleLoad);
   }, [iframeDocumentIdentity, onBootReady]);
+
+  useLayoutEffect(() => {
+    if (!onRuntimeLayerSnapshotReadinessChange) return;
+    if (editorChromeReadyRef.current) {
+      refreshRuntimeLayerSnapshotAfterReady();
+      return;
+    }
+    onRuntimeLayerSnapshotReadinessChange(false);
+  }, [
+    iframeDocumentIdentity,
+    onRuntimeLayerSnapshotReadinessChange,
+    refreshRuntimeLayerSnapshotAfterReady,
+  ]);
 
   useLayoutEffect(() => {
     onBootStart?.();
