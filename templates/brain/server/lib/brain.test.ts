@@ -3651,6 +3651,218 @@ describe("Brain connector smoke coverage", () => {
     });
   });
 
+  it("captures recent Slack messages while an older history cursor is still paging", async () => {
+    const historyRequests: Array<{
+      cursor: string | null;
+      oldest: string | null;
+      limit: string | null;
+    }> = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_member: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        const cursor = url.searchParams.get("cursor");
+        const oldest = url.searchParams.get("oldest");
+        historyRequests.push({
+          cursor,
+          oldest,
+          limit: url.searchParams.get("limit"),
+        });
+        if (!cursor) {
+          return Response.json({
+            ok: true,
+            messages:
+              oldest === "1770919200.000100"
+                ? [
+                    {
+                      type: "message",
+                      text: "Recent Greptile discussion",
+                      ts: "1770919300.000100",
+                    },
+                  ]
+                : [],
+            has_more: false,
+          });
+        }
+        const finalPage = cursor === "history-page-3";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Older thread in the backlog",
+              ts: finalPage ? "1770919198.000100" : "1770919199.000100",
+            },
+          ],
+          has_more: !finalPage,
+          response_metadata: { next_cursor: finalPage ? "" : "history-page-3" },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        const ts = url.searchParams.get("ts")!;
+        return Response.json({
+          ok: true,
+          messages: [{ type: "message", text: "Captured Slack thread", ts }],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-live-with-backlog-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 30,
+        pagesPerChannel: 1,
+        permalinkLimit: 0,
+      }),
+      cursorJson: JSON.stringify({
+        channels: {
+          C123: {
+            pageCursor: "history-page-2",
+            pendingLatestTs: "1770919200.000100",
+          },
+        },
+      }),
+    });
+
+    const first = await runConnectorSync(source as never);
+    expect(first).toMatchObject({ status: "success", capturesCreated: 2 });
+    expect(first.captures.map((capture) => capture.externalId)).toContain(
+      "slack:C123:1770919300.000100",
+    );
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      channels: {
+        C123: {
+          pageCursor: "history-page-3",
+          pendingLatestTs: "1770919200.000100",
+          recentLatestTs: "1770919300.000100",
+        },
+      },
+    });
+
+    const second = await runConnectorSync(source as never);
+    expect(second).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(historyRequests).toEqual([
+      { cursor: null, oldest: "1770919200.000100", limit: "30" },
+      { cursor: "history-page-2", oldest: null, limit: "30" },
+      { cursor: null, oldest: "1770919300.000100", limit: "30" },
+      { cursor: "history-page-3", oldest: null, limit: "30" },
+    ]);
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      channels: { C123: { latestTs: "1770919300.000100" } },
+    });
+  });
+
+  it("promotes the recent watermark when the older backlog finishes first", async () => {
+    const historyRequests: Array<{
+      cursor: string | null;
+      oldest: string | null;
+    }> = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_member: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        const cursor = url.searchParams.get("cursor");
+        const oldest = url.searchParams.get("oldest");
+        historyRequests.push({ cursor, oldest });
+        if (cursor?.startsWith("backlog-")) {
+          return Response.json({ ok: true, messages: [], has_more: false });
+        }
+        const ts =
+          cursor === "recent-2"
+            ? "1770919202.000100"
+            : oldest === "1770919203.000100"
+              ? "1770919204.000100"
+              : "1770919203.000100";
+        return Response.json({
+          ok: true,
+          messages: [{ type: "message", text: "Recent Slack update", ts }],
+          has_more: cursor !== "recent-2" && oldest !== "1770919203.000100",
+          response_metadata: { next_cursor: "recent-2" },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Recent Slack update",
+              ts: url.searchParams.get("ts"),
+            },
+          ],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-fresh-burst-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 1,
+        permalinkLimit: 0,
+      }),
+      cursorJson: JSON.stringify({
+        channels: {
+          C123: {
+            pageCursor: "backlog-2",
+            pendingLatestTs: "1770919200.000100",
+          },
+        },
+      }),
+    });
+
+    await runConnectorSync(source as never);
+    expect(JSON.parse(String(source.cursorJson)).channels.C123).toMatchObject({
+      latestTs: "1770919200.000100",
+      recentPageCursor: "recent-2",
+      recentPendingLatestTs: "1770919203.000100",
+    });
+    await runConnectorSync(source as never);
+    expect(JSON.parse(String(source.cursorJson)).channels.C123).toMatchObject({
+      latestTs: "1770919203.000100",
+    });
+    expect(
+      JSON.parse(String(source.cursorJson)).channels.C123,
+    ).not.toHaveProperty("recentPageCursor");
+    await runConnectorSync(source as never);
+    expect(historyRequests).toEqual([
+      { cursor: null, oldest: "1770919200.000100" },
+      { cursor: "backlog-2", oldest: null },
+      { cursor: "recent-2", oldest: null },
+      { cursor: null, oldest: "1770919203.000100" },
+    ]);
+    expect(JSON.parse(String(source.cursorJson)).channels.C123).toMatchObject({
+      latestTs: "1770919204.000100",
+    });
+  });
+
   it("joins an explicitly configured public channel before reading history", async () => {
     const calls: string[] = [];
     const fetchSpy = vi.fn(
