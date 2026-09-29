@@ -609,16 +609,10 @@ function TraceDetailView({
             disabled={promote.isPending || !data}
             placeholder={
               needsNeedle
-                ? t("observability.promoteMustContain", {
-                    defaultValue: "Reply must contain…",
-                  })
-                : t("observability.promoteMustContainOptional", {
-                    defaultValue: "Reply must contain (optional)",
-                  })
+                ? t("observability.promoteMustContain")
+                : t("observability.promoteMustContainOptional")
             }
-            aria-label={t("observability.promoteMustContainLabel", {
-              defaultValue: "Text the promoted eval reply must contain",
-            })}
+            aria-label={t("observability.promoteMustContainLabel")}
             className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
           />
           <button
@@ -640,10 +634,7 @@ function TraceDetailView({
       </div>
       {needsNeedle && needle.length === 0 && (
         <p className="mb-3 text-xs text-muted-foreground">
-          {t("observability.promoteNeedsContains", {
-            defaultValue:
-              "This run has no successful tool call. Enter text the reply must contain before promoting.",
-          })}
+          {t("observability.promoteNeedsContains")}
         </p>
       )}
 

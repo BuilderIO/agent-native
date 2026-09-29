@@ -6,6 +6,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
 const WINDOW_MS = 60 * 60_000;
+const A2A_STALE_TASK_LOOKBACK_MS = 24 * 60 * 60_000;
 const MIN_TURNS = 5;
 const BAD_RATE_THRESHOLD = 0.5;
 const COOLDOWN_MS = 60 * 60_000;
@@ -17,7 +18,13 @@ export type ChatHealthAlertOutcome =
   | { status: "healthy"; turns: number; badRate: number }
   | { status: "insufficient-data"; turns: number }
   | { status: "cooldown"; retryAfterMs: number }
-  | { status: "alerted"; turns: number; badRate: number; recipients: number }
+  | {
+      status: "alerted";
+      turns: number;
+      badRate: number;
+      staleA2ATasks: number;
+      recipients: number;
+    }
   | { status: "delivery-failed"; reason: string }
   | { status: "persistence-failed"; reason: string }
   | { status: "check-failed"; reason: string };
@@ -55,6 +62,59 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
     turns: Number(row?.turns ?? 0),
     bad: Number(row?.bad ?? 0),
   };
+}
+
+async function countStaleA2ATasks(now: number): Promise<number> {
+  const client = getDbExec();
+  const { rows: tableRows } = await client.execute({
+    sql: `SELECT to_regclass('a2a_tasks') AS relation`,
+    args: [],
+  });
+  if (!tableRows[0]) {
+    throw new Error("The A2A task table check returned no row.");
+  }
+  if (!(tableRows[0] as Record<string, unknown>).relation) return 0;
+
+  const { ensureTable } = await import("../a2a/task-store.js");
+  await ensureTable();
+  const { getA2ATaskRecoveryLimits } = await import("../a2a/handlers.js");
+  const {
+    queuedLifetimeMaxMs,
+    processingStuckAfterMs,
+    processingLifetimeMaxMs,
+  } = getA2ATaskRecoveryLimits();
+  // Inline handlers move to working before execution and may stream for a long time.
+  const { rows } = await client.execute({
+    sql: `SELECT COUNT(*)::int AS stale_tasks
+          FROM a2a_tasks
+          WHERE status_state IN ('submitted', 'working', 'processing')
+            AND created_at > ?
+            AND (
+              (status_state IN ('submitted', 'working')
+                AND created_at <= ?
+                AND (status_state = 'submitted' OR
+                  strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0))
+              OR
+              (status_state = 'processing' AND
+                strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0 AND
+                (updated_at <= ? OR created_at <= ?))
+            )`,
+    args: [
+      now - A2A_STALE_TASK_LOOKBACK_MS,
+      now - queuedLifetimeMaxMs,
+      now - processingStuckAfterMs,
+      now - processingLifetimeMaxMs,
+    ],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (row?.stale_tasks === null || row?.stale_tasks === undefined) {
+    throw new Error("The A2A task count query returned no count.");
+  }
+  const count = Number(row.stale_tasks);
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error("The A2A task count query returned an invalid count.");
+  }
+  return count;
 }
 
 /** Use one owner/admin only when the app has an unambiguous org scope. */
@@ -102,18 +162,24 @@ export async function checkChatHealthAndAlert(
   now: number = Date.now(),
 ): Promise<ChatHealthAlertOutcome> {
   let counts: TurnCounts;
+  let staleA2ATasks: number;
   try {
-    counts = await countRecentTurns(now - WINDOW_MS);
+    [counts, staleA2ATasks] = await Promise.all([
+      countRecentTurns(now - WINDOW_MS),
+      countStaleA2ATasks(now),
+    ]);
   } catch (error) {
     return { status: "check-failed", reason: String(error) };
   }
 
-  if (counts.turns < MIN_TURNS) {
+  if (counts.turns < MIN_TURNS && staleA2ATasks === 0) {
     return { status: "insufficient-data", turns: counts.turns };
   }
 
-  const badRate = counts.bad / counts.turns;
-  if (badRate < BAD_RATE_THRESHOLD) {
+  const badRate = counts.turns > 0 ? counts.bad / counts.turns : 0;
+  const badTurnRate =
+    counts.turns >= MIN_TURNS && badRate >= BAD_RATE_THRESHOLD;
+  if (!badTurnRate && staleA2ATasks === 0) {
     return { status: "healthy", turns: counts.turns, badRate };
   }
 
@@ -172,6 +238,18 @@ export async function checkChatHealthAndAlert(
   }
 
   const pct = Math.round(badRate * 100);
+  const title =
+    staleA2ATasks > 0
+      ? `${staleA2ATasks} stale delegated A2A task${staleA2ATasks === 1 ? "" : "s"}`
+      : `Chat is failing: ${pct}% of turns ended without an answer`;
+  const details = [
+    badTurnRate
+      ? `${counts.bad} of ${counts.turns} turns in the last hour ended without an answer.`
+      : "",
+    staleA2ATasks > 0
+      ? `${staleA2ATasks} delegated A2A task${staleA2ATasks === 1 ? " is" : "s are"} past the recovery window.`
+      : "",
+  ].filter(Boolean);
   let delivery: Awaited<ReturnType<typeof notifyWithDelivery>>;
   try {
     delivery = await runWithRequestContext(
@@ -180,16 +258,16 @@ export async function checkChatHealthAndAlert(
         notifyWithDelivery(
           {
             severity: "critical",
-            title: `Chat is failing: ${pct}% of turns ended without an answer`,
+            title,
             body:
-              `${counts.bad} of ${counts.turns} turns in the last hour ended without ` +
-              `an answer. Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
+              `${details.join(" ")} Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
               `per-reason breakdown.`,
             channels: ["slack"],
             metadata: {
               turns: counts.turns,
               bad: counts.bad,
               badRate,
+              staleA2ATasks,
               windowMs: WINDOW_MS,
             },
           },
@@ -240,6 +318,7 @@ export async function checkChatHealthAndAlert(
     status: "alerted",
     turns: counts.turns,
     badRate,
+    staleA2ATasks,
     recipients: 1,
   };
 }
