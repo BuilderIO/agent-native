@@ -152,7 +152,10 @@ describe("OrganizationIdentityCard", () => {
 
     renderToStaticMarkup(<OrganizationIdentityCard />);
 
-    expect(state.actionParams).toEqual([undefined, { organizationId: "org_2" }]);
+    expect(state.actionParams).toEqual([
+      undefined,
+      { organizationId: "org_2" },
+    ]);
   });
 
   it("renders the editor for an admin of an active organization", () => {

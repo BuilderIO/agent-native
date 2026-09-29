@@ -227,10 +227,7 @@ export function useTagRecording() {
  */
 export function useOrganizationState<
   T extends { organization?: { id: string } | null } = any,
->(
-  organizationId?: string,
-  options: { enabled?: boolean } = {},
-) {
+>(organizationId?: string, options: { enabled?: boolean } = {}) {
   const enabled = options.enabled ?? true;
   const active = useActionQuery<T>("list-organization-state", undefined, {
     enabled,

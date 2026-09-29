@@ -1,7 +1,4 @@
-import {
-  useActionMutation,
-  useSession,
-} from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg, useOrgRole } from "@agent-native/core/client/org";
 import type { ClipsDefaultVisibility } from "@shared/clips-ai-prefs";
