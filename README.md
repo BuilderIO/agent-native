@@ -71,6 +71,21 @@ The agent receives `hello` as a tool. React calls the same function with `useAct
 - **[Agent teams](https://agent-native.com/docs/agent-teams):** Delegate work to specialist agents in the same workspace or across connected agents.
 - **[PostgreSQL backend](https://agent-native.com/docs/server-database):** Use PostgreSQL in production and PGlite for local development on any Nitro-compatible host.
 
+### Example: edit a running app visually
+
+Use `/visual-edit` in Claude Code to edit a running app on a canvas instead of
+prompting for each small UI nudge. Compare live pages together, then ask Claude
+to apply the chosen edits to your source. For example:
+
+```text
+/visual-edit the onboarding flow, plus home at every breakpoint
+```
+
+Review the onboarding screens alongside Home at desktop, tablet, and mobile
+sizes, adjust a button's color or spacing directly, then ask Claude to apply the
+pending edits to your source. See the [Visual Edit guide](./skills/visual-edit/README.md)
+for the full walkthrough and sharing details.
+
 Bring your LLM, SQL database, tools, and infrastructure. Everything you build stays yours.
 
 See Agent-Native in action:

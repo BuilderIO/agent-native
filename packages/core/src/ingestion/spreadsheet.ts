@@ -1,3 +1,5 @@
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 export type SpreadsheetDocumentType = "xlsx" | "xls";
 
 export interface ParseSpreadsheetDocumentInput {
@@ -91,13 +93,7 @@ function escapePreviewValue(value: string): string {
 }
 
 async function loadXlsx(): Promise<XlsxModule> {
-  try {
-    return await import("xlsx");
-  } catch {
-    throw new Error(
-      "Parsing Excel workbooks requires the optional xlsx dependency.",
-    );
-  }
+  return loadOptionalPeer("xlsx", () => import("xlsx"));
 }
 
 function appendBoundedText(
