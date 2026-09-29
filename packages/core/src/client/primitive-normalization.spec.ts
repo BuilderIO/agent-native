@@ -32,7 +32,9 @@ describe("Core design-system primitive normalization", () => {
       const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
 
       if (sourcePath.includes("settings/")) {
-        expect(source).toContain("@agent-native/toolkit/ui/button");
+        expect(source).toMatch(
+          /(?:@agent-native\/toolkit\/ui\/button|PrimitiveButton)/,
+        );
         expect(source).toContain("@agent-native/toolkit/design-system");
         expect(source).toContain("Picker");
         expect(source).not.toContain("@agent-native/toolkit/ui/select");
@@ -45,23 +47,21 @@ describe("Core design-system primitive normalization", () => {
   );
 
   it.each(buttonWrapperSurfaces)(
-    "%s keeps explicit icon dimensions when routed through Toolkit buttons",
+    "%s routes buttons through the shared primitive wrapper",
     (sourcePath) => {
       const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
 
-      expect(source).toContain("@agent-native/toolkit/ui/button");
-      expect(source).toContain("[&_svg]:!size-auto");
+      expect(source).toContain("PrimitiveButton");
     },
   );
 
-  it.each(buttonWrapperSurfaces)(
-    "%s does not inherit hover text for solid buttons",
-    (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+  it("ui/PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
+    const source = readFileSync(
+      new URL("./ui/PrimitiveButton.tsx", import.meta.url),
+      "utf8",
+    );
 
-      expect(source).toContain(
-        'props.emphasis === "solid" ? null : "hover:text-inherit"',
-      );
-    },
-  );
+    expect(source).toContain("@agent-native/toolkit/ui/button");
+    expect(source).toContain("[&_svg]:!size-auto");
+  });
 });

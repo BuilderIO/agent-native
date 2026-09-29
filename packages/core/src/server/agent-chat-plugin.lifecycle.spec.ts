@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const lifecycle = vi.hoisted(() => ({
   bootstrap: Promise.resolve(),
   initPromises: [] as Promise<void>[],
+  mcpRefreshStarted: Promise.resolve(),
   probes: [] as Promise<unknown>[],
   reap: vi.fn<() => Promise<unknown>>(),
+  resolveMcpRefreshStarted: () => {},
   settingsEmitter: null as EventEmitter | null,
 }));
 
@@ -26,13 +28,17 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../settings/store.js", () => ({
-  deleteSetting: vi.fn(async () => false),
-  getAllSettings: vi.fn(async () => ({})),
-  getSetting: vi.fn(async () => null),
-  getSettingsEmitter: () => lifecycle.settingsEmitter,
-  putSetting: vi.fn(async () => {}),
-}));
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
+  return {
+    ...actual,
+    deleteSetting: vi.fn(async () => false),
+    getSetting: vi.fn(async () => null),
+    getSettingsEmitter: () => lifecycle.settingsEmitter,
+    listSettingsByKeySegments: vi.fn(async () => []),
+    putSetting: vi.fn(async () => {}),
+  };
+});
 
 vi.mock("../agent/run-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../agent/run-store.js")>();
@@ -48,10 +54,12 @@ vi.mock("../mcp-client/index.js", async (importOriginal) => {
     await importOriginal<typeof import("../mcp-client/index.js")>();
   return {
     ...actual,
+    buildMergedConfig: vi.fn(async () => null),
     startMcpConfigRefresh: () => {
       const markDirty = () => {};
       const emitter = lifecycle.settingsEmitter!;
       emitter.on("settings", markDirty);
+      lifecycle.resolveMcpRefreshStarted();
       const timer = setInterval(() => {}, 5_000);
       return () => {
         clearInterval(timer);
@@ -84,6 +92,8 @@ interface TestHooks {
   callHook(name: string): Promise<void>;
 }
 
+const openedApps: Array<{ hooks: TestHooks }> = [];
+
 function createTestHooks(): TestHooks {
   const callbacks = new Map<string, Array<() => void | Promise<void>>>();
   return {
@@ -111,6 +121,7 @@ function startGeneration() {
     mcp: { enabled: false },
   });
   plugin(nitroApp);
+  openedApps.push(nitroApp);
   const initPromise = lifecycle.initPromises.at(-1);
   expect(initPromise).toBeDefined();
   return { initPromise: initPromise!, nitroApp };
@@ -135,6 +146,9 @@ describe("agent chat plugin Nitro lifecycle", () => {
     vi.stubEnv("AGENT_NATIVE_MCP_CONFIG_REFRESH_MS", "5000");
     lifecycle.bootstrap = Promise.resolve();
     lifecycle.initPromises.length = 0;
+    lifecycle.mcpRefreshStarted = new Promise<void>((resolve) => {
+      lifecycle.resolveMcpRefreshStarted = resolve;
+    });
     lifecycle.probes.length = 0;
     lifecycle.settingsEmitter = new EventEmitter();
     database = new PGlite();
@@ -164,6 +178,8 @@ describe("agent chat plugin Nitro lifecycle", () => {
   });
 
   afterEach(async () => {
+    await Promise.all(openedApps.map((app) => app.hooks.callHook("close")));
+    openedApps.length = 0;
     vi.clearAllTimers();
     releaseTransactions?.();
     await Promise.allSettled(lifecycle.probes);
@@ -181,9 +197,8 @@ describe("agent chat plugin Nitro lifecycle", () => {
     const fresh = await initializeGeneration();
     await startFastSweep();
     expect(pendingTransactions).toBe(1);
-    await vi.waitFor(() =>
-      expect(lifecycle.settingsEmitter!.listenerCount("settings")).toBe(1),
-    );
+    await lifecycle.mcpRefreshStarted;
+    expect(lifecycle.settingsEmitter!.listenerCount("settings")).toBe(1);
 
     releaseTransactions?.();
     await vi.waitFor(() => expect(settledTransactions).toBe(1));

@@ -10,6 +10,7 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
 import { docsUrl } from "../shared/docs-url.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -32,7 +33,6 @@ import {
   installScreenMemoryForClient,
   resolveScreenMemoryStoreDir,
 } from "./mcp.js";
-import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   ASSETS_SKILL_MD,
@@ -1098,6 +1098,20 @@ function skillFilesForBuiltIn(
   options: { planMode?: PlanInstallMode; mcpUrl?: string } = {},
 ): Record<string, SkillFolderBundle> {
   const entry = BUILT_IN_APP_SKILLS[appSkillId];
+  if (
+    appSkillId === "visual-plans" &&
+    (!builtInExtraSkills(entry)["visual-recap"]?.trim() ||
+      !builtInExtraFiles(entry)["visual-plan"]?.[
+        "references/connection.md"
+      ]?.trim() ||
+      !builtInExtraFiles(entry)["visual-recap"]?.[
+        "references/connection.md"
+      ]?.trim())
+  ) {
+    throw new Error(
+      "The visual-plan skill bundle is missing required skill or connection reference content.",
+    );
+  }
   const skills: Record<string, string> = {
     [entry.skillName]: applyInstallModeToSkillMarkdown(entry.skillMarkdown, {
       appSkillId,
@@ -3927,6 +3941,10 @@ export async function addAgentNativeSkill(
           "--with-github-action only applies to the visual-recap skill; skipping the workflow.",
         );
       } else {
+        const { writePrVisualRecapWorkflow } = await loadOptionalPeer(
+          "@agent-native/recap-cli",
+          () => import("@agent-native/recap-cli"),
+        );
         const writeResult = writePrVisualRecapWorkflow(baseDir, {
           force: Boolean(parsed.force),
         });
@@ -4609,8 +4627,16 @@ export async function runSkills(
           .filter((p): p is string => Boolean(p)),
       ),
     ];
+    const recapSetup = githubActions.length
+      ? (
+          await loadOptionalPeer(
+            "@agent-native/recap-cli",
+            () => import("@agent-native/recap-cli"),
+          )
+        ).PR_VISUAL_RECAP_SETUP
+      : [];
     const githubActionLine = githubActions.length
-      ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+      ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${recapSetup.join("\n  ")}`
       : "";
     const githubActionSuggestions = [
       ...new Set(

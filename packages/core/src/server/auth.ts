@@ -101,6 +101,10 @@ import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import type {
+  AuthPageProps,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import {
   resolveSsrCacheHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -330,6 +334,8 @@ export interface AuthOptions {
   workspaceAppPublicPaths?: string[];
   workspaceAppProtectedPaths?: string[];
   loginHtml?: string;
+  renderSignInPage?: (props: AuthPageProps) => string;
+  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string;
   rootAuth?: boolean;
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
@@ -2186,6 +2192,7 @@ function getOnboardingHtmlOptions(
     marketing: options.marketing,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
+    renderSignInPage: options.renderSignInPage,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
@@ -6539,9 +6546,12 @@ async function mountBetterAuthRoutes(
         event.node?.req?.url ??
         event.path ??
         "/";
-      return new Response(getResetPasswordHtml(requestPath), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return new Response(
+        getResetPasswordHtml(requestPath, options.renderResetPasswordPage),
+        {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
     }),
   );
 
@@ -6740,7 +6750,12 @@ export async function autoMountAuth(
         options.trustCustomEmailVerification === true;
     }
     if (_authGuardConfig) {
-      if (options.googleOnly || options.loginHtml || options.marketing) {
+      if (
+        options.googleOnly ||
+        options.loginHtml ||
+        options.marketing ||
+        options.renderSignInPage
+      ) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,
