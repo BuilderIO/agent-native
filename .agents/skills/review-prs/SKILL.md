@@ -349,9 +349,24 @@ gh pr merge <number> --repo BuilderIO/agent-native --auto --squash \
   --match-head-commit <verified-head-oid>
 ```
 
-Verify the queue entry with `pullRequest { mergeQueueEntry { state position
-headCommit { oid } } }` and keep monitoring the queue checks. If GitHub only
-enables auto-merge, keep waiting; do not report the PR merged until its state is
+Verify the queue entry's head against the recorded head with
+`pullRequest { id headRefOid mergeQueueEntry { state position headCommit { oid } } }`
+and keep monitoring both values and the queue checks. `--match-head-commit`
+only gates the enqueue request; it does not pin a later auto-merge or queue
+entry to that SHA.
+
+If the PR head changes before merge, immediately dequeue any active queue entry
+and disable any active auto-merge request. Verify `mergeQueueEntry` and
+`autoMergeRequest` are absent, then review the new head and restart the full
+10-minute gate. Never leave an unreviewed new head queued to merge.
+
+```bash
+gh api graphql -F id='<pull-request-node-id>' -f query='mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { mergeQueueEntry { state } } }'
+gh pr merge <number> --repo BuilderIO/agent-native --disable-auto
+```
+
+Use the dequeue mutation only when a queue entry exists and `--disable-auto`
+only when auto-merge is enabled. Do not report the PR merged until its state is
 `MERGED`, then verify the merge commit is an ancestor of `origin/main`. If the
 queue cannot proceed solely because a human approval is required, report that
 queue/approval policy conflict to Steve; do not send the PR to another reviewer

@@ -716,7 +716,7 @@ const PR_REVIEW_GATE_NOUN_PRECONDITION_RE =
 const PR_REVIEW_GATE_BASE_FRESHNESS_RE =
   /\b(?:after|once|when|unless|provided(?:\s+that)?|if)\b(?:(?!\bmerge\b)[^.!?]){0,80}\b(?:up[-\s]+to[-\s]+date|current|fresh|updated)\b[^.!?]{0,40}\b(?:with|against)\s+(?:the\s+)?(?:main|base|target)(?:\s+branch)?\b/i;
 const PR_REVIEW_GATE_NEGATIVE_STATE_RE =
-  /\bmerge(?:\s+(?:it|the\s+PR))?(?:\s+only)?\s+(?:after|once|when|unless|if)\b[^.!?;]{0,80}\b(?:no\s+(?:unresolved|outstanding|open)\s+review\s+threads?|no\s+(?:(?:failed|failing|pending)\s+(?:required\s+)?checks?|(?:required\s+)?checks?\s+(?:are\s+)?(?:failed|failing|pending))|no\s+(?:merge\s+)?conflicts?)\b/i;
+  /\bmerge(?:\s+(?:it|the\s+PR))?(?:\s+only)?\s+(?:after|once|when|unless|if|provided(?:\s+that)?)\b[^.!?;]{0,80}\b(?:no\s+(?:unresolved|outstanding|open)\s+review\s+threads?|no\s+(?:(?:failed|failing|pending)\s+(?:required\s+)?checks?|(?:required\s+)?checks?\s+(?:are\s+)?(?:failed|failing|pending))|no\s+(?:merge\s+)?conflicts?)\b/i;
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
   /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
@@ -971,6 +971,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, merge contingent on all required checks passing.",
   ],
   [false, "If no changes are needed, merge provided all required checks pass."],
+  [
+    false,
+    "If no changes are needed, merge provided there are no merge conflicts.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge provided that there are no merge conflicts.",
+  ],
   [
     false,
     "If no changes are needed, merge provided the security team approves.",
