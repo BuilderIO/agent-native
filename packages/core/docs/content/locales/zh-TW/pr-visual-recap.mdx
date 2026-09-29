@@ -214,6 +214,7 @@ npx @agent-native/recap-cli@latest recap setup
 | `VISUAL_RECAP_MODEL`           | Claude 為 `claude-sonnet-5`；相容後端必填 | 變數。OpenAI 相容後端所使用的供應商模型 id（在該情況下為必填）。對 Claude 來說，不設定現在預設為 `claude-sonnet-5` — 設定它即可覆寫，例如 `claude-haiku-4-5` 是最便宜的層級。對 Codex 來說，不設定則使用 Codex CLI 自己的預設值。 |
 | `VISUAL_RECAP_REASONING`       | 各模型的預設值                            | 變數。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於 Codex 後端。                                                                                                                                        |
 | `VISUAL_RECAP_REQUIRED_LABELS` | —                                         | 變數。以逗號分隔的 PR 標籤。設定後，這個閘道會先跳過，直到 PR 至少擁有清單中的一個標籤，例如 `visual recap`。                                                                                                                     |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                    | 變數。設為 `false` 時，只會在 PR 開啟、重新開啟或標記為可審閱時，以及套用 `recap` 標籤時產生回顧，而不是每次推送與合併時都產生。                                                                                                  |
 | `RECAP_CLI_VERSION`            | `latest`                                  | 變數。固定這個工作流程所安裝的 `@agent-native/recap-cli` 版本 — 例如 `1.5.0`。詳見[版本固定](#version-pinning-copy-variant)。                                                                                                     |
 | `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`           | Secret。只有在把 Plan 應用程式自行託管於不同來源時才需要。                                                                                                                                                                        |
 
@@ -305,9 +306,9 @@ npx @agent-native/recap-cli@latest recap setup
 ### 標籤閘道的運作方式
 
 1. fork 貢獻者開啟一個 PR。一般的 `pull_request` 工作流程會跳過，因為 GitHub 不會把 secrets 提供給 fork 的執行。
-2. fork 工作流程會檢查 PR 作者的關聯。受信任的作者（`OWNER`、`MEMBER` 或 `COLLABORATOR`）會在 open、synchronize、reopen 與 ready-for-review 事件上自動執行。
+2. fork 工作流程會檢查 PR 作者的關聯。受信任的作者（`OWNER`、`MEMBER` 或 `COLLABORATOR`）會在 open、reopen 與 ready-for-review 事件上自動執行。
 3. 外部貢獻者則需要維護者先審閱目前的 diff（特別是針對可能是提示注入形式的內容 — 見下方說明），然後為這個 PR 套用 `recap` 標籤。
-4. 外部貢獻者的標籤閘道是以 head SHA 為單位的：如果貢獻者推送了更多提交，下一個 synchronize 事件就會跳過，直到維護者在審閱過新的 diff 之後，重新移除並再次套用 `recap` 標籤為止。
+4. 新的提交不會觸發 fork 工作流程。若要在新的提交後更新回顧，維護者需先審閱新的 diff，再移除並重新套用 `recap` 標籤。
 
 ### fork 工作流程會做什麼，以及絕不會做什麼
 

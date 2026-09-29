@@ -397,6 +397,7 @@ echtes Token.
 | `VISUAL_RECAP_MODEL`           | `claude-sonnet-5` für Claude; erforderlich für kompatibles Backend | Variable. Anbieter-Modell-ID für OpenAI-kompatible Backends (dort erforderlich). Für Claude verwendet das Nichtsetzen jetzt standardmäßig `claude-sonnet-5` — setzen Sie es zum Überschreiben, z. B. `claude-haiku-4-5` für die günstigste Stufe. Für Codex verwendet das Nichtsetzen das eigene Standardmodell der Codex-CLI. |
 | `VISUAL_RECAP_REASONING`       | jeweiliger Modellstandard                                          | Variable. Reasoning-Tiefe: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Gilt für das Codex-Backend.                                                                                                                                                                                                                |
 | `VISUAL_RECAP_REQUIRED_LABELS` | —                                                                  | Variable. Kommagetrennte PR-Labels. Wenn gesetzt, überspringt das Gate, bis der PR mindestens ein gelistetes Label hat, zum Beispiel `visual recap`.                                                                                                                                                                           |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                                             | Variable. Auf `false` setzen, um nur beim Öffnen, Wiedereröffnen oder bei Review-Bereitschaft eines PRs sowie beim Anwenden des Labels `recap` einen Recap zu erstellen, statt bei jedem Push und beim Merge.                                                                                                                  |
 | `RECAP_CLI_VERSION`            | `latest`                                                           | Variable. Fixiert die vom Workflow installierte Version von `@agent-native/recap-cli` — z. B. `1.5.0`. Siehe [Versionsfixierung](#version-pinning-copy-variant).                                                                                                                                                               |
 | `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                                    | Secret. Nur wenn Sie die Plans-App unter einem anderen Ursprung selbst hosten.                                                                                                                                                                                                                                                 |
 
@@ -525,18 +526,12 @@ wird.
 1. Ein Fork-Mitwirkender öffnet einen PR. Der normale
    `pull_request`-Workflow überspringt, weil GitHub Fork-Läufen
    Secrets vorenthält.
-2. Der Fork-Workflow prüft die Autorenzugehörigkeit des PRs.
-   Vertrauenswürdige Autoren (`OWNER`, `MEMBER` oder `COLLABORATOR`)
-   laufen automatisch bei Open-, Synchronize-, Reopen- und
-   Ready-for-Review-Events.
+2. Der Fork-Workflow prüft die Autorenzugehörigkeit des PRs. Vertrauenswürdige Autoren (`OWNER`, `MEMBER` oder `COLLABORATOR`) laufen automatisch bei Open-, Reopen- und Ready-for-Review-Events.
 3. Externe Mitwirkende benötigen einen Maintainer, der den aktuellen
    Diff überprüft (besonders bei Inhalten, die wie Prompt-Injection
    aussehen — siehe unten), und dann das Label `recap` auf den PR
    anwendet.
-4. Das Label-Gate für externe Mitwirkende gilt pro Head-SHA: Wenn der
-   Mitwirkende weitere Commits pusht, überspringt das nächste
-   Synchronize-Event, bis ein Maintainer `recap` entfernt und nach
-   Überprüfung des neuen Diffs erneut anwendet.
+4. Neue Commits lösen den Fork-Workflow nicht aus. Um einen Recap nach neuen Commits zu aktualisieren, überprüft ein Maintainer den neuen Diff, entfernt `recap` und wendet es erneut an.
 
 ### Was der Fork-Workflow tut und was NICHT
 

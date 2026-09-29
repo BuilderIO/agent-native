@@ -5,22 +5,13 @@ on:
     branches: [main]
     paths:
       - "packages/mobile-app/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/recap-cli/**"
       - "packages/shared-app-config/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/mobile-build-check.yml"
-  push:
-    branches: [main]
-    paths:
-      - "packages/mobile-app/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/recap-cli/**"
-      - "packages/shared-app-config/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/mobile-build-check.yml"
+  # Shared workspace dependencies (core, toolkit, agentkit, recap-cli) change on
+  # most PRs; their effect on the mobile bundles is covered daily on main.
+  schedule:
+    - cron: "43 6 * * *"
   workflow_dispatch:
 
 concurrency:

@@ -392,6 +392,7 @@ jamais de vrai jeton.
 | `VISUAL_RECAP_MODEL`           | `claude-sonnet-5` pour Claude ; requise pour le backend compatible | Variable. Identifiant de modèle fournisseur pour les backends compatibles OpenAI (requis dans ce cas). Pour Claude, non défini vaut désormais par défaut `claude-sonnet-5` — définissez-la pour la remplacer, par exemple `claude-haiku-4-5` pour le tier le moins cher. Pour Codex, non défini utilise le modèle par défaut propre à la CLI Codex. |
 | `VISUAL_RECAP_REASONING`       | défaut propre à chaque modèle                                      | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high`, ou `xhigh`. S'applique au backend Codex.                                                                                                                                                                                                                         |
 | `VISUAL_RECAP_REQUIRED_LABELS` | —                                                                  | Variable. Étiquettes de PR séparées par des virgules. Une fois définie, la vérification saute tant que la PR n'a pas au moins une étiquette listée, par exemple `visual recap`.                                                                                                                                                                     |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                                             | Variable. Définissez-la sur `false` pour ne générer un recap qu'à l'ouverture, à la réouverture ou à la mise en prêt pour revue d'une PR, ou lors de l'application de l'étiquette `recap`, au lieu de chaque push et du merge.                                                                                                                      |
 | `RECAP_CLI_VERSION`            | `latest`                                                           | Variable. Épingle la version de `@agent-native/recap-cli` que le workflow installe — par exemple `1.5.0`. Voir [Épinglage de version](#version-pinning-copy-variant).                                                                                                                                                                               |
 | `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                                    | Secret. Uniquement en cas d'auto-hébergement de l'application Plans sur une autre origine.                                                                                                                                                                                                                                                          |
 
@@ -522,18 +523,12 @@ OpenAI.
 1. Un contributeur de fork ouvre une PR. Le workflow normal
    `pull_request` saute car GitHub retient les secrets pour les
    exécutions de fork.
-2. Le workflow de fork vérifie l'association d'auteur de la PR. Les
-   auteurs de confiance (`OWNER`, `MEMBER`, ou `COLLABORATOR`)
-   s'exécutent automatiquement à l'ouverture, à la synchronisation, à la
-   réouverture, et aux événements de mise en prêt.
+2. Le workflow de fork vérifie l'association d'auteur de la PR. Les auteurs de confiance (`OWNER`, `MEMBER`, ou `COLLABORATOR`) s'exécutent automatiquement à l'ouverture, à la réouverture, et aux événements de mise en prêt.
 3. Les contributeurs externes nécessitent qu'un mainteneur relise le
    diff actuel (en particulier pour un contenu ayant la forme d'une
    injection de prompt — voir ci-dessous), puis applique l'étiquette
    `recap` sur la PR.
-4. La barrière à étiquette pour les contributeurs externes est par SHA
-   de tête : si le contributeur pousse d'autres commits, le prochain
-   événement de synchronisation saute jusqu'à ce qu'un mainteneur retire
-   puis réapplique `recap` après avoir relu le nouveau diff.
+4. Les nouveaux commits ne déclenchent pas le workflow de fork. Pour actualiser un recap après de nouveaux commits, un mainteneur relit le nouveau diff, puis retire et réapplique `recap`.
 
 ### Ce que fait et ne fait PAS le workflow de fork
 

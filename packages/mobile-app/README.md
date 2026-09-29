@@ -2,8 +2,11 @@
 
 ## CI build checks
 
-Pull requests that change the mobile app or its shared workspace dependencies
-run `.github/workflows/mobile-build-check.yml`. The workflow exports production
+Pull requests that change `packages/mobile-app`, `packages/shared-app-config`,
+or the lockfile run `.github/workflows/mobile-build-check.yml`. The same check
+runs daily on `main` to catch breakage from shared workspace packages such as
+`packages/core` and `packages/toolkit`, and can be started manually from the
+Actions tab to validate a branch that changes them. The workflow exports production
 JavaScript bundles for both platforms and compiles an Android debug APK on
 Linux. It does not publish artifacts or require store credentials.
 
