@@ -679,7 +679,7 @@ const PR_REVIEW_MERGE_GATE_RE =
 const PR_REVIEW_MERGE_OBJECT = String.raw`(?:\s+(?:(?:(?:the|a|an|this|that|these|those|my|our)\s+)?(?:PR|pull\s+request|fix|code|change|changes|commit|branch|update)|it|this|that))?`;
 const PR_REVIEW_WITH_MERGE_PREFIX = String.raw`(?:merge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?|only(?:\s+merge${PR_REVIEW_MERGE_OBJECT})?)`;
 const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
-  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|as\s+long\s+as|subject\s+to|contingent\s+(?:upon|on)|provided\s+that|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
+  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?(?:\s+without\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer))?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|as\s+long\s+as|subject\s+to|contingent\s+(?:upon|on)|provided\s+that|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
   "i",
 );
 const PR_REVIEW_GATE_WAIT_FOR_RE =
@@ -801,7 +801,6 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
     String.raw`\b(?:stop\s+saying|no\s+saying|don't\s+say|do\s+not\s+say|never\s+say)\s+["'“‘]?(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,40}\b(?:needs?\s+to\s+approve|needs?\s+approval|must\s+approve|approval\s+is\s+required)\b`,
-    String.raw`\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b`,
     String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding)`,
@@ -812,31 +811,44 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
   ].join("|"),
   "i",
 );
+
+const PR_REVIEW_DIRECT_READY_MERGE_RE =
+  /\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b[^.!?]*/gi;
+
+function followingPrReviewMergeRequirement(text, match) {
+  const following = text.slice(match.index + match[0].length);
+  const nextWait =
+    following.match(
+      /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,100}\b(?:first|before\s+(?:we\s+)?merging?)\b[^.!?]*/i,
+    )?.[0] ?? "";
+  const nextSentence = following.match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
+  return (
+    nextWait ||
+    (/\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i.test(
+      nextSentence,
+    )
+      ? nextSentence
+      : "")
+  );
+}
+
+function isUnblockedPrReviewReadyCorrection(text, match) {
+  const reviewText = `${match[0]}${followingPrReviewMergeRequirement(text, match)}`;
+  return (
+    !PR_REVIEW_MERGE_PROHIBITION_RE.test(reviewText) &&
+    !hasActivePrReviewMergeGate(reviewText)
+  );
+}
+
 const PR_REVIEW_HANDOFF_MATCHER = {
   test(text) {
     return (
       PR_REVIEW_HANDOFF_RE.test(text) ||
+      [...text.matchAll(PR_REVIEW_DIRECT_READY_MERGE_RE)].some((match) =>
+        isUnblockedPrReviewReadyCorrection(text, match),
+      ) ||
       [...text.matchAll(PR_REVIEW_READY_MERGE_RE)].some((match) => {
-        const [sentence] = match;
-        const nextWait =
-          text
-            .slice(match.index + sentence.length)
-            .match(
-              /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,100}\b(?:first|before\s+(?:we\s+)?merging?)\b[^.!?]*/i,
-            )?.[0] ?? "";
-        const nextSentence =
-          text
-            .slice(match.index + sentence.length)
-            .match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
-        const nextMergeRequirement =
-          /\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i.test(
-            nextSentence,
-          );
-        const reviewText = `${sentence}${nextWait || (nextMergeRequirement ? nextSentence : "")}`;
-        return (
-          !PR_REVIEW_MERGE_PROHIBITION_RE.test(reviewText) &&
-          !hasActivePrReviewMergeGate(reviewText)
-        );
+        return isUnblockedPrReviewReadyCorrection(text, match);
       })
     );
   },
@@ -946,6 +958,11 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, merge with the security team's sign-off notes.",
   ],
   [true, "This PR is ready to merge. Merge it without another approval."],
+  [
+    false,
+    "This PR is ready to merge. Merge it without another approval once all required checks pass.",
+  ],
+  [false, "This PR is ready to merge. Do not merge without another approval."],
   [
     true,
     "This PR is ready to merge. Merge it without waiting for another reviewer.",
