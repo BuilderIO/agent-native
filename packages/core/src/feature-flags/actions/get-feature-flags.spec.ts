@@ -1,17 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const chain = () => {
-  const value: Record<string, unknown> = {};
-  for (const method of ["min", "max", "email", "int", "optional"]) {
-    value[method] = () => value;
-  }
-  return value;
-};
-
-vi.mock("zod", () => ({
-  z: { object: () => chain() },
-}));
-
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
 }));
