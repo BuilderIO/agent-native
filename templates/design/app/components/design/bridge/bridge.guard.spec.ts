@@ -6654,7 +6654,386 @@ it(
 );
 
 it(
-  "shows radius handles only on rectangles and does not require a fill",
+  "shows the radius handle when selection changes under a stationary pointer",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(44, 44);
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "#rectangle" },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return overlay && getComputedStyle(overlay).display === "block";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const visibility = await page.evaluate(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="nw"]',
+            )!,
+          ).visibility,
+      );
+      expect(visibility).toBe("visible");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "refreshes radius-handle hover when the selected element resizes under a stationary pointer",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(196, 44);
+      await selectElementDirect(page, "#rectangle");
+
+      const handle = page.locator('[data-agent-native-radius-handle="ne"]');
+      expect(
+        await handle.evaluate(
+          (element) => getComputedStyle(element).visibility,
+        ),
+      ).toBe("hidden");
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>("#rectangle")!.style.width =
+          "160px";
+        window.postMessage(
+          { type: "set-editor-chrome-scale", scaleX: 1, scaleY: 1 },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return overlay?.style.width === "160px";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(
+        await handle.evaluate(
+          (element) => getComputedStyle(element).visibility,
+        ),
+      ).toBe("visible");
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>("#rectangle")!.style.width =
+          "220px";
+        window.postMessage(
+          { type: "set-editor-chrome-scale", scaleX: 1, scaleY: 1 },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return overlay?.style.width === "220px";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(
+        await handle.evaluate(
+          (element) => getComputedStyle(element).visibility,
+        ),
+      ).toBe("hidden");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "clears radius-handle hover after exiting the selection overlay",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="first" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(44, 44);
+      await selectElementDirect(page, "#first");
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="nw"]',
+            )!,
+          ).visibility === "visible",
+        undefined,
+        { timeout: 2_000 },
+      );
+
+      await page.evaluate(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        )!;
+        overlay.dispatchEvent(
+          new PointerEvent("pointerleave", {
+            clientX: 800,
+            clientY: 600,
+            relatedTarget: null,
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="nw"]',
+            )!,
+          ).visibility === "hidden",
+        undefined,
+        { timeout: 2_000 },
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each(["rectangle", "polygon"] as const)(
+  "clears %s radius-handle hover when a captured drag ends on the shield",
+  { timeout: 30_000 },
+  async (kind) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const isRectangle = kind === "rectangle";
+      const id = isRectangle ? "rectangle" : "polygon";
+      const handleName = isRectangle ? "nw" : "vertex-0";
+      const handleSelector = `[data-agent-native-radius-handle="${handleName}"]`;
+      const polygonPoints = [
+        [50, 0],
+        [93.3, 75],
+        [6.7, 75],
+      ];
+      const polygonNodes = JSON.stringify([
+        1,
+        ...polygonPoints.map(([x, y]) => [x, y, null, null, null, null, null]),
+      ]);
+      const shapeMarkup = isRectangle
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body style="margin:0">${shapeMarkup}</body></html>`,
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, `#${id}`);
+
+      const handle = page.locator(handleSelector);
+      const initialBox = await handle.boundingBox();
+      if (!initialBox) throw new Error(`${kind} radius handle is unavailable`);
+      await page.mouse.move(
+        initialBox.x + initialBox.width / 2,
+        initialBox.y + initialBox.height / 2,
+      );
+      await page.waitForFunction(
+        (selector) =>
+          getComputedStyle(document.querySelector<HTMLElement>(selector)!)
+            .visibility === "visible",
+        handleSelector,
+      );
+      const box = await handle.boundingBox();
+      if (!box) throw new Error(`${kind} radius handle is not visible`);
+      const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await page.mouse.move(center.x, center.y);
+      await page.mouse.down();
+      await page.mouse.move(250, 250, { steps: 4 });
+      await page.mouse.up();
+
+      await page.waitForFunction(
+        (selector) =>
+          getComputedStyle(document.querySelector<HTMLElement>(selector)!)
+            .visibility === "hidden",
+        handleSelector,
+      );
+      const radius = await page
+        .locator(`#${id}`)
+        .evaluate((element) =>
+          element instanceof SVGElement
+            ? Number(element.getAttribute("data-an-corner-radius"))
+            : parseFloat(getComputedStyle(element).borderTopLeftRadius),
+        );
+      expect(radius).toBeGreaterThan(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each(["rectangle", "polygon"] as const)(
+  "restores %s radius-handle preview when pointer capture is canceled or lost",
+  { timeout: 30_000 },
+  async (kind) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const isRectangle = kind === "rectangle";
+      const id = isRectangle ? "rectangle" : "polygon";
+      const handleName = isRectangle ? "nw" : "vertex-0";
+      const handleSelector = `[data-agent-native-radius-handle="${handleName}"]`;
+      const polygonNodes = JSON.stringify([
+        1,
+        ...[
+          [50, 0],
+          [93.3, 75],
+          [6.7, 75],
+        ].map(([x, y]) => [x, y, null, null, null, null, null]),
+      ]);
+      const shapeMarkup = isRectangle
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body style="margin:0">${shapeMarkup}</body></html>`,
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, `#${id}`);
+
+      const beginDrag = async () => {
+        const handle = page.locator(handleSelector);
+        const initialBox = await handle.boundingBox();
+        if (!initialBox)
+          throw new Error(`${kind} radius handle is unavailable`);
+        await page.mouse.move(
+          initialBox.x + initialBox.width / 2,
+          initialBox.y + initialBox.height / 2,
+        );
+        await page.waitForFunction(
+          (selector) =>
+            getComputedStyle(document.querySelector<HTMLElement>(selector)!)
+              .visibility === "visible",
+          handleSelector,
+          { timeout: 2_000 },
+        );
+        const box = await handle.boundingBox();
+        if (!box) throw new Error(`${kind} radius handle is not visible`);
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(250, 250, { steps: 4 });
+        const pointerId = await page.evaluate(() => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          )!;
+          return Array.from({ length: 8 }, (_, id) => id).find((id) =>
+            overlay.hasPointerCapture(id),
+          );
+        });
+        expect(pointerId).not.toBeUndefined();
+        const previewRadius = await page
+          .locator(`#${id}`)
+          .evaluate((element) =>
+            element instanceof SVGElement
+              ? parseFloat(element.getAttribute("data-an-corner-radius") || "0")
+              : parseFloat(getComputedStyle(element).borderTopLeftRadius),
+          );
+        expect(previewRadius).toBeGreaterThan(0);
+        return pointerId!;
+      };
+      const expectOriginalRadius = async () => {
+        const radius = await page
+          .locator(`#${id}`)
+          .evaluate((element) =>
+            element instanceof SVGElement
+              ? element.getAttribute("data-an-corner-radius")
+              : getComputedStyle(element).borderTopLeftRadius,
+          );
+        expect(radius).toBe(isRectangle ? "0px" : null);
+        expect(
+          (await readBridgeMessages(page)).some(
+            (message) => message.type === "visual-style-change",
+          ),
+        ).toBe(false);
+      };
+
+      const canceledPointerId = await beginDrag();
+      await page.evaluate((pointerId) => {
+        document.dispatchEvent(
+          new PointerEvent("pointercancel", {
+            pointerId,
+            clientX: 250,
+            clientY: 250,
+            bubbles: true,
+          }),
+        );
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        )!;
+        if (overlay.hasPointerCapture(pointerId)) {
+          overlay.releasePointerCapture(pointerId);
+        }
+      }, canceledPointerId);
+      await page.mouse.up();
+      await expectOriginalRadius();
+
+      const lostCapturePointerId = await beginDrag();
+      await page.evaluate((pointerId) => {
+        document
+          .querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          )!
+          .releasePointerCapture(pointerId);
+      }, lostCapturePointerId);
+      await page.mouse.up();
+      await expectOriginalRadius();
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "shows radius handles only on supported shapes and does not require a fill",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -6664,7 +7043,7 @@ it(
       });
       await page.setContent(`<!doctype html>
 <html><body>
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
   <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
   <div id="unknown" style="position:absolute;left:520px;top:40px;width:60px;height:30px"></div>
@@ -6705,6 +7084,12 @@ it(
         );
         expect(visible, id).toEqual([]);
         if (id === "rectangle") {
+          const hasAuthoredFill = await page
+            .locator("#rectangle")
+            .evaluate((element) =>
+              Boolean((element as HTMLElement).style.background),
+            );
+          expect(hasAuthoredFill).toBe(false);
           await page.mouse.move(44, 44);
           const visibleAtCorner = await page.evaluate(() =>
             Array.from(
