@@ -392,6 +392,7 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
@@ -465,7 +466,8 @@ export type AgentChatEvent =
     }
   | {
       type: "done";
-      reason?: "user";
+      reason?: "user" | "loop_breaker";
+      message?: string;
     }
   | {
       type: "error";
