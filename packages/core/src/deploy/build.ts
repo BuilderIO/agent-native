@@ -394,6 +394,8 @@ function cloudflareBindingsInitScript(): string {
   globalThis.__env__ = env;
   globalThis.process = globalThis.process || { env: {} };
   globalThis.process.env = globalThis.process.env || {};
+  globalThis.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ =
+    process.env.NODE_ENV === "production";
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") globalThis.process.env[key] = value;
   }

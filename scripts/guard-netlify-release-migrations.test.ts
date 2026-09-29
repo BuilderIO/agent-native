@@ -213,11 +213,11 @@ try {
     assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(), []);
   });
 
-  it("accepts the config-backed migration consumer without a raw env read", () => {
+  it("accepts the config-backed migration policy without a raw env read", () => {
     const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
     try {
       for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
+        "packages/core/src/db/migration-policy.ts",
         "packages/core/src/vite/client.ts",
         "packages/core/src/deploy/build.ts",
       ]) {
@@ -225,7 +225,7 @@ try {
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(
           file,
-          relativeFile.endsWith("migrations.ts")
+          relativeFile.endsWith("migration-policy.ts")
             ? 'import { getAppConfig } from "../app-config/index.js";\nreturn getAppConfig().migration.betaSchemaOwner;\n'
             : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
         );
@@ -241,7 +241,7 @@ try {
     const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
     try {
       for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
+        "packages/core/src/db/migration-policy.ts",
         "packages/core/src/vite/client.ts",
         "packages/core/src/deploy/build.ts",
       ]) {
@@ -249,7 +249,7 @@ try {
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(
           file,
-          relativeFile.endsWith("migrations.ts")
+          relativeFile.endsWith("migration-policy.ts")
             ? 'import { getAppConfig } from "../app-config/index.js";\nreturn getAppConfig().migration.betaSchemaOwner;\n'
             : relativeFile.endsWith("client.ts")
               ? "export function configureBuild() {}\n"
@@ -269,7 +269,7 @@ try {
     const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
     try {
       for (const relativeFile of [
-        "packages/core/src/db/migrations.ts",
+        "packages/core/src/db/migration-policy.ts",
         "packages/core/src/vite/client.ts",
         "packages/core/src/deploy/build.ts",
       ]) {
@@ -277,14 +277,14 @@ try {
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(
           file,
-          relativeFile.endsWith("migrations.ts")
+          relativeFile.endsWith("migration-policy.ts")
             ? "export function runMigrations() {}\n"
             : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
         );
       }
 
       assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), [
-        "packages/core/src/db/migrations.ts: must consume or embed AGENT_NATIVE_BETA_SCHEMA_OWNER instead of treating it as a config-only marker",
+        "packages/core/src/db/migration-policy.ts: must consume or embed AGENT_NATIVE_BETA_SCHEMA_OWNER instead of treating it as a config-only marker",
       ]);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });

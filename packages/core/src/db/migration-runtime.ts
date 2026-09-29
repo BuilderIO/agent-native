@@ -49,7 +49,14 @@ function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
 }
 
 function isCloudflareProductionRuntime(env: NodeJS.ProcessEnv): boolean {
-  return env.NODE_ENV === "production" && hasCloudflareRuntime();
+  const runtime = globalThis as typeof globalThis & {
+    __AGENT_NATIVE_CLOUDFLARE_PRODUCTION__?: boolean;
+  };
+  return (
+    hasCloudflareRuntime() &&
+    (runtime.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ ??
+      env.NODE_ENV === "production")
+  );
 }
 
 export function hasCloudflareRuntime(): boolean {
@@ -74,8 +81,8 @@ export function isProductionServerlessFunctionRuntime(
     env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
     env.VERCEL_FUNCTION_ID ||
     env.VERCEL_REGION ||
-    (env.NODE_ENV === "production" &&
-      (env.NETLIFY === "true" || env.VERCEL === "1")),
+    env.NETLIFY === "true" ||
+    env.VERCEL === "1",
   );
 }
 

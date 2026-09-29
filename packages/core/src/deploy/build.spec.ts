@@ -730,6 +730,13 @@ describe("assertCloudflarePagesPresetRemoved", () => {
 });
 
 describe("Cloudflare module Worker entry", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+    );
+  });
+
   it("defers Nitro's handler and lifecycle initialization", () => {
     const source =
       'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
@@ -746,6 +753,9 @@ describe("Cloudflare module Worker entry", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
     expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).toContain(
+      'globalThis.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ =\n    process.env.NODE_ENV === "production";',
+    );
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
@@ -1260,6 +1270,10 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   describe("Cloudflare Pages worker entry", () => {
     afterEach(() => {
       Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      );
     });
 
     it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {

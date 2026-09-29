@@ -204,6 +204,7 @@ describe("ddl-guard", () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
       const { client, calls } = introspectingClient({});
@@ -220,6 +221,7 @@ describe("ddl-guard", () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
       const { withMigrationRuntime } = await import("./migrations.js");
@@ -239,6 +241,7 @@ describe("ddl-guard", () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
       const { withMigrationExecutionRuntime } =
@@ -291,6 +294,7 @@ describe("ddl-guard", () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
       const { withMigrationRuntime } = await import("./migrations.js");
@@ -304,6 +308,120 @@ describe("ddl-guard", () => {
         }),
       ).resolves.toBe(false);
       expect(calls).toEqual([]);
+    });
+
+    it("keeps legacy hosted lazy ensures scoped while rejecting request DDL", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+      delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+      delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { assertSchemaMutationAllowed } = await import("./client.js");
+      const {
+        ensureColumnExists,
+        ensureIndexExists,
+        ensureIndexExistsConcurrently,
+        ensureTableExists,
+      } = await import("./ddl-guard.js");
+      const tables = new Set<string>();
+      const columns = new Set<string>();
+      const indexes = new Set<string>();
+      const calls: string[] = [];
+      const client = {
+        execute: async (statement: string | { sql: string }) => {
+          const sql = typeof statement === "string" ? statement : statement.sql;
+          calls.push(sql);
+          if (/^\s*(?:CREATE|ALTER|DROP)\b/i.test(sql)) {
+            assertSchemaMutationAllowed(sql);
+          }
+          if (/FROM information_schema\.columns/.test(sql)) {
+            return {
+              rows: Array.from(tables, (table) => ({
+                table_name: table,
+                column_name: "id",
+              })).concat(
+                Array.from(columns, (key) => {
+                  const [table_name, column_name] = key.split(".");
+                  return { table_name, column_name };
+                }),
+              ),
+              rowsAffected: 0,
+            };
+          }
+          if (/FROM pg_indexes/.test(sql)) {
+            return {
+              rows: Array.from(indexes, (indexname) => ({ indexname })),
+              rowsAffected: 0,
+            };
+          }
+          if (/FROM pg_class/.test(sql)) return { rows: [], rowsAffected: 0 };
+          const createTable = sql.match(/CREATE TABLE (\w+)/i);
+          const addColumn = sql.match(/ALTER TABLE (\w+) ADD COLUMN (\w+)/i);
+          const createIndex = sql.match(
+            /CREATE INDEX (?:CONCURRENTLY )?(\w+)/i,
+          );
+          if (createTable) {
+            tables.add(createTable[1]);
+            columns.add(`${createTable[1]}.id`);
+          }
+          if (addColumn) columns.add(`${addColumn[1]}.${addColumn[2]}`);
+          if (createIndex) indexes.add(createIndex[1]);
+          return { rows: [], rowsAffected: 0 };
+        },
+        transaction: async (run: (tx: any) => Promise<unknown>) => run(client),
+      } as any;
+
+      expect(
+        await ensureTableExists(
+          "legacy_table",
+          "CREATE TABLE legacy_table (id TEXT)",
+          {
+            injectedClient: client,
+          },
+        ),
+      ).toBe(true);
+      expect(
+        await ensureColumnExists(
+          "legacy_table",
+          "extra",
+          "ALTER TABLE legacy_table ADD COLUMN extra TEXT",
+          { injectedClient: client },
+        ),
+      ).toBe(true);
+      expect(
+        await ensureIndexExists(
+          "legacy_table_idx",
+          "CREATE INDEX legacy_table_idx ON legacy_table (id)",
+          { injectedClient: client },
+        ),
+      ).toBe(true);
+      expect(
+        await ensureIndexExistsConcurrently(
+          "legacy_table_concurrent_idx",
+          "CREATE INDEX CONCURRENTLY legacy_table_concurrent_idx ON legacy_table (id)",
+          { injectedClient: client },
+        ),
+      ).toBe(true);
+
+      expect(calls.some((sql) => /CREATE TABLE legacy_table/.test(sql))).toBe(
+        true,
+      );
+      expect(
+        calls.some((sql) => /ALTER TABLE legacy_table ADD COLUMN/.test(sql)),
+      ).toBe(true);
+      expect(
+        calls.some((sql) => /CREATE INDEX legacy_table_idx/.test(sql)),
+      ).toBe(true);
+      expect(
+        calls.some((sql) =>
+          /CREATE INDEX CONCURRENTLY legacy_table_concurrent_idx/.test(sql),
+        ),
+      ).toBe(true);
+      expect(() =>
+        assertSchemaMutationAllowed(
+          "CREATE TABLE direct_request_ddl (id TEXT)",
+        ),
+      ).toThrow(/release job/);
     });
 
     it("is OFF unless explicitly enabled", async () => {
@@ -664,6 +782,7 @@ describe("ddl-guard", () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
     const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
     const { client, calls } = recordingClient();
 

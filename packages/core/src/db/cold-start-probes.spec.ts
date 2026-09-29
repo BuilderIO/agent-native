@@ -26,16 +26,31 @@ describe("cold production function database initialization", () => {
   });
 
   it.each([
-    ["Netlify", ""],
-    ["Cloudflare", "production"],
-  ])(
-    "issues no catalog or migration-table queries on a cold %s production function",
-    async (provider, nodeEnv) => {
+    ["Netlify", "", undefined, false],
+    ["deployed Cloudflare", "", true, false],
+    ["local Wrangler", "", false, true],
+  ] as const)(
+    "%s follows its runtime marker for release-owned schema preparation",
+    async (provider, nodeEnv, cloudflareProduction, expectsQueries) => {
       vi.stubEnv("NODE_ENV", nodeEnv);
+      state.execute.mockImplementation(async (query: any) => ({
+        rows:
+          provider === "local Wrangler" &&
+          String(typeof query === "string" ? query : query?.sql).includes(
+            "pg_indexes AS indexes",
+          )
+            ? [{ indexname: "cold_start_probe_concurrent_idx" }]
+            : [],
+        rowsAffected: 0,
+      }));
       if (provider === "Netlify") {
         vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
       } else {
         vi.stubGlobal("__env__", {});
+        vi.stubGlobal(
+          "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+          cloudflareProduction,
+        );
       }
       vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
 
@@ -71,8 +86,13 @@ describe("cold production function database initialization", () => {
         { table: "_context_xray_migrations" },
       )(null);
 
-      expect(state.execute).not.toHaveBeenCalled();
-      expect(state.getDbExec).not.toHaveBeenCalled();
+      if (expectsQueries) {
+        expect(state.execute).toHaveBeenCalled();
+        expect(state.getDbExec).toHaveBeenCalled();
+      } else {
+        expect(state.execute).not.toHaveBeenCalled();
+        expect(state.getDbExec).not.toHaveBeenCalled();
+      }
     },
   );
 });

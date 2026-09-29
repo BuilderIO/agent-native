@@ -1,4 +1,3 @@
-import { getAppConfig } from "../app-config/index.js";
 import {
   createDbExec,
   getDbExec,
@@ -7,6 +6,7 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "./client.js";
+import { appMigratesAtRelease } from "./migration-policy.js";
 import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
@@ -184,14 +184,6 @@ function resolveMigrationSql(sql: MigrationSql): string | null {
 
 function isServerlessRequestRuntime(): boolean {
   return isProductionServerlessFunctionRuntime();
-}
-
-function appMigratesAtRelease(): boolean {
-  const { migration } = getAppConfig();
-  return (
-    migration.releaseMigrations ||
-    migration.betaSchemaOwner?.toLowerCase() === "production"
-  );
 }
 
 export {
