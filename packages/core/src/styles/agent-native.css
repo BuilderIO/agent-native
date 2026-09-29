@@ -110,7 +110,7 @@
 
 .agent-sidebar-panel .agent-sidebar-chat-header {
   border-bottom: 1px solid hsl(var(--border) / 0.72);
-  background: hsl(var(--sidebar-background));
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel .agent-sidebar-chat-header .agent-native-shell-topbar {
@@ -118,7 +118,7 @@
 }
 
 .agent-sidebar-panel .agentkit-chat {
-  --agentkit-chat-background: hsl(var(--sidebar-background));
+  --agentkit-chat-background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel
@@ -154,7 +154,7 @@
 }
 
 .agent-sidebar-panel .agent-chat-scroll {
-  background: hsl(var(--sidebar-background));
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel .agent-empty-state {
@@ -183,12 +183,12 @@
 }
 
 .agent-sidebar-panel .agent-composer-stack {
-  background: hsl(var(--sidebar-background));
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel [data-agent-suggestion-bar="true"] {
   padding-block: 0 0.25rem;
-  background: hsl(var(--sidebar-background));
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel .agent-composer-workflow {
