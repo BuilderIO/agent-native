@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integraciones" } },
   templatesPage: {
     actions: "Acciones de la plantilla {{title}}",
     previewAction: "Vista previa",
@@ -877,7 +878,7 @@ const messages = {
     },
     importDeck: "Importar presentación",
     context: {
-      websiteReference: "Adjuntar sitio web",
+      websiteReference: "Añadir sitio web",
       websiteUrlLabel: "URL del sitio web",
       websiteUrl: "Pega la URL de un sitio web",
       figmaUrlLabel: "Enlace de Figma",
@@ -892,7 +893,7 @@ const messages = {
       searchPresentations: "Buscar presentaciones…",
       menu: {
         system: "Usar un sistema de diseño",
-        figma: "Adjuntar Figma",
+        figma: "Añadir Figma",
         design: "Usar un diseño como referencia",
         deck: "Usar una presentación como referencia",
         searchDesign: "Buscar en diseño…",

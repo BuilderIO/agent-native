@@ -422,6 +422,7 @@ import {
   type DesignAccessStatus,
 } from "@/components/DesignAccessState";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -26364,6 +26365,9 @@ function DesignEditor() {
                   <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
                 ) : canApplyPendingVisualEditsWithAgent ? (
                   <AgentChatSurface
+                    composerContextProvider={
+                      isSignedIn ? DesignComposerContextProvider : undefined
+                    }
                     mode="panel"
                     className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                     chatOnly={true}

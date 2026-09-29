@@ -23,9 +23,40 @@ const limitFn = vi.fn(async (limit: number) => rowsForQuery.slice(0, limit));
 const orderByFn = vi.fn(() =>
   Object.assign(Promise.resolve(rowsForQuery), { limit: limitFn }),
 );
-const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
+let currentSelection: Record<string, unknown> | undefined;
+const badPreviewIds = new Set<string>();
+const previewFor = (data: string) => {
+  const parsed = JSON.parse(data);
+  const first = parsed.slides?.[0];
+  return {
+    previewSlide: first === undefined ? null : JSON.stringify(first),
+    previewTooLarge: false,
+    aspectRatio: parsed.aspectRatio ?? null,
+  };
+};
+const whereFn = vi.fn((condition?: { column?: unknown; value?: unknown }) => {
+  const isRowLookup = condition?.column === "id_col";
+  const rows = isRowLookup
+    ? rowsForQuery.filter((row) => row.id === condition?.value)
+    : rowsForQuery;
+  const result: Promise<unknown[]> = !isRowLookup
+    ? Promise.resolve(rows)
+    : currentSelection && "data" in currentSelection
+      ? Promise.resolve(rows.map((row) => ({ data: row.data })))
+      : rows.some((row) => badPreviewIds.has(row.id))
+        ? Promise.reject(
+            Object.assign(new Error("invalid input syntax for type json"), {
+              code: "22P02",
+            }),
+          )
+        : Promise.resolve(rows.map((row) => previewFor(row.data)));
+  return Object.assign(result, { orderBy: orderByFn });
+});
 const fromFn = vi.fn(() => ({ where: whereFn }));
-const selectFn = vi.fn(() => ({ from: fromFn }));
+const selectFn = vi.fn((selection?: Record<string, unknown>) => {
+  currentSelection = selection;
+  return { from: fromFn };
+});
 const mockDb = { select: selectFn };
 
 vi.mock("../server/db/index.js", () => ({
@@ -65,12 +96,83 @@ import action from "./list-decks";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  badPreviewIds.clear();
   requestUserEmail = "alice@example.com";
   rowsForQuery = deckRows;
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
 describe("list-decks", () => {
+  it("returns a bounded preview gallery without selecting complete decks", async () => {
+    const result = await action.run({ limit: 12, includePreview: "true" });
+    expect(limitFn).toHaveBeenCalledWith(13);
+    expect(selectFn.mock.calls[0][0]).not.toHaveProperty("data");
+    expect(selectFn.mock.calls[0][0]).toHaveProperty("previewSlide");
+    expect(result.decks[0]).toMatchObject({
+      previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
+  });
+  it("keeps a paged gallery readable when one legacy deck has malformed JSON", async () => {
+    const goodRow = {
+      ...deckRows[0],
+      data: JSON.stringify({
+        slides: [{ id: "slide-1" }],
+        aspectRatio: "16:9",
+      }),
+    };
+    const badRow = { ...deckRows[0], id: "deck_bad", data: "not json" };
+    rowsForQuery = [goodRow, badRow];
+    badPreviewIds.add("deck_bad");
+    limitFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const captured: unknown[] = [];
+    const unregister = registerErrorCaptureProvider("test", (error) => {
+      captured.push(error);
+    });
+    try {
+      const result = await action.run({ limit: 12, includePreview: "true" });
+      expect(result.count).toBe(2);
+      expect(result.decks[0]).toMatchObject({
+        previewSlide: { id: "slide-1" },
+        aspectRatio: "16:9",
+      });
+      expect(result.decks[1]).toMatchObject({ id: "deck_bad" });
+      expect(result.decks[1]).not.toHaveProperty("previewSlide");
+      expect(captured.length).toBeGreaterThan(0);
+      const bodyReads = whereFn.mock.calls.filter(
+        (_call, index) => "data" in (selectFn.mock.calls[index]?.[0] ?? {}),
+      );
+      expect(bodyReads).toHaveLength(1);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("flags a first slide that is too large for a gallery preview", async () => {
+    const hugeSlide = { id: "slide-1", content: "x".repeat(200 * 1024) };
+    rowsForQuery = [
+      { ...deckRows[0], data: JSON.stringify({ slides: [hugeSlide] }) },
+    ];
+    badPreviewIds.add("deck_123");
+    limitFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const result = await action.run({ limit: 12, includePreview: "true" });
+    expect(result.decks[0]).toMatchObject({ previewTooLarge: true });
+    expect(result.decks[0]).not.toHaveProperty("previewSlide");
+  });
+
   it("applies title search before pagination without reading slide bodies", async () => {
     await action.run({ limit: 30, search: "Road%_map" });
     expect(whereFn).toHaveBeenCalledWith({
@@ -156,7 +258,13 @@ describe("list-decks", () => {
       visibility: "visibility_col",
       ownerEmail: "owner_email_col",
       previewSlide: expect.objectContaining({
-        strings: expect.arrayContaining(["::jsonb -> 'slides' -> 0)::text"]),
+        strings: expect.arrayContaining([
+          "(case when length(",
+          expect.stringContaining(" then "),
+        ]),
+      }),
+      previewTooLarge: expect.objectContaining({
+        strings: expect.arrayContaining(["(length(", expect.any(String)]),
       }),
       aspectRatio: expect.objectContaining({
         strings: expect.arrayContaining(["::jsonb ->> 'aspectRatio')"]),

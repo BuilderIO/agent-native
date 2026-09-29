@@ -447,8 +447,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured = effectiveAgentEngineState === "configured";
-  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const agentEngineConfigured =
+    effectiveAgentEngineState === "configured" && !agentEngine.missing;
+  const agentEngineMissing =
+    effectiveAgentEngineState === "missing" || agentEngine.missing;
   const canChatRef = useRef(agentEngineConfigured);
   canChatRef.current = agentEngineConfigured;
   useEffect(() => {
@@ -2228,7 +2230,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome ? (
+        isHome && quickActionsEnabled ? (
           <AgentSuggestionBar
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
