@@ -9,8 +9,6 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("import-agent");
     expect(dispatchActions).toHaveProperty("list-mcp-app-access");
     expect(dispatchActions).toHaveProperty("set-mcp-app-access");
-    expect(dispatchActions).toHaveProperty("list-builtin-agents");
-    expect(dispatchActions).toHaveProperty("set-builtin-agents-enabled");
     expect(dispatchActions).toHaveProperty("list_apps");
     expect(dispatchActions).toHaveProperty("ask_app");
     expect(dispatchActions).toHaveProperty("ask_app_status");

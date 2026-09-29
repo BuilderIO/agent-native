@@ -33,7 +33,7 @@ export default defineAction({
       loadWorkspaceAppsManifest(),
     ]);
     // A mounted workspace app with a built-in's id is a workspace app; the
-    // built-in settings never apply to it.
+    // built-in config never applies to it.
     const workspaceIds = new Set(
       (workspaceApps ?? []).map((app) => normalizeAgentId(app.id)),
     );
@@ -71,7 +71,7 @@ export default defineAction({
       if (!manifest) continue;
       if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
       const manifestId = normalizeAgentId(manifest.id);
-      // Built-in ids stay under the workspace's built-in settings even when a
+      // Built-in ids stay under the workspace's built-in config even when a
       // seeded manifest for them exists in resources.
       if (isBuiltinAgentCatalogId(manifestId)) continue;
       customById.set(manifestId, {

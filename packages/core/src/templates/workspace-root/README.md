@@ -43,14 +43,12 @@ choose which ones it offers:
 ```json
 "builtinAgents": {
   "mode": "selected",
-  "include": ["mail", "calendar"],
-  "defaultEnabled": ["mail"]
+  "include": ["mail", "calendar"]
 }
 ```
 
 `mode` is `"all"` (the default when the key is absent), `"none"`, or
-`"selected"`. `defaultEnabled` is what a new organization starts with. Org
-admins then turn offered apps on or off in Dispatch → Settings → Built-in apps.
+`"selected"` (only the apps in `include`).
 
 The workspace root also links `.agents/skills` to the shared package so coding
 agents launched from the root can discover the same workspace-wide skills.

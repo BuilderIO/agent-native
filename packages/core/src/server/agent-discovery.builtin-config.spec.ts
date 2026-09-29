@@ -18,8 +18,6 @@ const mocks = vi.hoisted(() => ({
   resourceGet: vi.fn(),
   resourceListContentByOwnersAndPrefixes: vi.fn(),
   getSetting: vi.fn(),
-  getOrgSetting: vi.fn(),
-  getUserSetting: vi.fn(),
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -35,8 +33,6 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("../settings/index.js", () => ({
   getSetting: mocks.getSetting,
   putSetting: vi.fn(),
-  getOrgSetting: mocks.getOrgSetting,
-  getUserSetting: mocks.getUserSetting,
 }));
 
 const ENV_KEYS = [
@@ -61,12 +57,6 @@ const ENV_KEYS = [
 
 function builderConfig(value: unknown): void {
   vi.stubEnv("AGENT_NATIVE_BUILTIN_AGENTS_JSON", JSON.stringify(value));
-}
-
-function orgSettings(byOrg: Record<string, unknown>): void {
-  mocks.getOrgSetting.mockImplementation(async (orgId: string, key: string) =>
-    key === "builtin-agents-enabled" ? (byOrg[orgId] ?? null) : null,
-  );
 }
 
 function seededManifest(id: string) {
@@ -96,8 +86,6 @@ beforeEach(() => {
   mocks.resourceGet.mockResolvedValue(null);
   mocks.resourceListContentByOwnersAndPrefixes.mockResolvedValue([]);
   mocks.getSetting.mockResolvedValue(null);
-  mocks.getOrgSetting.mockResolvedValue(null);
-  mocks.getUserSetting.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -135,60 +123,9 @@ describe("getBuiltinAgents builder config", () => {
   });
 });
 
-describe("discoverAgents with builder config and admin setting", () => {
-  it("starts an org with defaultEnabled", async () => {
-    builderConfig({
-      mode: "selected",
-      include: ["mail", "calendar"],
-      defaultEnabled: ["mail"],
-    });
-
-    const agents = await runWithRequestContext({ orgId: "org-a" }, () =>
-      discoverAgents("dispatch"),
-    );
-    expect(ids(agents)).toEqual(["mail"]);
-  });
-
-  it("applies each org's admin setting to that org only", async () => {
-    builderConfig({ mode: "selected", include: ["mail", "calendar"] });
-    orgSettings({
-      "org-a": { enabledIds: ["calendar"], offeredIds: ["mail", "calendar"] },
-    });
-
-    const orgA = await runWithRequestContext({ orgId: "org-a" }, () =>
-      discoverAgents("dispatch"),
-    );
-    const orgB = await runWithRequestContext({ orgId: "org-b" }, () =>
-      discoverAgents("dispatch"),
-    );
-    expect(ids(orgA)).toEqual(["calendar"]);
-    expect(ids(orgB)).toEqual(["calendar", "mail"]);
-  });
-
-  it("falls back to the user-scoped setting without an org", async () => {
-    builderConfig({ mode: "selected", include: ["mail", "calendar"] });
-    mocks.getUserSetting.mockResolvedValue({ enabledIds: ["mail"] });
-
-    const agents = await runWithRequestContext(
-      { userEmail: "solo@example.test" },
-      () => discoverAgents("dispatch"),
-    );
-    expect(ids(agents)).toEqual(["mail"]);
-  });
-
-  it("never lets an admin enable a built-in the builder did not include", async () => {
+describe("discoverAgents with builder config", () => {
+  it("does not let seeded manifests re-add built-ins that are not included", async () => {
     builderConfig({ mode: "selected", include: ["mail"] });
-    orgSettings({ "org-a": { enabledIds: ["mail", "calendar"] } });
-
-    const agents = await runWithRequestContext({ orgId: "org-a" }, () =>
-      discoverAgents("dispatch"),
-    );
-    expect(ids(agents)).toEqual(["mail"]);
-  });
-
-  it("does not let seeded manifests re-add disabled built-ins", async () => {
-    builderConfig({ mode: "selected", include: ["mail", "calendar"] });
-    orgSettings({ "org-a": { enabledIds: ["mail"] } });
     const manifests = [seededManifest("calendar"), seededManifest("slides")];
     mocks.resourceList.mockImplementation(async (owner: string) =>
       owner === "__shared__" ? manifests : [],
@@ -243,27 +180,11 @@ describe("discoverAgents with builder config and admin setting", () => {
       "https://workspace.example.test/mail",
     );
   });
-
-  it("falls back to defaultEnabled when the setting is unreadable", async () => {
-    builderConfig({
-      mode: "selected",
-      include: ["mail", "calendar"],
-      defaultEnabled: ["calendar"],
-    });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    mocks.getOrgSetting.mockRejectedValue(new Error("db down"));
-
-    const agents = await runWithRequestContext({ orgId: "org-a" }, () =>
-      discoverAgents("dispatch"),
-    );
-    expect(ids(agents)).toEqual(["calendar"]);
-  });
 });
 
-describe("discoverOrgDirectoryAgents with builder config and admin setting", () => {
-  it("applies both layers and gates seeded manifests", async () => {
-    builderConfig({ mode: "selected", include: ["mail", "calendar"] });
-    orgSettings({ "org-a": { enabledIds: ["mail"] } });
+describe("discoverOrgDirectoryAgents with builder config", () => {
+  it("offers included built-ins and gates seeded manifests", async () => {
+    builderConfig({ mode: "selected", include: ["mail"] });
     mocks.resourceListContentByOwnersAndPrefixes.mockResolvedValue([
       seededManifest("calendar"),
       seededManifest("content"),
@@ -276,19 +197,6 @@ describe("discoverOrgDirectoryAgents with builder config and admin setting", () 
     if (result.status === "available") {
       expect(ids(result.agents)).toEqual(["mail"]);
     }
-  });
-
-  it("reports an unreadable setting instead of guessing", async () => {
-    builderConfig({ mode: "selected", include: ["mail"] });
-    orgSettings({ "org-a": { enabledIds: "mail" } });
-
-    const result = await runWithRequestContext({ orgId: "org-a" }, () =>
-      discoverOrgDirectoryAgents("dispatch"),
-    );
-    expect(result).toEqual({
-      status: "unavailable",
-      reason: "builtin-settings",
-    });
   });
 });
 

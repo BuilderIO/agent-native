@@ -242,8 +242,7 @@ Standardmäßig kann jeder Workspace die gehosteten First-Party-Apps (Mail, Cale
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"],
-      "defaultEnabled": ["mail"]
+      "include": ["mail", "calendar"]
     }
   }
 }
@@ -251,11 +250,10 @@ Standardmäßig kann jeder Workspace die gehosteten First-Party-Apps (Mail, Cale
 
 - `mode`: `"all"` (Standard, alle öffentlichen First-Party-Apps), `"none"` (keine integrierten Apps) oder `"selected"` (nur `include`).
 - `include`: die integrierten Apps, die dieser Workspace bei `mode: "selected"` anbietet. Alle anderen bleiben dem Workspace unbekannt.
-- `defaultEnabled`: welche angebotenen Apps eine neue Organisation zu Beginn aktiviert hat. Standardmäßig alle angebotenen.
 
 Unbekannte IDs erzeugen eine Warnung und werden ignoriert. Eine Standalone-App kann denselben Schlüssel in ihrer eigenen `package.json` verwenden. `agent-native dev` und Workspace-Deployments übergeben den Wert als `AGENT_NATIVE_BUILTIN_AGENTS_JSON` an jede App.
 
-Organisationsinhaber und Administratoren schalten angebotene Apps anschließend unter **Dispatch → Einstellungen → Integrierte Apps** oder über die Actions `list-builtin-agents` und `set-builtin-agents-enabled` ein oder aus. Diese Auswahl gilt pro Organisation und steuert die App-Liste, die Agent-Erkennung und Agent-zu-Agent-Aufrufe. Eingebundene Workspace-Apps und verbundene Remote-Agents sind nie betroffen, und der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
+Diese Konfiguration steuert die App-Liste, die Agent-Erkennung und Aufrufe zwischen Agents. Eingebundene Workspace-Apps und verbundene Remote-Agents sind nicht betroffen, und der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
 
 ## Freigegebene MCP-Server {#shared-mcp}
 

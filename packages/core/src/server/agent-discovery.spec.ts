@@ -25,8 +25,6 @@ const resourceListAccessibleMock = vi.hoisted(() => vi.fn());
 const resourceGetMock = vi.hoisted(() => vi.fn());
 const resourceListContentByOwnersAndPrefixesMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
-const getOrgSettingMock = vi.hoisted(() => vi.fn());
-const getUserSettingMock = vi.hoisted(() => vi.fn());
 const DISCOVERY_ENV_KEYS = [
   "NODE_ENV",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -67,8 +65,6 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("../settings/index.js", () => ({
   getSetting: getSettingMock,
   putSetting: vi.fn(),
-  getOrgSetting: getOrgSettingMock,
-  getUserSetting: getUserSettingMock,
 }));
 
 describe("agent discovery", () => {
@@ -79,8 +75,6 @@ describe("agent discovery", () => {
     resourceGetMock.mockResolvedValue(null);
     resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([]);
     getSettingMock.mockResolvedValue(null);
-    getOrgSettingMock.mockResolvedValue(null);
-    getUserSettingMock.mockResolvedValue(null);
     previousEnv = Object.fromEntries(
       DISCOVERY_ENV_KEYS.map((key) => [key, process.env[key]]),
     ) as typeof previousEnv;

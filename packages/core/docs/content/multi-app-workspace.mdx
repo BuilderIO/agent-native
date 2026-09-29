@@ -260,8 +260,7 @@ By default every workspace can reach the hosted first-party apps (Mail, Calendar
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"],
-      "defaultEnabled": ["mail"]
+      "include": ["mail", "calendar"]
     }
   }
 }
@@ -269,11 +268,10 @@ By default every workspace can reach the hosted first-party apps (Mail, Calendar
 
 - `mode`: `"all"` (default, every public first-party app), `"none"` (no built-ins), or `"selected"` (only `include`).
 - `include`: the built-ins this workspace offers when `mode` is `"selected"`. Anything else stays unknown to the workspace.
-- `defaultEnabled`: which offered built-ins a new organization starts with. Defaults to everything offered.
 
 Unknown ids log a warning and are ignored. A standalone app can use the same key in its own `package.json`. `agent-native dev` and workspace deploys pass the value to every app as `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
-Org owners and admins then turn offered built-ins on or off in **Dispatch → Settings → Built-in apps**, or through the `list-builtin-agents` and `set-builtin-agents-enabled` actions. That choice is per organization and controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and connected remote agents are never affected, and MCP app access stays a separate routing permission.
+This config controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and connected remote agents are unaffected, and MCP app access stays a separate routing permission.
 
 ## Shared MCP servers {#shared-mcp}
 

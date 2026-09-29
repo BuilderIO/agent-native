@@ -26,25 +26,15 @@ import {
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
-import {
-  readBuiltinAgentsConfig,
-  readEnabledBuiltinAgentIds,
-} from "./builtin-agents.js";
+import { readBuiltinAgentsConfig } from "./builtin-agents.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 import { findWorkspaceRoot, readJson } from "./workspace-root.js";
 
 export { isBuiltinAgentCatalogId, normalizeAgentId };
 export {
-  BuiltinAgentsNotOfferedError,
-  currentBuiltinAgentsSettingsScope,
   readBuiltinAgentsConfig,
-  readBuiltinAgentsEnabledSettings,
-  resolveEnabledBuiltinAgentIds,
-  writeBuiltinAgentsEnabledSettings,
   type BuiltinAgentsConfig,
-  type BuiltinAgentsEnabledSettings,
   type BuiltinAgentsMode,
-  type BuiltinAgentsSettingsScope,
 } from "./builtin-agents.js";
 
 export interface DiscoveredAgent {
@@ -62,7 +52,7 @@ export type OrgDirectoryDiscoveryResult =
   | { status: "available"; agents: DiscoveredAgent[] }
   | {
       status: "unavailable";
-      reason: "remote-manifests" | "workspace-metadata" | "builtin-settings";
+      reason: "remote-manifests" | "workspace-metadata";
     };
 
 export interface WorkspaceAppMetadataOverride {
@@ -361,36 +351,12 @@ export function getBuiltinAgents(
   );
 }
 
-/**
- * Offered built-ins the current request's org admin has enabled. Non-strict
- * callers fall back to the builder's defaultEnabled when the setting is
- * unreadable; strict callers get the read error.
- */
-export async function getEnabledBuiltinAgents(
-  selfAppId?: string,
-  options?: { preferLocalUrls?: boolean; strict?: boolean },
-): Promise<DiscoveredAgent[]> {
-  const config = readBuiltinAgentsConfig();
-  let enabledIds: string[];
-  try {
-    enabledIds = await readEnabledBuiltinAgentIds(config);
-  } catch (error) {
-    if (options?.strict) throw error;
-    console.warn(
-      "[agent-discovery] Could not read built-in agent settings; using the workspace defaults",
-      error,
-    );
-    enabledIds = config.defaultEnabled;
-  }
-  return builtinAgentsFor(enabledIds, selfAppId, options);
-}
-
-function isDisabledBuiltinManifest(
+function isUnofferedBuiltinManifest(
   manifestId: string,
-  enabledBuiltinIds: ReadonlySet<string>,
+  offeredBuiltinIds: ReadonlySet<string>,
 ): boolean {
   return (
-    isBuiltinAgentCatalogId(manifestId) && !enabledBuiltinIds.has(manifestId)
+    isBuiltinAgentCatalogId(manifestId) && !offeredBuiltinIds.has(manifestId)
   );
 }
 
@@ -398,8 +364,8 @@ export async function discoverAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): Promise<DiscoveredAgent[]> {
-  const builtins = await getEnabledBuiltinAgents(selfAppId, options);
-  const enabledBuiltinIds = new Set(builtins.map((agent) => agent.id));
+  const builtins = getBuiltinAgents(selfAppId, options);
+  const offeredBuiltinIds = new Set(builtins.map((agent) => agent.id));
   const agentsById = new Map<string, DiscoveredAgent>();
 
   for (const agent of builtins) {
@@ -437,7 +403,7 @@ export async function discoverAgents(
         if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
           continue;
         const manifestId = normalizeAgentId(manifest.id);
-        if (isDisabledBuiltinManifest(manifestId, enabledBuiltinIds)) continue;
+        if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
 
         let url = manifest.url;
         const isHosted = isHostedRuntime();
@@ -498,13 +464,16 @@ export async function discoverOrgDirectoryAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): Promise<OrgDirectoryDiscoveryResult> {
-  const [remoteResources, workspaceAgents, builtins] = await Promise.all([
+  const agentsById = new Map<string, DiscoveredAgent>();
+  for (const agent of getBuiltinAgents(selfAppId, options)) {
+    agentsById.set(agent.id, agent);
+  }
+  const offeredBuiltinIds = new Set(agentsById.keys());
+
+  const [remoteResources, workspaceAgents] = await Promise.all([
     readDirectorySource("remote-manifests", readStrictRemoteAgentResources),
     readDirectorySource("workspace-metadata", () =>
       discoverWorkspaceAgents(selfAppId, options, true),
-    ),
-    readDirectorySource("builtin-settings", () =>
-      getEnabledBuiltinAgents(selfAppId, { ...options, strict: true }),
     ),
   ]);
   if (remoteResources.status === "unavailable") {
@@ -513,16 +482,10 @@ export async function discoverOrgDirectoryAgents(
   if (workspaceAgents.status === "unavailable") {
     return workspaceAgents;
   }
-  if (builtins.status === "unavailable") return builtins;
-  const agentsById = new Map<string, DiscoveredAgent>();
-  for (const agent of builtins.value) {
-    agentsById.set(agent.id, agent);
-  }
-  const enabledBuiltinIds = new Set(builtins.value.map((agent) => agent.id));
   const remoteOverlay = await readDirectorySource("remote-manifests", () =>
     overlayRemoteAgentResources(
       agentsById,
-      enabledBuiltinIds,
+      offeredBuiltinIds,
       remoteResources.value,
       selfAppId,
       options,
@@ -534,7 +497,7 @@ export async function discoverOrgDirectoryAgents(
 }
 
 async function readDirectorySource<T>(
-  reason: "remote-manifests" | "workspace-metadata" | "builtin-settings",
+  reason: "remote-manifests" | "workspace-metadata",
   read: () => Promise<T>,
 ): Promise<
   | { status: "available"; value: T }
@@ -582,7 +545,7 @@ async function readStrictRemoteAgentResources(): Promise<
 
 async function overlayRemoteAgentResources(
   agentsById: Map<string, DiscoveredAgent>,
-  enabledBuiltinIds: ReadonlySet<string>,
+  offeredBuiltinIds: ReadonlySet<string>,
   resources: Array<{ id: string; path: string; content: string }>,
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
@@ -607,7 +570,7 @@ async function overlayRemoteAgentResources(
     }
     if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
     const manifestId = normalizeAgentId(manifest.id);
-    if (isDisabledBuiltinManifest(manifestId, enabledBuiltinIds)) continue;
+    if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
     let url = manifest.url;
     const builtin = agentsById.get(manifestId);
     if (isHostedRuntime() && isLoopbackUrl(url)) {

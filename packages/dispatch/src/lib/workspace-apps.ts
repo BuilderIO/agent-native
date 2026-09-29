@@ -427,8 +427,8 @@ export function navigateToWorkspaceApp(href: string): boolean {
  * Mounted workspace apps plus the chat-first default built-ins that are part
  * of this workspace. `enabledBuiltinAppIds` must come from the server
  * (list-connected-agents entries with source "builtin"), which already applies
- * the builder's `agent-native.builtinAgents` config and the org admin setting;
- * while it is unknown no default is added.
+ * the builder's `agent-native.builtinAgents` config. While it is unknown, no
+ * default is added.
  */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,

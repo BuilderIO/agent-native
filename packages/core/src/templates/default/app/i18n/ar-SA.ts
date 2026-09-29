@@ -198,13 +198,6 @@ const messages = {
       selectedApps: "التطبيقات المختارة",
       loading: "Loading",
       grantedCount: "{{count}} granted",
-      builtinAppsTitle: "التطبيقات المدمجة",
-      builtinAppsEnableAll: "تفعيل الكل",
-      builtinAppsDisableAll: "تعطيل الكل",
-      builtinAppsUpdated: "تم تحديث التطبيقات المدمجة",
-      builtinAppsAdminOnly:
-        "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير التطبيقات المدمجة.",
-      builtinAppToggle: "تفعيل {{name}}",
       exposeAllAppsMcp: "فضح جميع التطبيقات من خلال Dispatch MCP",
       copyUrl: "نسخ URL",
       metricsUnavailable: "المقاييس غير متاحة",

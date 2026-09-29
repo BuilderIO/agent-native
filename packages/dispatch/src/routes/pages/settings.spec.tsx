@@ -97,10 +97,6 @@ vi.mock("@agent-native/core/client/settings", () => ({
   useAgentSettingsTabs: () => [{ id: "organization", label: "Organization" }],
 }));
 
-vi.mock("../../components/builtin-apps-settings", () => ({
-  BuiltinAppsSettingsGroup: () => <section data-builtin-apps />,
-}));
-
 const { DispatchSettingsPage } = await import("./settings.js");
 
 describe("Dispatch settings route", () => {
@@ -156,7 +152,6 @@ describe("Dispatch settings route", () => {
     expect(
       state.pageProps?.generalSearchEntries?.map((entry) => entry.id),
     ).toContain("dispatch-language");
-    expect(container.querySelector("[data-builtin-apps]")).not.toBeNull();
     expect(
       state.pageProps?.extraTabs?.find((tab) => tab.id === "admin")?.href,
     ).toBe("/admin");
@@ -176,8 +171,7 @@ describe("Dispatch settings route", () => {
     );
     expect(
       state.pageProps?.generalSearchEntries?.map((entry) => entry.hash),
-    ).toEqual(["workspace-resources", "chat-first", "builtin-apps"]);
-    expect(container.querySelector("[data-builtin-apps]")).not.toBeNull();
+    ).toEqual(["workspace-resources", "chat-first"]);
     expect(
       state.pageProps?.extraTabs?.find((tab) => tab.id === "admin")?.href,
     ).toBe("/admin");

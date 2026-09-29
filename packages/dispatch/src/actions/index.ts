@@ -40,7 +40,6 @@ import listAgentPack from "./list-agent-pack.js";
 import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
-import listBuiltinAgents from "./list-builtin-agents.js";
 import listConnectedAgents from "./list-connected-agents.js";
 import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
@@ -90,7 +89,6 @@ import searchAgentThreads from "./search-agent-threads.js";
 import sendCodeAgentRemoteCommand from "./send-code-agent-remote-command.js";
 import sendPlatformMessage from "./send-platform-message.js";
 import setAppCreationSettings from "./set-app-creation-settings.js";
-import setBuiltinAgentsEnabled from "./set-builtin-agents-enabled.js";
 import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
 import setDreamSettings from "./set-dream-settings.js";
 import setMcpAppAccess from "./set-mcp-app-access.js";
@@ -142,7 +140,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-agent-thread-sources": listAgentThreadSources,
   "list-agent-run-failures": listAgentRunFailures,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
-  "list-builtin-agents": listBuiltinAgents,
   "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
@@ -196,7 +193,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "send-code-agent-remote-command": sendCodeAgentRemoteCommand,
   "send-platform-message": sendPlatformMessage,
   "set-app-creation-settings": setAppCreationSettings,
-  "set-builtin-agents-enabled": setBuiltinAgentsEnabled,
   "set-dispatch-approval-policy": setDispatchApprovalPolicy,
   "set-dream-settings": setDreamSettings,
   "set-mcp-app-access": setMcpAppAccess,

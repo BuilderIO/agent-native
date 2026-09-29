@@ -192,13 +192,6 @@ const messages = {
       selectedApps: "선택된 앱",
       loading: "Loading",
       grantedCount: "{{count}} granted",
-      builtinAppsTitle: "기본 제공 앱",
-      builtinAppsEnableAll: "모두 사용",
-      builtinAppsDisableAll: "모두 사용 안 함",
-      builtinAppsUpdated: "기본 제공 앱이 업데이트되었습니다",
-      builtinAppsAdminOnly:
-        "조직 소유자와 관리자만 기본 제공 앱을 변경할 수 있습니다.",
-      builtinAppToggle: "{{name}} 사용",
       exposeAllAppsMcp: "Dispatch MCP를 통해 모든 앱을 노출합니다.",
       copyUrl: "URL 복사",
       metricsUnavailable: "측정항목을 사용할 수 없습니다.",

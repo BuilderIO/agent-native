@@ -72,7 +72,7 @@ describe("set-mcp-app-access", () => {
   });
 
   it("only routes to built-ins that are part of the workspace", async () => {
-    // discoverAgents already omits built-ins the builder or admin turned off.
+    // discoverAgents already omits built-ins the builder did not include.
     mocks.discoverAgents.mockResolvedValue([{ id: "crm" }]);
 
     await expect(

@@ -26,7 +26,6 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import packageChangelog from "../../../CHANGELOG.md?raw";
-import { BuiltinAppsSettingsGroup } from "../../components/builtin-apps-settings";
 import { Button } from "../../components/ui/button";
 import { Switch } from "../../components/ui/switch";
 import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
@@ -145,12 +144,6 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
         keywords: "chat first codex t3 apps pane navigation",
         hash: "chat-first",
       },
-      {
-        id: "dispatch-builtin-apps",
-        label: t("dispatch.pages.builtinAppsTitle"),
-        keywords: "built-in apps mail calendar content design clips enable",
-        hash: "builtin-apps",
-      },
     ],
     [redesign, t],
   );
@@ -228,31 +221,26 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
               {chatFirstStorageAlert}
             </SettingsRow>
           </SettingsGroup>
-
-          <BuiltinAppsSettingsGroup />
         </div>
       }
       generalGroups={
-        <>
-          <SettingsGroup id="workspace" title={t("settings.workspaceTitle")}>
-            <SettingsRow
-              id="chat-first"
-              label={t("settings.chatFirstTitle")}
-              description={t("settings.chatFirstDescription")}
-              control={chatFirstSwitch}
-            >
-              {chatFirstStorageAlert}
-            </SettingsRow>
-            <SettingsRow
-              id="workspace-resources"
-              label={t("settings.resourcesTitle")}
-              description={t("settings.workspaceDescription")}
-              control={resourceSettingsButton}
-            />
-            {connectAppsRow}
-          </SettingsGroup>
-          <BuiltinAppsSettingsGroup />
-        </>
+        <SettingsGroup id="workspace" title={t("settings.workspaceTitle")}>
+          <SettingsRow
+            id="chat-first"
+            label={t("settings.chatFirstTitle")}
+            description={t("settings.chatFirstDescription")}
+            control={chatFirstSwitch}
+          >
+            {chatFirstStorageAlert}
+          </SettingsRow>
+          <SettingsRow
+            id="workspace-resources"
+            label={t("settings.resourcesTitle")}
+            description={t("settings.workspaceDescription")}
+            control={resourceSettingsButton}
+          />
+          {connectAppsRow}
+        </SettingsGroup>
       }
       whatsNew={
         <div className="mx-auto w-full max-w-2xl">

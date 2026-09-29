@@ -242,8 +242,7 @@ pnpm dev
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"],
-      "defaultEnabled": ["mail"]
+      "include": ["mail", "calendar"]
     }
   }
 }
@@ -251,11 +250,10 @@ pnpm dev
 
 - `mode`: `"all"`（既定。公開されているすべてのファーストパーティアプリ）、`"none"`（組み込みアプリなし）、`"selected"`（`include` のみ）。
 - `include`: `mode` が `"selected"` のときにこのワークスペースが提供する組み込みアプリ。それ以外はワークスペースから認識されません。
-- `defaultEnabled`: 新しい組織で最初から有効になっている提供アプリ。既定では提供するすべてのアプリです。
 
 不明な ID は警告を出して無視されます。スタンドアロンアプリは自身の `package.json` で同じキーを使えます。`agent-native dev` とワークスペースのデプロイは、この値を `AGENT_NATIVE_BUILTIN_AGENTS_JSON` として各アプリに渡します。
 
-組織のオーナーと管理者は、**Dispatch → 設定 → 組み込みアプリ**、または `list-builtin-agents` と `set-builtin-agents-enabled` アクションで、提供されているアプリを有効または無効にします。この選択は組織ごとで、アプリ一覧、エージェントの検出、エージェント間の呼び出しに適用されます。マウントされたワークスペースアプリと接続済みのリモートエージェントは影響を受けず、MCP アプリアクセスは別のルーティング権限のままです。
+この設定は、アプリ一覧、エージェントの検出、エージェント間の呼び出しに適用されます。マウントされたワークスペースアプリと接続済みのリモートエージェントは影響を受けず、MCP アプリアクセスは別のルーティング権限のままです。
 
 ## 共有 MCP サーバー {#shared-mcp}
 
