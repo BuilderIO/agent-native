@@ -677,12 +677,12 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
 const PR_REVIEW_MERGE_GATE_RE =
   /\b(?:approval|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?|builds?)|reviewers?|security(?:[-\s]team(?:['’]s)?)?|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
 const PR_REVIEW_GATE_REQUIRED_RE =
-  /\b(?:required|wait(?:ing)?\s+for|subject\s+to|contingent\s+upon|(?:only\s+)?after|upon|once|when|until|unless|if)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+  /\b(?:wait(?:ing)?\s+for|subject\s+to|contingent\s+upon|(?:only\s+)?after|upon|once|when|until|unless|if)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_WITH_APPROVAL_RE = /\bwith(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
   /\b(?:no|without)\b(?:\s+[\w’'-]+){0,3}\s*$/i;
 const PR_REVIEW_GATE_WAIVER_RE =
-  /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+  /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than|without)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_CONDITION_AFTER_RE =
   /^\s*(?:(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?)\b|(?:is|are|has\s+been|have\s+been)\s+required|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)|(?:(?:has|have)\s+)?sign(?:s|ed)?[-\s]+off\b[^.!?]{0,30}\bbefore\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)/i;
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
@@ -773,6 +773,11 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "If no changes are needed, merge the security fix."],
   [true, "If no changes are needed, merge with the security team's notes."],
   [true, "If no changes are needed, merge with no approval required."],
+  [true, "If no changes are needed, merge the required approval update."],
+  [
+    true,
+    "If no changes are needed, merge without waiting for Steve's approval.",
+  ],
   [true, "If no changes are needed, merge if the approval isn't required."],
   [true, "If no changes are needed, don't wait for Steve's approval; merge."],
   [true, "Stop saying someone else needs to approve when the PR is ready."],
@@ -789,6 +794,7 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, wait for the required security approval before merging.",
   ],
   [false, "If no changes are needed, wait for Steve's decision; then merge."],
+  [false, "If no changes are needed, approval is required before merging."],
   [false, "If no changes are needed, merge only after Steve approves."],
   [false, "If no changes are needed, merge only with product-owner approval."],
   [false, "If no changes are needed, merge only after security approval."],
