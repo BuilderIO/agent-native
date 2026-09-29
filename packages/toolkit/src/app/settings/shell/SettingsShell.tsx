@@ -975,7 +975,6 @@ function SettingsNav({
   };
 
   const searching = enableSearch && query.trim().length > 0;
-  const footerPages = groups.get("footer") ?? [];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1099,14 +1098,6 @@ function SettingsNav({
             ))}
         </nav>
       )}
-      {footerPages.length > 0 ? (
-        <div
-          data-settings-group="footer"
-          className="flex shrink-0 flex-col gap-px px-2.5 pb-3 pt-2"
-        >
-          {footerPages.map(renderItem)}
-        </div>
-      ) : null}
     </div>
   );
 }

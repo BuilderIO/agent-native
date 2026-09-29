@@ -70,7 +70,7 @@ describe("settings page registry", () => {
     expect(getSettingsPages().map((page) => page.label)).toEqual(["B"]);
   });
 
-  it("orders core pages as the spec's five groups plus the footer", () => {
+  it("orders core pages in the five navigation groups", () => {
     const ids = sortSettingsPages(CORE_SETTINGS_PAGES).map((page) => page.id);
     expect(ids).toEqual([
       "profile",
