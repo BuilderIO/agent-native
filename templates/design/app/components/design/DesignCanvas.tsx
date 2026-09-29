@@ -3574,6 +3574,7 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
+          e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
           editorChromeReadyRef.current &&
           onRuntimeLayerSnapshotReadinessChange &&
           documentId === readyRuntimeLayerDocumentIdRef.current &&
@@ -3914,6 +3915,16 @@ export function DesignCanvas({
             current?.bridgeKey === lateReadyRecovery.bridgeKey ? null : current,
           );
           setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
+          lateLiveEditReadyRecoveryRef.current = null;
+          liveEditRestartAttemptRef.current = 0;
+          if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
+            window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
+            liveEditSameInstanceRearmTimerRef.current = undefined;
+          }
+          liveEditSameInstanceElapsedMsRef.current = 0;
+          liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
+          setLiveEditSameInstanceStalledError(null);
+          return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
         readyRuntimeLayerDocumentIdRef.current = documentId;

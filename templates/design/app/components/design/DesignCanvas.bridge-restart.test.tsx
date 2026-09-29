@@ -560,6 +560,11 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.querySelector("iframe")?.getAttribute("src")).toContain(
       "/live-edit",
     );
+    expect(
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([ready]) => ready === true,
+      ),
+    ).toHaveLength(0);
 
     const recoveredIframe =
       container.querySelector<HTMLIFrameElement>("iframe");
@@ -576,6 +581,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
           message as { type?: string; readinessRequestId?: number },
       )
       .filter((message) => message.type === "request-runtime-layer-snapshot");
+    expect(readinessRequests).toHaveLength(1);
     const readinessRequest = readinessRequests[readinessRequests.length - 1];
     expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(

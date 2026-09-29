@@ -344,6 +344,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
       false,
     );
+    const readyCallCountBeforeMatchingError =
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([ready]) => ready === true,
+      ).length;
     await sendBridgeMessage({
       type: "agent-native:runtime-layer-snapshot-error",
       payload: {
@@ -352,8 +356,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
       },
     });
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      true,
+      false,
     );
+    expect(
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([ready]) => ready === true,
+      ),
+    ).toHaveLength(readyCallCountBeforeMatchingError);
   });
 
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
