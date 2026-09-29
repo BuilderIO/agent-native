@@ -1246,6 +1246,15 @@ export interface RunFilter {
   openRunId?: string;
 }
 
+function LoadFailed() {
+  const t = useT();
+  return (
+    <p role="alert" className="text-sm text-muted-foreground">
+      {t("agentChat.common.chunkLoadFailed")}
+    </p>
+  );
+}
+
 function useRunInsights(days: number) {
   return useActionQuery<UsageInsightsData>("get-usage-insights", {
     sinceDays: days,
@@ -1263,10 +1272,11 @@ export function RunInsightsOverview({
   onShowRuns: (filter: RunFilter) => void;
 }) {
   const t = useT();
-  const { data } = useRunInsights(days);
+  const { data, isError } = useRunInsights(days);
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const insights = useMemo(() => buildInsights(t, runs), [t, runs]);
 
+  if (isError) return <LoadFailed />;
   if (!data) {
     return (
       <div className="space-y-3">
@@ -1340,6 +1350,14 @@ export function RunInsightsOverview({
             </span>
           </p>
         ) : null}
+        {current.runs > runs.length ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t("agentChat.observability.insights.sampleNote", {
+              shown: runs.length,
+              total: current.runs,
+            })}
+          </p>
+        ) : null}
         <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border/60 pt-4 sm:grid-cols-3 lg:grid-cols-5">
           <Stat
             label={t("agentChat.observability.insights.avgPerPrompt")}
@@ -1410,7 +1428,7 @@ export function RunInsightsConversations({
   renderRawTrace: (runId: string) => ReactNode;
 }) {
   const t = useT();
-  const { data } = useRunInsights(days);
+  const { data, isError } = useRunInsights(days);
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const [sort, setSort] = useState<"newest" | "cost">("newest");
   const [openRunId, setOpenRunId] = useState<string | null>(
@@ -1453,6 +1471,7 @@ export function RunInsightsConversations({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  if (isError) return <LoadFailed />;
   if (!data) {
     return (
       <div className="space-y-2">

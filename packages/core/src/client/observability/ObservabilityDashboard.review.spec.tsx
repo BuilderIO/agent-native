@@ -586,6 +586,106 @@ describe("ObservabilityDashboard human review", () => {
     expect(buttonWithText("Open full conversation")).toBeUndefined();
   });
 
+  it("reports a failed insights load instead of loading forever", async () => {
+    mockUseActionQuery.mockImplementation((actionName) =>
+      actionName === "get-usage-insights"
+        ? { data: undefined, isError: true, isSuccess: false }
+        : { data: undefined, isError: false, isSuccess: false },
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't load this. Please try again.",
+    );
+
+    const conversations = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Conversations"),
+    );
+    await act(async () => conversations?.click());
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't load this. Please try again.",
+    );
+  });
+
+  it("says the overview stats cover only the latest prompts when the period has more", async () => {
+    const tokens = {
+      inputTokens: 2,
+      outputTokens: 3,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    const cost = {
+      cacheReadCents: 0,
+      cacheWriteCents: 0,
+      uncachedInputCents: 1,
+      outputCents: 1,
+      totalCents: 2,
+      estimatedCents: 2,
+      noCacheCents: 2,
+    };
+    mockUseActionQuery.mockImplementation((actionName) =>
+      actionName === "get-usage-insights"
+        ? {
+            data: {
+              sinceDays: 7,
+              current: { runs: 30, tokens, cost },
+              previous: { runs: 0, tokens, cost },
+              runs: [
+                {
+                  runId: "run-1",
+                  threadId: "thread-1",
+                  createdAt: Date.now(),
+                  ownerEmail: "owner@example.com",
+                  label: "chat",
+                  model: "test-model",
+                  prompt: "Find the latest releases",
+                  status: "success",
+                  tokens,
+                  cost,
+                  modelCalls: 1,
+                  tools: [],
+                  restarts: {
+                    count: 0,
+                    cents: 0,
+                    byCause: {
+                      "tool-lookup": { count: 0, cents: 0 },
+                      "prefix-changed": { count: 0, cents: 0 },
+                    },
+                  },
+                  parallel: { calls: 0, savedMs: 0 },
+                  recoveredErrors: 0,
+                  durationMs: 100,
+                  feedback: null,
+                },
+              ],
+            },
+          }
+        : { data: undefined, isError: false, isSuccess: false },
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Stats below use the latest 1 of 30 prompts.",
+    );
+  });
+
   it("hides organization human review outside the admin settings surface", async () => {
     await act(async () => {
       root.render(

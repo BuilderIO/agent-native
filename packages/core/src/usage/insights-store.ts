@@ -1,3 +1,4 @@
+import { stablePrefixCacheControl } from "../agent/engine/prompt-cache.js";
 import { getDbExec } from "../db/client.js";
 import { ensureObservabilityTables } from "../observability/store.js";
 import {
@@ -284,11 +285,9 @@ function buildTurns(spans: SpanRow[]): UsageRunTurn[] {
       )
       .map((span) => span.name),
   );
-  // Mirrors stablePrefixCacheControl(); a longer gap re-writes the prefix.
+  // A longer gap than the prompt-cache TTL re-writes the prefix.
   const cacheTtlMs =
-    process.env.AGENT_PROMPT_CACHE_TTL === "1h"
-      ? 60 * 60 * 1000
-      : 5 * 60 * 1000;
+    stablePrefixCacheControl().ttl === "1h" ? 60 * 60 * 1000 : 5 * 60 * 1000;
   let previousStartedAt = 0;
   let toolLookupSinceLastTurn = false;
   for (const span of spans) {

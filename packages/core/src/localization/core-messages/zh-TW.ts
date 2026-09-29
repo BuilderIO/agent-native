@@ -1282,6 +1282,8 @@ const messages: AgentChatTranslation = {
     "從 {{count}} 個工具錯誤恢復後，最近 {{total}} 個中完成了 {{done}} 個",
   "observability.insights.typicalTime": "典型耗時",
   "observability.insights.median": "中位數",
+  "observability.insights.sampleNote":
+    "以下數據根據 {{total}} 則提示中最新的 {{shown}} 則。",
   "observability.insights.changeSame": "與上一週期相同",
   "observability.insights.changeUp": "↑ 較上一週期 {{percent}}%",
   "observability.insights.changeDown": "↓ 較上一週期 {{percent}}%",

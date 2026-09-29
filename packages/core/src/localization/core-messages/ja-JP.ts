@@ -1368,6 +1368,8 @@ const messages: AgentChatTranslation = {
     "直近{{total}}件中{{done}}件（ツールエラー{{count}}件から復帰後）",
   "observability.insights.typicalTime": "所要時間の目安",
   "observability.insights.median": "中央値",
+  "observability.insights.sampleNote":
+    "以下の数値は {{total}} 件中、最新 {{shown}} 件のプロンプトに基づいています。",
   "observability.insights.changeSame": "前の期間と同じ",
   "observability.insights.changeUp": "↑ {{percent}}%（前の期間比）",
   "observability.insights.changeDown": "↓ {{percent}}%（前の期間比）",

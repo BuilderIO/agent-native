@@ -1439,6 +1439,8 @@ const messages: AgentChatTranslation = {
     "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreurs d'outils",
   "observability.insights.typicalTime": "Durée type",
   "observability.insights.median": "médiane",
+  "observability.insights.sampleNote":
+    "Les chiffres ci-dessous portent sur les {{shown}} derniers prompts sur {{total}}.",
   "observability.insights.changeSame": "identique à la période précédente",
   "observability.insights.changeUp":
     "↑ {{percent}} % par rapport à la période précédente",

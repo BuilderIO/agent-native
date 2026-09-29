@@ -1360,6 +1360,8 @@ const messages = {
     "{{done}} of the last {{total}}, after recovering from {{count}} tool errors",
   "observability.insights.typicalTime": "Typical time",
   "observability.insights.median": "median",
+  "observability.insights.sampleNote":
+    "Stats below use the latest {{shown}} of {{total}} prompts.",
   "observability.insights.changeSame": "same as the period before",
   "observability.insights.changeUp": "↑ {{percent}}% vs the period before",
   "observability.insights.changeDown": "↓ {{percent}}% vs the period before",
