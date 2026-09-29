@@ -345,7 +345,9 @@ describe("scanDeprecatedImports", () => {
   });
 
   it("reports active moves in dynamic, CommonJS, namespace, and unquoted CSS imports", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-call-moves-"));
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-call-moves-"),
+    );
     roots.push(root);
     fs.writeFileSync(
       path.join(root, "consumer.ts"),
