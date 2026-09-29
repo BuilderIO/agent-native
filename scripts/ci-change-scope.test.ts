@@ -4,8 +4,11 @@ import test from "node:test";
 import {
   classifyChangedPaths,
   isDocsPath,
+  isGuardScopedScriptPath,
+  isInstructionPath,
   isWorkspacePath,
   normalizeChangedPath,
+  scriptTestsForPaths,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
 
@@ -69,7 +72,7 @@ test("selects only docs checks for an all-docs change set", () => {
     Object.entries(scope.checks)
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
-    ["lint"],
+    ["lint", "changeset"],
   );
 });
 
@@ -146,7 +149,6 @@ test("runs shared coverage when core changes", () => {
   assert.equal(scope.checks.core_integration, true);
   assert.equal(scope.checks.plan_e2e, true);
   assert.equal(scope.checks.brain_evals, true);
-  assert.equal(scope.checks.brain_privacy, true);
   assert.equal(scope.checks.scaffold, true);
   assert.equal(scope.checks.ssr_boot, true);
   assert.equal(scope.checks.trusted_acceptance, true);
@@ -193,13 +195,150 @@ test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
   );
 });
 
-test("keeps package metadata targeted but runs the drizzle guard", () => {
+test("keeps package metadata targeted but runs the guards that scan it", () => {
   const scope = classifyChangedPaths(["templates/calendar/package.json"]);
 
   assert.equal(scope.full, false);
   assert.equal(scope.checks.build, true);
   assert.equal(scope.checks.fast_tests, true);
-  assert.equal(scope.checks.drizzle, true);
+  // pnpm guards includes guard:no-drizzle-push.
+  assert.equal(scope.checks.guards, true);
+});
+
+test("routes agent instructions to core and skills instead of the full suite", () => {
+  for (const path of [
+    ".agents/skills/qa/SKILL.md",
+    "skills/an/SKILL.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "DEVELOPMENT.md",
+  ]) {
+    assert.equal(isInstructionPath(path), true, path);
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.docsOnly, false, path);
+    assert.deepEqual(scope.workspaceFilters, [
+      "@agent-native/core",
+      "@agent-native/skills",
+    ]);
+    assert.deepEqual(
+      Object.entries(scope.checks)
+        .filter(([, enabled]) => enabled)
+        .map(([name]) => name),
+      ["lint", "fast_tests", "build", "guards"],
+      path,
+    );
+  }
+
+  assert.equal(isInstructionPath("README.md"), false);
+  assert.equal(isInstructionPath("templates/chat/AGENTS.md"), false);
+  assert.equal(isInstructionPath(".agents/skills/qa/config.json"), false);
+  assert.equal(classifyChangedPaths([".agents/plugin.json"]).full, true);
+});
+
+test("keeps workspace selectors when instructions change with a template", () => {
+  const scope = classifyChangedPaths([
+    ".agents/skills/qa/SKILL.md",
+    "templates/calendar/app/root.tsx",
+  ]);
+  assert.equal(scope.full, false);
+  assert.deepEqual(scope.workspaceFilters, [
+    "...{templates/calendar}...",
+    "@agent-native/core",
+    "@agent-native/skills",
+  ]);
+  assert.equal(scope.checks.typecheck, true);
+  assert.equal(scope.checks.qa_static, true);
+});
+
+test("runs guard scripts and root script tests in the guards job only", () => {
+  for (const path of [
+    "scripts/guard-no-drizzle-push.mjs",
+    "scripts/guard-agentkit-stream-ownership.test.ts",
+    "scripts/lib/guard-run-summary.ts",
+    "scripts/neon-transfer-alert.spec.ts",
+    "scripts/trusted-acceptance/controller.spec.ts",
+    "scripts/serverless-function-baseline.json",
+  ]) {
+    assert.equal(isGuardScopedScriptPath(path), true, path);
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.deepEqual(
+      Object.entries(scope.checks)
+        .filter(([, enabled]) => enabled)
+        .map(([name]) => name),
+      ["lint", "guards"],
+      path,
+    );
+  }
+
+  for (const path of [
+    "scripts/ci-change-scope.test.ts",
+    "scripts/ci-test-lanes.ts",
+    "scripts/check-changeset.mjs",
+    "scripts/guard-no-major-changeset.mjs",
+    "scripts/run-guards.ts",
+    "scripts/prebuild-workspace-packages.ts",
+    "scripts/netlify-ignore-build.mjs",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).full, true, path);
+  }
+});
+
+test("resolves the root script tests a guard-scoped change must run", () => {
+  const existing = new Set([
+    "scripts/guard-a.test.ts",
+    "scripts/guard-b.spec.mjs",
+    "scripts/neon-transfer-alert.spec.ts",
+  ]);
+  assert.deepEqual(
+    scriptTestsForPaths(
+      [
+        "scripts/guard-a.mjs",
+        "scripts/guard-b.ts",
+        "scripts/guard-c.mjs",
+        "scripts/neon-transfer-alert.spec.ts",
+        "scripts/deleted.test.ts",
+        "packages/core/src/index.ts",
+      ],
+      (path) => existing.has(path),
+    ),
+    [
+      "scripts/guard-a.test.ts",
+      "scripts/guard-b.spec.mjs",
+      "scripts/neon-transfer-alert.spec.ts",
+    ],
+  );
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
+    [],
+  );
+});
+
+test("selects the changeset check for package, changeset, and checker changes", () => {
+  assert.equal(
+    classifyChangedPaths(["packages/core/src/index.ts"]).checks.changeset,
+    true,
+  );
+  const changesetOnly = classifyChangedPaths([".changeset/new-feature.md"]);
+  assert.equal(changesetOnly.docsOnly, true);
+  assert.equal(changesetOnly.checks.lint, true);
+  assert.equal(changesetOnly.checks.changeset, true);
+  assert.equal(
+    classifyChangedPaths(["packages/core/docs/content/actions.mdx"]).checks
+      .changeset,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["scripts/guard-no-major-changeset.mjs"]).checks
+      .changeset,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["templates/calendar/app/root.tsx"]).checks.changeset,
+    false,
+  );
+  assert.equal(classifyChangedPaths(["docs/guide.md"]).checks.changeset, false);
 });
 
 test("includes nested template workspaces in selectors", () => {
@@ -221,6 +360,6 @@ test("does not run code checks for a mixed docs-only package change", () => {
     Object.entries(scope.checks)
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
-    ["lint"],
+    ["lint", "changeset"],
   );
 });

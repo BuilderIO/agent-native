@@ -31,6 +31,27 @@ const DOCS_SUPPORT_PATHS = new Set([
   "scripts/i18n-raw-literal-baseline.txt",
 ]);
 
+// Agent instructions are inputs to core (bundled skills, prompt resources) and
+// to the skills package, and several guards read them, so they are not docs.
+const INSTRUCTION_MARKDOWN_RE = /^(?:\.agents\/.+|skills\/.+|[^/]+)\.md$/u;
+const INSTRUCTION_WORKSPACE_FILTERS = [
+  "@agent-native/core",
+  "@agent-native/skills",
+] as const;
+
+// Root guard scripts, root script tests, and the function-size baseline are
+// exercised by the guards job; no workspace build or test imports them.
+const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
+const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const GUARD_SCOPE_FILES = new Set([
+  "scripts/serverless-function-baseline.json",
+]);
+
+const CHANGESET_CHECK_FILES = new Set([
+  "scripts/check-changeset.mjs",
+  "scripts/guard-no-major-changeset.mjs",
+]);
+
 const FULL_CHECK_FILES = new Set([
   ".github/workflows/ci.yml",
   ".oxlintrc.json",
@@ -50,16 +71,15 @@ const CHECK_NAMES = [
   "core_integration",
   "plan_e2e",
   "brain_evals",
-  "brain_privacy",
   "build",
   "trusted_acceptance",
   "scaffold",
   "ssr_boot",
   "guards",
-  "drizzle",
   "qa_static",
   "agentkit_acceptance",
   "neon_query_budget",
+  "changeset",
 ] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
@@ -73,6 +93,7 @@ export type ChangeScope = {
   nonDocsPaths: string[];
   checks: CheckSelection;
   workspaceFilters: string[];
+  scriptTests: string[];
 };
 
 export function normalizeChangedPath(path: string): string {
@@ -93,6 +114,52 @@ export function isDocsPath(path: string): boolean {
     /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName) ||
     /^packages\/[^/]+\/changelog(?:\/|$)/u.test(normalized)
   );
+}
+
+export function isInstructionPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return !isDocsPath(normalized) && INSTRUCTION_MARKDOWN_RE.test(normalized);
+}
+
+export function isGuardScopedScriptPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (normalized.startsWith("scripts/ci-")) return false;
+  if (CHANGESET_CHECK_FILES.has(normalized)) return false;
+  return (
+    GUARD_SCOPE_FILES.has(normalized) ||
+    SCRIPT_TEST_RE.test(normalized) ||
+    GUARD_SCRIPT_RE.test(normalized)
+  );
+}
+
+function isChangesetPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized.startsWith("packages/") ||
+    normalized.startsWith(".changeset/") ||
+    CHANGESET_CHECK_FILES.has(normalized)
+  );
+}
+
+/** Changed root script tests plus the sibling test of each changed guard. */
+export function scriptTestsForPaths(
+  paths: readonly string[],
+  fileExists: (path: string) => boolean = (path) =>
+    existsSync(join(process.cwd(), path)),
+): string[] {
+  const tests = new Set<string>();
+  for (const path of paths.map(normalizeChangedPath)) {
+    if (!isGuardScopedScriptPath(path)) continue;
+    if (SCRIPT_TEST_RE.test(path)) {
+      if (fileExists(path)) tests.add(path);
+      continue;
+    }
+    const stem = path.replace(/\.(?:ts|mts|mjs|js)$/u, "");
+    for (const suffix of [".test.ts", ".test.mjs", ".spec.ts", ".spec.mjs"]) {
+      if (fileExists(`${stem}${suffix}`)) tests.add(`${stem}${suffix}`);
+    }
+  }
+  return [...tests].sort();
 }
 
 export function isWorkspacePath(path: string): boolean {
@@ -133,7 +200,11 @@ export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
     if (root) roots.add(root);
   }
 
-  return [...roots].sort().map((root) => `...{${root}}...`);
+  const filters = [...roots].sort().map((root) => `...{${root}}...`);
+  if (paths.some(isInstructionPath)) {
+    filters.push(...INSTRUCTION_WORKSPACE_FILTERS);
+  }
+  return filters;
 }
 
 function isFullPath(path: string): boolean {
@@ -141,6 +212,9 @@ function isFullPath(path: string): boolean {
 
   if (FULL_CHECK_FILES.has(normalized)) return true;
   if (normalized.startsWith(".github/")) return true;
+  if (isInstructionPath(normalized) || isGuardScopedScriptPath(normalized)) {
+    return false;
+  }
   if (normalized.startsWith("scripts/") && !isDocsPath(normalized)) {
     return true;
   }
@@ -163,6 +237,8 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const instructionsChanged = changedPaths.some(isInstructionPath);
+  const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
   const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
@@ -192,15 +268,14 @@ function buildChecks(
     hasPath(changedPaths, "scripts/neon-query-budgets");
 
   return {
-    lint: workspaceChanged,
+    lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged,
+    fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
     core_integration: coreChanged || toolkitChanged,
     plan_e2e: coreChanged || planChanged,
     brain_evals: coreChanged || brainChanged,
-    brain_privacy: coreChanged || brainChanged,
-    build: workspaceChanged,
+    build: workspaceChanged || instructionsChanged,
     trusted_acceptance:
       coreChanged || contentChanged || calendarChanged || dispatchChanged,
     scaffold:
@@ -219,16 +294,7 @@ function buildChecks(
       planChanged ||
       clipsChanged ||
       assetsChanged,
-    guards: workspaceChanged,
-    drizzle: changedPaths.some((path) => {
-      const normalized = normalizeChangedPath(path);
-      return (
-        normalized === "netlify.toml" ||
-        normalized.endsWith("/netlify.toml") ||
-        normalized === "package.json" ||
-        normalized.endsWith("/package.json")
-      );
-    }),
+    guards: workspaceChanged || instructionsChanged || guardScriptsChanged,
     qa_static: templateChanged,
     agentkit_acceptance:
       coreChanged ||
@@ -237,6 +303,7 @@ function buildChecks(
       sharedAppConfigChanged ||
       chatChanged,
     neon_query_budget: neonQueryBudgetChanged,
+    changeset: changedPaths.some(isChangesetPath),
   };
 }
 
@@ -257,10 +324,15 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     nonDocsPaths,
     checks: docsOnly
       ? (Object.fromEntries(
-          CHECK_NAMES.map((name) => [name, name === "lint"]),
+          CHECK_NAMES.map((name) => [
+            name,
+            name === "lint" ||
+              (name === "changeset" && changedPaths.some(isChangesetPath)),
+          ]),
         ) as CheckSelection)
       : buildChecks(changedPaths, full),
     workspaceFilters,
+    scriptTests: full ? [] : scriptTestsForPaths(changedPaths),
   };
 }
 
@@ -281,6 +353,7 @@ function writeOutputs(scope: ChangeScope): void {
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
+      `script_tests=${JSON.stringify(scope.scriptTests)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,
       ),
