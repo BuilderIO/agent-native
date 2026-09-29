@@ -683,7 +683,7 @@ const PR_REVIEW_GATE_WAIT_FOR_RE =
 const PR_REVIEW_GATE_THEN_MERGE_RE =
   /\b(?:then\s+)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i;
 const PR_REVIEW_GATE_WITH_APPROVAL_RE =
-  /\b(?:merge\s+only\s+with|only\s+(?:merge\s+)?with)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+  /\b(?:merge\s+(?:only\s+)?with|only\s+(?:merge\s+)?with)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_APPROVAL_HEAD_RE =
   /^\s*(?:(?:from|by|of|is|are|was|were|required|needed|necessary|before|prior\s+to|and|or)\b|$|[.,;:!?])/i;
 const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
@@ -698,10 +698,24 @@ const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
 const PR_REVIEW_MERGE_PROHIBITION_RE = /\b(?:don't|do\s+not|never)\s+merge\b/i;
 const PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE =
-  /\b(?:merge\s+(?:only\s+)?with|only\s+(?:merge\s+)?with)\s+(?:CI\s+green|green\s+CI)\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)/i;
+  /\b(?:merge\s+(?:only\s+)?with|only\s+(?:merge\s+)?with)\s+(?:the\s+)?(?:CI\s+green|green\s+CI)(?:\s+checks?)?\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)/i;
 
 function hasActivePrReviewMergeGate(sentence) {
-  if (PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE.test(sentence)) return true;
+  const greenChecks = PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE.exec(sentence);
+  if (greenChecks) {
+    const before = sentence.slice(
+      Math.max(0, greenChecks.index - 70),
+      greenChecks.index,
+    );
+    const after = sentence.slice(greenChecks.index + greenChecks[0].length);
+    if (
+      !PR_REVIEW_GATE_WAIVER_RE.test(before) &&
+      !PR_REVIEW_GATE_NEGATION_BEFORE_RE.test(before) &&
+      !PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after)
+    ) {
+      return true;
+    }
+  }
 
   for (const match of sentence.matchAll(PR_REVIEW_MERGE_GATE_RE)) {
     const before = sentence.slice(Math.max(0, match.index - 70), match.index);
@@ -805,6 +819,11 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     true,
     "If no changes are needed, merge only with the approval workflow update.",
   ],
+  [true, "If no changes are needed, merge with CI green is not required."],
+  [
+    true,
+    "If no changes are needed, merge with the CI green check is optional.",
+  ],
   [
     true,
     "If no changes are needed, merge it; security approval is required before deployment.",
@@ -836,6 +855,9 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, merge only after security approval."],
   [false, "If no changes are needed, merge only after all required approvals."],
   [false, "If no changes are needed, merge with CI green."],
+  [false, "If no changes are needed, merge only with the CI green check."],
+  [false, "If no changes are needed, merge with approval required."],
+  [false, "If no changes are needed, merge with approval from Steve."],
   [false, "If no changes are needed, merge only after security sign-off."],
   [false, "If no changes are needed, merge only after the test suite passes."],
   [
