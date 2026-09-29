@@ -42,6 +42,7 @@ async function seedUsage(row: {
   owner?: string;
   model?: string;
   costX100?: number;
+  costSource?: "reported" | "estimated" | "unavailable";
   input: number;
   output: number;
   read: number;
@@ -49,9 +50,10 @@ async function seedUsage(row: {
 }) {
   await pglite.exec(`INSERT INTO token_usage
     (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
-     cache_write_tokens, cost_cents_x100, model, app, run_id, thread_id, task_id, created_at)
+     cache_write_tokens, cost_cents_x100, cost_source, model, app, run_id, thread_id, task_id, created_at)
     VALUES (${row.id}, '${row.owner ?? OWNER}', ${row.input}, ${row.output},
-     ${row.read}, ${row.write}, ${row.costX100 ?? 100}, '${row.model ?? MODEL}',
+     ${row.read}, ${row.write}, ${row.costX100 ?? 100},
+     '${row.costSource ?? "reported"}', '${row.model ?? MODEL}',
      'design', ${row.runId === null ? "NULL" : `'${row.runId}'`},
      '${row.threadId}', ${row.taskId ? `'${row.taskId}'` : "NULL"}, ${Date.now()})`);
 }
@@ -96,7 +98,8 @@ beforeAll(async () => {
     id BIGINT PRIMARY KEY, owner_email TEXT NOT NULL,
     input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0,
     cache_read_tokens BIGINT NOT NULL DEFAULT 0, cache_write_tokens BIGINT NOT NULL DEFAULT 0,
-    cost_cents_x100 BIGINT NOT NULL DEFAULT 0, model TEXT NOT NULL DEFAULT '',
+    cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+    cost_source TEXT NOT NULL DEFAULT 'estimated', model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat', app TEXT NOT NULL DEFAULT '', org_id TEXT,
     run_id TEXT, thread_id TEXT, task_id TEXT, created_at BIGINT NOT NULL)`);
   await pglite.exec(
@@ -185,6 +188,72 @@ describe("getUsageRun", () => {
     const run = await getUsageRun({ runId: "run-idle" }, ACCESS);
 
     expect(run!.turns[1]!.cacheExpired).toBe(true);
+    expect(run!.restarts.count).toBe(0);
+  });
+
+  it("keeps a six-minute gap inside a one-hour prompt cache", async () => {
+    vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
+    await seedUsage({
+      id: 40,
+      runId: "run-idle-1h",
+      threadId: "thread-4",
+      input: 150_000,
+      output: 1_000,
+      read: 40_000,
+      write: 110_000,
+    });
+    await seedSpan(
+      "run-idle-1h",
+      "llm_call",
+      MODEL,
+      { input: 50_000, read: 40_000, write: 10_000 },
+      "success",
+      10_000_000,
+    );
+    await seedSpan(
+      "run-idle-1h",
+      "llm_call",
+      MODEL,
+      { input: 100_000, read: 0, write: 100_000 },
+      "success",
+      10_000_000 + 6 * 60_000,
+    );
+
+    const run = await getUsageRun({ runId: "run-idle-1h" }, ACCESS);
+    vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "");
+
+    expect(run!.turns[1]!.cacheExpired).toBe(false);
+    expect(run!.restarts.count).toBe(1);
+  });
+
+  it("does not call a switch to another model a restart", async () => {
+    await seedUsage({
+      id: 43,
+      runId: "run-switch",
+      threadId: "thread-4b",
+      input: 150_000,
+      output: 1_000,
+      read: 40_000,
+      write: 10_000,
+    });
+    await seedSpan("run-switch", "llm_call", MODEL, {
+      input: 50_000,
+      read: 40_000,
+      write: 10_000,
+    });
+    await seedSpan("run-switch", "llm_call", "claude-opus-5-5", {
+      input: 100_000,
+      read: 0,
+      write: 100_000,
+    });
+    await seedSpan("run-switch", "llm_call", "claude-opus-5-5", {
+      input: 101_000,
+      read: 100_000,
+      write: 1_000,
+    });
+
+    const run = await getUsageRun({ runId: "run-switch" }, ACCESS);
+
     expect(run!.restarts.count).toBe(0);
   });
 
@@ -295,6 +364,37 @@ describe("getUsageRun", () => {
       (calculateCost(100_000, 1_000, MODEL) +
         calculateCost(100_000, 1_000, "gpt-5")) /
         100,
+      2,
+    );
+  });
+
+  it("prices calls with no recorded cost from their tokens instead of as free", async () => {
+    await seedUsage({
+      id: 41,
+      runId: "run-unpriced",
+      threadId: "thread-6b",
+      costX100: 100,
+      input: 100_000,
+      output: 1_000,
+      read: 0,
+      write: 0,
+    });
+    await seedUsage({
+      id: 42,
+      runId: "run-unpriced",
+      threadId: "thread-6b",
+      costX100: 0,
+      costSource: "unavailable",
+      input: 100_000,
+      output: 1_000,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-unpriced" }, ACCESS);
+
+    expect(run!.cost.totalCents).toBeCloseTo(
+      1 + calculateCost(100_000, 1_000, MODEL) / 100,
       2,
     );
   });

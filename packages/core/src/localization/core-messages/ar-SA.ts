@@ -1363,271 +1363,284 @@ const messages: AgentChatTranslation = {
     "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
-  "usage.insights.verdictSmooth": "يعمل بسلاسة",
-  "usage.insights.handledLabel": "تمت معالجته بواسطة Agent-Native:",
-  "usage.insights.handledHeading": "تمت معالجته بواسطة Agent-Native",
-  "usage.insights.handledParallel":
+  "observability.insights.verdictSmooth": "يعمل بسلاسة",
+  "observability.insights.handledLabel": "تمت معالجته بواسطة Agent-Native:",
+  "observability.insights.handledHeading": "تمت معالجته بواسطة Agent-Native",
+  "observability.insights.handledParallel":
     "شغّل {{count}} استدعاء أداة في الوقت نفسه، أسرع بحوالي {{duration}} من تنفيذها واحدًا تلو الآخر.",
-  "usage.insights.avgPerPrompt": "المتوسط لكل برومبت",
-  "usage.insights.completed": "مكتمل",
-  "usage.insights.completedDetail": "{{done}} من آخر {{total}}",
-  "usage.insights.typicalTime": "الوقت المعتاد",
-  "usage.insights.median": "الوسيط",
-  "usage.insights.changeSame": "نفس الفترة السابقة",
-  "usage.insights.changeUp": "↑ {{percent}}% مقارنة بالفترة السابقة",
-  "usage.insights.changeDown": "↓ {{percent}}% مقارنة بالفترة السابقة",
-  "usage.insights.kindProblem": "مشكلة",
-  "usage.insights.kindSaving": "توفير محتمل",
-  "usage.insights.kindInfo": "معلومة مفيدة",
-  "usage.insights.fixLabel": "الحل:",
-  "usage.insights.openPrompt": "فتح البرومبت",
-  "usage.insights.erroredBody": "توقف الوكيل قبل إنهاء المهمة.",
-  "usage.insights.erroredFix":
+  "observability.insights.avgPerPrompt": "المتوسط لكل برومبت",
+  "observability.insights.completed": "مكتمل",
+  "observability.insights.completedDetail": "{{done}} من آخر {{total}}",
+  "observability.insights.typicalTime": "الوقت المعتاد",
+  "observability.insights.median": "الوسيط",
+  "observability.insights.changeSame": "نفس الفترة السابقة",
+  "observability.insights.changeUp": "↑ {{percent}}% مقارنة بالفترة السابقة",
+  "observability.insights.changeDown": "↓ {{percent}}% مقارنة بالفترة السابقة",
+  "observability.insights.kindProblem": "مشكلة",
+  "observability.insights.kindSaving": "توفير محتمل",
+  "observability.insights.kindInfo": "معلومة مفيدة",
+  "observability.insights.fixLabel": "الحل:",
+  "observability.insights.openPrompt": "فتح البرومبت",
+  "observability.insights.erroredBody": "توقف الوكيل قبل إنهاء المهمة.",
+  "observability.insights.erroredFix":
     "افتح البرومبت لمعرفة آخر ما فعله الوكيل قبل أن يتوقف.",
-  "usage.insights.toolFailedSaid": "قال: «{{error}}»",
-  "usage.insights.toolFailedGeneric": "أبلغت الأداة عن خطأ.",
-  "usage.insights.toolRecoveredAll": "تعافى الوكيل وأنهى المهمة في كل مرة.",
-  "usage.insights.toolRecoveredSome":
+  "observability.insights.toolFailedSaid": "قال: «{{error}}»",
+  "observability.insights.toolFailedGeneric": "أبلغت الأداة عن خطأ.",
+  "observability.insights.toolRecoveredAll":
+    "تعافى الوكيل وأنهى المهمة في كل مرة.",
+  "observability.insights.toolRecoveredSome":
     "تعافى الوكيل وأنهى المهمة في {{count}} منها.",
-  "usage.insights.restartTitle":
+  "observability.insights.restartTitle":
     "كلّف البدء من جديد حوالي {{amount}} ({{percent}}% من الإنفاق)",
-  "usage.insights.restartBody":
+  "observability.insights.restartBody":
     "في {{count}} من آخر {{total}} برومبت، أعاد الوكيل إرسال المحادثة كاملة بعد {{reason}}، بدلًا من إعادة استخدام ما سبق إرساله.",
-  "usage.insights.reasonToolLookup": "اكتشاف أدوات جديدة",
-  "usage.insights.reasonPrefixChanged": "تغيّر شيء في بداية تعليماته",
-  "usage.insights.fixToolLookup":
+  "observability.insights.reasonToolLookup": "اكتشاف أدوات جديدة",
+  "observability.insights.reasonPrefixChanged": "تغيّر شيء في بداية تعليماته",
+  "observability.insights.fixToolLookup":
     "حمّل الأدوات التي يستخدمها هذا التطبيق مسبقًا باستخدام initialToolNames لتبقى قائمة الأدوات ثابتة طوال البرومبت.",
-  "usage.insights.fixPrefixChanged":
+  "observability.insights.fixPrefixChanged":
     "احتفظ بالمحتوى المتغيّر، مثل الطوابع الزمنية أو حالة كل خطوة، خارج برومبت النظام.",
-  "usage.insights.priciestTitle":
+  "observability.insights.priciestTitle":
     "استهلك برومبت واحد {{percent}}% من الإنفاق الأخير",
-  "usage.insights.untitledPrompt": "برومبت بلا عنوان",
-  "usage.insights.promptsHeading": "البرومبتات",
-  "usage.insights.showing": "عرض {{count}}",
-  "usage.insights.sortNewest": "الأحدث",
-  "usage.insights.sortCost": "الأعلى تكلفة",
-  "usage.insights.emptyPrompts":
+  "observability.insights.untitledPrompt": "برومبت بلا عنوان",
+  "observability.insights.promptsHeading": "البرومبتات",
+  "observability.insights.showing": "عرض {{count}}",
+  "observability.insights.sortNewest": "الأحدث",
+  "observability.insights.sortCost": "الأعلى تكلفة",
+  "observability.insights.emptyPrompts":
     "لا توجد برومبتات في هذه الفترة بعد. تظهر هنا بعد ثوانٍ قليلة من انتهائها.",
-  "usage.insights.promptNotSaved": "لم يتم حفظ نص البرومبت",
-  "usage.insights.ratedHelpful": "تم تقييمه بأنه مفيد",
-  "usage.insights.ratedUnhelpful": "تم تقييمه بأنه غير مفيد",
-  "usage.insights.notRated": "بلا تقييم",
-  "usage.insights.stoppedWithError": "توقف بخطأ",
-  "usage.insights.detailsUnavailable": "تفاصيل الخطوات لم تعد متاحة",
-  "usage.insights.answered": "تمت الإجابة",
-  "usage.insights.finished": "انتهى",
-  "usage.insights.startedOverShort": "بدأ من جديد {{count}}×",
-  "usage.insights.headerDuration": "في {{duration}}",
-  "usage.insights.whatItDid": "ما الذي قام به:",
-  "usage.insights.replyNotSaved": "لم يتم حفظ نص الرد لهذا البرومبت.",
-  "usage.insights.showAll": "عرض الكل",
-  "usage.insights.showLess": "عرض أقل",
-  "usage.insights.moreTools": "+{{count}} أخرى",
-  "usage.insights.failedSuffix": "فشل",
-  "usage.insights.timesCount": "{{label}} ×{{count}}",
-  "usage.insights.hideSteps": "إخفاء الخطوات",
-  "usage.insights.costDetails": "تفاصيل التكلفة والفحوصات",
-  "usage.insights.turnReply": "كتب الرد",
-  "usage.insights.turnThought": "فكّر في الأمر",
-  "usage.insights.startedOverTag": "بدأ من جديد",
-  "usage.insights.toolFailedTag": "فشل الأداة",
-  "usage.insights.turnContext":
+  "observability.insights.promptNotSaved": "لم يتم حفظ نص البرومبت",
+  "observability.insights.ratedHelpful": "تم تقييمه بأنه مفيد",
+  "observability.insights.ratedUnhelpful": "تم تقييمه بأنه غير مفيد",
+  "observability.insights.notRated": "بلا تقييم",
+  "observability.insights.stoppedWithError": "توقف بخطأ",
+  "observability.insights.detailsUnavailable": "تفاصيل الخطوات لم تعد متاحة",
+  "observability.insights.answered": "تمت الإجابة",
+  "observability.insights.finished": "انتهى",
+  "observability.insights.startedOverShort": "بدأ من جديد {{count}}×",
+  "observability.insights.headerDuration": "في {{duration}}",
+  "observability.insights.whatItDid": "ما الذي قام به:",
+  "observability.insights.replyNotSaved": "لم يتم حفظ نص الرد لهذا البرومبت.",
+  "observability.insights.showAll": "عرض الكل",
+  "observability.insights.showLess": "عرض أقل",
+  "observability.insights.moreTools": "+{{count}} أخرى",
+  "observability.insights.failedSuffix": "فشل",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.hideSteps": "إخفاء الخطوات",
+  "observability.insights.costDetails": "تفاصيل التكلفة والفحوصات",
+  "observability.insights.turnReply": "كتب الرد",
+  "observability.insights.turnThought": "فكّر في الأمر",
+  "observability.insights.startedOverTag": "بدأ من جديد",
+  "observability.insights.toolFailedTag": "فشل الأداة",
+  "observability.insights.turnContext":
     "أرسل {{tokens}} توكن من السياق، {{percent}}% منها معاد استخدامها من سياق سابق.",
-  "usage.insights.turnExpired":
+  "observability.insights.turnExpired":
     "انتهت صلاحية السياق المحفوظ بعد فترة توقف، وهذا أمر متوقع.",
-  "usage.insights.turnOutput": "كتب {{tokens}} توكن.",
-  "usage.insights.turnRestart":
+  "observability.insights.turnOutput": "كتب {{tokens}} توكن.",
+  "observability.insights.turnRestart":
     "بدأ من جديد بعد {{reason}}، بتكلفة أعلى بحوالي {{amount}} من إعادة استخدامه.",
-  "usage.insights.noCacheCompare":
+  "observability.insights.noCacheCompare":
     "بالأسعار المعتادة، أدت إعادة استخدام السياق السابق إلى خفض تكلفة هذا البرومبت من {{noCache}} إلى {{estimated}}.",
-  "usage.insights.partReused": "سياق معاد استخدامه",
-  "usage.insights.partSaved": "محفوظ في الكاش",
-  "usage.insights.partNew": "سياق جديد",
-  "usage.insights.partOutput": "كتبه النموذج",
-  "usage.insights.checksHeading": "الفحوصات التلقائية",
-  "usage.insights.checksNone": "لم يتم تسجيل أي فحوصات.",
-  "usage.insights.checksGraded": "(تم تقييمه من نموذج)",
-  "usage.insights.checksNote":
+  "observability.insights.partReused": "سياق معاد استخدامه",
+  "observability.insights.partSaved": "محفوظ في الكاش",
+  "observability.insights.partNew": "سياق جديد",
+  "observability.insights.partOutput": "كتبه النموذج",
+  "observability.insights.checksHeading": "الفحوصات التلقائية",
+  "observability.insights.checksNone": "لم يتم تسجيل أي فحوصات.",
+  "observability.insights.checksGraded": "(تم تقييمه من نموذج)",
+  "observability.insights.checksNote":
     "تفحص هذه الفحوصات كيف سار التشغيل (الأخطاء، الخطوات، السرعة)، وليس ما إذا كانت النتيجة جيدة.",
-  "usage.insights.lookedForTools": "بحث عن أدوات إضافية",
-  "usage.insights.prevPrompt": "البرومبت السابق (K)",
-  "usage.insights.nextPrompt": "البرومبت التالي (J)",
-  "usage.insights.toolVerb.add": "أضاف {{object}}",
-  "usage.insights.toolVerb.analyze": "حلّل {{object}}",
-  "usage.insights.toolVerb.apply": "طبّق {{object}}",
-  "usage.insights.toolVerb.capture": "التقط {{object}}",
-  "usage.insights.toolVerb.check": "فحص {{object}}",
-  "usage.insights.toolVerb.connect": "وصّل {{object}}",
-  "usage.insights.toolVerb.create": "أنشأ {{object}}",
-  "usage.insights.toolVerb.delete": "حذف {{object}}",
-  "usage.insights.toolVerb.duplicate": "كرر {{object}}",
-  "usage.insights.toolVerb.edit": "عدّل {{object}}",
-  "usage.insights.toolVerb.export": "صدّر {{object}}",
-  "usage.insights.toolVerb.fetch": "جلب {{object}}",
-  "usage.insights.toolVerb.find": "وجد {{object}}",
-  "usage.insights.toolVerb.generate": "ولّد {{object}}",
-  "usage.insights.toolVerb.index": "فهرس {{object}}",
-  "usage.insights.toolVerb.insert": "أدرج {{object}}",
-  "usage.insights.toolVerb.list": "سرد {{object}}",
-  "usage.insights.toolVerb.move": "نقل {{object}}",
-  "usage.insights.toolVerb.navigate": "تصفّح {{object}}",
-  "usage.insights.toolVerb.open": "فتح {{object}}",
-  "usage.insights.toolVerb.present": "قدّم {{object}}",
-  "usage.insights.toolVerb.propose": "اقترح {{object}}",
-  "usage.insights.toolVerb.query": "استعلم عن {{object}}",
-  "usage.insights.toolVerb.read": "قرأ {{object}}",
-  "usage.insights.toolVerb.remove": "أزال {{object}}",
-  "usage.insights.toolVerb.rename": "أعاد تسمية {{object}}",
-  "usage.insights.toolVerb.reply": "ردّ على {{object}}",
-  "usage.insights.toolVerb.resolve": "حلّ {{object}}",
-  "usage.insights.toolVerb.run": "شغّل {{object}}",
-  "usage.insights.toolVerb.save": "حفظ {{object}}",
-  "usage.insights.toolVerb.search": "بحث عن {{object}}",
-  "usage.insights.toolVerb.send": "أرسل {{object}}",
-  "usage.insights.toolVerb.set": "ضبط {{object}}",
-  "usage.insights.toolVerb.take": "أخذ {{object}}",
-  "usage.insights.toolVerb.update": "حدّث {{object}}",
-  "usage.insights.toolVerb.upload": "رفع {{object}}",
-  "usage.insights.toolVerb.view": "عرض {{object}}",
-  "usage.insights.toolVerb.write": "كتب {{object}}",
-  "usage.insights.verdictLook_zero": "{{count}} أشياء تستحق نظرة",
-  "usage.insights.verdictLook_one": "{{count}} شيء يستحق نظرة",
-  "usage.insights.verdictLook_two": "{{count}} شيئان يستحقان نظرة",
-  "usage.insights.verdictLook_few": "{{count}} أشياء تستحق نظرة",
-  "usage.insights.verdictLook_many": "{{count}} شيئًا يستحق نظرة",
-  "usage.insights.verdictLook_other": "{{count}} شيء يستحق نظرة",
-  "usage.insights.verdictProblems_zero": "{{count}} مشكلات",
-  "usage.insights.verdictProblems_one": "{{count}} مشكلة",
-  "usage.insights.verdictProblems_two": "{{count}} مشكلتان",
-  "usage.insights.verdictProblems_few": "{{count}} مشكلات",
-  "usage.insights.verdictProblems_many": "{{count}} مشكلة",
-  "usage.insights.verdictProblems_other": "{{count}} مشكلة",
-  "usage.insights.spentSummary_zero":
+  "observability.insights.lookedForTools": "بحث عن أدوات إضافية",
+  "observability.insights.prevPrompt": "البرومبت السابق (K)",
+  "observability.insights.nextPrompt": "البرومبت التالي (J)",
+  "observability.insights.toolVerb.add": "أضاف {{object}}",
+  "observability.insights.toolVerb.analyze": "حلّل {{object}}",
+  "observability.insights.toolVerb.apply": "طبّق {{object}}",
+  "observability.insights.toolVerb.capture": "التقط {{object}}",
+  "observability.insights.toolVerb.check": "فحص {{object}}",
+  "observability.insights.toolVerb.connect": "وصّل {{object}}",
+  "observability.insights.toolVerb.create": "أنشأ {{object}}",
+  "observability.insights.toolVerb.delete": "حذف {{object}}",
+  "observability.insights.toolVerb.duplicate": "كرر {{object}}",
+  "observability.insights.toolVerb.edit": "عدّل {{object}}",
+  "observability.insights.toolVerb.export": "صدّر {{object}}",
+  "observability.insights.toolVerb.fetch": "جلب {{object}}",
+  "observability.insights.toolVerb.find": "وجد {{object}}",
+  "observability.insights.toolVerb.generate": "ولّد {{object}}",
+  "observability.insights.toolVerb.index": "فهرس {{object}}",
+  "observability.insights.toolVerb.insert": "أدرج {{object}}",
+  "observability.insights.toolVerb.list": "سرد {{object}}",
+  "observability.insights.toolVerb.move": "نقل {{object}}",
+  "observability.insights.toolVerb.navigate": "تصفّح {{object}}",
+  "observability.insights.toolVerb.open": "فتح {{object}}",
+  "observability.insights.toolVerb.present": "قدّم {{object}}",
+  "observability.insights.toolVerb.propose": "اقترح {{object}}",
+  "observability.insights.toolVerb.query": "استعلم عن {{object}}",
+  "observability.insights.toolVerb.read": "قرأ {{object}}",
+  "observability.insights.toolVerb.remove": "أزال {{object}}",
+  "observability.insights.toolVerb.rename": "أعاد تسمية {{object}}",
+  "observability.insights.toolVerb.reply": "ردّ على {{object}}",
+  "observability.insights.toolVerb.resolve": "حلّ {{object}}",
+  "observability.insights.toolVerb.run": "شغّل {{object}}",
+  "observability.insights.toolVerb.save": "حفظ {{object}}",
+  "observability.insights.toolVerb.search": "بحث عن {{object}}",
+  "observability.insights.toolVerb.send": "أرسل {{object}}",
+  "observability.insights.toolVerb.set": "ضبط {{object}}",
+  "observability.insights.toolVerb.take": "أخذ {{object}}",
+  "observability.insights.toolVerb.update": "حدّث {{object}}",
+  "observability.insights.toolVerb.upload": "رفع {{object}}",
+  "observability.insights.toolVerb.view": "عرض {{object}}",
+  "observability.insights.toolVerb.write": "كتب {{object}}",
+  "observability.insights.verdictLook_zero": "{{count}} أشياء تستحق نظرة",
+  "observability.insights.verdictLook_one": "{{count}} شيء يستحق نظرة",
+  "observability.insights.verdictLook_two": "{{count}} شيئان يستحقان نظرة",
+  "observability.insights.verdictLook_few": "{{count}} أشياء تستحق نظرة",
+  "observability.insights.verdictLook_many": "{{count}} شيئًا يستحق نظرة",
+  "observability.insights.verdictLook_other": "{{count}} شيء يستحق نظرة",
+  "observability.insights.verdictProblems_zero": "{{count}} مشكلات",
+  "observability.insights.verdictProblems_one": "{{count}} مشكلة",
+  "observability.insights.verdictProblems_two": "{{count}} مشكلتان",
+  "observability.insights.verdictProblems_few": "{{count}} مشكلات",
+  "observability.insights.verdictProblems_many": "{{count}} مشكلة",
+  "observability.insights.verdictProblems_other": "{{count}} مشكلة",
+  "observability.insights.spentSummary_zero":
     "تم إنفاق {{amount}} على {{count}} برومبتات في آخر {{days}} يوم.",
-  "usage.insights.spentSummary_one":
+  "observability.insights.spentSummary_one":
     "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
-  "usage.insights.spentSummary_two":
+  "observability.insights.spentSummary_two":
     "تم إنفاق {{amount}} على {{count}} برومبتين في آخر {{days}} يوم.",
-  "usage.insights.spentSummary_few":
+  "observability.insights.spentSummary_few":
     "تم إنفاق {{amount}} على {{count}} برومبتات في آخر {{days}} يوم.",
-  "usage.insights.spentSummary_many":
+  "observability.insights.spentSummary_many":
     "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
-  "usage.insights.spentSummary_other":
+  "observability.insights.spentSummary_other":
     "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
-  "usage.insights.handledRecovered_zero":
+  "observability.insights.handledRecovered_zero":
     "تعافى الوكيل من {{count}} أخطاء في الأداة دون توقف.",
-  "usage.insights.handledRecovered_one":
+  "observability.insights.handledRecovered_one":
     "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
-  "usage.insights.handledRecovered_two":
+  "observability.insights.handledRecovered_two":
     "تعافى الوكيل من {{count}} خطأين في الأداة دون توقف.",
-  "usage.insights.handledRecovered_few":
+  "observability.insights.handledRecovered_few":
     "تعافى الوكيل من {{count}} أخطاء في الأداة دون توقف.",
-  "usage.insights.handledRecovered_many":
+  "observability.insights.handledRecovered_many":
     "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
-  "usage.insights.handledRecovered_other":
+  "observability.insights.handledRecovered_other":
     "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
-  "usage.insights.completedRecovered_zero":
+  "observability.insights.completedRecovered_zero":
     "{{done}} من آخر {{total}}، بعد التعافي من {{count}} أخطاء في الأداة",
-  "usage.insights.completedRecovered_one":
+  "observability.insights.completedRecovered_one":
     "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
-  "usage.insights.completedRecovered_two":
+  "observability.insights.completedRecovered_two":
     "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأين في الأداة",
-  "usage.insights.completedRecovered_few":
+  "observability.insights.completedRecovered_few":
     "{{done}} من آخر {{total}}، بعد التعافي من {{count}} أخطاء في الأداة",
-  "usage.insights.completedRecovered_many":
+  "observability.insights.completedRecovered_many":
     "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
-  "usage.insights.completedRecovered_other":
+  "observability.insights.completedRecovered_other":
     "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
-  "usage.insights.seePrompts_zero": "عرض {{count}} برومبتات",
-  "usage.insights.seePrompts_one": "عرض {{count}} برومبت",
-  "usage.insights.seePrompts_two": "عرض {{count}} برومبتين",
-  "usage.insights.seePrompts_few": "عرض {{count}} برومبتات",
-  "usage.insights.seePrompts_many": "عرض {{count}} برومبت",
-  "usage.insights.seePrompts_other": "عرض {{count}} برومبت",
-  "usage.insights.erroredTitle_zero": "{{count}} برومبتات انتهت بخطأ",
-  "usage.insights.erroredTitle_one": "{{count}} برومبت انتهى بخطأ",
-  "usage.insights.erroredTitle_two": "{{count}} برومبتان انتهيا بخطأ",
-  "usage.insights.erroredTitle_few": "{{count}} برومبتات انتهت بخطأ",
-  "usage.insights.erroredTitle_many": "{{count}} برومبت انتهى بخطأ",
-  "usage.insights.erroredTitle_other": "{{count}} برومبت انتهى بخطأ",
-  "usage.insights.toolFailedTitle_zero":
+  "observability.insights.seePrompts_zero": "عرض {{count}} برومبتات",
+  "observability.insights.seePrompts_one": "عرض {{count}} برومبت",
+  "observability.insights.seePrompts_two": "عرض {{count}} برومبتين",
+  "observability.insights.seePrompts_few": "عرض {{count}} برومبتات",
+  "observability.insights.seePrompts_many": "عرض {{count}} برومبت",
+  "observability.insights.seePrompts_other": "عرض {{count}} برومبت",
+  "observability.insights.erroredTitle_zero": "{{count}} برومبتات انتهت بخطأ",
+  "observability.insights.erroredTitle_one": "{{count}} برومبت انتهى بخطأ",
+  "observability.insights.erroredTitle_two": "{{count}} برومبتان انتهيا بخطأ",
+  "observability.insights.erroredTitle_few": "{{count}} برومبتات انتهت بخطأ",
+  "observability.insights.erroredTitle_many": "{{count}} برومبت انتهى بخطأ",
+  "observability.insights.erroredTitle_other": "{{count}} برومبت انتهى بخطأ",
+  "observability.insights.toolFailedTitle_zero":
     "فشلت أداة {{tool}} في {{count}} برومبتات",
-  "usage.insights.toolFailedTitle_one":
+  "observability.insights.toolFailedTitle_one":
     "فشلت أداة {{tool}} في {{count}} برومبت",
-  "usage.insights.toolFailedTitle_two":
+  "observability.insights.toolFailedTitle_two":
     "فشلت أداة {{tool}} في {{count}} برومبتين",
-  "usage.insights.toolFailedTitle_few":
+  "observability.insights.toolFailedTitle_few":
     "فشلت أداة {{tool}} في {{count}} برومبتات",
-  "usage.insights.toolFailedTitle_many":
+  "observability.insights.toolFailedTitle_many":
     "فشلت أداة {{tool}} في {{count}} برومبت",
-  "usage.insights.toolFailedTitle_other":
+  "observability.insights.toolFailedTitle_other":
     "فشلت أداة {{tool}} في {{count}} برومبت",
-  "usage.insights.priciestBody_zero":
+  "observability.insights.priciestBody_zero":
     "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوات.",
-  "usage.insights.priciestBody_one":
+  "observability.insights.priciestBody_one":
     "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
-  "usage.insights.priciestBody_two":
+  "observability.insights.priciestBody_two":
     "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوتين.",
-  "usage.insights.priciestBody_few":
+  "observability.insights.priciestBody_few":
     "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوات.",
-  "usage.insights.priciestBody_many":
+  "observability.insights.priciestBody_many":
     "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
-  "usage.insights.priciestBody_other":
+  "observability.insights.priciestBody_other":
     "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
-  "usage.insights.recoveredShort_zero": "تعافى من {{count}} أخطاء في الأداة",
-  "usage.insights.recoveredShort_one": "تعافى من {{count}} خطأ في الأداة",
-  "usage.insights.recoveredShort_two": "تعافى من {{count}} خطأين في الأداة",
-  "usage.insights.recoveredShort_few": "تعافى من {{count}} أخطاء في الأداة",
-  "usage.insights.recoveredShort_many": "تعافى من {{count}} خطأ في الأداة",
-  "usage.insights.recoveredShort_other": "تعافى من {{count}} خطأ في الأداة",
-  "usage.insights.toolsFailedShort_zero": "{{count}} أدوات فشلت",
-  "usage.insights.toolsFailedShort_one": "{{count}} أداة فشلت",
-  "usage.insights.toolsFailedShort_two": "{{count}} أداتان فشلتا",
-  "usage.insights.toolsFailedShort_few": "{{count}} أدوات فشلت",
-  "usage.insights.toolsFailedShort_many": "{{count}} أداة فشلت",
-  "usage.insights.toolsFailedShort_other": "{{count}} أداة فشلت",
-  "usage.insights.stepsCount_zero": "{{count}} خطوات",
-  "usage.insights.stepsCount_one": "{{count}} خطوة",
-  "usage.insights.stepsCount_two": "{{count}} خطوتان",
-  "usage.insights.stepsCount_few": "{{count}} خطوات",
-  "usage.insights.stepsCount_many": "{{count}} خطوة",
-  "usage.insights.stepsCount_other": "{{count}} خطوة",
-  "usage.insights.startedOverNote_zero":
+  "observability.insights.recoveredShort_zero":
+    "تعافى من {{count}} أخطاء في الأداة",
+  "observability.insights.recoveredShort_one":
+    "تعافى من {{count}} خطأ في الأداة",
+  "observability.insights.recoveredShort_two":
+    "تعافى من {{count}} خطأين في الأداة",
+  "observability.insights.recoveredShort_few":
+    "تعافى من {{count}} أخطاء في الأداة",
+  "observability.insights.recoveredShort_many":
+    "تعافى من {{count}} خطأ في الأداة",
+  "observability.insights.recoveredShort_other":
+    "تعافى من {{count}} خطأ في الأداة",
+  "observability.insights.toolsFailedShort_zero": "{{count}} أدوات فشلت",
+  "observability.insights.toolsFailedShort_one": "{{count}} أداة فشلت",
+  "observability.insights.toolsFailedShort_two": "{{count}} أداتان فشلتا",
+  "observability.insights.toolsFailedShort_few": "{{count}} أدوات فشلت",
+  "observability.insights.toolsFailedShort_many": "{{count}} أداة فشلت",
+  "observability.insights.toolsFailedShort_other": "{{count}} أداة فشلت",
+  "observability.insights.stepsCount_zero": "{{count}} خطوات",
+  "observability.insights.stepsCount_one": "{{count}} خطوة",
+  "observability.insights.stepsCount_two": "{{count}} خطوتان",
+  "observability.insights.stepsCount_few": "{{count}} خطوات",
+  "observability.insights.stepsCount_many": "{{count}} خطوة",
+  "observability.insights.stepsCount_other": "{{count}} خطوة",
+  "observability.insights.startedOverNote_zero":
     "بدأ من جديد {{count}} مرات بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
-  "usage.insights.startedOverNote_one":
+  "observability.insights.startedOverNote_one":
     "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
-  "usage.insights.startedOverNote_two":
+  "observability.insights.startedOverNote_two":
     "بدأ من جديد {{count}} مرتين بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
-  "usage.insights.startedOverNote_few":
+  "observability.insights.startedOverNote_few":
     "بدأ من جديد {{count}} مرات بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
-  "usage.insights.startedOverNote_many":
+  "observability.insights.startedOverNote_many":
     "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
-  "usage.insights.startedOverNote_other":
+  "observability.insights.startedOverNote_other":
     "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
-  "usage.insights.toolFailedNote_zero": "فشلت أداة {{tool}} {{count}} مرات.",
-  "usage.insights.toolFailedNote_one": "فشلت أداة {{tool}} {{count}} مرة.",
-  "usage.insights.toolFailedNote_two": "فشلت أداة {{tool}} {{count}} مرتين.",
-  "usage.insights.toolFailedNote_few": "فشلت أداة {{tool}} {{count}} مرات.",
-  "usage.insights.toolFailedNote_many": "فشلت أداة {{tool}} {{count}} مرة.",
-  "usage.insights.toolFailedNote_other": "فشلت أداة {{tool}} {{count}} مرة.",
-  "usage.insights.toolFailedRecoveredNote_zero":
+  "observability.insights.toolFailedNote_zero":
+    "فشلت أداة {{tool}} {{count}} مرات.",
+  "observability.insights.toolFailedNote_one":
+    "فشلت أداة {{tool}} {{count}} مرة.",
+  "observability.insights.toolFailedNote_two":
+    "فشلت أداة {{tool}} {{count}} مرتين.",
+  "observability.insights.toolFailedNote_few":
+    "فشلت أداة {{tool}} {{count}} مرات.",
+  "observability.insights.toolFailedNote_many":
+    "فشلت أداة {{tool}} {{count}} مرة.",
+  "observability.insights.toolFailedNote_other":
+    "فشلت أداة {{tool}} {{count}} مرة.",
+  "observability.insights.toolFailedRecoveredNote_zero":
     "فشلت أداة {{tool}} {{count}} مرات، لكن الوكيل واصل العمل وأنهى المهمة.",
-  "usage.insights.toolFailedRecoveredNote_one":
+  "observability.insights.toolFailedRecoveredNote_one":
     "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
-  "usage.insights.toolFailedRecoveredNote_two":
+  "observability.insights.toolFailedRecoveredNote_two":
     "فشلت أداة {{tool}} {{count}} مرتين، لكن الوكيل واصل العمل وأنهى المهمة.",
-  "usage.insights.toolFailedRecoveredNote_few":
+  "observability.insights.toolFailedRecoveredNote_few":
     "فشلت أداة {{tool}} {{count}} مرات، لكن الوكيل واصل العمل وأنهى المهمة.",
-  "usage.insights.toolFailedRecoveredNote_many":
+  "observability.insights.toolFailedRecoveredNote_many":
     "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
-  "usage.insights.toolFailedRecoveredNote_other":
+  "observability.insights.toolFailedRecoveredNote_other":
     "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
-  "usage.insights.showSteps_zero": "إظهار {{count}} خطوات",
-  "usage.insights.showSteps_one": "إظهار {{count}} خطوة",
-  "usage.insights.showSteps_two": "إظهار {{count}} خطوتين",
-  "usage.insights.showSteps_few": "إظهار {{count}} خطوات",
-  "usage.insights.showSteps_many": "إظهار {{count}} خطوة",
-  "usage.insights.showSteps_other": "إظهار {{count}} خطوة",
+  "observability.insights.showSteps_zero": "إظهار {{count}} خطوات",
+  "observability.insights.showSteps_one": "إظهار {{count}} خطوة",
+  "observability.insights.showSteps_two": "إظهار {{count}} خطوتين",
+  "observability.insights.showSteps_few": "إظهار {{count}} خطوات",
+  "observability.insights.showSteps_many": "إظهار {{count}} خطوة",
+  "observability.insights.showSteps_other": "إظهار {{count}} خطوة",
   "billing.builderCreditLimitTitle": "نفدت أرصدة Builder لديك",
   "billing.builderCreditLimitEmailBody":
     "توقف طلب الذكاء الاصطناعي لأن أرصدة حساب Builder المتصل بك قد نفدت. قم بترقية خطة Builder للمتابعة.",
@@ -3005,6 +3018,8 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.registryLink": "تصفح Global A2A Registry",
   "settingsSubAgents.connectTitle": "ربط {{name}}",
   "settingsSubAgents.close": "إغلاق",
+  "observability.insights.rawTrace":
+    "التتبع الخام (كل الخطوات مع المدخلات والمخرجات)",
 };
 
 export default messages;

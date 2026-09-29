@@ -1412,213 +1412,221 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Autre utilisation ou non classée aujourd’hui : {{amount}}",
   "usage.driverCreditsAndUsd": "Crédits Builder / USD",
-  "usage.insights.verdictSmooth": "Tout fonctionne bien",
-  "usage.insights.verdictLook_one": "{{count}} point à vérifier",
-  "usage.insights.verdictLook_other": "{{count}} points à vérifier",
-  "usage.insights.verdictProblems_one": "{{count}} problème",
-  "usage.insights.verdictProblems_other": "{{count}} problèmes",
-  "usage.insights.spentSummary_one":
+  "observability.insights.verdictSmooth": "Tout fonctionne bien",
+  "observability.insights.verdictLook_one": "{{count}} point à vérifier",
+  "observability.insights.verdictLook_other": "{{count}} points à vérifier",
+  "observability.insights.verdictProblems_one": "{{count}} problème",
+  "observability.insights.verdictProblems_other": "{{count}} problèmes",
+  "observability.insights.spentSummary_one":
     "{{amount}} dépensé pour {{count}} prompt au cours des {{days}} derniers jours.",
-  "usage.insights.spentSummary_other":
+  "observability.insights.spentSummary_other":
     "{{amount}} dépensé pour {{count}} prompts au cours des {{days}} derniers jours.",
-  "usage.insights.handledLabel": "Pris en charge par Agent-Native :",
-  "usage.insights.handledHeading": "Pris en charge par Agent-Native",
-  "usage.insights.handledParallel":
+  "observability.insights.handledLabel": "Pris en charge par Agent-Native :",
+  "observability.insights.handledHeading": "Pris en charge par Agent-Native",
+  "observability.insights.handledParallel":
     "A exécuté {{count}} appels d'outils en même temps, environ {{duration}} plus vite qu'un par un.",
-  "usage.insights.handledRecovered_one":
+  "observability.insights.handledRecovered_one":
     "S'est remis de {{count}} erreur d'outil sans s'arrêter.",
-  "usage.insights.handledRecovered_other":
+  "observability.insights.handledRecovered_other":
     "S'est remis de {{count}} erreurs d'outils sans s'arrêter.",
-  "usage.insights.avgPerPrompt": "Moyenne par prompt",
-  "usage.insights.completed": "Terminé",
-  "usage.insights.completedDetail": "{{done}} sur les {{total}} derniers",
-  "usage.insights.completedRecovered_one":
+  "observability.insights.avgPerPrompt": "Moyenne par prompt",
+  "observability.insights.completed": "Terminé",
+  "observability.insights.completedDetail":
+    "{{done}} sur les {{total}} derniers",
+  "observability.insights.completedRecovered_one":
     "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreur d'outil",
-  "usage.insights.completedRecovered_other":
+  "observability.insights.completedRecovered_other":
     "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreurs d'outils",
-  "usage.insights.typicalTime": "Durée type",
-  "usage.insights.median": "médiane",
-  "usage.insights.changeSame": "identique à la période précédente",
-  "usage.insights.changeUp":
+  "observability.insights.typicalTime": "Durée type",
+  "observability.insights.median": "médiane",
+  "observability.insights.changeSame": "identique à la période précédente",
+  "observability.insights.changeUp":
     "↑ {{percent}} % par rapport à la période précédente",
-  "usage.insights.changeDown":
+  "observability.insights.changeDown":
     "↓ {{percent}} % par rapport à la période précédente",
-  "usage.insights.kindProblem": "Problème",
-  "usage.insights.kindSaving": "Économie possible",
-  "usage.insights.kindInfo": "Bon à savoir",
-  "usage.insights.fixLabel": "Solution :",
-  "usage.insights.openPrompt": "Ouvrir le prompt",
-  "usage.insights.seePrompts_one": "Voir {{count}} prompt",
-  "usage.insights.seePrompts_other": "Voir {{count}} prompts",
-  "usage.insights.erroredTitle_one":
+  "observability.insights.kindProblem": "Problème",
+  "observability.insights.kindSaving": "Économie possible",
+  "observability.insights.kindInfo": "Bon à savoir",
+  "observability.insights.fixLabel": "Solution :",
+  "observability.insights.openPrompt": "Ouvrir le prompt",
+  "observability.insights.seePrompts_one": "Voir {{count}} prompt",
+  "observability.insights.seePrompts_other": "Voir {{count}} prompts",
+  "observability.insights.erroredTitle_one":
     "{{count}} prompt s'est terminé par une erreur",
-  "usage.insights.erroredTitle_other":
+  "observability.insights.erroredTitle_other":
     "{{count}} prompts se sont terminés par une erreur",
-  "usage.insights.erroredBody": "L'agent s'est arrêté avant d'avoir terminé.",
-  "usage.insights.erroredFix":
+  "observability.insights.erroredBody":
+    "L'agent s'est arrêté avant d'avoir terminé.",
+  "observability.insights.erroredFix":
     "Ouvrez un prompt pour voir la dernière action effectuée avant l'arrêt.",
-  "usage.insights.toolFailedTitle_one":
+  "observability.insights.toolFailedTitle_one":
     "L'outil {{tool}} a échoué dans {{count}} prompt",
-  "usage.insights.toolFailedTitle_other":
+  "observability.insights.toolFailedTitle_other":
     "L'outil {{tool}} a échoué dans {{count}} prompts",
-  "usage.insights.toolFailedSaid": "Message : « {{error}} »",
-  "usage.insights.toolFailedGeneric": "L'outil a signalé une erreur.",
-  "usage.insights.toolRecoveredAll":
+  "observability.insights.toolFailedSaid": "Message : « {{error}} »",
+  "observability.insights.toolFailedGeneric": "L'outil a signalé une erreur.",
+  "observability.insights.toolRecoveredAll":
     "L'agent s'est remis et a terminé chaque fois.",
-  "usage.insights.toolRecoveredSome":
+  "observability.insights.toolRecoveredSome":
     "L'agent s'est remis et a terminé dans {{count}} d'entre eux.",
-  "usage.insights.restartTitle":
+  "observability.insights.restartTitle":
     "Repartir de zéro a coûté environ {{amount}} ({{percent}} % des dépenses)",
-  "usage.insights.restartBody":
+  "observability.insights.restartBody":
     "Sur {{count}} des {{total}} derniers prompts, l'agent a renvoyé toute la conversation après {{reason}}, au lieu de réutiliser ce qu'il avait déjà envoyé.",
-  "usage.insights.reasonToolLookup": "la récupération de nouveaux outils",
-  "usage.insights.reasonPrefixChanged": "un changement en début d'instructions",
-  "usage.insights.fixToolLookup":
+  "observability.insights.reasonToolLookup":
+    "la récupération de nouveaux outils",
+  "observability.insights.reasonPrefixChanged":
+    "un changement en début d'instructions",
+  "observability.insights.fixToolLookup":
     "Préchargez les outils utilisés par cette application avec initialToolNames pour que la liste d'outils reste identique pendant tout le prompt.",
-  "usage.insights.fixPrefixChanged":
+  "observability.insights.fixPrefixChanged":
     "Gardez le contenu changeant, comme les horodatages ou l'état par étape, hors du prompt système.",
-  "usage.insights.priciestTitle":
+  "observability.insights.priciestTitle":
     "Un prompt a représenté {{percent}} % des dépenses récentes",
-  "usage.insights.priciestBody_one":
+  "observability.insights.priciestBody_one":
     "« {{prompt}} » a coûté {{amount}} sur {{count}} étape.",
-  "usage.insights.priciestBody_other":
+  "observability.insights.priciestBody_other":
     "« {{prompt}} » a coûté {{amount}} sur {{count}} étapes.",
-  "usage.insights.untitledPrompt": "Prompt sans titre",
-  "usage.insights.promptsHeading": "Prompts",
-  "usage.insights.showing": "Affichage de {{count}}",
-  "usage.insights.sortNewest": "Plus récents",
-  "usage.insights.sortCost": "Plus coûteux",
-  "usage.insights.emptyPrompts":
+  "observability.insights.untitledPrompt": "Prompt sans titre",
+  "observability.insights.promptsHeading": "Prompts",
+  "observability.insights.showing": "Affichage de {{count}}",
+  "observability.insights.sortNewest": "Plus récents",
+  "observability.insights.sortCost": "Plus coûteux",
+  "observability.insights.emptyPrompts":
     "Aucun prompt pour cette période pour le moment. Ils apparaissent ici quelques secondes après leur fin.",
-  "usage.insights.promptNotSaved": "Le texte du prompt n'a pas été enregistré",
-  "usage.insights.ratedHelpful": "Jugé utile",
-  "usage.insights.ratedUnhelpful": "Jugé inutile",
-  "usage.insights.notRated": "Non noté",
-  "usage.insights.stoppedWithError": "Arrêté avec une erreur",
-  "usage.insights.detailsUnavailable":
+  "observability.insights.promptNotSaved":
+    "Le texte du prompt n'a pas été enregistré",
+  "observability.insights.ratedHelpful": "Jugé utile",
+  "observability.insights.ratedUnhelpful": "Jugé inutile",
+  "observability.insights.notRated": "Non noté",
+  "observability.insights.stoppedWithError": "Arrêté avec une erreur",
+  "observability.insights.detailsUnavailable":
     "Les détails des étapes ne sont plus disponibles",
-  "usage.insights.answered": "Répondu",
-  "usage.insights.finished": "Terminé",
-  "usage.insights.startedOverShort": "reparti de zéro {{count}}×",
-  "usage.insights.recoveredShort_one": "remis de {{count}} erreur d'outil",
-  "usage.insights.recoveredShort_other": "remis de {{count}} erreurs d'outils",
-  "usage.insights.toolsFailedShort_one": "{{count}} outil en échec",
-  "usage.insights.toolsFailedShort_other": "{{count}} outils en échec",
-  "usage.insights.headerDuration": "en {{duration}}",
-  "usage.insights.stepsCount_one": "{{count}} étape",
-  "usage.insights.stepsCount_other": "{{count}} étapes",
-  "usage.insights.whatItDid": "Ce qu'il a fait :",
-  "usage.insights.replyNotSaved":
+  "observability.insights.answered": "Répondu",
+  "observability.insights.finished": "Terminé",
+  "observability.insights.startedOverShort": "reparti de zéro {{count}}×",
+  "observability.insights.recoveredShort_one":
+    "remis de {{count}} erreur d'outil",
+  "observability.insights.recoveredShort_other":
+    "remis de {{count}} erreurs d'outils",
+  "observability.insights.toolsFailedShort_one": "{{count}} outil en échec",
+  "observability.insights.toolsFailedShort_other": "{{count}} outils en échec",
+  "observability.insights.headerDuration": "en {{duration}}",
+  "observability.insights.stepsCount_one": "{{count}} étape",
+  "observability.insights.stepsCount_other": "{{count}} étapes",
+  "observability.insights.whatItDid": "Ce qu'il a fait :",
+  "observability.insights.replyNotSaved":
     "Le texte de la réponse n'a pas été enregistré pour ce prompt.",
-  "usage.insights.showAll": "Tout afficher",
-  "usage.insights.showLess": "Afficher moins",
-  "usage.insights.moreTools": "+{{count}} de plus",
-  "usage.insights.failedSuffix": "échoué",
-  "usage.insights.timesCount": "{{label}} ×{{count}}",
-  "usage.insights.startedOverNote_one":
+  "observability.insights.showAll": "Tout afficher",
+  "observability.insights.showLess": "Afficher moins",
+  "observability.insights.moreTools": "+{{count}} de plus",
+  "observability.insights.failedSuffix": "échoué",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_one":
     "Reparti de zéro {{count}} fois après {{reason}}. Cela a coûté environ {{amount}} sur {{total}}.",
-  "usage.insights.startedOverNote_other":
+  "observability.insights.startedOverNote_other":
     "Reparti de zéro {{count}} fois après {{reason}}. Cela a coûté environ {{amount}} sur {{total}}.",
-  "usage.insights.toolFailedNote_one":
+  "observability.insights.toolFailedNote_one":
     "L'outil {{tool}} a échoué {{count}} fois.",
-  "usage.insights.toolFailedNote_other":
+  "observability.insights.toolFailedNote_other":
     "L'outil {{tool}} a échoué {{count}} fois.",
-  "usage.insights.toolFailedRecoveredNote_one":
+  "observability.insights.toolFailedRecoveredNote_one":
     "L'outil {{tool}} a échoué {{count}} fois, mais l'agent a continué et terminé.",
-  "usage.insights.toolFailedRecoveredNote_other":
+  "observability.insights.toolFailedRecoveredNote_other":
     "L'outil {{tool}} a échoué {{count}} fois, mais l'agent a continué et terminé.",
-  "usage.insights.showSteps_one": "Afficher {{count}} étape",
-  "usage.insights.showSteps_other": "Afficher {{count}} étapes",
-  "usage.insights.hideSteps": "Masquer les étapes",
-  "usage.insights.costDetails": "Détails des coûts et vérifications",
-  "usage.insights.turnReply": "A écrit la réponse",
-  "usage.insights.turnThought": "A réfléchi",
-  "usage.insights.startedOverTag": "reparti de zéro",
-  "usage.insights.toolFailedTag": "outil en échec",
-  "usage.insights.turnContext":
+  "observability.insights.showSteps_one": "Afficher {{count}} étape",
+  "observability.insights.showSteps_other": "Afficher {{count}} étapes",
+  "observability.insights.hideSteps": "Masquer les étapes",
+  "observability.insights.costDetails": "Détails des coûts et vérifications",
+  "observability.insights.turnReply": "A écrit la réponse",
+  "observability.insights.turnThought": "A réfléchi",
+  "observability.insights.startedOverTag": "reparti de zéro",
+  "observability.insights.toolFailedTag": "outil en échec",
+  "observability.insights.turnContext":
     "A envoyé {{tokens}} tokens de contexte, dont {{percent}} % réutilisés d'avant.",
-  "usage.insights.turnExpired":
+  "observability.insights.turnExpired":
     "Le contexte enregistré avait expiré après une pause, ce qui est normal.",
-  "usage.insights.turnOutput": "A écrit {{tokens}} tokens.",
-  "usage.insights.turnRestart":
+  "observability.insights.turnOutput": "A écrit {{tokens}} tokens.",
+  "observability.insights.turnRestart":
     "Reparti de zéro après {{reason}}, soit environ {{amount}} de plus que la réutilisation.",
-  "usage.insights.noCacheCompare":
+  "observability.insights.noCacheCompare":
     "Aux prix catalogue, la réutilisation du contexte précédent a fait passer ce prompt de {{noCache}} à {{estimated}}.",
-  "usage.insights.partReused": "Contexte réutilisé",
-  "usage.insights.partSaved": "Enregistré dans le cache",
-  "usage.insights.partNew": "Nouveau contexte",
-  "usage.insights.partOutput": "Écrit par le modèle",
-  "usage.insights.checksHeading": "Vérifications automatiques",
-  "usage.insights.checksNone": "Aucune n'a été enregistrée.",
-  "usage.insights.checksGraded": "(évalué par un modèle)",
-  "usage.insights.checksNote":
+  "observability.insights.partReused": "Contexte réutilisé",
+  "observability.insights.partSaved": "Enregistré dans le cache",
+  "observability.insights.partNew": "Nouveau contexte",
+  "observability.insights.partOutput": "Écrit par le modèle",
+  "observability.insights.checksHeading": "Vérifications automatiques",
+  "observability.insights.checksNone": "Aucune n'a été enregistrée.",
+  "observability.insights.checksGraded": "(évalué par un modèle)",
+  "observability.insights.checksNote":
     "Les vérifications du framework portent sur le déroulement de l'exécution (erreurs, étapes, vitesse), pas sur la qualité du résultat.",
-  "usage.insights.lookedForTools": "A recherché d'autres outils",
-  "usage.insights.prevPrompt": "Prompt précédent (K)",
-  "usage.insights.nextPrompt": "Prompt suivant (J)",
-  "usage.insights.toolVerb.add": "{{object}} ajouté",
-  "usage.insights.toolVerb.analyze": "{{object}} analysé",
-  "usage.insights.toolVerb.apply": "{{object}} appliqué",
-  "usage.insights.toolVerb.capture": "{{object}} capturé",
-  "usage.insights.toolVerb.check": "{{object}} vérifié",
-  "usage.insights.toolVerb.connect": "{{object}} connecté",
-  "usage.insights.toolVerb.create": "{{object}} créé",
-  "usage.insights.toolVerb.delete": "{{object}} supprimé",
-  "usage.insights.toolVerb.duplicate": "{{object}} dupliqué",
-  "usage.insights.toolVerb.edit": "{{object}} modifié",
-  "usage.insights.toolVerb.export": "{{object}} exporté",
-  "usage.insights.toolVerb.fetch": "{{object}} récupéré",
-  "usage.insights.toolVerb.find": "{{object}} trouvé",
-  "usage.insights.toolVerb.generate": "{{object}} généré",
-  "usage.insights.toolVerb.index": "{{object}} indexé",
-  "usage.insights.toolVerb.insert": "{{object}} inséré",
-  "usage.insights.toolVerb.list": "{{object}} listé",
-  "usage.insights.toolVerb.move": "{{object}} déplacé",
-  "usage.insights.toolVerb.navigate": "{{object}} parcouru",
-  "usage.insights.toolVerb.open": "{{object}} ouvert",
-  "usage.insights.toolVerb.present": "{{object}} présenté",
-  "usage.insights.toolVerb.propose": "{{object}} proposé",
-  "usage.insights.toolVerb.query": "{{object}} interrogé",
-  "usage.insights.toolVerb.read": "{{object}} lu",
-  "usage.insights.toolVerb.remove": "{{object}} retiré",
-  "usage.insights.toolVerb.rename": "{{object}} renommé",
-  "usage.insights.toolVerb.reply": "{{object}} répondu",
-  "usage.insights.toolVerb.resolve": "{{object}} résolu",
-  "usage.insights.toolVerb.run": "{{object}} exécuté",
-  "usage.insights.toolVerb.save": "{{object}} enregistré",
-  "usage.insights.toolVerb.search": "{{object}} recherché",
-  "usage.insights.toolVerb.send": "{{object}} envoyé",
-  "usage.insights.toolVerb.set": "{{object}} défini",
-  "usage.insights.toolVerb.take": "{{object}} pris",
-  "usage.insights.toolVerb.update": "{{object}} mis à jour",
-  "usage.insights.toolVerb.upload": "{{object}} téléversé",
-  "usage.insights.toolVerb.view": "{{object}} consulté",
-  "usage.insights.toolVerb.write": "{{object}} écrit",
-  "usage.insights.verdictLook_many": "{{count}} points à vérifier",
-  "usage.insights.verdictProblems_many": "{{count}} problèmes",
-  "usage.insights.spentSummary_many":
+  "observability.insights.lookedForTools": "A recherché d'autres outils",
+  "observability.insights.prevPrompt": "Prompt précédent (K)",
+  "observability.insights.nextPrompt": "Prompt suivant (J)",
+  "observability.insights.toolVerb.add": "{{object}} ajouté",
+  "observability.insights.toolVerb.analyze": "{{object}} analysé",
+  "observability.insights.toolVerb.apply": "{{object}} appliqué",
+  "observability.insights.toolVerb.capture": "{{object}} capturé",
+  "observability.insights.toolVerb.check": "{{object}} vérifié",
+  "observability.insights.toolVerb.connect": "{{object}} connecté",
+  "observability.insights.toolVerb.create": "{{object}} créé",
+  "observability.insights.toolVerb.delete": "{{object}} supprimé",
+  "observability.insights.toolVerb.duplicate": "{{object}} dupliqué",
+  "observability.insights.toolVerb.edit": "{{object}} modifié",
+  "observability.insights.toolVerb.export": "{{object}} exporté",
+  "observability.insights.toolVerb.fetch": "{{object}} récupéré",
+  "observability.insights.toolVerb.find": "{{object}} trouvé",
+  "observability.insights.toolVerb.generate": "{{object}} généré",
+  "observability.insights.toolVerb.index": "{{object}} indexé",
+  "observability.insights.toolVerb.insert": "{{object}} inséré",
+  "observability.insights.toolVerb.list": "{{object}} listé",
+  "observability.insights.toolVerb.move": "{{object}} déplacé",
+  "observability.insights.toolVerb.navigate": "{{object}} parcouru",
+  "observability.insights.toolVerb.open": "{{object}} ouvert",
+  "observability.insights.toolVerb.present": "{{object}} présenté",
+  "observability.insights.toolVerb.propose": "{{object}} proposé",
+  "observability.insights.toolVerb.query": "{{object}} interrogé",
+  "observability.insights.toolVerb.read": "{{object}} lu",
+  "observability.insights.toolVerb.remove": "{{object}} retiré",
+  "observability.insights.toolVerb.rename": "{{object}} renommé",
+  "observability.insights.toolVerb.reply": "{{object}} répondu",
+  "observability.insights.toolVerb.resolve": "{{object}} résolu",
+  "observability.insights.toolVerb.run": "{{object}} exécuté",
+  "observability.insights.toolVerb.save": "{{object}} enregistré",
+  "observability.insights.toolVerb.search": "{{object}} recherché",
+  "observability.insights.toolVerb.send": "{{object}} envoyé",
+  "observability.insights.toolVerb.set": "{{object}} défini",
+  "observability.insights.toolVerb.take": "{{object}} pris",
+  "observability.insights.toolVerb.update": "{{object}} mis à jour",
+  "observability.insights.toolVerb.upload": "{{object}} téléversé",
+  "observability.insights.toolVerb.view": "{{object}} consulté",
+  "observability.insights.toolVerb.write": "{{object}} écrit",
+  "observability.insights.verdictLook_many": "{{count}} points à vérifier",
+  "observability.insights.verdictProblems_many": "{{count}} problèmes",
+  "observability.insights.spentSummary_many":
     "{{amount}} dépensé pour {{count}} prompts au cours des {{days}} derniers jours.",
-  "usage.insights.handledRecovered_many":
+  "observability.insights.handledRecovered_many":
     "S'est remis de {{count}} erreurs d'outils sans s'arrêter.",
-  "usage.insights.completedRecovered_many":
+  "observability.insights.completedRecovered_many":
     "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreurs d'outils",
-  "usage.insights.seePrompts_many": "Voir {{count}} prompts",
-  "usage.insights.erroredTitle_many":
+  "observability.insights.seePrompts_many": "Voir {{count}} prompts",
+  "observability.insights.erroredTitle_many":
     "{{count}} prompts se sont terminés par une erreur",
-  "usage.insights.toolFailedTitle_many":
+  "observability.insights.toolFailedTitle_many":
     "L'outil {{tool}} a échoué dans {{count}} prompts",
-  "usage.insights.priciestBody_many":
+  "observability.insights.priciestBody_many":
     "« {{prompt}} » a coûté {{amount}} sur {{count}} étapes.",
-  "usage.insights.recoveredShort_many": "remis de {{count}} erreurs d'outils",
-  "usage.insights.toolsFailedShort_many": "{{count}} outils en échec",
-  "usage.insights.stepsCount_many": "{{count}} étapes",
-  "usage.insights.startedOverNote_many":
+  "observability.insights.recoveredShort_many":
+    "remis de {{count}} erreurs d'outils",
+  "observability.insights.toolsFailedShort_many": "{{count}} outils en échec",
+  "observability.insights.stepsCount_many": "{{count}} étapes",
+  "observability.insights.startedOverNote_many":
     "Reparti de zéro {{count}} fois après {{reason}}. Cela a coûté environ {{amount}} sur {{total}}.",
-  "usage.insights.toolFailedNote_many":
+  "observability.insights.toolFailedNote_many":
     "L'outil {{tool}} a échoué {{count}} fois.",
-  "usage.insights.toolFailedRecoveredNote_many":
+  "observability.insights.toolFailedRecoveredNote_many":
     "L'outil {{tool}} a échoué {{count}} fois, mais l'agent a continué et terminé.",
-  "usage.insights.showSteps_many": "Afficher {{count}} étapes",
+  "observability.insights.showSteps_many": "Afficher {{count}} étapes",
   "billing.builderCreditLimitTitle": "Vos crédits Builder sont épuisés",
   "billing.builderCreditLimitEmailBody":
     "Une requête d’IA s’est arrêtée, car votre compte Builder connecté n’a plus de crédits. Passez à une offre Builder supérieure pour continuer.",
@@ -3065,6 +3073,8 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.registryLink": "Parcourir le Global A2A Registry",
   "settingsSubAgents.connectTitle": "Connecter {{name}}",
   "settingsSubAgents.close": "Fermer",
+  "observability.insights.rawTrace":
+    "Trace brute (tous les spans, avec entrées et sorties)",
 };
 
 export default messages;

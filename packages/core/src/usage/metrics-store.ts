@@ -1097,7 +1097,8 @@ function replyForTurn(threadData: unknown, taskId: string): string | null {
       continue;
     }
     const text = promptText(message.content);
-    if (text) return text.length > 1200 ? `${text.slice(0, 1199).trimEnd()}…` : text;
+    if (text)
+      return text.length > 1200 ? `${text.slice(0, 1199).trimEnd()}…` : text;
   }
   return null;
 }

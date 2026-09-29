@@ -13,6 +13,7 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconInfoCircle,
+  IconMessages,
   IconPigMoney,
   IconThumbDown,
   IconThumbUp,
@@ -20,11 +21,11 @@ import {
 } from "@tabler/icons-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { requestAgentChatThreadOpen } from "../agent-chat.js";
 import { useT } from "../i18n.js";
 import { useActionQuery } from "../use-action.js";
 
 type T = ReturnType<typeof useT>;
-type UsageScope = "me" | "workspace";
 
 interface CostBreakdown {
   cacheReadCents: number;
@@ -54,6 +55,7 @@ interface RunTool {
 
 interface RunListItem {
   runId: string;
+  threadId: string | null;
   createdAt: number;
   model: string;
   prompt: string | null;
@@ -121,7 +123,7 @@ const LIGHT_PALETTE =
 const DARK_PALETTE =
   // guard:allow-raw-color — same palette stepped for the dark surface
   "--usage-cache-read: #3987e5; --usage-cache-write: #d95926; --usage-fresh-input: #199e70; --usage-output: #c98500;";
-const PALETTE_CSS = `.usage-insights, .usage-insights-panel { ${LIGHT_PALETTE} } .dark .usage-insights, .dark .usage-insights-panel { ${DARK_PALETTE} }`;
+const PALETTE_CSS = `.run-insights, .run-insights-panel { ${LIGHT_PALETTE} } .dark .run-insights, .dark .run-insights-panel { ${DARK_PALETTE} }`;
 
 const WRITE_VERBS = new Set([
   "add",
@@ -146,47 +148,72 @@ const WRITE_VERBS = new Set([
 
 function verbLabel(t: T, verb: string, object: string): string | null {
   const labels: Record<string, () => string> = {
-    add: () => t("agentChat.usage.insights.toolVerb.add", { object }),
-    analyze: () => t("agentChat.usage.insights.toolVerb.analyze", { object }),
-    apply: () => t("agentChat.usage.insights.toolVerb.apply", { object }),
-    capture: () => t("agentChat.usage.insights.toolVerb.capture", { object }),
-    check: () => t("agentChat.usage.insights.toolVerb.check", { object }),
-    connect: () => t("agentChat.usage.insights.toolVerb.connect", { object }),
-    consume: () => t("agentChat.usage.insights.toolVerb.read", { object }),
-    create: () => t("agentChat.usage.insights.toolVerb.create", { object }),
-    delete: () => t("agentChat.usage.insights.toolVerb.delete", { object }),
+    add: () => t("agentChat.observability.insights.toolVerb.add", { object }),
+    analyze: () =>
+      t("agentChat.observability.insights.toolVerb.analyze", { object }),
+    apply: () =>
+      t("agentChat.observability.insights.toolVerb.apply", { object }),
+    capture: () =>
+      t("agentChat.observability.insights.toolVerb.capture", { object }),
+    check: () =>
+      t("agentChat.observability.insights.toolVerb.check", { object }),
+    connect: () =>
+      t("agentChat.observability.insights.toolVerb.connect", { object }),
+    consume: () =>
+      t("agentChat.observability.insights.toolVerb.read", { object }),
+    create: () =>
+      t("agentChat.observability.insights.toolVerb.create", { object }),
+    delete: () =>
+      t("agentChat.observability.insights.toolVerb.delete", { object }),
     duplicate: () =>
-      t("agentChat.usage.insights.toolVerb.duplicate", { object }),
-    edit: () => t("agentChat.usage.insights.toolVerb.edit", { object }),
-    export: () => t("agentChat.usage.insights.toolVerb.export", { object }),
-    fetch: () => t("agentChat.usage.insights.toolVerb.fetch", { object }),
-    find: () => t("agentChat.usage.insights.toolVerb.find", { object }),
-    generate: () => t("agentChat.usage.insights.toolVerb.generate", { object }),
-    get: () => t("agentChat.usage.insights.toolVerb.read", { object }),
-    index: () => t("agentChat.usage.insights.toolVerb.index", { object }),
-    insert: () => t("agentChat.usage.insights.toolVerb.insert", { object }),
-    list: () => t("agentChat.usage.insights.toolVerb.list", { object }),
-    move: () => t("agentChat.usage.insights.toolVerb.move", { object }),
-    navigate: () => t("agentChat.usage.insights.toolVerb.navigate", { object }),
-    open: () => t("agentChat.usage.insights.toolVerb.open", { object }),
-    present: () => t("agentChat.usage.insights.toolVerb.present", { object }),
-    propose: () => t("agentChat.usage.insights.toolVerb.propose", { object }),
-    query: () => t("agentChat.usage.insights.toolVerb.query", { object }),
-    read: () => t("agentChat.usage.insights.toolVerb.read", { object }),
-    remove: () => t("agentChat.usage.insights.toolVerb.remove", { object }),
-    rename: () => t("agentChat.usage.insights.toolVerb.rename", { object }),
-    reply: () => t("agentChat.usage.insights.toolVerb.reply", { object }),
-    resolve: () => t("agentChat.usage.insights.toolVerb.resolve", { object }),
-    run: () => t("agentChat.usage.insights.toolVerb.run", { object }),
-    save: () => t("agentChat.usage.insights.toolVerb.save", { object }),
-    search: () => t("agentChat.usage.insights.toolVerb.search", { object }),
-    send: () => t("agentChat.usage.insights.toolVerb.send", { object }),
-    set: () => t("agentChat.usage.insights.toolVerb.set", { object }),
-    take: () => t("agentChat.usage.insights.toolVerb.take", { object }),
-    update: () => t("agentChat.usage.insights.toolVerb.update", { object }),
-    upload: () => t("agentChat.usage.insights.toolVerb.upload", { object }),
-    view: () => t("agentChat.usage.insights.toolVerb.view", { object }),
-    write: () => t("agentChat.usage.insights.toolVerb.write", { object }),
+      t("agentChat.observability.insights.toolVerb.duplicate", { object }),
+    edit: () => t("agentChat.observability.insights.toolVerb.edit", { object }),
+    export: () =>
+      t("agentChat.observability.insights.toolVerb.export", { object }),
+    fetch: () =>
+      t("agentChat.observability.insights.toolVerb.fetch", { object }),
+    find: () => t("agentChat.observability.insights.toolVerb.find", { object }),
+    generate: () =>
+      t("agentChat.observability.insights.toolVerb.generate", { object }),
+    get: () => t("agentChat.observability.insights.toolVerb.read", { object }),
+    index: () =>
+      t("agentChat.observability.insights.toolVerb.index", { object }),
+    insert: () =>
+      t("agentChat.observability.insights.toolVerb.insert", { object }),
+    list: () => t("agentChat.observability.insights.toolVerb.list", { object }),
+    move: () => t("agentChat.observability.insights.toolVerb.move", { object }),
+    navigate: () =>
+      t("agentChat.observability.insights.toolVerb.navigate", { object }),
+    open: () => t("agentChat.observability.insights.toolVerb.open", { object }),
+    present: () =>
+      t("agentChat.observability.insights.toolVerb.present", { object }),
+    propose: () =>
+      t("agentChat.observability.insights.toolVerb.propose", { object }),
+    query: () =>
+      t("agentChat.observability.insights.toolVerb.query", { object }),
+    read: () => t("agentChat.observability.insights.toolVerb.read", { object }),
+    remove: () =>
+      t("agentChat.observability.insights.toolVerb.remove", { object }),
+    rename: () =>
+      t("agentChat.observability.insights.toolVerb.rename", { object }),
+    reply: () =>
+      t("agentChat.observability.insights.toolVerb.reply", { object }),
+    resolve: () =>
+      t("agentChat.observability.insights.toolVerb.resolve", { object }),
+    run: () => t("agentChat.observability.insights.toolVerb.run", { object }),
+    save: () => t("agentChat.observability.insights.toolVerb.save", { object }),
+    search: () =>
+      t("agentChat.observability.insights.toolVerb.search", { object }),
+    send: () => t("agentChat.observability.insights.toolVerb.send", { object }),
+    set: () => t("agentChat.observability.insights.toolVerb.set", { object }),
+    take: () => t("agentChat.observability.insights.toolVerb.take", { object }),
+    update: () =>
+      t("agentChat.observability.insights.toolVerb.update", { object }),
+    upload: () =>
+      t("agentChat.observability.insights.toolVerb.upload", { object }),
+    view: () => t("agentChat.observability.insights.toolVerb.view", { object }),
+    write: () =>
+      t("agentChat.observability.insights.toolVerb.write", { object }),
   };
   return labels[verb]?.() ?? null;
 }
@@ -234,7 +261,7 @@ const READ_VERBS = new Set([
 /** "edit-design" → "Edited design", "docs-search" → "Searched docs". */
 function humanizeTool(t: T, name: string): string {
   if (name === "tool-search") {
-    return t("agentChat.usage.insights.lookedForTools");
+    return t("agentChat.observability.insights.lookedForTools");
   }
   const words = toolWords(name);
   const verb = toolVerb(name);
@@ -256,7 +283,7 @@ function listTools(
   return tools
     .map((tool) =>
       tool.calls > 1
-        ? t("agentChat.usage.insights.timesCount", {
+        ? t("agentChat.observability.insights.timesCount", {
             label: humanizeTool(t, tool.name),
             count: tool.calls,
           })
@@ -277,8 +304,8 @@ function outcomeLine(t: T, tools: RunTool[]): string | null {
 function turnLabel(t: T, turn: RunTurn, isLast: boolean): string {
   if (turn.toolCalls.length === 0) {
     return isLast
-      ? t("agentChat.usage.insights.turnReply")
-      : t("agentChat.usage.insights.turnThought");
+      ? t("agentChat.observability.insights.turnReply")
+      : t("agentChat.observability.insights.turnThought");
   }
   const counts = new Map<string, number>();
   for (const call of turn.toolCalls) {
@@ -346,14 +373,14 @@ function mainRestartCause(run: RunListItem): RestartCause {
 
 function restartReason(t: T, cause: RestartCause): string {
   return cause === "tool-lookup"
-    ? t("agentChat.usage.insights.reasonToolLookup")
-    : t("agentChat.usage.insights.reasonPrefixChanged");
+    ? t("agentChat.observability.insights.reasonToolLookup")
+    : t("agentChat.observability.insights.reasonPrefixChanged");
 }
 
 function restartFix(t: T, cause: RestartCause): string {
   return cause === "tool-lookup"
-    ? t("agentChat.usage.insights.fixToolLookup")
-    : t("agentChat.usage.insights.fixPrefixChanged");
+    ? t("agentChat.observability.insights.fixToolLookup")
+    : t("agentChat.observability.insights.fixPrefixChanged");
 }
 
 type InsightKind = "problem" | "saving" | "info";
@@ -376,11 +403,11 @@ function buildInsights(t: T, runs: RunListItem[]): Insight[] {
     insights.push({
       key: "errored",
       kind: "problem",
-      title: t("agentChat.usage.insights.erroredTitle", {
+      title: t("agentChat.observability.insights.erroredTitle", {
         count: errored.length,
       }),
-      body: t("agentChat.usage.insights.erroredBody"),
-      fix: t("agentChat.usage.insights.erroredFix"),
+      body: t("agentChat.observability.insights.erroredBody"),
+      fix: t("agentChat.observability.insights.erroredFix"),
       runIds: errored.map((run) => run.runId),
     });
   }
@@ -408,22 +435,22 @@ function buildInsights(t: T, runs: RunListItem[]): Insight[] {
       (run) => runIds.includes(run.runId) && run.status === "success",
     ).length;
     const said = error
-      ? t("agentChat.usage.insights.toolFailedSaid", {
+      ? t("agentChat.observability.insights.toolFailedSaid", {
           error: error.length > 180 ? `${error.slice(0, 179)}…` : error,
         })
-      : t("agentChat.usage.insights.toolFailedGeneric");
+      : t("agentChat.observability.insights.toolFailedGeneric");
     const recovery =
       recovered === 0
         ? ""
         : recovered === runIds.length
-          ? t("agentChat.usage.insights.toolRecoveredAll")
-          : t("agentChat.usage.insights.toolRecoveredSome", {
+          ? t("agentChat.observability.insights.toolRecoveredAll")
+          : t("agentChat.observability.insights.toolRecoveredSome", {
               count: recovered,
             });
     insights.push({
       key: `tool-${name}`,
       kind: "problem",
-      title: t("agentChat.usage.insights.toolFailedTitle", {
+      title: t("agentChat.observability.insights.toolFailedTitle", {
         tool: toolNoun(name),
         count: runIds.length,
       }),
@@ -444,11 +471,11 @@ function buildInsights(t: T, runs: RunListItem[]): Insight[] {
       insights.push({
         key: `restart-${cause}`,
         kind: "saving",
-        title: t("agentChat.usage.insights.restartTitle", {
+        title: t("agentChat.observability.insights.restartTitle", {
           amount: formatUsd(cents),
           percent: percent(cents, total),
         }),
-        body: t("agentChat.usage.insights.restartBody", {
+        body: t("agentChat.observability.insights.restartBody", {
           count: affected.length,
           total: runs.length,
           reason: restartReason(t, cause),
@@ -472,11 +499,13 @@ function buildInsights(t: T, runs: RunListItem[]): Insight[] {
     insights.push({
       key: "priciest",
       kind: "info",
-      title: t("agentChat.usage.insights.priciestTitle", {
+      title: t("agentChat.observability.insights.priciestTitle", {
         percent: percent(priciest.cost.totalCents, spend),
       }),
-      body: t("agentChat.usage.insights.priciestBody", {
-        prompt: priciest.prompt ?? t("agentChat.usage.insights.untitledPrompt"),
+      body: t("agentChat.observability.insights.priciestBody", {
+        prompt:
+          priciest.prompt ??
+          t("agentChat.observability.insights.untitledPrompt"),
         amount: formatUsd(priciest.cost.totalCents),
         count: priciest.modelCalls,
       }),
@@ -503,19 +532,19 @@ function InsightCard({
       icon: (
         <IconAlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
       ),
-      label: t("agentChat.usage.insights.kindProblem"),
+      label: t("agentChat.observability.insights.kindProblem"),
       className: "border-amber-500/30",
     },
     saving: {
       icon: (
         <IconPigMoney className="size-4 text-emerald-600 dark:text-emerald-400" />
       ),
-      label: t("agentChat.usage.insights.kindSaving"),
+      label: t("agentChat.observability.insights.kindSaving"),
       className: "border-emerald-500/30",
     },
     info: {
       icon: <IconInfoCircle className="size-4 text-muted-foreground" />,
-      label: t("agentChat.usage.insights.kindInfo"),
+      label: t("agentChat.observability.insights.kindInfo"),
       className: "border-border/70",
     },
   };
@@ -535,7 +564,7 @@ function InsightCard({
       {insight.fix ? (
         <p className="mt-1.5 text-xs leading-5 text-foreground/90">
           <span className="font-medium">
-            {t("agentChat.usage.insights.fixLabel")}{" "}
+            {t("agentChat.observability.insights.fixLabel")}{" "}
           </span>
           {insight.fix}
         </p>
@@ -548,8 +577,8 @@ function InsightCard({
         onClick={onShow}
       >
         {insight.runIds.length === 1
-          ? t("agentChat.usage.insights.openPrompt")
-          : t("agentChat.usage.insights.seePrompts", {
+          ? t("agentChat.observability.insights.openPrompt")
+          : t("agentChat.observability.insights.seePrompts", {
               count: insight.runIds.length,
             })}
       </Button>
@@ -570,16 +599,16 @@ function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm text-foreground">
-            {run.prompt ?? t("agentChat.usage.insights.promptNotSaved")}
+            {run.prompt ?? t("agentChat.observability.insights.promptNotSaved")}
           </span>
           {run.feedback === "up" ? (
             <IconThumbUp
-              aria-label={t("agentChat.usage.insights.ratedHelpful")}
+              aria-label={t("agentChat.observability.insights.ratedHelpful")}
               className="size-3.5 shrink-0 text-muted-foreground"
             />
           ) : run.feedback === "down" ? (
             <IconThumbDown
-              aria-label={t("agentChat.usage.insights.ratedUnhelpful")}
+              aria-label={t("agentChat.observability.insights.ratedUnhelpful")}
               className="size-3.5 shrink-0 text-muted-foreground"
             />
           ) : null}
@@ -589,36 +618,36 @@ function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
             <span className="flex min-w-0 items-center gap-1 text-destructive">
               <IconCircleX aria-hidden className="size-3.5 shrink-0" />
               <span className="truncate">
-                {t("agentChat.usage.insights.stoppedWithError")}
+                {t("agentChat.observability.insights.stoppedWithError")}
               </span>
             </span>
           ) : run.status === "unknown" ? (
             <span className="truncate">
-              {t("agentChat.usage.insights.detailsUnavailable")}
+              {t("agentChat.observability.insights.detailsUnavailable")}
             </span>
           ) : (
             <span className="truncate">
-              → {outcome ?? t("agentChat.usage.insights.answered")}
+              → {outcome ?? t("agentChat.observability.insights.answered")}
             </span>
           )}
           {notableRestart(run) ? (
             <span className="shrink-0 text-amber-700 dark:text-amber-400">
               ·{" "}
-              {t("agentChat.usage.insights.startedOverShort", {
+              {t("agentChat.observability.insights.startedOverShort", {
                 count: run.restarts.count,
               })}
             </span>
           ) : run.recoveredErrors > 0 ? (
             <span className="shrink-0">
               ·{" "}
-              {t("agentChat.usage.insights.recoveredShort", {
+              {t("agentChat.observability.insights.recoveredShort", {
                 count: run.recoveredErrors,
               })}
             </span>
           ) : failures.length > 0 ? (
             <span className="shrink-0 text-amber-700 dark:text-amber-400">
               ·{" "}
-              {t("agentChat.usage.insights.toolsFailedShort", {
+              {t("agentChat.observability.insights.toolsFailedShort", {
                 count: failures.length,
               })}
             </span>
@@ -643,19 +672,19 @@ function CostDetails({ run }: { run: RunDetail }) {
   const t = useT();
   const parts = [
     {
-      label: t("agentChat.usage.insights.partReused"),
+      label: t("agentChat.observability.insights.partReused"),
       cents: run.cost.cacheReadCents,
       tokens: run.tokens.cacheReadTokens,
       color: "var(--usage-cache-read)",
     },
     {
-      label: t("agentChat.usage.insights.partSaved"),
+      label: t("agentChat.observability.insights.partSaved"),
       cents: run.cost.cacheWriteCents,
       tokens: run.tokens.cacheWriteTokens,
       color: "var(--usage-cache-write)",
     },
     {
-      label: t("agentChat.usage.insights.partNew"),
+      label: t("agentChat.observability.insights.partNew"),
       cents: run.cost.uncachedInputCents,
       tokens: Math.max(
         0,
@@ -666,7 +695,7 @@ function CostDetails({ run }: { run: RunDetail }) {
       color: "var(--usage-fresh-input)",
     },
     {
-      label: t("agentChat.usage.insights.partOutput"),
+      label: t("agentChat.observability.insights.partOutput"),
       cents: run.cost.outputCents,
       tokens: run.tokens.outputTokens,
       color: "var(--usage-output)",
@@ -678,12 +707,14 @@ function CostDetails({ run }: { run: RunDetail }) {
   return (
     <div className="space-y-4 text-xs">
       <div>
-        <p className="text-muted-foreground">
-          {t("agentChat.usage.insights.noCacheCompare", {
-            noCache: formatUsd(run.cost.noCacheCents),
-            estimated: formatUsd(estimated),
-          })}
-        </p>
+        {formatUsd(run.cost.noCacheCents) !== formatUsd(estimated) ? (
+          <p className="text-muted-foreground">
+            {t("agentChat.observability.insights.noCacheCompare", {
+              noCache: formatUsd(run.cost.noCacheCents),
+              estimated: formatUsd(estimated),
+            })}
+          </p>
+        ) : null}
         <div className="mt-2 flex h-2 w-full gap-[2px] overflow-hidden rounded-full">
           {parts.map((part) =>
             part.cents > 0 && estimated > 0 ? (
@@ -719,11 +750,11 @@ function CostDetails({ run }: { run: RunDetail }) {
       </div>
       <div>
         <div className="font-medium text-foreground">
-          {t("agentChat.usage.insights.checksHeading")}
+          {t("agentChat.observability.insights.checksHeading")}
         </div>
         {judged.length === 0 && checks.length === 0 ? (
           <p className="mt-1 text-muted-foreground">
-            {t("agentChat.usage.insights.checksNone")}
+            {t("agentChat.observability.insights.checksNone")}
           </p>
         ) : (
           <ul className="mt-1 space-y-0.5 text-muted-foreground">
@@ -732,7 +763,7 @@ function CostDetails({ run }: { run: RunDetail }) {
                 <span>
                   {score.criteria.replaceAll("_", " ")}
                   {score.source === "judge"
-                    ? ` ${t("agentChat.usage.insights.checksGraded")}`
+                    ? ` ${t("agentChat.observability.insights.checksGraded")}`
                     : ""}
                 </span>
                 <span className="tabular-nums">
@@ -743,7 +774,7 @@ function CostDetails({ run }: { run: RunDetail }) {
           </ul>
         )}
         <p className="mt-1 text-[11px] text-muted-foreground">
-          {t("agentChat.usage.insights.checksNote")}
+          {t("agentChat.observability.insights.checksNote")}
         </p>
       </div>
     </div>
@@ -774,12 +805,12 @@ function StepList({ turns }: { turns: RunTurn[] }) {
               </span>
               {turn.restart ? (
                 <span className="shrink-0 text-amber-700 dark:text-amber-400">
-                  {t("agentChat.usage.insights.startedOverTag")}
+                  {t("agentChat.observability.insights.startedOverTag")}
                 </span>
               ) : null}
               {failed ? (
                 <span className="shrink-0 text-destructive">
-                  {t("agentChat.usage.insights.toolFailedTag")}
+                  {t("agentChat.observability.insights.toolFailedTag")}
                 </span>
               ) : null}
               <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">
@@ -792,7 +823,7 @@ function StepList({ turns }: { turns: RunTurn[] }) {
             {open ? (
               <div className="space-y-1.5 bg-muted/30 px-3 py-2.5 pl-11 text-xs text-muted-foreground">
                 <p>
-                  {t("agentChat.usage.insights.turnContext", {
+                  {t("agentChat.observability.insights.turnContext", {
                     tokens: compactTokens(turn.tokens.inputTokens),
                     percent: percent(
                       turn.tokens.cacheReadTokens,
@@ -800,15 +831,15 @@ function StepList({ turns }: { turns: RunTurn[] }) {
                     ),
                   })}{" "}
                   {turn.cacheExpired
-                    ? `${t("agentChat.usage.insights.turnExpired")} `
+                    ? `${t("agentChat.observability.insights.turnExpired")} `
                     : ""}
-                  {t("agentChat.usage.insights.turnOutput", {
+                  {t("agentChat.observability.insights.turnOutput", {
                     tokens: compactTokens(turn.tokens.outputTokens),
                   })}
                 </p>
                 {turn.restart ? (
                   <p className="text-amber-700 dark:text-amber-400">
-                    {t("agentChat.usage.insights.turnRestart", {
+                    {t("agentChat.observability.insights.turnRestart", {
                       reason: restartReason(t, turn.restart.cause),
                       amount: formatUsd(turn.restart.cents),
                     })}
@@ -858,8 +889,8 @@ function Expandable({
           onClick={() => setFull((value) => !value)}
         >
           {full
-            ? t("agentChat.usage.insights.showLess")
-            : t("agentChat.usage.insights.showAll")}
+            ? t("agentChat.observability.insights.showLess")
+            : t("agentChat.observability.insights.showAll")}
         </button>
       ) : null}
     </>
@@ -874,7 +905,7 @@ function handledText(
   const lines: string[] = [];
   if (parallel.savedMs >= 1000) {
     lines.push(
-      t("agentChat.usage.insights.handledParallel", {
+      t("agentChat.observability.insights.handledParallel", {
         count: parallel.calls,
         duration: formatDuration(parallel.savedMs),
       }),
@@ -882,7 +913,9 @@ function handledText(
   }
   if (recovered > 0) {
     lines.push(
-      t("agentChat.usage.insights.handledRecovered", { count: recovered }),
+      t("agentChat.observability.insights.handledRecovered", {
+        count: recovered,
+      }),
     );
   }
   return lines;
@@ -895,7 +928,7 @@ function HandledNote({ run }: { run: RunListItem }) {
   return (
     <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-3 text-xs leading-5">
       <p className="font-medium text-foreground">
-        {t("agentChat.usage.insights.handledHeading")}
+        {t("agentChat.observability.insights.handledHeading")}
       </p>
       <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
         {lines.map((line) => (
@@ -908,34 +941,31 @@ function HandledNote({ run }: { run: RunListItem }) {
 
 function RunPanel({
   run,
-  scope,
-  userEmail,
-  appId,
+  renderRawTrace,
+  onClose,
 }: {
   run: RunListItem;
-  scope: UsageScope;
-  userEmail?: string;
-  appId?: string;
+  renderRawTrace: (runId: string) => ReactNode;
+  onClose: () => void;
 }) {
   const t = useT();
   const query = useActionQuery<RunDetail | null>("get-usage-run", {
     runId: run.runId,
-    scope,
-    userEmail,
-    appId,
+    scope: "me",
   });
   const [showSteps, setShowSteps] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showRawTrace, setShowRawTrace] = useState(false);
   const detail = query.data;
   const failures = failedTools(run);
   const outcome = outcomeLine(t, run.tools);
   const cause = mainRestartCause(run);
   const headline =
     run.status === "error"
-      ? t("agentChat.usage.insights.stoppedWithError")
+      ? t("agentChat.observability.insights.stoppedWithError")
       : run.status === "unknown"
-        ? t("agentChat.usage.insights.detailsUnavailable")
-        : t("agentChat.usage.insights.finished");
+        ? t("agentChat.observability.insights.detailsUnavailable")
+        : t("agentChat.observability.insights.finished");
 
   return (
     <div className="flex h-full flex-col">
@@ -951,12 +981,12 @@ function RunPanel({
           <SheetTitle className="text-sm font-medium">
             {headline}
             {run.durationMs
-              ? ` ${t("agentChat.usage.insights.headerDuration", {
+              ? ` ${t("agentChat.observability.insights.headerDuration", {
                   duration: formatDuration(run.durationMs),
                 })}`
               : ""}{" "}
             ·{" "}
-            {t("agentChat.usage.insights.stepsCount", {
+            {t("agentChat.observability.insights.stepsCount", {
               count: run.modelCalls,
             })}{" "}
             · {formatUsd(run.cost.totalCents)}
@@ -965,18 +995,34 @@ function RunPanel({
         <SheetDescription className="mt-1 text-xs">
           {formatTime(run.createdAt)} · {run.model} ·{" "}
           {run.feedback === "up"
-            ? t("agentChat.usage.insights.ratedHelpful")
+            ? t("agentChat.observability.insights.ratedHelpful")
             : run.feedback === "down"
-              ? t("agentChat.usage.insights.ratedUnhelpful")
-              : t("agentChat.usage.insights.notRated")}
+              ? t("agentChat.observability.insights.ratedUnhelpful")
+              : t("agentChat.observability.insights.notRated")}
         </SheetDescription>
+        {run.threadId ? (
+          <button
+            type="button"
+            onClick={() => {
+              requestAgentChatThreadOpen({ threadId: run.threadId! });
+              onClose();
+            }}
+            className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <IconMessages className="size-3.5" />
+            {t("observability.openFullConversation")}
+          </button>
+        ) : null}
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
         <div className="space-y-3">
           <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2.5 text-sm leading-6">
             <Expandable
-              text={run.prompt ?? t("agentChat.usage.insights.promptNotSaved")}
+              text={
+                run.prompt ??
+                t("agentChat.observability.insights.promptNotSaved")
+              }
               lines="line-clamp-4"
               limit={240}
             />
@@ -985,7 +1031,7 @@ function RunPanel({
             {outcome ? (
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">
-                  {t("agentChat.usage.insights.whatItDid")}{" "}
+                  {t("agentChat.observability.insights.whatItDid")}{" "}
                 </span>
                 {outcome}
               </p>
@@ -1002,7 +1048,7 @@ function RunPanel({
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                {t("agentChat.usage.insights.replyNotSaved")}
+                {t("agentChat.observability.insights.replyNotSaved")}
               </p>
             )}
             {run.tools.length > 0 ? (
@@ -1015,19 +1061,19 @@ function RunPanel({
                     className={`rounded-full border px-2 py-0.5 text-[11px] ${tool.failed ? "border-destructive/40 text-destructive" : "border-border/70 text-muted-foreground hover:text-foreground"}`}
                   >
                     {tool.calls > 1
-                      ? t("agentChat.usage.insights.timesCount", {
+                      ? t("agentChat.observability.insights.timesCount", {
                           label: humanizeTool(t, tool.name),
                           count: tool.calls,
                         })
                       : humanizeTool(t, tool.name)}
                     {tool.failed
-                      ? ` · ${t("agentChat.usage.insights.failedSuffix")}`
+                      ? ` · ${t("agentChat.observability.insights.failedSuffix")}`
                       : ""}
                   </button>
                 ))}
                 {run.tools.length > 8 ? (
                   <span className="px-1 py-0.5 text-[11px] text-muted-foreground">
-                    {t("agentChat.usage.insights.moreTools", {
+                    {t("agentChat.observability.insights.moreTools", {
                       count: run.tools.length - 8,
                     })}
                   </span>
@@ -1044,7 +1090,7 @@ function RunPanel({
             {notableRestart(run) ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3.5 py-3 text-xs leading-5">
                 <p className="text-foreground">
-                  {t("agentChat.usage.insights.startedOverNote", {
+                  {t("agentChat.observability.insights.startedOverNote", {
                     count: run.restarts.count,
                     reason: restartReason(t, cause),
                     amount: formatUsd(run.restarts.cents),
@@ -1053,7 +1099,7 @@ function RunPanel({
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   <span className="font-medium text-foreground/90">
-                    {t("agentChat.usage.insights.fixLabel")}{" "}
+                    {t("agentChat.observability.insights.fixLabel")}{" "}
                   </span>
                   {restartFix(t, cause)}
                 </p>
@@ -1066,11 +1112,14 @@ function RunPanel({
               >
                 <p className="text-foreground">
                   {run.status === "success"
-                    ? t("agentChat.usage.insights.toolFailedRecoveredNote", {
-                        tool: toolNoun(tool.name),
-                        count: tool.failed,
-                      })
-                    : t("agentChat.usage.insights.toolFailedNote", {
+                    ? t(
+                        "agentChat.observability.insights.toolFailedRecoveredNote",
+                        {
+                          tool: toolNoun(tool.name),
+                          count: tool.failed,
+                        },
+                      )
+                    : t("agentChat.observability.insights.toolFailedNote", {
                         tool: toolNoun(tool.name),
                         count: tool.failed,
                       })}
@@ -1095,8 +1144,8 @@ function RunPanel({
                 className={`size-3.5 transition-transform ${showSteps ? "rotate-180" : ""}`}
               />
               {showSteps
-                ? t("agentChat.usage.insights.hideSteps")
-                : t("agentChat.usage.insights.showSteps", {
+                ? t("agentChat.observability.insights.hideSteps")
+                : t("agentChat.observability.insights.showSteps", {
                     count: run.modelCalls,
                   })}
             </button>
@@ -1120,12 +1169,29 @@ function RunPanel({
             <IconChevronDown
               className={`size-3.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
-            {t("agentChat.usage.insights.costDetails")}
+            {t("agentChat.observability.insights.costDetails")}
           </button>
           {showDetails && detail ? (
             <div className="mt-3">
               <CostDetails run={detail} />
             </div>
+          ) : null}
+        </section>
+
+        <section>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-xs font-medium text-foreground"
+            onClick={() => setShowRawTrace((value) => !value)}
+            aria-expanded={showRawTrace}
+          >
+            <IconChevronDown
+              className={`size-3.5 transition-transform ${showRawTrace ? "rotate-180" : ""}`}
+            />
+            {t("agentChat.observability.insights.rawTrace")}
+          </button>
+          {showRawTrace ? (
+            <div className="mt-3">{renderRawTrace(run.runId)}</div>
           ) : null}
         </section>
       </div>
@@ -1168,74 +1234,44 @@ function changeText(
 ): string | undefined {
   if (previous <= 0) return undefined;
   const change = Math.round(((current - previous) / previous) * 100);
-  if (change === 0) return t("agentChat.usage.insights.changeSame");
+  if (change === 0) return t("agentChat.observability.insights.changeSame");
   return change > 0
-    ? t("agentChat.usage.insights.changeUp", { percent: change })
-    : t("agentChat.usage.insights.changeDown", { percent: -change });
+    ? t("agentChat.observability.insights.changeUp", { percent: change })
+    : t("agentChat.observability.insights.changeDown", { percent: -change });
 }
 
-export function UsageInsightsSection({
-  sinceDays,
-  scope,
-  userEmail,
-  appId,
+/** Which prompts the Conversations tab should show, and which one to open. */
+export interface RunFilter {
+  runIds: string[];
+  openRunId?: string;
+}
+
+function useRunInsights(days: number) {
+  return useActionQuery<UsageInsightsData>("get-usage-insights", {
+    sinceDays: days,
+    scope: "me",
+  });
+}
+
+export function RunInsightsOverview({
+  days,
+  extraStats = [],
+  onShowRuns,
 }: {
-  sinceDays: number;
-  scope: UsageScope;
-  userEmail?: string;
-  appId?: string;
+  days: number;
+  extraStats?: Array<{ label: string; value: string; detail?: string }>;
+  onShowRuns: (filter: RunFilter) => void;
 }) {
   const t = useT();
-  const query = useActionQuery<UsageInsightsData>("get-usage-insights", {
-    sinceDays,
-    scope,
-    userEmail,
-    appId,
-  });
-  const data = query.data;
+  const { data } = useRunInsights(days);
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const insights = useMemo(() => buildInsights(t, runs), [t, runs]);
-  const [sort, setSort] = useState<"newest" | "cost">("newest");
-  const [onlyRunIds, setOnlyRunIds] = useState<string[] | null>(null);
-  const [openRunId, setOpenRunId] = useState<string | null>(null);
-
-  const visible = useMemo(() => {
-    const filtered = onlyRunIds
-      ? runs.filter((run) => onlyRunIds.includes(run.runId))
-      : runs;
-    return sort === "cost"
-      ? [...filtered].sort((a, b) => b.cost.totalCents - a.cost.totalCents)
-      : filtered;
-  }, [runs, onlyRunIds, sort]);
-  const openIndex = visible.findIndex((run) => run.runId === openRunId);
-  const openRun = openIndex >= 0 ? visible[openIndex]! : null;
-  const openAt = (index: number) => {
-    const run = visible[index];
-    if (run) setOpenRunId(run.runId);
-  };
-
-  useEffect(() => {
-    if (!openRun) return;
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (
-        target instanceof Element &&
-        target.closest("input, textarea, [contenteditable=true]")
-      ) {
-        return;
-      }
-      if (event.key === "j") openAt(openIndex + 1);
-      else if (event.key === "k") openAt(openIndex - 1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
 
   if (!data) {
     return (
-      <div className="space-y-3 pt-2">
+      <div className="space-y-3">
         <Skeleton className="h-36 w-full" />
-        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-32 w-full" />
       </div>
     );
   }
@@ -1264,24 +1300,22 @@ export function UsageInsightsSection({
   ).length;
 
   return (
-    <div className="usage-insights space-y-4 pt-2">
-      <style>{PALETTE_CSS}</style>
-
+    <div className="space-y-4">
       <section className="rounded-lg border border-border/70 bg-card p-5">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {insights.length === 0 ? (
             <>
               <IconCircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
-              {t("agentChat.usage.insights.verdictSmooth")}
+              {t("agentChat.observability.insights.verdictSmooth")}
             </>
           ) : (
             <>
               <IconAlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
-              {t("agentChat.usage.insights.verdictLook", {
+              {t("agentChat.observability.insights.verdictLook", {
                 count: insights.length,
               })}
               {problems
-                ? ` · ${t("agentChat.usage.insights.verdictProblems", {
+                ? ` · ${t("agentChat.observability.insights.verdictProblems", {
                     count: problems,
                   })}`
                 : ""}
@@ -1289,10 +1323,10 @@ export function UsageInsightsSection({
           )}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t("agentChat.usage.insights.spentSummary", {
+          {t("agentChat.observability.insights.spentSummary", {
             amount: formatUsd(current.cost.totalCents),
             count: current.runs,
-            days: sinceDays,
+            days,
           })}
         </p>
         {handled.length > 0 ? (
@@ -1300,30 +1334,30 @@ export function UsageInsightsSection({
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>
               <span className="font-medium text-foreground">
-                {t("agentChat.usage.insights.handledLabel")}{" "}
+                {t("agentChat.observability.insights.handledLabel")}{" "}
               </span>
               {handled.join(" ")}
             </span>
           </p>
         ) : null}
-        <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border/60 pt-4 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border/60 pt-4 sm:grid-cols-3 lg:grid-cols-5">
           <Stat
-            label={t("agentChat.usage.insights.avgPerPrompt")}
+            label={t("agentChat.observability.insights.avgPerPrompt")}
             value={formatUsd(avgCents)}
             detail={changeText(t, avgCents, previousAvg)}
           />
           <Stat
-            label={t("agentChat.usage.insights.completed")}
+            label={t("agentChat.observability.insights.completed")}
             value={known.length ? `${percent(completed, known.length)}%` : "—"}
             detail={
               known.length
                 ? recovered
-                  ? t("agentChat.usage.insights.completedRecovered", {
+                  ? t("agentChat.observability.insights.completedRecovered", {
                       done: completed,
                       total: known.length,
                       count: recovered,
                     })
-                  : t("agentChat.usage.insights.completedDetail", {
+                  : t("agentChat.observability.insights.completedDetail", {
                       done: completed,
                       total: known.length,
                     })
@@ -1331,10 +1365,13 @@ export function UsageInsightsSection({
             }
           />
           <Stat
-            label={t("agentChat.usage.insights.typicalTime")}
+            label={t("agentChat.observability.insights.typicalTime")}
             value={typical ? formatDuration(typical) : "—"}
-            detail={t("agentChat.usage.insights.median")}
+            detail={t("agentChat.observability.insights.median")}
           />
+          {extraStats.map((stat) => (
+            <Stat key={stat.label} {...stat} />
+          ))}
         </div>
       </section>
 
@@ -1347,29 +1384,102 @@ export function UsageInsightsSection({
               key={insight.key}
               insight={insight}
               onShow={() =>
-                insight.runIds.length === 1
-                  ? setOpenRunId(insight.runIds[0]!)
-                  : setOnlyRunIds(insight.runIds)
+                onShowRuns({
+                  runIds: insight.runIds,
+                  openRunId:
+                    insight.runIds.length === 1 ? insight.runIds[0] : undefined,
+                })
               }
             />
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
 
+export function RunInsightsConversations({
+  days,
+  filter,
+  onClearFilter,
+  renderRawTrace,
+}: {
+  days: number;
+  filter: RunFilter | null;
+  onClearFilter: () => void;
+  renderRawTrace: (runId: string) => ReactNode;
+}) {
+  const t = useT();
+  const { data } = useRunInsights(days);
+  const runs = useMemo(() => data?.runs ?? [], [data]);
+  const [sort, setSort] = useState<"newest" | "cost">("newest");
+  const [openRunId, setOpenRunId] = useState<string | null>(
+    filter?.openRunId ?? null,
+  );
+
+  useEffect(() => {
+    if (filter?.openRunId) setOpenRunId(filter.openRunId);
+  }, [filter]);
+
+  const visible = useMemo(() => {
+    const filtered = filter
+      ? runs.filter((run) => filter.runIds.includes(run.runId))
+      : runs;
+    return sort === "cost"
+      ? [...filtered].sort((a, b) => b.cost.totalCents - a.cost.totalCents)
+      : filtered;
+  }, [runs, filter, sort]);
+  const openIndex = visible.findIndex((run) => run.runId === openRunId);
+  const openRun = openIndex >= 0 ? visible[openIndex]! : null;
+  const openAt = (index: number) => {
+    const run = visible[index];
+    if (run) setOpenRunId(run.runId);
+  };
+
+  useEffect(() => {
+    if (!openRun) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest("input, textarea, [contenteditable=true]")
+      ) {
+        return;
+      }
+      if (event.key === "j") openAt(openIndex + 1);
+      else if (event.key === "k") openAt(openIndex - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  if (!data) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="run-insights">
+      <style>{PALETTE_CSS}</style>
       <section className="rounded-lg border border-border/70 bg-card">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">
-              {t("agentChat.usage.insights.promptsHeading")}
+              {t("agentChat.observability.insights.promptsHeading")}
             </h3>
-            {onlyRunIds ? (
+            {filter ? (
               <button
                 type="button"
                 className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-                onClick={() => setOnlyRunIds(null)}
+                onClick={onClearFilter}
               >
-                {t("agentChat.usage.insights.showing", {
-                  count: onlyRunIds.length,
+                {t("agentChat.observability.insights.showing", {
+                  count: filter.runIds.length,
                 })}{" "}
                 <IconX className="size-3" />
               </button>
@@ -1387,15 +1497,15 @@ export function UsageInsightsSection({
                 aria-pressed={sort === value}
               >
                 {value === "newest"
-                  ? t("agentChat.usage.insights.sortNewest")
-                  : t("agentChat.usage.insights.sortCost")}
+                  ? t("agentChat.observability.insights.sortNewest")
+                  : t("agentChat.observability.insights.sortCost")}
               </Button>
             ))}
           </div>
         </div>
         {visible.length === 0 ? (
           <p className="border-t border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
-            {t("agentChat.usage.insights.emptyPrompts")}
+            {t("agentChat.observability.insights.emptyPrompts")}
           </p>
         ) : (
           <div className="divide-y divide-border/60 border-t border-border/70">
@@ -1416,7 +1526,7 @@ export function UsageInsightsSection({
           if (!open) setOpenRunId(null);
         }}
       >
-        <SheetContent className="usage-insights-panel w-full gap-0 p-0 sm:max-w-[640px]">
+        <SheetContent className="run-insights-panel w-full gap-0 p-0 sm:max-w-[680px]">
           {openRun ? (
             <>
               <div className="absolute end-12 top-4 flex items-center gap-1">
@@ -1427,8 +1537,8 @@ export function UsageInsightsSection({
                   className="size-7"
                   disabled={openIndex <= 0}
                   onClick={() => openAt(openIndex - 1)}
-                  aria-label={t("agentChat.usage.insights.prevPrompt")}
-                  title={t("agentChat.usage.insights.prevPrompt")}
+                  aria-label={t("agentChat.observability.insights.prevPrompt")}
+                  title={t("agentChat.observability.insights.prevPrompt")}
                 >
                   <IconChevronUp className="size-4" />
                 </Button>
@@ -1439,8 +1549,8 @@ export function UsageInsightsSection({
                   className="size-7"
                   disabled={openIndex >= visible.length - 1}
                   onClick={() => openAt(openIndex + 1)}
-                  aria-label={t("agentChat.usage.insights.nextPrompt")}
-                  title={t("agentChat.usage.insights.nextPrompt")}
+                  aria-label={t("agentChat.observability.insights.nextPrompt")}
+                  title={t("agentChat.observability.insights.nextPrompt")}
                 >
                   <IconChevronDown className="size-4" />
                 </Button>
@@ -1448,9 +1558,8 @@ export function UsageInsightsSection({
               <RunPanel
                 key={openRun.runId}
                 run={openRun}
-                scope={scope}
-                userEmail={userEmail}
-                appId={appId}
+                renderRawTrace={renderRawTrace}
+                onClose={() => setOpenRunId(null)}
               />
             </>
           ) : null}

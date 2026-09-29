@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Show a per-prompt performance view on the Settings Usage page: what each prompt cost and did, which tools ran and failed, when the agent had to resend its context, and what the framework handled (parallel tool calls, recovered tool errors). Adds the `get-usage-insights` and `get-usage-run` actions.
+Explain agent runs in the Observability dashboard: the Overview tab now summarizes spend, completion, and what the framework handled (parallel tool calls, recovered tool errors) with grouped "worth a look" findings, and the Conversations tab shows each prompt in plain language (what it did, which tools failed and why, what it cost per step) with the raw span trace one click away. Adds the `get-usage-insights` and `get-usage-run` actions.

@@ -9,14 +9,12 @@ import {
   type UsageMetricsAccessInput,
   type UsageMetricsScope,
 } from "./metrics-store.js";
-import { calculateCost } from "./store.js";
+import { calculateCost, ensureUsageTable } from "./store.js";
 
 /** Run insights are always read for one app, never across all apps. */
 type RunAccessInput = UsageMetricsAccessInput & { app: string };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Anthropic's default prompt-cache TTL; a gap longer than this re-writes the prefix.
-const CACHE_TTL_MS = 5 * 60 * 1000;
 const RUN_LIMIT = 25;
 // A restart cheaper than this is provider noise, not something to act on.
 const MIN_RESTART_CENTS = 0.5;
@@ -73,6 +71,7 @@ export interface UsageRunRestarts {
 
 export interface UsageRunListItem {
   runId: string;
+  threadId: string | null;
   createdAt: number;
   ownerEmail: string;
   label: string;
@@ -175,13 +174,17 @@ function costBreakdown(
   return { ...breakdown, estimatedCents, totalCents: estimatedCents };
 }
 
-/** Token-priced breakdown for one model's rows, carrying their recorded spend. */
+/**
+ * Token-priced breakdown for one model's rows, carrying their recorded spend.
+ * Unpriced rows are stored as 0, so they fall back to the token estimate.
+ */
 function recordedBreakdown(row: Record<string, unknown>): UsageCostBreakdown {
-  return {
-    ...costBreakdown(tokensFromRow(row), stringField(row, "model")),
-    totalCents: numberField(row, "cost_cents_x100") / 100,
-  };
+  const estimate = costBreakdown(tokensFromRow(row), stringField(row, "model"));
+  if (numberField(row, "unpriced") > 0) return estimate;
+  return { ...estimate, totalCents: numberField(row, "cost_cents_x100") / 100 };
 }
+
+const UNPRICED = `CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END`;
 
 function addBreakdown(
   a: UsageCostBreakdown,
@@ -271,12 +274,21 @@ function restartCents(
 
 function buildTurns(spans: SpanRow[]): UsageRunTurn[] {
   const turns: UsageRunTurn[] = [];
-  // A provider that never reports cache tokens has no cache to miss.
-  const providerCaches = spans.some(
-    (span) =>
-      span.spanType === "llm_call" &&
-      span.tokens.cacheReadTokens + span.tokens.cacheWriteTokens > 0,
+  // A model that never reports cache tokens has no cache to miss.
+  const cachingModels = new Set(
+    spans
+      .filter(
+        (span) =>
+          span.spanType === "llm_call" &&
+          span.tokens.cacheReadTokens + span.tokens.cacheWriteTokens > 0,
+      )
+      .map((span) => span.name),
   );
+  // Mirrors stablePrefixCacheControl(); a longer gap re-writes the prefix.
+  const cacheTtlMs =
+    process.env.AGENT_PROMPT_CACHE_TTL === "1h"
+      ? 60 * 60 * 1000
+      : 5 * 60 * 1000;
   let previousStartedAt = 0;
   let toolLookupSinceLastTurn = false;
   for (const span of spans) {
@@ -294,10 +306,10 @@ function buildTurns(spans: SpanRow[]): UsageRunTurn[] {
     if (span.spanType !== "llm_call") continue;
     const previous = turns.at(-1);
     const missed =
-      providerCaches &&
-      previous !== undefined &&
+      cachingModels.has(span.name) &&
+      previous?.model === span.name &&
       span.tokens.cacheReadTokens < span.tokens.inputTokens / 2;
-    const expired = missed && span.createdAt - previousStartedAt > CACHE_TTL_MS;
+    const expired = missed && span.createdAt - previousStartedAt > cacheTtlMs;
     let restart: UsageRunTurn["restart"] = null;
     if (missed && !expired) {
       const cents = restartCents(
@@ -524,6 +536,7 @@ function runListItem(
   const status = trace?.status ?? "unknown";
   return {
     runId: String(row.run_id),
+    threadId: stringField(row, "thread_id") || null,
     createdAt: numberField(row, "created_at"),
     ownerEmail: stringField(row, "owner_email"),
     label: stringField(row, "label") || "chat",
@@ -553,14 +566,15 @@ async function costsByRun(
   const costs = new Map<string, UsageCostBreakdown>();
   if (runIds.length === 0) return costs;
   const { rows } = await getDbExec().execute({
-    sql: `SELECT run_id, model, SUM(input_tokens) AS input_tokens,
+    sql: `SELECT run_id, model, ${UNPRICED} AS unpriced,
+        SUM(input_tokens) AS input_tokens,
         SUM(output_tokens) AS output_tokens,
         SUM(cache_read_tokens) AS cache_read_tokens,
         SUM(cache_write_tokens) AS cache_write_tokens,
         SUM(cost_cents_x100) AS cost_cents_x100
       FROM token_usage
       WHERE run_id IN (${runIds.map(() => "?").join(", ")}) AND ${scope.where}
-      GROUP BY run_id, model`,
+      GROUP BY 1, 2, 3`,
     args: [...runIds, ...scope.args],
   });
   for (const row of rows as Array<Record<string, unknown>>) {
@@ -581,6 +595,7 @@ export async function getUsageInsights(
   },
   accessInput: RunAccessInput,
 ): Promise<UsageInsights> {
+  await ensureUsageTable();
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const sinceMs = Date.now() - sinceDays * DAY_MS;
   const previousSinceMs = sinceMs - sinceDays * DAY_MS;
@@ -599,13 +614,13 @@ export async function getUsageInsights(
   const periodArgs = [sinceMs, ...scopeArgs, previousSinceMs];
   const [periodRows, periodRunRows, runRows] = await Promise.all([
     getDbExec().execute({
-      sql: `SELECT ${period} AS period, model,
+      sql: `SELECT ${period} AS period, model, ${UNPRICED} AS unpriced,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens,
           SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(cost_cents_x100) AS cost_cents_x100
         FROM token_usage WHERE ${periodWhere}
-        GROUP BY 1, 2`,
+        GROUP BY 1, 2, 3`,
       args: periodArgs,
     }),
     getDbExec().execute({
@@ -673,6 +688,7 @@ export async function getUsageRun(
   },
   accessInput: RunAccessInput,
 ): Promise<UsageRunDetail | null> {
+  await ensureUsageTable();
   const appScope = usageAppScope(accessInput.app.trim());
   const resolved = await resolveScope(
     accessInput,
