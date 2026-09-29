@@ -409,6 +409,16 @@ function googleClientErrorsError(
   return error;
 }
 
+function shouldRetryPartialGmailRefresh(
+  errors: Array<{ retryable?: boolean }>,
+  state: BackfillState,
+): boolean {
+  return (
+    errors.some(({ retryable }) => retryable) &&
+    (state.retryCount ?? 0) < MAX_BACKFILL_RETRIES
+  );
+}
+
 function retryAfterAtFromState(raw: string): number | undefined {
   const retryAfterAt: unknown = (JSON.parse(raw) as BackfillState).retryAfterAt;
   return typeof retryAfterAt === "number" && Number.isFinite(retryAfterAt)
@@ -961,7 +971,9 @@ async function captureCandidates(
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
     const error = googleClientErrorsError(errors);
-    if (clients.length === 0) throw error;
+    if (clients.length === 0 || shouldRetryPartialGmailRefresh(errors, state)) {
+      throw error;
+    }
     state.incompleteCoverage = true;
     state.error ??= sanitizeBackfillError(error);
   }
@@ -1704,7 +1716,9 @@ async function processRunningBatch(
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
     const error = googleClientErrorsError(errors);
-    if (clients.length === 0) throw error;
+    if (clients.length === 0 || shouldRetryPartialGmailRefresh(errors, state)) {
+      throw error;
+    }
     state.incompleteCoverage = true;
     state.error ??= sanitizeBackfillError(error);
   }
