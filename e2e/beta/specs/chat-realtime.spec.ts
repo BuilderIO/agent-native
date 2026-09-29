@@ -44,6 +44,7 @@ test.describe("Slides realtime editor", () => {
     let deckId: string | undefined;
     let pageA: Page | undefined;
     let pageB: Page | undefined;
+    let testFailed = false;
 
     try {
       await assertSignedInOnBeta(context, site);
@@ -60,6 +61,18 @@ test.describe("Slides realtime editor", () => {
       const editorUrl = `${origin}/deck/${deckId}`;
       await openEditor(pageA, `${editorUrl}?agentSidebar=open`, sourceText);
       pageB = await context.newPage();
+      const transportRequests = { poll: 0, events: 0, stream: 0 };
+      pageB.on("request", (request) => {
+        if (request.method() !== "GET") return;
+        const pathname = new URL(request.url()).pathname.replace(/\/+$/, "");
+        if (pathname.endsWith("/poll")) {
+          transportRequests.poll += 1;
+        } else if (pathname.endsWith("/events")) {
+          transportRequests.events += 1;
+        } else if (pathname.endsWith("/realtime/stream")) {
+          transportRequests.stream += 1;
+        }
+      });
       await openEditor(pageB, editorUrl, sourceText);
 
       const pageADocument = await markDocument(pageA);
@@ -126,21 +139,8 @@ test.describe("Slides realtime editor", () => {
       await expect(pageBCanvas).toContainText(updatedText, { timeout: 90_000 });
       expect(await readDocument(pageB)).toBe(pageBDocument);
 
-      const transportRequests = { poll: 0, events: 0 };
-      pageB.on("request", (request) => {
-        if (request.method() !== "GET") return;
-        const pathname = new URL(request.url()).pathname.replace(/\/+$/, "");
-        if (pathname === "/poll" || pathname.endsWith("/_agent-native/poll")) {
-          transportRequests.poll += 1;
-        } else if (
-          pathname === "/events" ||
-          pathname.endsWith("/_agent-native/events")
-        ) {
-          transportRequests.events += 1;
-        }
-      });
-
       const idleWindowStartedAt = Date.now();
+      const requestsAtIdleStart = { ...transportRequests };
       await pageB.waitForTimeout(IDLE_MEASUREMENT_MS);
       const idleWindowMs = Date.now() - idleWindowStartedAt;
       expect(idleWindowMs).toBeGreaterThanOrEqual(IDLE_MEASUREMENT_MS);
@@ -148,16 +148,46 @@ test.describe("Slides realtime editor", () => {
         "visible",
       );
       expect(await readDocument(pageB)).toBe(pageBDocument);
+      const idleRequestStarts = {
+        poll: transportRequests.poll - requestsAtIdleStart.poll,
+        events: transportRequests.events - requestsAtIdleStart.events,
+        stream: transportRequests.stream - requestsAtIdleStart.stream,
+      };
       console.info(
-        `[beta-slides-realtime] idle transport window ${JSON.stringify({ idleWindowMs, pollRequests: transportRequests.poll, eventsRequests: transportRequests.events, tab: "pageB" })}`,
+        `[beta-slides-realtime] idle transport window ${JSON.stringify({
+          idleWindowMs,
+          streamConnectedAtIdleStart: requestsAtIdleStart.stream > 0,
+          idleRequestStarts,
+          observedRequests: transportRequests,
+          tab: "pageB",
+        })}`,
       );
+    } catch (error) {
+      testFailed = true;
+      throw error;
     } finally {
       try {
         if (deckId) {
-          await postAction(context.request, origin, "delete-deck", {
-            id: deckId,
-          });
+          const response = await context.request.delete(
+            `${origin}/_agent-native/actions/delete-deck`,
+            {
+              data: { id: deckId },
+              headers: { "Content-Type": "application/json" },
+              timeout: 60_000,
+            },
+          );
+          if (!response.ok()) {
+            throw new Error(
+              `delete-deck failed: ${response.status()} ${await response.text()}`,
+            );
+          }
         }
+      } catch (error) {
+        if (!testFailed) throw error;
+        console.error(
+          "Slides realtime test cleanup failed after test failure",
+          error,
+        );
       } finally {
         await context.close();
       }
