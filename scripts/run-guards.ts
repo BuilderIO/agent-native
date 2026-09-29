@@ -66,6 +66,7 @@ const guards = [
   "guard:config-docs",
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
+  "guard:no-source-reading-tests",
   "guard:no-major-changeset",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
