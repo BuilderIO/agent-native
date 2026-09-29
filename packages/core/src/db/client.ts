@@ -193,6 +193,21 @@ export function getRuntimeDatabaseUrl(fallback = ""): string {
   return resolveRuntimeDatabase(fallback).url;
 }
 
+export function getLocalDatabaseUrl(fallback = ""): string {
+  const testUrl = getIsolatedTestDatabaseUrl();
+  if (testUrl) return testUrl;
+  if (isServerlessRuntime()) return getRuntimeDatabaseUrl(fallback);
+
+  const configuredUnpooledUrl = getConfiguredUnpooledDatabaseUrl();
+  const unpooledUrl =
+    (configuredUnpooledUrl && isUsableRuntimeDatabaseUrl(configuredUnpooledUrl)
+      ? configuredUnpooledUrl
+      : undefined) ||
+    usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED") ||
+    usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
+  return stripNeonPooler(unpooledUrl || getRuntimeDatabaseUrl(fallback));
+}
+
 export function getRuntimeDatabaseSource(fallback = ""): string {
   return resolveRuntimeDatabase(fallback).source;
 }

@@ -551,4 +551,13 @@ if (
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 ) {
   await main();
+  await Promise.all(
+    [process.stdout, process.stderr].map(
+      (stream) =>
+        new Promise<void>((resolve) => {
+          stream.write("", resolve);
+        }),
+    ),
+  );
+  process.exit(process.exitCode ?? 0);
 }

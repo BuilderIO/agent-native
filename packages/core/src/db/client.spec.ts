@@ -434,10 +434,16 @@ describe("getRuntimeDatabaseUrl", () => {
     );
     vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
 
-    const { getMigrationDatabaseUrl, getRuntimeDatabaseUrl } =
-      await import("./client.js");
+    const {
+      getLocalDatabaseUrl,
+      getMigrationDatabaseUrl,
+      getRuntimeDatabaseUrl,
+    } = await import("./client.js");
 
     expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+    expect(getLocalDatabaseUrl()).toBe(
       "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
     );
     expect(getMigrationDatabaseUrl()).toBe(

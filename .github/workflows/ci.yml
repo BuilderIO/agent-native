@@ -601,6 +601,7 @@ jobs:
       DATABASE_URL: pglite:memory
       NETLIFY: "true"
       NODE_ENV: production
+      RUN_BACKGROUND_JOBS: "0"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
