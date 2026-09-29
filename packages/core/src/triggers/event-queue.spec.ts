@@ -34,6 +34,7 @@ import {
   expireStaleAutomationTriggerEvents,
   failAutomationTriggerEvent,
   getAutomationTriggerSweepCursor,
+  hasPendingStaleAutomationTriggerEvents,
   listReadyAutomationTriggerIds,
   purgeExpiredAutomationTriggerEvents,
   reserveAutomationTriggerEventPurge,
@@ -513,6 +514,37 @@ describe("automation trigger event queue", () => {
       expect.any(Number),
       input.reason,
     ]);
+  });
+
+  it("checks for a remaining pending stale event with a bounded query", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [{ id: "queue-1" }] });
+    const input = {
+      appId: "mail",
+      eventName: "mail.message.received",
+      emittedBefore: "2026-09-28T10:00:00.000Z",
+      timeoutMs: 5_000,
+    };
+
+    await expect(hasPendingStaleAutomationTriggerEvents(input)).resolves.toBe(
+      true,
+    );
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      maxAttempts?: number;
+      sql: string;
+      timeoutMs?: number;
+    };
+    expect(query.sql).toContain("event_name = ? AND status = 'pending'");
+    expect(query.sql).toContain("emitted_at < ?");
+    expect(query.sql).toContain("LIMIT 1");
+    expect(query.args).toEqual([
+      input.appId,
+      input.eventName,
+      input.emittedBefore,
+    ]);
+    expect(query.timeoutMs).toBe(5_000);
+    expect(query.maxAttempts).toBe(1);
   });
 
   it("expires a reclaimed stale event only while its claim is current", async () => {
