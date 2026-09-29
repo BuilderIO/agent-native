@@ -685,6 +685,28 @@ describe("startMailAiFilterBackfill", () => {
     expect(saved.failedKeys).toEqual(["local:thread-a"]);
   });
 
+  it("reports terminal errors outside candidate processing alongside partial coverage", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const row = runningRow([activeRule]);
+    const state: any = JSON.parse(row.stateJson);
+    state.incompleteCoverage = true;
+    state.error = "unavailable@example.test: refresh failed.";
+    state.evaluations = {};
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules.mockRejectedValueOnce(
+      new Error("Rule evaluation failed permanently."),
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(saved.error).toContain("Rule evaluation failed permanently.");
+    expect(saved.error).toContain(state.error);
+  });
+
   it("applies a rule to available Gmail accounts and reports incomplete coverage", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
@@ -812,6 +834,9 @@ describe("startMailAiFilterBackfill", () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
     const state: any = backfillState([activeRule]);
+    state.incompleteCoverage = true;
+    state.error = "earlier@example.test: refresh failed.";
+    state.retryCount = 5;
     const template = state.candidates[0];
     state.candidates = Array.from({ length: 11 }, (_, index) => {
       const accountEmail =
@@ -873,6 +898,7 @@ describe("startMailAiFilterBackfill", () => {
     const retry = JSON.parse(row.stateJson);
     expect(retry.candidateIndex).toBe(10);
     expect(retry.processedThreads).toBe(10);
+    expect(retry.retryCount).toBe(5);
 
     await processMailAiFilterBackfills(ownerEmail);
 
@@ -880,7 +906,8 @@ describe("startMailAiFilterBackfill", () => {
     const queued = JSON.parse(row.stateJson);
     expect(queued.candidateIndex).toBe(10);
     expect(queued.processedThreads).toBe(10);
-    expect(queued.retryCount).toBe(1);
+    expect(queued.retryCount).toBe(6);
+    expect(queued.error).toBe(state.error);
     expect(queued.failedKeys).toEqual([]);
 
     queued.retryAfterAt = Date.now() - 1;
@@ -888,9 +915,12 @@ describe("startMailAiFilterBackfill", () => {
     await processMailAiFilterBackfills(ownerEmail);
 
     const saved = JSON.parse(row.stateJson);
-    expect(row.status).toBe("completed");
+    expect(row.status).toBe("failed");
     expect(saved.candidateIndex).toBe(11);
     expect(saved.processedThreads).toBe(11);
+    expect(saved.retryCount).toBe(6);
+    expect(saved.error).toBe(state.error);
+    expect(saved.incompleteCoverage).toBe(true);
     expect(saved.failedKeys).toEqual([]);
     expect(mocks.getClientsWithErrors).toHaveBeenCalledTimes(3);
   });

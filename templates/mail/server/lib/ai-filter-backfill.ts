@@ -419,6 +419,15 @@ function shouldRetryPartialGmailRefresh(
   );
 }
 
+function appendBackfillError(
+  previous: string | undefined,
+  message: string,
+): string {
+  if (!previous) return message;
+  if (previous.includes(message)) return previous;
+  return `${message}; ${previous}`.slice(0, 500);
+}
+
 function retryAfterAtFromState(raw: string): number | undefined {
   const retryAfterAt: unknown = (JSON.parse(raw) as BackfillState).retryAfterAt;
   return typeof retryAfterAt === "number" && Number.isFinite(retryAfterAt)
@@ -1837,10 +1846,7 @@ async function processRunningBatch(
           !retryable ||
           (state.retryCount ?? 0) >= MAX_BACKFILL_RETRIES
         ) {
-          state.error =
-            state.error && !state.error.includes(message)
-              ? `${message}; ${state.error}`.slice(0, 500)
-              : message;
+          state.error = appendBackfillError(state.error, message);
         }
         throw error;
       }
@@ -1884,8 +1890,10 @@ async function processRunningBatch(
   }
 
   if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state))) return;
-  state.retryCount = 0;
-  delete state.retryAfterAt;
+  if (!state.incompleteCoverage) {
+    state.retryCount = 0;
+    delete state.retryAfterAt;
+  }
   if (state.candidateIndex >= state.candidates.length) {
     await saveRunState(
       row.id,
@@ -2406,8 +2414,9 @@ export async function processMailAiFilterBackfills(
           }
           continue;
         }
-        if (!state.incompleteCoverage || !state.error)
-          state.error = sanitizeBackfillError(error);
+        const message = sanitizeBackfillError(error);
+        if (!state.incompleteCoverage) state.error = message;
+        else state.error = appendBackfillError(state.error, message);
         if (state.pendingDecisions.length > 0) {
           try {
             await recordAiFilterDecisions(
