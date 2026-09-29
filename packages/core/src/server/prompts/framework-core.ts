@@ -83,7 +83,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
+**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there.
 `
     : "";
 

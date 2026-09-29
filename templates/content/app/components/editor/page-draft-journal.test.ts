@@ -4,11 +4,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
-  hasRetainedPageDraftNotice,
   listPageDraftJournal,
-  markPageDraftJournalRetained,
   PageDraftJournalError,
   readPageDraftJournal,
+  sweepLegacyRetainedPageDraftMarkers,
   writePageDraftJournal,
   type PageDraftJournalScope,
 } from "./page-draft-journal";
@@ -107,19 +106,17 @@ describe("Page draft journal", () => {
     expect(readPageDraftJournal(scope)).toBeNull();
   });
 
-  it("keeps History-retained edits on device without replaying them again", () => {
+  it("sweeps legacy retained markers for every page and writer", () => {
+    values.set("content-page-draft-retained-v1:a:org:page-one:old-writer", "1");
+    values.set("content-page-draft-retained-v1:a:org:page-two:other", "1");
     writePageDraftJournal({ scope, snapshot });
-    expect(markPageDraftJournalRetained(scope, snapshot)).toBe(true);
-    expect(readPageDraftJournal(scope)).toBeNull();
-    expect(listPageDraftJournal(scope)).toEqual([]);
-    expect(hasRetainedPageDraftNotice(scope)).toBe(true);
-    expect(Array.from(values.values()).join(" ")).not.toContain("Local body");
-    writePageDraftJournal({
-      scope,
-      snapshot: { ...snapshot, content: "New intent", editGeneration: 2 },
-    });
-    expect(readPageDraftJournal(scope)?.snapshot.content).toBe("New intent");
-    expect(hasRetainedPageDraftNotice(scope)).toBe(false);
+    sweepLegacyRetainedPageDraftMarkers();
+    expect(
+      Array.from(values.keys()).filter((key) =>
+        key.startsWith("content-page-draft-retained-v1:"),
+      ),
+    ).toEqual([]);
+    expect(readPageDraftJournal(scope)?.snapshot.content).toBe("Local body");
   });
 
   it("rejects an older queued write after a newer edit", () => {

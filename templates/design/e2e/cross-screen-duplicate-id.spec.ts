@@ -277,6 +277,26 @@ test("identical authored node IDs stay scoped to their Screen", async ({
       .poll(() => screenWidths(page, designId, screenAId, screenBId))
       .toEqual(["111px", "140px"]);
 
+    const screenBLayer = layerRows.filter({ hasText: "Screen B Button" });
+    await expect(screenBLayer).toHaveCount(1);
+    const screenBTreeRow = screenBLayer.locator(
+      'xpath=ancestor::*[@role="treeitem"][1]',
+    );
+    const screenBRowContent = screenBTreeRow.locator(
+      "[data-layer-row-content]",
+    );
+    const screenBRowBox = await screenBRowContent.boundingBox();
+    if (!screenBRowBox) throw new Error("Screen B layer row has no bounds");
+    await page.mouse.click(
+      screenBRowBox.x + 2,
+      screenBRowBox.y + screenBRowBox.height / 2,
+    );
+    await expect(screenBTreeRow).toHaveAttribute("aria-selected", "true");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("screen"))
+      .toBe(screenBId);
+    await expect(widthInput).toHaveValue("140px");
+
     const screenBButton = designFrame(page, screenBId).getByRole("button", {
       name: "Screen B Button",
     });
@@ -288,8 +308,6 @@ test("identical authored node IDs stay scoped to their Screen", async ({
       .poll(() => screenWidths(page, designId, screenAId, screenBId))
       .toEqual(["111px", "222px"]);
 
-    const screenBLayer = layerRows.filter({ hasText: "Screen B Button" });
-    await expect(screenBLayer).toHaveCount(1);
     await screenBLayer.click();
     await expect(widthInput).toHaveValue("222px");
     await editSelectedWidth(page, "233");
