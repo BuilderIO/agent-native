@@ -117,6 +117,10 @@ describe("built-in Core chat translations", () => {
       "summaryQueued",
       "summaryFailed",
       "summaryExpired",
+      "promoteMustContain",
+      "promoteMustContainOptional",
+      "promoteMustContainLabel",
+      "promoteNeedsContains",
     ];
     const englishSummaryQueued =
       defaultEnglishMessages.observability.summaryQueued;
