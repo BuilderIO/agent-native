@@ -45,7 +45,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 
 **Agent teams:** default to doing the work yourself; \`agent-teams\` can delegate to background sub-agents. Treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Read \`get-framework-context\` key \`agent-teams\` before spawning — it carries the fan-out limits, briefing contract, and why a spawn is not a completion.
 
-For generated media, prefer this app's native generation action; otherwise use \`call-agent\` with agent "assets".
+For brand-consistent generated media, use \`call-agent\` with agent "assets" unless the current app has its own generation action that already delegates there.
 "
 `;
 
@@ -115,6 +115,6 @@ You also have tools for inline embeds (\`embed\` fenced code block), chat histor
 
 **Agent teams:** default to doing the work yourself in this thread, but treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming delegated work is done. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries), then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
 
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
+**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there.
 "
 `;

@@ -12,10 +12,17 @@ vi.mock("../analytics.js", () => ({
 }));
 
 import {
+  __resetOnboardingSummaryReadsForTests,
   trackOnboardingEvent,
   useOnboarding,
   type UseOnboardingResult,
 } from "./use-onboarding.js";
+
+// The summary read is shared across hook instances at module scope, so one
+// test's settled or stalled read must not answer the next test.
+beforeEach(() => {
+  __resetOnboardingSummaryReadsForTests();
+});
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as Response;
@@ -532,5 +539,192 @@ describe("useOnboarding — degraded summary tolerance", () => {
       capabilities: [],
     });
     expect(latest?.dismissed).toBe(false);
+  });
+});
+
+describe("useOnboarding — one summary for every mounted consumer", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const results = new Map<string, UseOnboardingResult>();
+  let summaryCalls = 0;
+  let pageAgeMs = 0;
+
+  function Consumer({ label }: { label: string }) {
+    results.set(label, useOnboarding());
+    return null;
+  }
+
+  function Consumers({ labels }: { labels: string[] }) {
+    return labels.map((label) => <Consumer key={label} label={label} />);
+  }
+
+  async function advance(ms: number) {
+    await act(async () => {
+      pageAgeMs += ms;
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    pageAgeMs = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => pageAgeMs);
+    results.clear();
+    summaryCalls = 0;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          summaryCalls += 1;
+          return jsonResponse({
+            steps: [
+              {
+                id: "llm",
+                title: "Connect an AI engine",
+                description: "Pick an engine to power the agent.",
+                order: 10,
+                required: true,
+                complete: summaryCalls > 1,
+                methods: [],
+              },
+            ],
+            dismissed: false,
+            profile: { appId: "app", appName: "App", capabilities: [] },
+          });
+        }
+        if (url.includes("/onboarding/first-run/status")) {
+          return jsonResponse({ firstRun: false });
+        }
+        if (url.includes("/onboarding/steps/llm/complete")) {
+          return jsonResponse({ ok: true });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("waits out startup, then answers the setup button and the panel with one request", async () => {
+    await act(async () => {
+      root.render(<Consumers labels={["setup-button", "panel"]} />);
+    });
+
+    await advance(1_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(summaryCalls).toBe(0);
+
+    await advance(2_600);
+    expect(summaryCalls).toBe(1);
+    expect(results.get("setup-button")?.steps).toHaveLength(1);
+    expect(results.get("panel")?.steps).toHaveLength(1);
+  });
+
+  it("reuses a summary that just landed for a consumer mounted right after it", async () => {
+    await act(async () => {
+      root.render(<Consumers labels={["panel"]} />);
+    });
+    await advance(3_600);
+    expect(summaryCalls).toBe(1);
+
+    await act(async () => {
+      root.render(<Consumers labels={["panel", "setup-button"]} />);
+    });
+    await advance(600);
+
+    expect(summaryCalls).toBe(1);
+    expect(results.get("setup-button")?.loading).toBe(false);
+    expect(results.get("setup-button")?.steps).toHaveLength(1);
+  });
+
+  it("reads a fresh summary after this tab completes a step", async () => {
+    await act(async () => {
+      root.render(<Consumers labels={["panel"]} />);
+    });
+    await advance(3_600);
+    expect(results.get("panel")?.steps[0]?.complete).toBe(false);
+
+    await act(async () => {
+      await results.get("panel")!.complete("llm");
+    });
+
+    expect(summaryCalls).toBe(2);
+    expect(results.get("panel")?.steps[0]?.complete).toBe(true);
+  });
+
+  describe("the sidebar first-run fallback", () => {
+    function Fallback() {
+      results.set("sidebar-fallback", useOnboarding({ firstRunSurface: true }));
+      return null;
+    }
+
+    async function summaryReadsAtPaint(cookie: () => string) {
+      vi.spyOn(document, "cookie", "get").mockImplementation(cookie);
+      await act(async () => {
+        root.render(<Fallback />);
+      });
+      await advance(600);
+      return summaryCalls;
+    }
+
+    it("reads at paint while the first-run cookie is present", async () => {
+      expect(await summaryReadsAtPaint(() => "agent-native-first-run=1")).toBe(
+        1,
+      );
+    });
+
+    it("reads at paint where the first-run cookie is unreadable", async () => {
+      expect(
+        await summaryReadsAtPaint(() => {
+          throw new DOMException("cookies are blocked", "SecurityError");
+        }),
+      ).toBe(1);
+    });
+
+    it("waits for startup once the first-run cookie is gone, since the server then reports no first run", async () => {
+      expect(await summaryReadsAtPaint(() => "an_session_hint=1")).toBe(0);
+      await advance(3_000);
+      expect(summaryCalls).toBe(1);
+    });
+
+    it("leaves setup hints waiting even while the first-run cookie is present", async () => {
+      vi.spyOn(document, "cookie", "get").mockImplementation(
+        () => "agent-native-first-run=1",
+      );
+      await act(async () => {
+        root.render(<Consumers labels={["setup-button"]} />);
+      });
+      await advance(600);
+
+      expect(summaryCalls).toBe(0);
+    });
+  });
+
+  it("keeps the first-run surface on the paint-aligned read", async () => {
+    function FirstRun() {
+      results.set("first-run", useOnboarding({ initialFirstRun: true }));
+      return null;
+    }
+    await act(async () => {
+      root.render(<FirstRun />);
+    });
+    await advance(600);
+
+    expect(summaryCalls).toBe(1);
+    expect(results.get("first-run")?.loading).toBe(false);
   });
 });
