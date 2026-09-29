@@ -285,12 +285,12 @@ production deployment:
 | `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                                               |
 | `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                    |
 | `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                           |
+| `CORE_SHARD`                  | Vitest shard selector for the Core fast-test job.                                                                                                                                       |
+| `CORE_TEST_FILES`             | JSON list of changed Core test files selected for a targeted fast-test shard.                                                                                                           |
+| `CORE_TEST_MODE`              | Selects the full or changed-file mode for a Core fast-test shard.                                                                                                                       |
 | `TARGETED_WORKSPACE_FILTERS`  | Change-scope test selectors the lane planner receives as `CI_WORKSPACE_FILTERS` on a targeted run.                                                                                      |
 | `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                     |
 | `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                      |
-| `CORE_SHARD`                  | Vitest `--shard` value for one Core fast-test lane.                                                                                                                                     |
-| `CORE_TEST_MODE`              | `changed` or `full`: whether a Core lane runs only the planner's changed test files or the whole Core fast suite.                                                                       |
-| `CORE_TEST_FILES`             | JSON list of Core test files a `changed` Core lane runs.                                                                                                                                |
 | `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                         |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
