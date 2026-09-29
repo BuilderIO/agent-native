@@ -1,4 +1,3 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { ObservabilityDashboard } from "@agent-native/core/client/observability";
@@ -116,11 +115,7 @@ export default function SettingsRoute() {
       labsIntro={t("settings.labsIntro")}
       labsLabel={t("settings.labs")}
       mcpAbout={t("settings.mcpAbout")}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

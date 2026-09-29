@@ -1,4 +1,3 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AccountSettingsCard,
@@ -26,11 +25,7 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       extraTabs={agentSettingsTabs}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

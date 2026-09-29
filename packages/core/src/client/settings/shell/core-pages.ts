@@ -1,6 +1,7 @@
 import {
   IconAdjustmentsHorizontal,
   IconApps,
+  IconBrain,
   IconBell,
   IconBolt,
   IconBuilding,
@@ -346,6 +347,22 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     legacyTabIds: ["agent:resources:instructions"],
     keywords: "instructions agents md behavior",
     searchEntries: [fromDispatchSearchEntry],
+  }),
+  defineSettingsPage({
+    id: "personalization",
+    group: "agent",
+    order: 25,
+    labelKey: "agentChat.personalization.tab",
+    icon: IconBrain,
+    component: lazy(() =>
+      import("../AgentPersonalizationSettings.js").then(
+        ({ AgentPersonalizationSettings }) => ({
+          default: AgentPersonalizationSettings,
+        }),
+      ),
+    ),
+    legacyTabIds: ["agent:personalization"],
+    keywords: "personalization custom instructions memory preferences",
   }),
   defineSettingsPage({
     id: "memory",

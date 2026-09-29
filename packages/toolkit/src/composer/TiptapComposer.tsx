@@ -2815,6 +2815,7 @@ export function TiptapComposer({
   const selectedContextItemKeyRef = useRef<string | null>(null);
   selectedContextItemKeyRef.current = selectedContextItemKey;
   const initialTextKeyRef = useRef<string | number | undefined>(undefined);
+  const hasCheckedInitialDraftRef = useRef(false);
   const seenReferenceInsertIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -4622,6 +4623,7 @@ export function TiptapComposer({
       voiceCancelRef.current();
       editor.commands.clearContent(false);
       initialTextKeyRef.current = undefined;
+      hasCheckedInitialDraftRef.current = false;
       setEditorHasText(false);
       updateSlotReferences([]);
       setComposerMode(null);
@@ -4650,9 +4652,11 @@ export function TiptapComposer({
         // coercion-ok: browser storage is optional and can be unavailable or full.
       }
     }
+    const shouldRestoreSavedDraft = !hasCheckedInitialDraftRef.current;
+    hasCheckedInitialDraftRef.current = true;
 
     try {
-      if (saved && editor.isEmpty) {
+      if (saved && editor.isEmpty && shouldRestoreSavedDraft) {
         editor.commands.setContent(saved);
         editor.commands.focus("end");
         if (initialText !== undefined) initialTextKeyRef.current = key;

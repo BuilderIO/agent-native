@@ -380,6 +380,56 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("does not restore a stale draft after the composer is cleared", async () => {
+    const scope = "draft-recovery:clear";
+    localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ initialText }: { initialText: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            initialText,
+            initialTextKey: "same-draft",
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { initialText: "Seed prompt" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("d");
+
+    act(() => focusRef.current?.setText(""));
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("");
+
+    // Model the debounced draft write still holding the final character.
+    localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");
+    await act(async () => {
+      root.render(React.createElement(Harness, { initialText: "" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("");
+  });
+
   it("moves focus outside Home when its hidden context picker closes", async () => {
     const contextMenuItems = [
       {
