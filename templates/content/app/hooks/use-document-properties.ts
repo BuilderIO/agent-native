@@ -22,6 +22,7 @@ import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
 import { trackDocumentPropertyWrite } from "./document-property-persistence";
+import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
@@ -597,20 +598,16 @@ export function useReorderDocumentProperty(
   databaseId: string,
   databaseDocumentId = documentId,
 ) {
-  const queryClient = useQueryClient();
-  const mutation = useActionMutation<
+  const mutation = useContentActionMutation<
     DocumentPropertiesResponse,
     ReorderDocumentPropertyRequest
   >("reorder-document-property", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: documentPropertiesQueryKey(documentId, databaseId),
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(documentId));
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-    },
+    invalidates: [
+      documentPropertiesQueryKey(documentId, databaseId),
+      documentQueryFilter(documentId),
+      contentDatabaseQueryKey(databaseDocumentId),
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
   return withDatabaseScope(mutation, databaseId);
 }

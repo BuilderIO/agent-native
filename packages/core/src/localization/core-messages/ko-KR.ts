@@ -1308,6 +1308,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
   "usage.builderCredits": "Builder 크레딧",
+  "featureFlags.builderCreditReferrals.name": "Builder 크레딧 추천",
+  "featureFlags.builderCreditReferrals.description":
+    "사용량에 연결된 Builder 워크스페이스의 추천 세부정보를 표시합니다.",
   "usage.inviteFriends": "친구 초대",
   "usage.inviteCredits":
     "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
