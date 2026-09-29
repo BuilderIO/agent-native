@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { evaluateModuleLoadedMock, isLaunchDarklyFlagEnabledMock } = vi.hoisted(
+  () => ({
+    evaluateModuleLoadedMock: vi.fn(),
+    isLaunchDarklyFlagEnabledMock: vi.fn(),
+  }),
+);
+
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 
-const isLaunchDarklyFlagEnabledMock = vi.fn();
-vi.mock("../evaluate.js", () => ({
-  isLaunchDarklyFlagEnabled: (...args: unknown[]) =>
-    isLaunchDarklyFlagEnabledMock(...args),
-}));
+vi.mock("../evaluate.js", () => {
+  evaluateModuleLoadedMock();
+  return {
+    isLaunchDarklyFlagEnabled: (...args: unknown[]) =>
+      isLaunchDarklyFlagEnabledMock(...args),
+  };
+});
 
 const action = (await import("./get-launchdarkly-flags.js")).default;
 
@@ -17,6 +26,18 @@ beforeEach(() => {
 });
 
 describe("get-launchdarkly-flags action", () => {
+  it("loads LaunchDarkly evaluation only when the action runs", async () => {
+    expect(evaluateModuleLoadedMock).not.toHaveBeenCalled();
+    isLaunchDarklyFlagEnabledMock.mockResolvedValue(false);
+
+    await action.run(
+      { keys: ["new-editor"] },
+      { userEmail: "ada@example.com", caller: "frontend" },
+    );
+
+    expect(evaluateModuleLoadedMock).toHaveBeenCalledOnce();
+  });
+
   it("evaluates each requested key for the caller's identity", async () => {
     isLaunchDarklyFlagEnabledMock.mockImplementation(
       async (key: string) => key === "new-editor",

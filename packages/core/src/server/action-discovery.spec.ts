@@ -218,6 +218,7 @@ describe("action discovery", () => {
           tool: { description: "Slow provider", parameters: {} },
           timeoutMs: 120_000,
           maxResultChars: 10_000,
+          maxBodyBytes: 2_048,
           run: async () => ({ ok: true }),
         },
       },
@@ -225,6 +226,7 @@ describe("action discovery", () => {
 
     expect(registry["slow-provider"].timeoutMs).toBe(120_000);
     expect(registry["slow-provider"].maxResultChars).toBe(10_000);
+    expect(registry["slow-provider"].maxBodyBytes).toBe(2_048);
   });
 
   it("preserves agentTool:false so discovery keeps it hidden from the agent", () => {
@@ -527,6 +529,18 @@ describe("action discovery", () => {
       expect(registry[name].frameworkGroup).toBe("labs");
     }
     expect(registry["get-experiments"].http).toEqual({ method: "GET" });
+  });
+
+  it("merges resource pack actions into the resources group", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["export-resource-pack"]).toBeDefined();
+    expect(registry["export-resource-pack"].http).toEqual({ method: "GET" });
+    expect(registry["export-resource-pack"].readOnly).toBe(true);
+    expect(registry["import-resource-pack"]).toBeDefined();
+    expect(CORE_ACTION_GROUPS["export-resource-pack"]).toBe("resources");
+    expect(CORE_ACTION_GROUPS["import-resource-pack"]).toBe("resources");
   });
 
   it("merges toolkit history and review actions", async () => {

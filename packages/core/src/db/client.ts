@@ -3,6 +3,7 @@ import path from "path";
 
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
@@ -292,30 +293,9 @@ async function importOptionalModule(specifier: string): Promise<any> {
   return import(/* @vite-ignore */ specifier);
 }
 
-function isMissingPackageError(err: unknown, packageName: string): boolean {
-  const anyErr = err as any;
-  const message = String(anyErr?.message ?? anyErr ?? "");
-  return (
-    (anyErr?.code === "ERR_MODULE_NOT_FOUND" &&
-      message.includes(packageName)) ||
-    message.includes(`Cannot find package '${packageName}'`) ||
-    message.includes(`Cannot find module '${packageName}'`)
-  );
-}
-
 export async function loadPglitePackage(): Promise<{ PGlite: any }> {
   const packageName = "@electric-sql/pglite";
-  try {
-    return (await importOptionalModule(packageName)) as { PGlite: any };
-  } catch (err) {
-    if (isMissingPackageError(err, packageName)) {
-      throw new Error(
-        "PGlite database support requires @electric-sql/pglite. " +
-          "Install dependencies and set `DATABASE_URL=pglite:./data/pglite`.",
-      );
-    }
-    throw err;
-  }
+  return loadOptionalPeer(packageName, () => importOptionalModule(packageName));
 }
 
 export async function loadPgliteDrizzle(): Promise<{

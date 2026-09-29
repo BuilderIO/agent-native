@@ -44,6 +44,8 @@ vi.mock("./use-resources.js", () => ({
   useCreateResource: () => ({ isPending: false, mutate: vi.fn() }),
   useUpdateResource: () => ({ mutate: vi.fn() }),
   useDeleteResource: () => ({ isPending: false, mutate: vi.fn() }),
+  useExportResourcePack: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useImportResourcePack: () => ({ isPending: false, mutateAsync: vi.fn() }),
   resourceDownloadUrl: (id: string) => id,
   withMcpServersFolder: (tree: unknown[]) => tree,
   withAgentScratchFolder: (tree: unknown[]) => tree,
@@ -91,6 +93,8 @@ import {
   resolveInitialResourceScope,
   resolveResourceCreateMenuMode,
   shouldClearPendingResourceUploads,
+  resourcePackImportToast,
+  resourcePackPrefixForView,
   shouldRenderResourceSectionCreateMenu,
   takePendingResourceUploads,
   ResourcesPanel,
@@ -741,5 +745,58 @@ describe("ResourcesPanel storage retries", () => {
     expect(
       (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
     ).toBe("current.png");
+  });
+});
+
+describe("resourcePackPrefixForView", () => {
+  it("scopes a pack export to the open collection", () => {
+    expect(resourcePackPrefixForView("memory")).toBe("memory/");
+    expect(resourcePackPrefixForView("skills")).toBe("skills/");
+    expect(resourcePackPrefixForView("agents")).toBe("agents/");
+    expect(resourcePackPrefixForView("files")).toBeUndefined();
+    expect(resourcePackPrefixForView(undefined)).toBeUndefined();
+  });
+});
+
+describe("resourcePackImportToast", () => {
+  function translate(key: string, values?: Record<string, unknown>) {
+    if (key === "agentResources.importPackSuccess") {
+      return `Imported ${values?.imported} files, skipped ${values?.skipped}`;
+    }
+    if (key === "agentResources.importPackFailed")
+      return "Could not import pack";
+    return key;
+  }
+
+  it("reports a complete import as success", () => {
+    expect(
+      resourcePackImportToast(
+        { imported: 2, skipped: 1, errors: [] },
+        translate,
+      ),
+    ).toEqual({
+      kind: "ok",
+      message: "Imported 2 files, skipped 1",
+    });
+  });
+
+  it("reports per-file failures instead of a success toast", () => {
+    const toast = resourcePackImportToast(
+      {
+        imported: 1,
+        skipped: 0,
+        errors: [
+          { path: "blocked.md", error: "not allowed" },
+          { path: "other.md", error: "missing" },
+        ],
+      },
+      translate,
+    );
+
+    expect(toast.kind).toBe("err");
+    expect(toast.message).toContain("Imported 1 files, skipped 0");
+    expect(toast.message).toContain("Could not import pack (2)");
+    expect(toast.message).toContain("blocked.md: not allowed");
+    expect(toast.message).toContain("other.md: missing");
   });
 });

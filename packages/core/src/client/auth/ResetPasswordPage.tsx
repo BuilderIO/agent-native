@@ -2,15 +2,11 @@
 
 import * as React from "react";
 
+import type { ResetPasswordPageProps } from "../../shared/auth-page-types.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { frameworkRoutePrefix } from "../api-path.js";
 
-export interface ResetPasswordPageProps {
-  pageType: "reset-password";
-  appBasePath: string;
-  passwordMinLength: number;
-  passwordMaxLength: number;
-}
+export type { ResetPasswordPageProps } from "../../shared/auth-page-types.js";
 
 type ResetMessage = { kind: "error" | "success"; text: string } | null;
 

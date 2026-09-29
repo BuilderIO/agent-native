@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DIAGNOSTIC_SNIPPET_CLOSE,
@@ -8,6 +8,10 @@ import {
   applyExtensionContentUpdate,
   ExtensionContentEditError,
 } from "./content-patch.js";
+
+afterEach(() => {
+  vi.doUnmock("prettier/standalone");
+});
 
 describe("extension content patching", () => {
   it("applies marker inserts without rewriting the whole document", async () => {
@@ -165,6 +169,26 @@ describe("extension content patching", () => {
 
     expect(result.formatted).toBe(true);
     expect(result.content).toContain("<span>Hi</span>");
+  });
+
+  it("reports the missing Prettier peer when formatting is requested", async () => {
+    const missingPeer = Object.assign(
+      new Error(
+        "Cannot find package 'prettier' imported from content-patch.ts",
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
+    vi.doMock("prettier/standalone", () => {
+      throw missingPeer;
+    });
+
+    await expect(
+      applyExtensionContentUpdate("<p>unformatted</p>", { format: true }),
+    ).rejects.toMatchObject({
+      code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
+      name: "OptionalPeerDependencyError",
+      packageName: "prettier",
+    });
   });
 
   it("never applies a whitespace-flexible match — reports the original bytes as a fenced candidate", async () => {

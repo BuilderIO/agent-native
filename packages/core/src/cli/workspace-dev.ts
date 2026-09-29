@@ -7,8 +7,6 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
 
-import * as Sentry from "@sentry/node";
-
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -28,6 +26,7 @@ import {
   escapeHtml,
 } from "./gateway-helpers.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
+import { captureSentryException } from "./sentry-telemetry.js";
 
 export interface WorkspaceApp {
   id: string;
@@ -290,6 +289,7 @@ function shouldCaptureDiscoverAppsReadFailure(
 async function discoverApps(
   appsDir: string,
   appPortStart: number,
+  stderr: Pick<NodeJS.WriteStream, "write">,
 ): Promise<WorkspaceApp[]> {
   if (!fs.existsSync(appsDir)) return [];
   let entries: fs.Dirent[];
@@ -303,10 +303,14 @@ async function discoverApps(
           `${(err as Error).message}`,
       );
       if (shouldCaptureDiscoverAppsReadFailure(code)) {
-        Sentry.captureException(err, {
-          tags: { handled: "dev-discover-readdir" },
-          level: "warning",
-        });
+        void captureSentryException(
+          err,
+          {
+            tags: { handled: "dev-discover-readdir" },
+            level: "warning",
+          },
+          stderr,
+        );
       }
     }
     return [];
@@ -667,7 +671,7 @@ export async function runWorkspaceDev(
   );
   let gatewayUrl = workspaceGatewayUrl(gatewayHost, requestedPort);
 
-  const apps = await discoverApps(appsDir, appPortStart);
+  const apps = await discoverApps(appsDir, appPortStart, stderr);
   if (apps.length === 0) {
     throw new Error("[workspace] No apps found under ./apps");
   }
@@ -755,7 +759,7 @@ export async function runWorkspaceDev(
   async function syncApps(): Promise<void> {
     if (syncInFlight) return syncInFlight;
     const run = (async () => {
-      const discovered = await discoverApps(appsDir, appPortStart);
+      const discovered = await discoverApps(appsDir, appPortStart, stderr);
       for (const app of discovered) {
         const existing = appById.get(app.id);
         if (existing) {
@@ -1261,10 +1265,14 @@ export async function runWorkspaceDev(
       `[workspace] Recursive file watcher failed (${err.code ?? "unknown"}): ${err.message}. ` +
         `Falling back to polling.\n`,
     );
-    Sentry.captureException(err, {
-      tags: { handled: "dev-watch-unknown" },
-      level: "warning",
-    });
+    void captureSentryException(
+      err,
+      {
+        tags: { handled: "dev-watch-unknown" },
+        level: "warning",
+      },
+      stderr,
+    );
   }
 
   function startWorkspaceProcesses(): void {
