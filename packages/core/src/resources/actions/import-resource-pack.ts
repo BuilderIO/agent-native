@@ -8,6 +8,7 @@ import {
   RESOURCE_PACK_MAX_BODY_BYTES,
   RESOURCE_PACK_MAX_BYTES,
   RESOURCE_PACK_MAX_FILES,
+  RESOURCE_PACK_MAX_REDACTIONS,
   verifyResourcePack,
   type ResourcePack,
 } from "../pack.js";
@@ -72,6 +73,15 @@ function rawPackOverCap(pack: unknown): {
     return { fileCount: resources.length, byteCount: 0 };
   }
   const redactions = (pack as { redactions?: unknown }).redactions;
+  if (
+    Array.isArray(redactions) &&
+    redactions.length > RESOURCE_PACK_MAX_REDACTIONS
+  ) {
+    return {
+      fileCount: resources.length + redactions.length,
+      byteCount: 0,
+    };
+  }
   const resourcePaths = new Set(
     resources.flatMap((resource) =>
       resource &&
@@ -99,7 +109,7 @@ function rawPackOverCap(pack: unknown): {
   }
 
   const fileCount = resources.length + redactionOnlyCount;
-  if (fileCount > RESOURCE_PACK_MAX_FILES) {
+  if (redactionOnlyCount > RESOURCE_PACK_MAX_FILES) {
     return { fileCount, byteCount: 0 };
   }
 
@@ -126,6 +136,8 @@ function failPackTooLarge(fileCount: number, byteCount: number): never {
       fileCount,
       byteCount,
       maxFiles: RESOURCE_PACK_MAX_FILES,
+      maxRedactionOnlyPaths: RESOURCE_PACK_MAX_FILES,
+      maxRedactions: RESOURCE_PACK_MAX_REDACTIONS,
       maxBytes: RESOURCE_PACK_MAX_BYTES,
     },
   });

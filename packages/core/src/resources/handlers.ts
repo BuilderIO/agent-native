@@ -839,6 +839,13 @@ export async function handleImportResourcePack(event: any) {
       caller: "http",
     });
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      setResponseStatus(event, 400);
+      return {
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      };
+    }
     return packHandlerError(event, err);
   }
 }

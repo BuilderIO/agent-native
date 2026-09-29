@@ -2,10 +2,17 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import {
+  RESOURCE_PACK_MAX_FILES,
+  RESOURCE_PACK_MAX_REDACTIONS,
+} from "./pack-constants.js";
+
 export {
   RESOURCE_PACK_MAX_BODY_BYTES,
   RESOURCE_PACK_MAX_BYTES,
   RESOURCE_PACK_MAX_FILES,
+  RESOURCE_PACK_MAX_REDACTIONS,
+  RESOURCE_PACK_MAX_SOURCE_FILE_BYTES,
 } from "./pack-constants.js";
 
 export const RESOURCE_PACK_VERSION = 1;
@@ -54,13 +61,30 @@ const packSchema = z.object({
     appId: z.string().optional(),
     scope: z.enum(["personal", "organization", "workspace"]),
   }),
-  resources: z.array(packResourceSchema),
-  redactions: z.array(
-    z.object({
-      path: z.string().min(1),
-      reason: z.enum(["secret", "binary", "unreadable"]),
+  resources: z
+    .array(packResourceSchema)
+    .max(RESOURCE_PACK_MAX_FILES)
+    .superRefine((resources, context) => {
+      const paths = new Set<string>();
+      for (const [index, resource] of resources.entries()) {
+        if (paths.has(resource.path)) {
+          context.addIssue({
+            code: "custom",
+            message: "Resource paths must be unique.",
+            path: [index, "path"],
+          });
+        }
+        paths.add(resource.path);
+      }
     }),
-  ),
+  redactions: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        reason: z.enum(["secret", "binary", "unreadable"]),
+      }),
+    )
+    .max(RESOURCE_PACK_MAX_REDACTIONS),
   checksum: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
@@ -69,7 +93,7 @@ const packSchema = z.object({
  * than imported so a pack never pulls the tracing surface in as a side effect.
  */
 const STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b/g;
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_-]{12,}|xox[bpe]-[A-Za-z0-9-]{8,}|xapp-[A-Za-z0-9-]{8,}|npm_[A-Za-z0-9]{36}|pat-[a-z0-9]+-[A-Za-z0-9_-]{8,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b/g;
 
 const CREDENTIAL_NAME = [
   "authorization",

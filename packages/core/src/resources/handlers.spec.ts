@@ -1472,6 +1472,24 @@ Legacy webhook.`,
       expect(mockImportResourcePackRun).not.toHaveBeenCalled();
     });
 
+    it("returns a validation error for malformed JSON", async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("{"));
+          controller.close();
+        },
+      });
+
+      const result = await handleImportResourcePack({ req: { body } });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      });
+      expect(mockImportResourcePackRun).not.toHaveBeenCalled();
+    });
+
     it("rejects an invalid target scope before running the import action", async () => {
       const result = await handleImportResourcePack({
         _body: { pack: {}, targetScope: "other" },

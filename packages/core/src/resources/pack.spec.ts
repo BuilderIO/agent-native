@@ -122,16 +122,43 @@ describe("buildResourcePack / verifyResourcePack", () => {
       error: "invalid",
     });
   });
+
+  it("rejects duplicate paths even when their source scopes differ", () => {
+    const pack = buildResourcePack(
+      [
+        { path: "AGENTS.md", scope: "personal", content: "personal" },
+        { path: "AGENTS.md", scope: "organization", content: "organization" },
+      ],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+
+    expect(verifyResourcePack(pack)).toEqual({ ok: false, error: "invalid" });
+  });
 });
 
 describe("redactResourceContent", () => {
   it("redacts standalone API-key shaped strings and labeled credentials", () => {
+    const slackBot = `xoxb-${"b".repeat(20)}`;
+    const slackUser = `xoxp-${"p".repeat(20)}`;
+    const slackRefresh = `xoxe-${"e".repeat(20)}`;
+    const slackApp = `xapp-${"a".repeat(20)}`;
+    const githubFineGrained = `github_pat_${"g".repeat(30)}`;
+    const npm = `npm_${"n".repeat(36)}`;
+    const hubspot = `pat-na1-${"h".repeat(24)}`;
     const result = redactResourceContent(
       "AGENTS.md",
       [
         "key sk-ant-TESTKEYVALUE123456",
         'token: "nonsensitive-looking-secret-value"',
         "Authorization: Bearer abc.def-ghi",
+        slackBot,
+        slackUser,
+        slackRefresh,
+        slackApp,
+        githubFineGrained,
+        npm,
+        hubspot,
+        "xoxb-short github_pat_short npm_short keep-this-visible",
       ].join("\n"),
     );
     expect(result.redacted).toBe(true);
@@ -139,6 +166,21 @@ describe("redactResourceContent", () => {
     expect(result.content).not.toContain("sk-ant-TESTKEYVALUE123456");
     expect(result.content).not.toContain("nonsensitive-looking-secret-value");
     expect(result.content).not.toContain("abc.def-ghi");
+    for (const token of [
+      slackBot,
+      slackUser,
+      slackRefresh,
+      slackApp,
+      githubFineGrained,
+      npm,
+      hubspot,
+    ]) {
+      expect(result.content).not.toContain(token);
+    }
+    expect(result.content).toContain("xoxb-short");
+    expect(result.content).toContain("github_pat_short");
+    expect(result.content).toContain("npm_short");
+    expect(result.content).toContain("keep-this-visible");
   });
 
   it("drops MCP env and headers fields while keeping name and url", () => {

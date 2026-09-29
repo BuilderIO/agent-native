@@ -36,19 +36,23 @@ vi.mock("../../app-config/index.js", () => ({
 
 const { default: exportResourcePack } =
   await import("./export-resource-pack.js");
-const { RESOURCE_PACK_MAX_BODY_BYTES, verifyResourcePack } =
-  await import("../pack.js");
+const {
+  RESOURCE_PACK_MAX_BODY_BYTES,
+  RESOURCE_PACK_MAX_FILES,
+  RESOURCE_PACK_MAX_SOURCE_FILE_BYTES,
+  verifyResourcePack,
+} = await import("../pack.js");
 
 function meta(
   path: string,
-  over: { owner?: string; mimeType?: string; id?: string } = {},
+  over: { owner?: string; mimeType?: string; id?: string; size?: number } = {},
 ) {
   return {
     id: over.id ?? path,
     path,
     owner: over.owner ?? "alice@x.com",
     mimeType: over.mimeType ?? "text/markdown",
-    size: 1,
+    size: over.size ?? 1,
     createdAt: 1,
     updatedAt: 1,
     createdBy: "user" as const,
@@ -108,6 +112,11 @@ describe("export-resource-pack", () => {
     ]);
     expect(verified.pack.source).toEqual({ appId: "forms", scope: "personal" });
     expect(verified.pack.redactions).toEqual([]);
+    expect(mockResourceListAccessible).toHaveBeenCalledWith(
+      "alice@x.com",
+      undefined,
+      expect.objectContaining({ limit: 401 }),
+    );
   });
 
   it("skips binaries, redacts secrets, and records unreadable rows", async () => {
@@ -208,7 +217,7 @@ describe("export-resource-pack", () => {
 
   it("fails too_large instead of truncating", async () => {
     mockResourceListAccessible.mockResolvedValue(
-      Array.from({ length: 201 }, (_, index) => meta(`file-${index}.md`)),
+      Array.from({ length: 401 }, (_, index) => meta(`file-${index}.md`)),
     );
     mockResourceGet.mockImplementation(async (id: string) => resource(id, "x"));
 
@@ -220,8 +229,69 @@ describe("export-resource-pack", () => {
     ).rejects.toMatchObject({
       errorCode: "too_large",
       details: expect.objectContaining({
-        fileCount: 201,
+        fileCount: 401,
         maxFiles: 200,
+      }),
+    });
+    expect(mockResourceGet).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized source before loading its content", async () => {
+    mockResourceListAccessible.mockResolvedValue([
+      meta("huge.md", { size: RESOURCE_PACK_MAX_SOURCE_FILE_BYTES + 1 }),
+    ]);
+
+    await expect(
+      exportResourcePack.run(
+        { scope: "accessible" },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({
+        byteCount: RESOURCE_PACK_MAX_SOURCE_FILE_BYTES + 1,
+        maxResourceBytes: RESOURCE_PACK_MAX_SOURCE_FILE_BYTES,
+      }),
+    });
+    expect(mockResourceGet).not.toHaveBeenCalled();
+  });
+
+  it("allows binary omissions separately from the text-file cap", async () => {
+    const text = Array.from({ length: RESOURCE_PACK_MAX_FILES }, (_, index) =>
+      meta(`file-${index}.md`),
+    );
+    const binary = Array.from({ length: RESOURCE_PACK_MAX_FILES }, (_, index) =>
+      meta(`file-${index}.bin`, { mimeType: "application/octet-stream" }),
+    );
+    mockResourceListAccessible.mockResolvedValue([...text, ...binary]);
+    mockResourceGet.mockImplementation(async (id: string) => resource(id, "x"));
+
+    const result = await exportResourcePack.run(
+      { scope: "accessible" },
+      { userEmail: "alice@x.com", caller: "http" },
+    );
+
+    expect(result.pack.resources).toHaveLength(RESOURCE_PACK_MAX_FILES);
+    expect(result.pack.redactions).toHaveLength(RESOURCE_PACK_MAX_FILES);
+  });
+
+  it("bounds binary-only redaction paths", async () => {
+    mockResourceListAccessible.mockResolvedValue(
+      Array.from({ length: RESOURCE_PACK_MAX_FILES + 1 }, (_, index) =>
+        meta(`file-${index}.bin`, { mimeType: "application/octet-stream" }),
+      ),
+    );
+
+    await expect(
+      exportResourcePack.run(
+        { scope: "accessible" },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({
+        fileCount: RESOURCE_PACK_MAX_FILES + 1,
+        maxRedactionOnlyPaths: RESOURCE_PACK_MAX_FILES,
       }),
     });
     expect(mockResourceGet).not.toHaveBeenCalled();
@@ -325,6 +395,7 @@ describe("export-resource-pack", () => {
     expect(mockResourceList).toHaveBeenCalledWith("alice@x.com", "memory/", {
       userEmail: "alice@x.com",
       orgId: null,
+      limit: 401,
     });
     expect(mockResourceListAccessible).not.toHaveBeenCalled();
   });
@@ -381,6 +452,7 @@ describe("export-resource-pack", () => {
       {
         userEmail: "alice@x.com",
         orgId: "org-1",
+        limit: 401,
       },
     );
     expect(mockResourceListAccessible).not.toHaveBeenCalled();

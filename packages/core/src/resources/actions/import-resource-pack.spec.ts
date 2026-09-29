@@ -253,6 +253,40 @@ describe("import-resource-pack", () => {
     });
   });
 
+  it("allows the text-file cap plus independently capped omitted paths", async () => {
+    const resources = Array.from({ length: 200 }, (_, index) => ({
+      path: `file-${index}.md`,
+      scope: "personal" as const,
+      content: "x",
+    }));
+    const pack = buildResourcePack(resources, {
+      exportedAt: 1,
+      source: { scope: "personal" },
+      redactions: [
+        ...resources.map(({ path }) => ({
+          path,
+          reason: "secret" as const,
+        })),
+        ...Array.from({ length: 200 }, (_, index) => ({
+          path: `file-${index}.bin`,
+          reason: "binary" as const,
+        })),
+      ],
+    });
+
+    const result = await importResourcePack.run(
+      { pack },
+      { userEmail: "alice@x.com", caller: "http" },
+    );
+
+    expect(result).toMatchObject({
+      imported: 200,
+      skipped: 0,
+      redacted: 400,
+      errors: [],
+    });
+  });
+
   it("rejects more than the cap of redaction-only paths", async () => {
     const pack = buildResourcePack([], {
       exportedAt: 1,

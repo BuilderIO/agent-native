@@ -9,6 +9,8 @@ import {
   RESOURCE_PACK_MAX_BODY_BYTES,
   RESOURCE_PACK_MAX_BYTES,
   RESOURCE_PACK_MAX_FILES,
+  RESOURCE_PACK_MAX_REDACTIONS,
+  RESOURCE_PACK_MAX_SOURCE_FILE_BYTES,
   type ResourcePack,
   type ResourcePackEntry,
   type ResourcePackRedaction,
@@ -57,7 +59,11 @@ async function listMetasForScope(
   scope: ExportResourcePackArgs["scope"],
   prefix: string | undefined,
 ): Promise<ResourceMeta[]> {
-  const options: ResourceListOptions = { userEmail, orgId };
+  const options: ResourceListOptions = {
+    userEmail,
+    orgId,
+    limit: EXPORT_RESOURCE_LIST_LIMIT,
+  };
   if (scope === "personal") {
     return resourceList(userEmail, prefix, options);
   }
@@ -77,6 +83,7 @@ function packSourceScope(
 }
 
 const EXPORT_RESOURCE_READ_CONCURRENCY = 8;
+const EXPORT_RESOURCE_LIST_LIMIT = RESOURCE_PACK_MAX_FILES * 2 + 1;
 
 export async function exportResourcePackForCaller(
   args: ExportResourcePackArgs,
@@ -93,7 +100,7 @@ export async function exportResourcePackForCaller(
     args.scope,
     args.prefix,
   );
-  if (metas.length > RESOURCE_PACK_MAX_FILES) {
+  if (metas.length >= EXPORT_RESOURCE_LIST_LIMIT) {
     fail("Resource pack exceeds the export cap.", {
       errorCode: "too_large",
       details: {
@@ -104,34 +111,64 @@ export async function exportResourcePackForCaller(
       },
     });
   }
+  const binaryMetas = metas.filter((meta) =>
+    isBinaryResourceMimeType(meta.mimeType),
+  );
+  if (binaryMetas.length > RESOURCE_PACK_MAX_FILES) {
+    fail("Resource pack exceeds the export cap.", {
+      errorCode: "too_large",
+      details: {
+        fileCount: binaryMetas.length,
+        byteCount: 0,
+        maxFiles: RESOURCE_PACK_MAX_FILES,
+        maxRedactionOnlyPaths: RESOURCE_PACK_MAX_FILES,
+        maxBytes: RESOURCE_PACK_MAX_BYTES,
+      },
+    });
+  }
+  const textMetas = metas.filter(
+    (meta) => !isBinaryResourceMimeType(meta.mimeType),
+  );
+  const oversized = textMetas.find(
+    (meta) =>
+      !Number.isFinite(meta.size) ||
+      meta.size > RESOURCE_PACK_MAX_SOURCE_FILE_BYTES,
+  );
+  if (oversized) {
+    fail("A resource is too large to export safely.", {
+      errorCode: "too_large",
+      details: {
+        fileCount: textMetas.length,
+        byteCount: oversized.size,
+        maxFiles: RESOURCE_PACK_MAX_FILES,
+        maxBytes: RESOURCE_PACK_MAX_BYTES,
+        maxResourceBytes: RESOURCE_PACK_MAX_SOURCE_FILE_BYTES,
+      },
+    });
+  }
   const entries: ResourcePackEntry[] = [];
-  const redactions: ResourcePackRedaction[] = [];
+  const redactions: ResourcePackRedaction[] = binaryMetas.map((meta) => ({
+    path: meta.path,
+    reason: "binary",
+  }));
   let byteCount = 0;
   for (
     let offset = 0;
-    offset < metas.length;
+    offset < textMetas.length;
     offset += EXPORT_RESOURCE_READ_CONCURRENCY
   ) {
     const loaded = await mapWithConcurrency(
-      metas.slice(offset, offset + EXPORT_RESOURCE_READ_CONCURRENCY),
+      textMetas.slice(offset, offset + EXPORT_RESOURCE_READ_CONCURRENCY),
       EXPORT_RESOURCE_READ_CONCURRENCY,
       async (meta) => {
-        if (isBinaryResourceMimeType(meta.mimeType)) {
-          return { meta, resource: null, binary: true as const };
-        }
         return {
           meta,
           resource: await resourceGet(meta.id, { userEmail, orgId }),
-          binary: false as const,
         };
       },
     );
 
     for (const item of loaded) {
-      if (item.binary) {
-        redactions.push({ path: item.meta.path, reason: "binary" });
-        continue;
-      }
       const resource = item.resource;
       if (!resource || typeof resource.content !== "string") {
         redactions.push({ path: item.meta.path, reason: "unreadable" });
@@ -158,7 +195,41 @@ export async function exportResourcePackForCaller(
         scope: packScopeFromOwner(resource.owner, userEmail),
         content: redacted.content,
       });
+      if (entries.length > RESOURCE_PACK_MAX_FILES) {
+        fail("Resource pack exceeds the export cap.", {
+          errorCode: "too_large",
+          details: {
+            fileCount: entries.length,
+            byteCount,
+            maxFiles: RESOURCE_PACK_MAX_FILES,
+            maxBytes: RESOURCE_PACK_MAX_BYTES,
+          },
+        });
+      }
     }
+  }
+
+  const entryPaths = new Set(entries.map((entry) => entry.path));
+  const redactionOnlyPaths = new Set(
+    redactions
+      .filter((redaction) => !entryPaths.has(redaction.path))
+      .map((redaction) => redaction.path),
+  );
+  if (
+    redactionOnlyPaths.size > RESOURCE_PACK_MAX_FILES ||
+    redactions.length > RESOURCE_PACK_MAX_REDACTIONS
+  ) {
+    fail("Resource pack exceeds the export cap.", {
+      errorCode: "too_large",
+      details: {
+        fileCount: entries.length + redactionOnlyPaths.size,
+        byteCount,
+        maxFiles: RESOURCE_PACK_MAX_FILES,
+        maxRedactionOnlyPaths: RESOURCE_PACK_MAX_FILES,
+        maxRedactions: RESOURCE_PACK_MAX_REDACTIONS,
+        maxBytes: RESOURCE_PACK_MAX_BYTES,
+      },
+    });
   }
 
   const appId = resolveAppId(ctx);
