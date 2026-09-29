@@ -454,6 +454,10 @@ export function GuidedQuestionProviderGate({
 }) {
   const t = useT();
 
+  if (providerStatus === "unknown" || providerStatus === "configured") {
+    return null;
+  }
+
   if (providerStatus === "missing") {
     return (
       <BuilderSetupCard fullWidth onConnected={onRetry} onRetry={onRetry} />
@@ -465,20 +469,14 @@ export function GuidedQuestionProviderGate({
       className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
       role="status"
     >
-      <span>
-        {providerStatus === "unknown"
-          ? t("agentChat.setup.checkingProvider")
-          : t("agentChat.setup.providerStatusUnavailable")}
-      </span>
-      {providerStatus === "unavailable" ? (
-        <button
-          type="button"
-          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onRetry}
-        >
-          {t("agentChat.common.retry")}
-        </button>
-      ) : null}
+      <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+      <button
+        type="button"
+        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onRetry}
+      >
+        {t("agentChat.common.retry")}
+      </button>
     </div>
   );
 }

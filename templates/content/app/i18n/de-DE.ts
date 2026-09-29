@@ -1228,7 +1228,10 @@ const history = {
 
 const overrides = {
   close: "Schließen",
-  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  setup: {
+    checkingProvider: "KI-Verbindung wird geprüft…",
+    providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+  },
   onboarding: {
     fileStorage: {
       title: "Speicher verbinden, um Dateien hochzuladen",

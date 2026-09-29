@@ -1194,7 +1194,10 @@ const history = {
 
 const overrides = {
   close: "閉じる",
-  setup: { checkingProvider: "AI 接続を確認しています…" },
+  setup: {
+    checkingProvider: "AI 接続を確認しています…",
+    providerStatusUnavailable: "AI 接続を確認できませんでした。",
+  },
   onboarding: {
     fileStorage: {
       title: "ファイルをアップロードするストレージを接続",

@@ -193,14 +193,14 @@ function ContentAiBlockAction({
     <div className="flex flex-col gap-2">
       {agentEngine.state === "missing" ? (
         <BuilderSetupCard fullWidth layout="sidebar" />
-      ) : agentEngine.state === "configured" ? null : (
+      ) : agentEngine.state === "unavailable" ? (
         <div
           className="rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground"
           role="status"
         >
-          {t("setup.checkingProvider")}
+          {t("setup.providerStatusUnavailable")}
         </div>
-      )}
+      ) : null}
       <InlinePromptField
         placeholder="Describe a change…"
         ariaLabel={`Describe a change to ${label.toLowerCase()}`}

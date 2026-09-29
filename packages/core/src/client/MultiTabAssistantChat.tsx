@@ -3204,9 +3204,7 @@ export function MultiTabAssistantChat({
                   composerDisabledPlaceholder={
                     parentMap[tabId]
                       ? translate("agentChat.composer.subAgentReadOnly")
-                      : modelSelectionPending
-                        ? translate("agentChat.composer.loadingModels")
-                        : undefined
+                      : undefined
                   }
                 />
               </div>

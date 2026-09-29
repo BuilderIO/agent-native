@@ -622,17 +622,12 @@ export function CommandMenu({
           <div className="p-1">
             {providerStatus === "missing" ? (
               <BuilderSetupCard attached fullWidth layout="sidebar" />
-            ) : providerStatus === "unknown" ||
-              providerStatus === "unavailable" ? (
+            ) : providerStatus === "unavailable" ? (
               <div
                 className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
                 role="status"
               >
-                <span>
-                  {providerStatus === "unknown"
-                    ? t("agentChat.setup.checkingProvider")
-                    : t("agentChat.setup.providerStatusUnavailable")}
-                </span>
+                <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
                 {providerStatus === "unavailable" ? (
                   <button
                     type="button"

@@ -28,7 +28,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Spinner } from "../ui/spinner.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
@@ -330,10 +329,7 @@ export function shouldGateComposerForEngine(
   return state !== "configured";
 }
 
-/**
- * Show setup treatment only for a confirmed-missing engine with a setup
- * component. Unresolved status uses the retry treatment instead.
- */
+/** Show setup treatment only when a confirmed-missing engine has setup UI. */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
   hasSetupComponent: boolean;
@@ -752,9 +748,6 @@ function PromptComposerInner({
     ? agentEngineConfigured.state
     : "configured";
   const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
-  const engineStatusUnresolved =
-    engineStatusChecksEnabled &&
-    (engineState === "unknown" || engineState === "unavailable");
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -834,29 +827,20 @@ function PromptComposerInner({
           />
         </div>
       ) : null}
-      {engineStatusUnresolved ? (
-        engineState === "unknown" ? (
-          <div className="mb-2 flex justify-center">
-            <Spinner
-              aria-label={t("common.loading")}
-              className="size-4 text-muted-foreground"
-            />
-          </div>
-        ) : (
-          <div
-            className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-            role="status"
+      {engineState === "unavailable" ? (
+        <div
+          className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={retryEngineStatus}
           >
-            <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-            <button
-              type="button"
-              className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={retryEngineStatus}
-            >
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        )
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
       ) : null}
       <AgentComposerFrame
         className={cn(
@@ -886,7 +870,7 @@ function PromptComposerInner({
           focusRef={handleRef}
           disabled={disabled}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
-          submitting={submitting || engineState === "unknown"}
+          submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}

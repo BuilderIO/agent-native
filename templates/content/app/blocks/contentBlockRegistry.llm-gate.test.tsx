@@ -93,7 +93,12 @@ describe("Content structured-block AI prompt readiness gate", () => {
       const textarea = render();
 
       expect(textarea.disabled).toBe(true);
-      expect(container.textContent).toContain("setup.checkingProvider");
+      expect(container.textContent).not.toContain("setup.checkingProvider");
+      if (state === "unavailable") {
+        expect(container.textContent).toContain(
+          "setup.providerStatusUnavailable",
+        );
+      }
       expect(setupCard).not.toHaveBeenCalled();
     },
   );

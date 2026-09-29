@@ -547,7 +547,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container.querySelector('[role="status"][aria-label="common.loading"]'),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
       onBeforeSubmit: expect.any(Function),

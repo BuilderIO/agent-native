@@ -1044,6 +1044,7 @@ const enUS = {
   close: "Close",
   setup: {
     checkingProvider: "Checking AI connection…",
+    providerStatusUnavailable: "Couldn't check AI connection.",
   },
   onboarding: {
     fileStorage: {

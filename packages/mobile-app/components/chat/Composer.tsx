@@ -358,13 +358,13 @@ export function Composer({
   const t = useT();
   const chatPlaceholder =
     chatEligibility === "checking"
-      ? t("setup.checkingProvider")
+      ? "Message the agent…  (@ to mention)"
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
         : t("setup.connectToStart");
   const chatAccessibilityHint =
     chatEligibility === "checking"
-      ? t("setup.checkingProvider")
+      ? undefined
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
         : t("setup.connectToStart");
@@ -792,17 +792,15 @@ export function Composer({
       )}
 
       <View className="rounded-[22px] bg-card-dark border border-border-dark px-3.5 pt-3 pb-2.5">
-        {!chatReady ? (
+        {!chatReady && providerStatus !== "unknown" ? (
           <View
             className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
             accessibilityRole="alert"
           >
             <Text className="text-muted-foreground text-[12px]">
-              {providerStatus === "unknown"
-                ? t("agentChat.setup.checkingProvider")
-                : providerStatus === "unavailable"
-                  ? t("agentChat.setup.providerStatusUnavailable")
-                  : t("agentChat.setup.connectToStart")}
+              {providerStatus === "unavailable"
+                ? t("agentChat.setup.providerStatusUnavailable")
+                : t("agentChat.setup.connectToStart")}
             </Text>
             {providerStatus === "missing" ? (
               <View className="flex-row flex-wrap gap-3">
@@ -820,8 +818,7 @@ export function Composer({
                   </Text>
                 </Pressable>
               </View>
-            ) : providerStatus === "unavailable" ||
-              providerStatus === "unknown" ? (
+            ) : providerStatus === "unavailable" ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={refreshChatEligibility}

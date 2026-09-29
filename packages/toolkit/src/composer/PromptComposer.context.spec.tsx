@@ -575,9 +575,7 @@ describe("controlled composer context", () => {
     expect(
       container.querySelector('[contenteditable="true"]')?.textContent,
     ).toBe("Keep my draft");
-    expect(
-      container.querySelector('[role="status"]')?.getAttribute("aria-label"),
-    ).toBe("common.loading");
+    expect(container.querySelector('[role="status"]')).toBeNull();
     expect(container.textContent).not.toContain("checkingProvider");
     expect(
       container.querySelector<HTMLButtonElement>(

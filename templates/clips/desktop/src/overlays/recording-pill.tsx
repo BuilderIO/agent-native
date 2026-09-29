@@ -1349,24 +1349,26 @@ export function MeetingPill() {
                   composerAreaClassName="pill-agentkit-composer"
                   composerLayoutVariant="compact"
                   composerPlaceholder={
-                    !pillDemoMode && providerStatus !== "eligible"
+                    !pillDemoMode &&
+                    providerStatus !== "eligible" &&
+                    providerStatus !== "unknown"
                       ? t("agentChat.setup.connectToChat")
                       : t("agentNativeClips.meetingAsk.placeholder")
                   }
                   composerSlot={
                     <>
-                      {!pillDemoMode && providerStatus !== "eligible" ? (
+                      {!pillDemoMode &&
+                      providerStatus !== "eligible" &&
+                      providerStatus !== "unknown" ? (
                         <div
                           className="pill-ask-provider-status"
                           data-no-drag
                           role="status"
                         >
                           <span>
-                            {providerStatus === "unknown"
-                              ? t("agentChat.setup.checkingProvider")
-                              : providerStatus === "unavailable"
-                                ? t("agentChat.setup.providerStatusUnavailable")
-                                : t("agentChat.setup.connectToStart")}
+                            {providerStatus === "unavailable"
+                              ? t("agentChat.setup.providerStatusUnavailable")
+                              : t("agentChat.setup.connectToStart")}
                           </span>
                           {providerStatus === "missing" ? (
                             <div className="pill-ask-provider-actions">

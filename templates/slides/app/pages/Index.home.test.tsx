@@ -678,9 +678,7 @@ describe("Slides prompt-led home", () => {
     agentEngine.state = "unknown";
     agentEngine.missing = false;
     renderHome();
-    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
-      "common.loading",
-    );
+    expect(screen.queryByRole("status")).toBeNull();
     expect(
       (
         screen.getByRole("textbox", {

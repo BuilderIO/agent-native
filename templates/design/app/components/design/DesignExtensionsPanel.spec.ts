@@ -166,7 +166,7 @@ describe("Design extension creation — LLM readiness gate", () => {
     expect(source).toMatch(/if \(!providerReady \|\| !canSubmit\) return;/);
     expect(source).toContain("<form onSubmit={handleSubmit}");
     expect(source).toContain("<BuilderSetupCard");
-    expect(source).toContain('t("agentChat.setup.checkingProvider")');
+    expect(source).not.toContain('t("agentChat.setup.checkingProvider")');
   });
 });
 

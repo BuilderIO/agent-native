@@ -788,7 +788,7 @@ export default function PromptPopover({
                 attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
-                submissionDisabled={submissionDisabled}
+                submissionDisabled={submissionDisabled || checkingProvider}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
                 disabled={
@@ -798,7 +798,7 @@ export default function PromptPopover({
                   submitting ||
                   Boolean(importMode)
                 }
-                submitting={submitting || checkingProvider}
+                submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
                 onBeforeSubmit={handleBeforeSubmit}

@@ -664,8 +664,8 @@ export default function PromptPopover({
       inlineTextAttachments={false}
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
       disabled={disabled || loading || submitting}
-      submissionDisabled={submissionDisabled}
-      submitting={submitting || checkingProvider}
+      submissionDisabled={submissionDisabled || checkingProvider}
+      submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
       composerRef={composerRef}
