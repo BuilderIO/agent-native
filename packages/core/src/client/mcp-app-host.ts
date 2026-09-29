@@ -426,6 +426,62 @@ function objectValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function openAiFollowUpPrompt(chat: McpAppHostChatMessage): string | null {
+  const content = chat.content ?? [];
+  if (content.some((part) => part.type !== "text")) return null;
+
+  const message = chat.message.trim();
+  const extraText = new Set<string>();
+  for (const part of content) {
+    const text = part.text;
+    if (typeof text !== "string") return null;
+    const trimmed = text.trim();
+    if (trimmed && trimmed !== message) extraText.add(trimmed);
+  }
+  let structuredContent: string | undefined;
+  if (chat.structuredContent !== undefined) {
+    try {
+      structuredContent = JSON.stringify(chat.structuredContent);
+    } catch (error) {
+      console.warn(
+        "[agent-native] Cannot serialize MCP follow-up context",
+        error,
+      );
+      return null;
+    }
+    if (structuredContent === undefined) return null;
+  }
+
+  return [
+    message,
+    chat.context?.trim() ? `Context:\n${chat.context.trim()}` : "",
+    extraText.size ? `Additional text:\n${[...extraText].join("\n\n")}` : "",
+    structuredContent !== undefined
+      ? `Structured content:\n${structuredContent}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function sendOpenAiFollowUpFallback(
+  bridge: OpenAiAppBridge | null,
+  chat: McpAppHostChatMessage,
+  requestModePayload: {
+    mode?: McpAppHostRequestMode;
+    requestMode?: McpAppHostRequestMode;
+  },
+): Promise<boolean> {
+  const prompt = openAiFollowUpPrompt(chat);
+  if (!bridge?.sendFollowUpMessage || !prompt) return false;
+  await bridge.sendFollowUpMessage({
+    prompt,
+    scrollToBottom: true,
+    ...requestModePayload,
+  });
+  return true;
+}
+
 function assistantOnlyContent(
   content: McpAppModelContextContentPart[],
 ): McpAppModelContextContentPart[] {
@@ -608,21 +664,26 @@ export function sendMcpAppHostMessage(
     try {
       await waitForDirectMcpAppInitialized();
     } catch (error) {
-      if (!openAiBridge?.sendFollowUpMessage) throw error;
-      await openAiBridge.sendFollowUpMessage({
-        prompt: chat.message,
-        scrollToBottom: true,
-        ...requestModePayload,
-      });
+      if (
+        !(await sendOpenAiFollowUpFallback(
+          openAiBridge,
+          chat,
+          requestModePayload,
+        ))
+      ) {
+        throw error;
+      }
       return true;
     }
-    try {
-      await postJsonRpcRequest("ui/update-model-context", modelContext);
-    } catch (error) {
-      console.warn(
-        "[agent-native] MCP host rejected model context update",
-        error,
-      );
+    const contextResult = await postJsonRpcRequest(
+      "ui/update-model-context",
+      modelContext,
+    );
+    if (
+      isRecord(contextResult) &&
+      (contextResult.isError === true || contextResult.ok === false)
+    ) {
+      throw new Error("MCP host rejected model context update.");
     }
     try {
       const result = await postJsonRpcRequest("ui/message", {
@@ -636,12 +697,15 @@ export function sendMcpAppHostMessage(
         throw new Error("MCP Apps host rejected the chat message.");
       }
     } catch (error) {
-      if (!openAiBridge?.sendFollowUpMessage) throw error;
-      await openAiBridge.sendFollowUpMessage({
-        prompt: chat.message,
-        scrollToBottom: true,
-        ...requestModePayload,
-      });
+      if (
+        !(await sendOpenAiFollowUpFallback(
+          openAiBridge,
+          chat,
+          requestModePayload,
+        ))
+      ) {
+        throw error;
+      }
     }
     return true;
   })().catch(() => false);

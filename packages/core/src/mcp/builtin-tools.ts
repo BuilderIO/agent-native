@@ -796,7 +796,7 @@ function openAppTool(
       const embeddedParam = params?.embed;
       const chromeParam = params?.chrome;
       let embed =
-        (!requestedApp && !view && !args.path) ||
+        (args.embed == null && !requestedApp && !view && !args.path) ||
         args.embed === true ||
         args.embed === "true";
       if (

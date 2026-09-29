@@ -24,6 +24,8 @@ OpenAI 插件扩展为模型调用的 MCP 工具增加应用启动入口。启�
 
 嵌入式应用路由中的按钮可以调用 `sendToAgentChat(...)` 以继续对话。Core 使用 `ui/update-model-context` 发送所选状态并设置 `annotations.audience: ["assistant"]`，然后通过 `ui/message` 发送用户可见的提示。文件查看器、输入框提及及其他专用扩展仍需要应用专属的输入契约。
 
+在旧版主机上，Core 会回退为包含文本和 JSON 上下文的文本提示。如果无法表示富内容，或主机拒绝上下文更新，`sendToAgentChat(...)` 会返回 `false`。
+
 ## 创作：可选的 MCP 应用 UI {#mcp-apps}
 
 对于支持 MCP 应用扩展的主机，操作还可以使用 `mcpApp` 通告内联 UI 资源。这是对流程的渐进增强，外部代理应向用户提供交互式界面而不仅仅是文本，例如查看电子邮件草稿、编辑日历邀请或在生成的仪表板变体之间进行选择。

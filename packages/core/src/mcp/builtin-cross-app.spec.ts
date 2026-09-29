@@ -357,6 +357,12 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     const result: any = await tools.open_app.run({});
     expect(result).toMatchObject({ app: "mail", url: "/", embed: true });
   });
+
+  it("honors embed false when an entrypoint opens the current app home", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({ embed: false });
+    expect(result).toMatchObject({ app: "mail", url: "/", embed: false });
+  });
 });
 
 describe("create_embed_session", () => {

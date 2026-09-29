@@ -1414,6 +1414,35 @@ export function embedApp(
       return await wrapperRpcRequest("ui/update-model-context", params);
     }
 
+    function openAiFollowUpPrompt(chat) {
+      const message = typeof chat.message === "string" ? chat.message.trim() : "";
+      const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      const content = Array.isArray(chat.content) ? chat.content : [];
+      const extraText = [];
+      for (const part of content) {
+        if (!part || part.type !== "text" || typeof part.text !== "string") return null;
+        const text = part.text.trim();
+        if (text && text !== message && !extraText.includes(text)) extraText.push(text);
+      }
+
+      let structuredContent;
+      if (chat.structuredContent !== undefined) {
+        try {
+          structuredContent = JSON.stringify(chat.structuredContent);
+        } catch (err) {
+          console.warn("[agent-native] Cannot serialize MCP follow-up context", err);
+          return null;
+        }
+        if (structuredContent === undefined) return null;
+      }
+
+      const sections = [message];
+      if (context) sections.push("Context:\\n" + context);
+      if (extraText.length) sections.push("Additional text:\\n" + extraText.join("\\n\\n"));
+      if (structuredContent !== undefined) sections.push("Structured content:\\n" + structuredContent);
+      return sections.filter(Boolean).join("\\n\\n");
+    }
+
     async function openHostLink(data) {
       const url = typeof (data && data.url) === "string" ? data.url : "";
       if (!url) return { isError: true };
@@ -1493,11 +1522,16 @@ export function embedApp(
           ...(structuredContent !== undefined ? { structuredContent } : {})
         };
         const contextResult = await updateHostModelContext(modelContext);
-        if (contextResult && contextResult.ok === false) {
-          console.warn("[agent-native] MCP host rejected model context update", contextResult);
+        if (contextResult && (contextResult.isError === true || contextResult.ok === false)) {
+          throw new Error("MCP host rejected model context update.");
         }
       } catch (err) {
         console.warn("[agent-native] MCP host rejected model context update", err);
+        respondToWrapperRequest(requestId, {
+          ok: false,
+          error: err && err.message ? err.message : String(err)
+        });
+        return;
       }
       try {
         let result = null;
@@ -1520,8 +1554,10 @@ export function embedApp(
       } catch (err) {
         if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
           try {
+            const fallbackPrompt = openAiFollowUpPrompt(chat);
+            if (!fallbackPrompt) throw err;
             await openAiBridge.sendFollowUpMessage({
-              prompt: message,
+              prompt: fallbackPrompt,
               scrollToBottom: true
             });
             respondToWrapperRequest(requestId, { ok: true });

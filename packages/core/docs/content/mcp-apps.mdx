@@ -25,6 +25,8 @@ OpenAI Plugin Extensions add launch points alongside model-invoked MCP tools. Wh
 
 Buttons in embedded app routes can call `sendToAgentChat(...)` to continue the conversation. Core sends selected state with `ui/update-model-context` and `annotations.audience: ["assistant"]`, then submits the visible prompt with `ui/message`. The shared entrypoints cover global and thread launch; file viewers, composer mentions, and other specialized extensions need app-specific input contracts.
 
+On older hosts, Core falls back to a text prompt with text and JSON context. If rich content cannot be represented or the host rejects the context update, `sendToAgentChat(...)` returns `false`.
+
 ## Authoring: optional MCP Apps UI {#mcp-apps}
 
 For hosts that support the MCP Apps extension, an action can also advertise an inline UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
