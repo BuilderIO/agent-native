@@ -83,6 +83,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "No capturado",
   "observability.openFullConversation": "Abrir conversación completa",
   "observability.learnAboutTab": "Más información sobre esta pestaña",
+  "observability.promoteMustContain": "La respuesta debe contener…",
+  "observability.promoteMustContainLabel":
+    "Texto que debe contener la respuesta de la evaluación promocionada",
+  "observability.promoteMustContainOptional":
+    "La respuesta debe contener (opcional)",
+  "observability.promoteNeedsContains":
+    "Esta ejecución no tiene ninguna llamada a herramienta correcta. Escribe el texto que debe contener la respuesta antes de promocionar la evaluación.",
   "observability.summarizeWithAgent": "Resumir con el agente",
   "observability.regenerateSummary": "Regenerar resumen",
   "observability.summarizeWithAgentHelp":
@@ -96,13 +103,6 @@ const messages: AgentChatTranslation = {
     "No se pudo enviar la solicitud. Inténtalo de nuevo.",
   "observability.summaryExpired":
     "Aún no hay ningún resumen. Puedes volver a intentarlo, aunque el agente podría seguir trabajando.",
-  "observability.promoteMustContain": "La respuesta debe incluir…",
-  "observability.promoteMustContainOptional":
-    "La respuesta debe incluir (opcional)",
-  "observability.promoteMustContainLabel":
-    "Texto que debe incluir la respuesta de evaluación promovida",
-  "observability.promoteNeedsContains":
-    "Esta ejecución no tiene ninguna llamada de herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla a evaluación.",
   "onboarding.back": "Atrás",
   "onboarding.chooseRole": "Elige tu rol",
   "onboarding.customizeRole": "Personalicemos esto para ti.",
@@ -401,6 +401,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
   "mcpIntegrations.menuLabel": "Integraciones",
+  "mcpApps.optionalPeerRequired":
+    "Esta aplicación MCP requiere el paquete {{packageName}}. Instálalo con {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Conectar herramientas y servicios al agente",
   "mcpIntegrations.title": "Conectar integraciones",

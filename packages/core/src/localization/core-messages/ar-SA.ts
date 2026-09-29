@@ -82,6 +82,12 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "لم يتم الالتقاط",
   "observability.openFullConversation": "فتح المحادثة الكاملة",
   "observability.learnAboutTab": "تعرّف على علامة التبويب",
+  "observability.promoteMustContain": "يجب أن يتضمن الرد…",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
+  "observability.promoteMustContainOptional": "يجب أن يتضمن الرد (اختياري)",
+  "observability.promoteNeedsContains":
+    "لا تتضمن هذه الجولة أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل الترقية.",
   "observability.summarizeWithAgent": "تلخيص باستخدام الوكيل",
   "observability.regenerateSummary": "إعادة إنشاء الملخص",
   "observability.summarizeWithAgentHelp":
@@ -94,12 +100,6 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "تعذّر إرسال الطلب. حاول مرة أخرى.",
   "observability.summaryExpired":
     "لم يظهر ملخص بعد. يمكنك إعادة المحاولة، لكن قد يكون الوكيل لا يزال يعمل.",
-  "observability.promoteMustContain": "يجب أن يتضمن الرد…",
-  "observability.promoteMustContainOptional": "يجب أن يتضمن الرد (اختياري)",
-  "observability.promoteMustContainLabel":
-    "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
-  "observability.promoteNeedsContains":
-    "لا يتضمن هذا التشغيل أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل ترقيته إلى تقييم.",
   "onboarding.back": "رجوع",
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",
@@ -640,6 +640,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "موصى به",
   "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
   "mcpIntegrations.menuLabel": "عمليات التكامل",
+  "mcpApps.optionalPeerRequired":
+    "يتطلب تطبيق MCP هذا الحزمة {{packageName}}. ثبّتها باستخدام {{installCommand}}.",
   "mcpIntegrations.menuDescription": "ربط الأدوات والخدمات بالوكيل",
   "mcpIntegrations.title": "ربط عمليات التكامل",
   "mcpIntegrations.description":

@@ -1,12 +1,16 @@
 import crypto from "node:crypto";
 
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { AuthPage } from "../client/auth/AuthPage.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
+import type { AuthPageProps } from "../shared/auth-page-types.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -23,6 +27,20 @@ import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
+
+function renderAuthPage(props: AuthPageProps): string {
+  return renderToString(createElement(AuthPage, props));
+}
+
+function withAuthPageRenderer(
+  getHtml: typeof import("./onboarding-html.js").getOnboardingHtml,
+): typeof import("./onboarding-html.js").getOnboardingHtml {
+  return (options = {}) =>
+    getHtml({
+      ...options,
+      renderSignInPage: options.renderSignInPage ?? renderAuthPage,
+    });
+}
 
 function expectLoginHtmlCacheHeaders(response: Response) {
   expect(response.headers.get("Cache-Control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
@@ -9475,7 +9493,9 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
 
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({ googleOnly: true });
       const data = readAuthPageData(html);
 
@@ -9500,7 +9520,7 @@ describe("server/auth", () => {
 
       const { createGoogleAuthPlugin } =
         await import("./google-auth-plugin.js");
-      createGoogleAuthPlugin();
+      createGoogleAuthPlugin({ renderSignInPage: renderAuthPage });
 
       const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml as
         | string
@@ -9519,7 +9539,9 @@ describe("server/auth", () => {
     it("defaults googleAuthMode to 'auto' and honors explicit overrides + env var", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
 
       const auto = getOnboardingHtml({ googleOnly: true });
       expect(readAuthPageData(auto).googleAuthMode).toBe("auto");
@@ -9544,7 +9566,9 @@ describe("server/auth", () => {
     it("uses sign-in copy when only Google auth is enabled", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({ googleOnly: true });
       const data = readAuthPageData(html);
 
@@ -9559,7 +9583,9 @@ describe("server/auth", () => {
 
     it("keeps app branding and auth assets under APP_BASE_PATH", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({
         marketing: {
           appName: "Dispatch",
@@ -9573,7 +9599,9 @@ describe("server/auth", () => {
     });
 
     it("renders app marketing beside Google sign-in", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({
         marketing: {
           appName: "Agent-Native Mail",
@@ -9587,7 +9615,9 @@ describe("server/auth", () => {
     });
 
     it("defaults the active tab from the login or signup path", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
 
       expect(
         readAuthPageData(getOnboardingHtml({ requestPath: "/login" }))
@@ -9602,7 +9632,9 @@ describe("server/auth", () => {
 
   describe("onboarding signup verification flow", () => {
     it("renders a dedicated email verification step after signup", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
       expect(html).toContain('id="verification-step"');
@@ -9617,7 +9649,9 @@ describe("server/auth", () => {
     });
 
     it("only shows verification after an explicit unverified login response", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
       expect(html).toContain('id="login-form"');
@@ -9629,7 +9663,9 @@ describe("server/auth", () => {
     });
 
     it("silently signs in after verification completes outside the app", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({ requestPath: "/sign-in?verified=1" });
 
       expect(readAuthPageData(html).initialView).toBe("login");
@@ -9638,7 +9674,9 @@ describe("server/auth", () => {
     });
 
     it("keeps resend verification on a visible cooldown after sending", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
       expect(html).toContain('id="resend-verification"');

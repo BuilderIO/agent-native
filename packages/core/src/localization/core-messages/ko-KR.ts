@@ -83,6 +83,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "캡처되지 않음",
   "observability.openFullConversation": "전체 대화 열기",
   "observability.learnAboutTab": "이 탭 알아보기",
+  "observability.promoteMustContain": "응답에 포함할 텍스트…",
+  "observability.promoteMustContainLabel":
+    "승격할 평가의 응답에 포함해야 하는 텍스트",
+  "observability.promoteMustContainOptional":
+    "응답에 포함할 텍스트 (선택 사항)",
+  "observability.promoteNeedsContains":
+    "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 응답에 포함할 텍스트를 입력하세요.",
   "observability.summarizeWithAgent": "에이전트로 요약",
   "observability.regenerateSummary": "요약 다시 생성",
   "observability.summarizeWithAgentHelp":
@@ -95,12 +102,6 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
   "observability.summaryExpired":
     "아직 요약이 표시되지 않았습니다. 다시 시도할 수 있지만 에이전트가 계속 작업 중일 수 있습니다.",
-  "observability.promoteMustContain": "답변에 포함할 내용…",
-  "observability.promoteMustContainOptional": "답변에 포함할 내용 (선택 사항)",
-  "observability.promoteMustContainLabel":
-    "승격된 평가 답변에 포함되어야 하는 텍스트",
-  "observability.promoteNeedsContains":
-    "이 실행에는 성공한 도구 호출이 없습니다. 평가로 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "onboarding.back": "뒤로",
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",
@@ -638,6 +639,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
   "mcpIntegrations.menuLabel": "연동",
+  "mcpApps.optionalPeerRequired":
+    "이 MCP 앱을 사용하려면 {{packageName}} 패키지가 필요합니다. {{installCommand}}로 설치하세요.",
   "mcpIntegrations.menuDescription": "도구와 서비스를 에이전트에 연결",
   "mcpIntegrations.title": "연동 연결",
   "mcpIntegrations.description":

@@ -80,6 +80,12 @@ const messages = {
   "observability.notCaptured": "Not captured",
   "observability.openFullConversation": "Open full conversation",
   "observability.learnAboutTab": "Learn about this tab",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteMustContainOptional": "Reply must contain (optional)",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.summarizeWithAgent": "Summarize with agent",
   "observability.regenerateSummary": "Regenerate summary",
   "observability.summarizeWithAgentHelp":
@@ -92,12 +98,6 @@ const messages = {
   "observability.summaryFailed": "Could not send the request. Try again.",
   "observability.summaryExpired":
     "No summary has appeared yet. You can retry, but the agent may still be working.",
-  "observability.promoteMustContain": "Reply must contain…",
-  "observability.promoteMustContainOptional": "Reply must contain (optional)",
-  "observability.promoteMustContainLabel":
-    "Text the promoted eval reply must contain",
-  "observability.promoteNeedsContains":
-    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "onboarding.back": "Back",
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
@@ -640,6 +640,8 @@ const messages = {
   "integrations.recommended": "Recommended",
   "integrations.subtitle": "Connect the tools your agent can use.",
   "mcpIntegrations.menuLabel": "Integrations",
+  "mcpApps.optionalPeerRequired":
+    "This MCP App requires {{packageName}}. Install it with {{installCommand}}.",
   "mcpIntegrations.menuDescription": "Connect tools and services to the agent",
   "mcpIntegrations.title": "Connect integrations",
   "mcpIntegrations.description":

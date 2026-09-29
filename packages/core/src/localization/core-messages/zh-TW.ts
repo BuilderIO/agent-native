@@ -80,6 +80,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未擷取",
   "observability.openFullConversation": "開啟完整對話",
   "observability.learnAboutTab": "了解此分頁",
+  "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainLabel": "升級後評估回覆必須包含的文字",
+  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
+  "observability.promoteNeedsContains":
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.summarizeWithAgent": "請代理程式摘要",
   "observability.regenerateSummary": "重新產生摘要",
   "observability.summarizeWithAgentHelp":
@@ -92,11 +97,6 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "無法傳送請求，請再試一次。",
   "observability.summaryExpired":
     "摘要尚未顯示。你可以重試，但代理程式可能仍在處理。",
-  "observability.promoteMustContain": "回覆必須包含…",
-  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
-  "observability.promoteMustContainLabel": "升級後的評測回覆必須包含的文字",
-  "observability.promoteNeedsContains":
-    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再將其升級為評測。",
   "onboarding.back": "返回",
   "onboarding.chooseRole": "選擇你的角色",
   "onboarding.customizeRole": "讓我們為你客製化。",
@@ -612,6 +612,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推薦",
   "integrations.subtitle": "連線您的代理可以使用的工具。",
   "mcpIntegrations.menuLabel": "整合",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 應用需要 {{packageName}}。請使用 {{installCommand}} 安裝。",
   "mcpIntegrations.menuDescription": "將工具和服務連線至代理",
   "mcpIntegrations.title": "連線整合",
   "mcpIntegrations.description": "瀏覽 {{count}} 個代理整合，或新增自訂整合。",
