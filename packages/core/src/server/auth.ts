@@ -4721,6 +4721,27 @@ function setFrameworkSessionHintCookie(event: H3Event): void {
   });
 }
 
+export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
+  setResponseHeader(event, "Cache-Control", "no-store");
+  if (!isReadMethod(event)) {
+    setResponseStatus(event, 405);
+    return { error: "Method not allowed" };
+  }
+  const session = await getSession(event);
+  if (
+    !session &&
+    (event.context as Record<string, unknown>)[
+      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+    ] === true
+  ) {
+    setResponseStatus(event, 503);
+    return { error: "Session unavailable" };
+  }
+  if (session) setFrameworkSessionHintCookie(event);
+  else clearFrameworkSessionHintCookies(event);
+  return session ?? { error: "Not authenticated" };
+});
+
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   clearFrameworkSessionCookies(event);
   setCookie(event, COOKIE_NAME, token, {
@@ -6667,29 +6688,7 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  app.use(
-    "/_agent-native/auth/session",
-    defineEventHandler(async (event) => {
-      setResponseHeader(event, "Cache-Control", "no-store");
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const session = await getSession(event);
-      if (
-        !session &&
-        (event.context as Record<string, unknown>)[
-          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-        ] === true
-      ) {
-        setResponseStatus(event, 503);
-        return { error: "Session unavailable" };
-      }
-      if (session) setFrameworkSessionHintCookie(event);
-      else clearFrameworkSessionHintCookies(event);
-      return session ?? { error: "Not authenticated" };
-    }),
-  );
+  app.use("/_agent-native/auth/session", authSessionHandler);
 
   app.use(
     "/_agent-native/auth/reset",
@@ -6872,29 +6871,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
     }),
   );
 
-  app.use(
-    "/_agent-native/auth/session",
-    defineEventHandler(async (event) => {
-      setResponseHeader(event, "Cache-Control", "no-store");
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const session = await getSession(event);
-      if (
-        !session &&
-        (event.context as Record<string, unknown>)[
-          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-        ] === true
-      ) {
-        setResponseStatus(event, 503);
-        return { error: "Session unavailable" };
-      }
-      if (session) setFrameworkSessionHintCookie(event);
-      else clearFrameworkSessionHintCookies(event);
-      return session ?? { error: "Not authenticated" };
-    }),
-  );
+  app.use("/_agent-native/auth/session", authSessionHandler);
 }
 
 export async function autoMountAuth(
@@ -6990,27 +6967,7 @@ export async function autoMountAuth(
   }
 
   if (customGetSession) {
-    app.use(
-      "/_agent-native/auth/session",
-      defineEventHandler(async (event) => {
-        setResponseHeader(event, "Cache-Control", "no-store");
-        if (!isReadMethod(event)) {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        const session = await getSession(event);
-        if (
-          !session &&
-          (event.context as Record<string, unknown>)[
-            SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-          ] === true
-        ) {
-          setResponseStatus(event, 503);
-          return { error: "Session unavailable" };
-        }
-        return session ?? { error: "Not authenticated" };
-      }),
-    );
+    app.use("/_agent-native/auth/session", authSessionHandler);
     app.use(
       "/_agent-native/auth/login",
       defineEventHandler(() => ({ ok: true })),
