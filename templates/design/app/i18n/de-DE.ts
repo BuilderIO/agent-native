@@ -166,12 +166,6 @@ export default {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     openAgentSettings: "Agent verwalten",
-    languageTitle: "Sprache",
-    languageDescription: "Wähle die Oberflächensprache für Design.",
-    languageLabel: "Oberflächensprache",
-    labs: "Labs",
-    labsIntro:
-      "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
     mcpAbout:
@@ -226,6 +220,7 @@ export default {
     },
   },
   common: {
+    loading: "Wird geladen...",
     genericError: "Etwas ist schief gelaufen",
   },
   editPanel: {

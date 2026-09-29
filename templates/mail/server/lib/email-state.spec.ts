@@ -49,6 +49,7 @@ vi.mock("./google-api.js", () => ({
   gmailGetMessage: vi.fn(),
   gmailModifyMessage: vi.fn(),
   gmailModifyThread: vi.fn(),
+  registerGmailAccountToken: vi.fn(),
   gmailTrashThread: vi.fn(),
   gmailUntrashThread: vi.fn(),
 }));
@@ -1296,5 +1297,22 @@ describe("managed workspace grant (no OAuth rows)", () => {
       isTrashed: false,
     });
     expect(gmailUntrashThread).toHaveBeenCalledWith(ACCESS_TOKEN, THREAD_ID);
+  });
+});
+
+describe("shared OAuth refresh", () => {
+  it("uses the connected-account single-flight resolver near token expiry", async () => {
+    mockAccounts();
+    vi.mocked(getOAuthTokens).mockResolvedValue({
+      access_token: "expiring-token",
+      expiry_date: Date.now() + 60_000,
+    } as any);
+    vi.mocked(getClientForConnectedAccount).mockResolvedValue({
+      accessToken: "refreshed-token",
+      email: ACCT,
+    });
+
+    await expect(getAccountToken(ACCT, OWNER)).resolves.toBe("refreshed-token");
+    expect(getClientForConnectedAccount).toHaveBeenCalledWith(OWNER, ACCT);
   });
 });

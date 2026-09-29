@@ -167,12 +167,6 @@ export default {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Design.",
-    languageLabel: "Langue de l'interface",
-    labs: "Labs",
-    labsIntro:
-      "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
     mcpAbout:
@@ -227,6 +221,7 @@ export default {
     },
   },
   common: {
+    loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
   },
   editPanel: {

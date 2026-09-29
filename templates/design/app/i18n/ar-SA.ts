@@ -162,12 +162,6 @@ export default {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     openAgentSettings: "إدارة الوكيل",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة واجهة Design.",
-    languageLabel: "لغة الواجهة",
-    labs: "Labs",
-    labsIntro:
-      "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
     mcpAbout:
@@ -222,6 +216,7 @@ export default {
     },
   },
   common: {
+    loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
   },
   editPanel: {

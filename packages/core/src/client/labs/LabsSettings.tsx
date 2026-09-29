@@ -1,6 +1,5 @@
 import { Switch } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
-import { IconFlask } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
 import type { LabDefinition } from "../../labs/registry.js";
@@ -147,15 +146,9 @@ export function LabsSettings({
 }: LabsSettingsProps) {
   const state = useLabsSettingsState(labs);
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6">
-      <SettingsGroup title={title}>
-        <div className="flex items-start gap-3 border-b border-border/60 px-5 py-4 text-sm leading-6 text-muted-foreground sm:px-6">
-          <IconFlask className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <p>{intro}</p>
-        </div>
-        <LabRows state={state} />
-      </SettingsGroup>
-    </div>
+    <SettingsGroup title={title} description={intro}>
+      <LabRows state={state} />
+    </SettingsGroup>
   );
 }
 

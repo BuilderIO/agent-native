@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "स्वयं के लिए नोट",
     },
     inbox: {
+      atLeastCount: "कम से कम {{count}}",
       syncing: "इनबॉक्स सिंक हो रहा है…",
     },
     sort: {
@@ -564,9 +565,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -783,7 +781,6 @@ const messages = {
     peoplePlural: "{{count}} लोग",
     deleteAliasDescription:
       "उपनाम “{{name}}” हटाएं? यह कार्रवाई वापस नहीं की जा सकती।",
-    aliasesDescription: "ईमेल लिखते समय उपयोग किए जा सकने वाले पते समूह।",
     newAlias: "नया उपनाम",
     noAliases: "अभी कोई उपनाम नहीं है। शुरू करने के लिए एक बनाएं।",
     applyLabel: "लेबल लागू करें",
@@ -802,15 +799,6 @@ const messages = {
     actions: "कार्रवाइयां",
     editRule: "नियम संपादित करें",
     deleteRule: "नियम हटाएं",
-    noEventAutomations: "मेल के लिए अभी कोई event-triggered automation नहीं है।",
-    eventAutomationsPrompt:
-      "एजेंट से ऐसी automation बनाने को कहें: “जब मुझे अपने बॉस से ईमेल मिले, उसे star करें और मुझे notify करें।”",
-    disabled: "अक्षम",
-    on: "पर",
-    when: "जब",
-    lastRun: "आखिरी रन:",
-    automationsDescription:
-      "AI का उपयोग करके नए inbox emails को स्वतः process करने वाले नियम।",
     allowAutomationSends: "Automations को emails अपने आप भेजने की अनुमति दें",
     allowAutomationSendsDescription:
       "डिफ़ॉल्ट रूप से बंद है। जब आप चाहते हैं कि automations हर बार approval मांगे बिना emails भेजें, तब इसे चालू करें।",
@@ -821,16 +809,11 @@ const messages = {
     noAutomationRules: "अभी कोई automation rules नहीं हैं।",
     noAutomationRulesDescription:
       "Emails को auto-label करने, newsletters archive करने, important messages star करने आदि के लिए नियम बनाएं। AI agent से भी इन्हें setup करने को कह सकते हैं।",
-    eventTriggers: "Event triggers",
-    eventTriggersDescription:
-      "Mail events होने पर चलने वाली automations (जैसे नया email मिलना)। इन्हें agent manage करता है।",
     importedSignature: "{{account}} से signature import किया गया।",
     noGmailSignature: "{{account}} के लिए Gmail signature नहीं मिला।",
     importSignatureFailed: "Gmail signature import करने में विफल।",
     draftingSettingsSaved: "Drafting settings सहेजी गईं।",
     draftingSettingsSaveFailed: "Drafting settings सहेजने में विफल।",
-    draftingDescription:
-      "Email drafts compose और generate करते समय उपयोग होने वाली preferences।",
     signature: "हस्ताक्षर",
     importFromGmail: "Gmail से import करें",
     signatureHelp:
@@ -844,41 +827,14 @@ const messages = {
     writingStylePlaceholder: "छोटा, विशिष्ट, गर्मजोशी भरा। औपचारिक filler से बचें।",
     saveDraftingSettings: "Drafting settings सहेजें",
     reset: "रीसेट",
-    trackingDescription:
-      "जानें कि recipients आपके भेजे emails कब खोलते हैं और links कब click करते हैं। Stats हर sent message के नीचे दिखते हैं।",
     trackEmailOpens: "Email opens track करें",
     trackEmailOpensDescription:
       "Outgoing emails में 1×1 pixel inject करता है ताकि open होने का समय दिखे।",
     trackLinkClicks: "Link clicks track करें",
     trackLinkClicksDescription:
       "Outgoing emails में external links rewrite करता है ताकि clicks गिने जा सकें।",
-    slackLoadFailed: "Slack status load करने में विफल",
-    slackUpdateFailed: "Slack intake update करने में विफल",
-    slackConfigured: "Slack credentials configured हैं।",
-    slackNeedsCredentials:
-      "Legacy custom intake के लिए SLACK_BOT_TOKEN और SLACK_SIGNING_SECRET आवश्यक हैं। नए Slack messaging automations के लिए Settings > Messaging में workspace connect करें।",
-    slackIntake: "Slack intake (legacy)",
-    slackDescription:
-      "Legacy custom integration जो organization members को Slack से email drafts queue करने देता है।",
-    enabled: "सक्षम",
-    disable: "अक्षम करें",
-    enable: "सक्षम करें",
-    slackPostEndpoint: "Slack POST एंडपॉइंट",
-    slackPostEndpointHelp:
-      "Slack Event Subscriptions में उपयोग करें। Browser GET Not Found दिखा सकता है।",
-    title: "सेटिंग्स",
-    general: "सामान्य",
-    generalDescription: "Mail की भाषा और account-level preferences.",
-    languageTitle: "भाषा",
-    languageDescription:
-      "इस account के लिए interface language चुनें। Mail इसे सभी devices पर याद रखता है।",
-    languageLabel: "इंटरफ़ेस भाषा",
-    whatsNew: "नया क्या है",
-    whatsNewDescription: "Agent-Native Mail में हाल के user-facing बदलाव।",
     drafting: "Drafting",
     snippets: "स्निपेट्स",
-    snippetsDescription:
-      "सेव किए गए जवाब जिन्हें आप / और स्निपेट का नाम टाइप करके कंपोज़ ड्राफ्ट में डाल सकते हैं।",
     newSnippet: "नया स्निपेट",
     noSnippets: "अभी तक कोई स्निपेट नहीं है। शुरू करने के लिए एक बनाएं।",
     snippetName: "स्निपेट का नाम",
@@ -889,7 +845,6 @@ const messages = {
     deleteSnippet: "स्निपेट हटाएं",
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
-    automations: "स्वचालन",
     rules: "नियम",
     rulesModel: "नियमों का मॉडल",
     rulesModelDescription: "आने वाले मेल को आपके नियमों से मिलाता है।",
@@ -902,7 +857,6 @@ const messages = {
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
-    slack: "Slack",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

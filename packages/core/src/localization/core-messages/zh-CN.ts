@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "无法加载上下文。",
   "composer.contextLinkRequired": "请输入链接。",
   "composer.submitFailed": "无法提交。请重试。",
+  "composer.attachmentsRemainAfterSubmit":
+    "消息已发送，但仍有附件。请先移除附件再发送下一条消息。",
   "composer.addContext": "添加上下文",
   "composer.contextActionFailed": "无法添加上下文。",
   "composer.contextBack": "返回",
@@ -70,6 +72,11 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及文件、智能体或资源",
   "commands.new": "与 /clear 相同",
   "commands.plan": "切换到只读规划模式",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainOptional": "回复必须包含（可选）",
+  "observability.promoteMustContainLabel": "晋升后的评估回复必须包含的文本",
+  "observability.promoteNeedsContains":
+    "本次运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.viewDetails": "查看详情",
   "observability.hideDetails": "隐藏详情",
   "observability.input": "输入",
@@ -79,11 +86,6 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未捕获",
   "observability.openFullConversation": "打开完整对话",
   "observability.learnAboutTab": "了解此选项卡",
-  "observability.promoteMustContain": "回复必须包含…",
-  "observability.promoteMustContainLabel": "晋升后的评估回复必须包含的文本",
-  "observability.promoteMustContainOptional": "回复必须包含（可选）",
-  "observability.promoteNeedsContains":
-    "此运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.summarizeWithAgent": "让智能体总结",
   "observability.regenerateSummary": "重新生成摘要",
   "observability.summarizeWithAgentHelp":

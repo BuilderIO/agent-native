@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import { CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import { loadAgentChatMessagesForLocale } from "../localization/core-messages.js";
 import {
   LOCALIZATION_SETTING_KEY,
   normalizeLocalizationPreference,
 } from "../localization/shared.js";
-import { renderBuilderCreditLimitEmail } from "../server/email-templates.js";
 import { sendEmail } from "../server/email.js";
 import {
   deleteUserSetting,
@@ -114,13 +114,16 @@ export async function sendBuilderCreditLimitNotice(input: {
     const upgradeUrl = builderSubscriptionUpgradeUrl(
       "builder_credit_limit_email",
     );
-    const email = renderBuilderCreditLimitEmail({
-      subject,
-      heading: subject,
-      body,
-      upgradeLabel,
-      upgradeUrl,
-    });
+    const email = await renderTransactionalEmail(
+      CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID,
+      {
+        subject,
+        heading: subject,
+        body,
+        upgradeLabel,
+        upgradeUrl,
+      },
+    );
     await sendEmail({
       to: input.ownerEmail,
       ...email,

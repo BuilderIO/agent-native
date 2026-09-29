@@ -165,12 +165,6 @@ export default {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    languageTitle: "Language",
-    languageDescription: "Choose the interface language for Design.",
-    languageLabel: "Interface language",
-    labs: "Labs",
-    labsIntro:
-      "These are new, unstable features and may have bugs. We value your feedback.",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
     mcpAbout:
@@ -225,6 +219,7 @@ export default {
     },
   },
   common: {
+    loading: "Loading...",
     genericError: "Something went wrong",
   },
   editPanel: {

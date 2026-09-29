@@ -6348,6 +6348,7 @@ export async function runAgentLoop(opts: {
             attachments: opts.attachments,
             signal,
             actionName: toolCall.name,
+            toolCallId: toolCall.id,
             ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
             ...(opts.threadId ? { threadId: opts.threadId } : {}),
             ...(opts.runId ? { runId: opts.runId } : {}),

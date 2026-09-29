@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "正在断开连接…",
   },
   settings: {
-    title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     agentTitle: "代理设置",
     agentDescription:
       "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "管理团队访问和共享工作区资源。",
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
-    backHome: "返回首页",
     emailChange: "更改电子邮件",
     emailChangeSent: "请查看邮件以确认此更改。",
     emailChangeError: "无法发送确认邮件。",

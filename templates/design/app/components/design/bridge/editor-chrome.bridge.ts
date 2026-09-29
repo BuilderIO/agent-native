@@ -9209,6 +9209,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var lastHandleGeometryTargetEl: Element | null = null;
   var hoveredRadiusHandleKey = "";
   var activeRadiusHandleKey = "";
+  var activeRadiusPointerId: number | null = null;
 
   function radiusPathData(el) {
     if (!el || el.nodeType !== 1 || el.tagName.toLowerCase() !== "svg") {
@@ -9623,6 +9624,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "data-agent-native-suppress-handle-transition",
       );
     }
+    if (lastHoverClientPoint) {
+      updateRadiusHandleHover({
+        clientX: lastHoverClientPoint.x,
+        clientY: lastHoverClientPoint.y,
+      });
+    }
   }
 
   function updateRadiusHandleHover(e) {
@@ -9654,6 +9661,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (nextHoveredKey === hoveredRadiusHandleKey) return;
     hoveredRadiusHandleKey = nextHoveredKey;
+    applySelectionHandleHitGeometry(selectedEl);
+  }
+
+  function clearRadiusHandleHover() {
+    lastHoverClientPoint = null;
+    hoveredRadiusHandleKey = "";
     applySelectionHandleHitGeometry(selectedEl);
   }
 
@@ -12094,33 +12107,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       label: string;
       info: unknown;
     }> = [];
-    pointTargets.forEach(function (pointTarget) {
-      if (!pointTarget || pointTarget.nodeType !== 1) return;
-      if (isOverlayElement(pointTarget)) return;
-      var candidate = selectionTargetForHit(pointTarget);
-      if (
-        !candidate ||
-        isDocumentRootElement(candidate) ||
-        isOverlayElement(candidate) ||
-        isLayerInteractionBlocked(candidate) ||
-        isTemplateCloneElement(candidate) ||
-        elements.indexOf(candidate) !== -1
-      ) {
-        return;
-      }
-      elements.push(candidate);
-      var candidateInfo = getElementInfo(candidate);
-      var label = layerCandidateLabelFor(candidate, candidateInfo);
-      var identity =
-        candidateInfo.sourceId ||
-        candidateInfo.selector ||
-        String(layerCandidates.length);
-      layerCandidates.push({
-        key: String(identity) + ":" + String(layerCandidates.length),
-        label: String(label).slice(0, 80),
-        info: candidateInfo,
+    // The hit stack is nested, so each candidate's subtree snapshot contains
+    // the next one's; a shared cache reads each element's styles once.
+    portableStyleProbeDocument();
+    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    try {
+      pointTargets.forEach(function (pointTarget) {
+        if (!pointTarget || pointTarget.nodeType !== 1) return;
+        if (isOverlayElement(pointTarget)) return;
+        var candidate = selectionTargetForHit(pointTarget);
+        if (
+          !candidate ||
+          isDocumentRootElement(candidate) ||
+          isOverlayElement(candidate) ||
+          isLayerInteractionBlocked(candidate) ||
+          isTemplateCloneElement(candidate) ||
+          elements.indexOf(candidate) !== -1
+        ) {
+          return;
+        }
+        elements.push(candidate);
+        var candidateInfo = getElementInfo(
+          candidate,
+          portableComputedStylesCache,
+        );
+        var label = layerCandidateLabelFor(candidate, candidateInfo);
+        var identity =
+          candidateInfo.sourceId ||
+          candidateInfo.selector ||
+          String(layerCandidates.length);
+        layerCandidates.push({
+          key: String(identity) + ":" + String(layerCandidates.length),
+          label: String(label).slice(0, 80),
+          info: candidateInfo,
+        });
       });
-    });
+    } finally {
+      if (portableComputedStylesCache) {
+        portableComputedStylesCache.mutationObserver.disconnect();
+        portableComputedStylesCache.restoreCssomHooks();
+      }
+    }
     return { elements: elements, layerCandidates: layerCandidates };
   }
 
@@ -22691,6 +22718,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelRotateDrag);
   }
 
+  function listenForRadiusDragCancellation(
+    pointerId: number | null,
+    cancel: () => void,
+  ) {
+    if (pointerId === null) return function () {};
+    var pointerEndedNormally = false;
+    function onPointerUp(ev) {
+      if (ev.pointerId === pointerId) pointerEndedNormally = true;
+    }
+    function onPointerCancel(ev) {
+      if (ev.pointerId === pointerId && !pointerEndedNormally) cancel();
+    }
+    function onLostPointerCapture(ev) {
+      if (ev.pointerId === pointerId && !pointerEndedNormally) cancel();
+    }
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("lostpointercapture", onLostPointerCapture, true);
+    return function () {
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener(
+        "lostpointercapture",
+        onLostPointerCapture,
+        true,
+      );
+    };
+  }
+
   function startRadiusDrag(corner, e) {
     if (readOnly) return;
     if (!selectedEl) return;
@@ -22702,6 +22758,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
+    var radiusPointerId = activeRadiusPointerId;
     var radiusEl = selectedEl;
     var cs = window.getComputedStyle(radiusEl);
     var cornerProperty =
@@ -22746,6 +22803,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startX = e.clientX;
     var startY = e.clientY;
     var radiusMoved = false;
+    var removePointerCancelListeners = function () {};
     activeRadiusHandleKey = String(corner);
     applySelectionHandleHitGeometry(radiusEl);
     var signX = corner.indexOf("w") !== -1 ? 1 : -1;
@@ -22791,6 +22849,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onRadiusKeyDown, true);
+      removePointerCancelListeners();
+      if (activeRadiusPointerId === radiusPointerId) {
+        activeRadiusPointerId = null;
+      }
       clearActiveDragCancel(cancelRadiusDrag);
       hoveredRadiusHandleKey = activeRadiusHandleKey;
       activeRadiusHandleKey = "";
@@ -22812,8 +22874,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       stopNativeInteraction(ev);
       cancelRadiusDrag();
     }
-    function onUp() {
+    function onUp(ev) {
       cleanupRadiusDrag();
+      lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+      updateRadiusHandleHover(ev);
       if (!radiusEl) return;
       if (!radiusMoved) {
         releaseLiveVisualEditOriginalStyles(radiusEl);
@@ -22858,6 +22922,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onRadiusKeyDown, true);
+    removePointerCancelListeners = listenForRadiusDragCancellation(
+      radiusPointerId,
+      cancelRadiusDrag,
+    );
     setActiveDragCancel(cancelRadiusDrag);
   }
 
@@ -22877,6 +22945,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
+    var radiusPointerId = activeRadiusPointerId;
     var originalD = originalPath.getAttribute("d") || "";
     var originalRadiusAttribute = radiusEl.getAttribute(
       "data-an-corner-radius",
@@ -22891,6 +22960,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startX = e.clientX;
     var startY = e.clientY;
     var radiusMoved = false;
+    var removePointerCancelListeners = function () {};
     activeRadiusHandleKey = String(handle);
     applySelectionHandleHitGeometry(radiusEl);
     refreshLiveVisualEditOriginalStyles(radiusEl);
@@ -22905,6 +22975,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onRadiusKeyDown, true);
+      removePointerCancelListeners();
+      if (activeRadiusPointerId === radiusPointerId) {
+        activeRadiusPointerId = null;
+      }
       clearActiveDragCancel(cancelVectorRadiusDrag);
       hoveredRadiusHandleKey = activeRadiusHandleKey;
       activeRadiusHandleKey = "";
@@ -22945,8 +23019,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       applySelectionHandleHitGeometry(radiusEl);
       refreshOverlays();
     }
-    function onUp() {
+    function onUp(ev) {
       cleanupVectorRadiusDrag();
+      lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+      updateRadiusHandleHover(ev);
       if (!radiusMoved) {
         releaseLiveVisualEditOriginalStyles(radiusEl);
         return;
@@ -22979,6 +23055,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onRadiusKeyDown, true);
+    removePointerCancelListeners = listenForRadiusDragCancellation(
+      radiusPointerId,
+      cancelVectorRadiusDrag,
+    );
     setActiveDragCancel(cancelVectorRadiusDrag);
   }
 
@@ -23373,6 +23453,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function (e) {
       if (readOnly || e.button !== 0) return;
       if (rerouteStaleSelectionHandleHitToMove(e)) return;
+      if (
+        e.pointerId !== undefined &&
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-radius-handle")
+      ) {
+        activeRadiusPointerId = e.pointerId;
+      }
       if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
         selectionOverlay.setPointerCapture(e.pointerId);
       }
@@ -24710,7 +24798,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function handleShieldPointerMove(e) {
     if (readOnly || interactionMode) return;
     stopNativeInteraction(e);
-    lastHoverClientPoint = { x: e.clientX, y: e.clientY };
     hoveredEl = resolveHoverTarget(
       e.clientX,
       e.clientY,
@@ -24775,6 +24862,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "pointermove",
     function (e) {
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       updateRadiusHandleHover(e);
       if (isOverlayElement(e.target)) return;
       if (pendingShieldDrag || activeDragCancel) {
@@ -24789,6 +24877,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "mousemove",
     function (e) {
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       updateRadiusHandleHover(e);
       if (isOverlayElement(e.target)) return;
       if (pendingShieldDrag || activeDragCancel) {
@@ -24811,6 +24900,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "pointerleave",
     function (e) {
       stopNativeInteraction(e);
+      if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
         updateSpacingOverlay(selectedEl);
         return;
@@ -24826,6 +24916,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "pointerleave",
     function (e) {
       stopNativeInteraction(e);
+      if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
         updateSpacingOverlay(selectedEl);
         return;

@@ -3,14 +3,8 @@ import {
   Skeleton,
   TextArea,
 } from "@agent-native/toolkit/design-system";
-import { IconInfoCircle } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import {
   useCreateResource,
@@ -19,6 +13,7 @@ import {
   useUpdateResource,
   type ResourceMeta,
 } from "../resources/use-resources.js";
+import { SettingsGroup } from "./SettingsRow.js";
 
 function resourceAtPath(
   resources: ResourceMeta[] | undefined,
@@ -122,7 +117,7 @@ export function AgentPersonalizationSettings() {
 
   if (loading) {
     return (
-      <div className="max-w-3xl space-y-6" aria-busy="true">
+      <div className="w-full space-y-6" aria-busy="true">
         <div className="space-y-2">
           <Skeleton className="h-4 w-40" />
           <Skeleton className="h-28 w-full" />
@@ -145,21 +140,6 @@ export function AgentPersonalizationSettings() {
     );
   }
 
-  const help = (content: string) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={content}
-        >
-          <IconInfoCircle size={16} aria-hidden="true" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{content}</TooltipContent>
-    </Tooltip>
-  );
-
   const renderSaveStatus = (field: string) => {
     if (failedField === field) {
       return (
@@ -179,94 +159,86 @@ export function AgentPersonalizationSettings() {
   };
 
   return (
-    <div className="max-w-3xl space-y-7">
-      <section className="space-y-2">
-        <div className="flex items-center gap-1">
-          <label
-            htmlFor="agent-personal-instructions"
-            className="text-sm font-medium text-foreground"
-          >
-            {labels.customInstructions}
-          </label>
-          {help(labels.customInstructionsHelp)}
+    <div className="w-full space-y-7">
+      <SettingsGroup
+        title={labels.customInstructions}
+        description={labels.customInstructionsHelp}
+      >
+        <div className="space-y-2 px-5 py-4 sm:px-6">
+          <TextArea
+            id="agent-personal-instructions"
+            aria-label={labels.customInstructions}
+            value={instructionsValue}
+            onChange={(value) => {
+              setInstructionsDraft(value);
+              setSavedField(null);
+              setFailedField(null);
+            }}
+            placeholder={labels.instructionsPlaceholder}
+            rows={8}
+            className="resize-y text-sm"
+            disabled={saving}
+          />
+          <div className="flex min-h-9 items-center gap-3">
+            <ActionButton
+              type="button"
+              emphasis="solid"
+              disabled={!canSaveInstructions || saving}
+              onPress={() =>
+                void save({
+                  field: "instructions",
+                  path: "AGENTS.md",
+                  resource: instructionsMeta,
+                  content: instructionsValue,
+                })
+              }
+            >
+              {savingField === "instructions" ? labels.saving : labels.save}
+            </ActionButton>
+            {renderSaveStatus("instructions")}
+          </div>
         </div>
-        <TextArea
-          id="agent-personal-instructions"
-          aria-label={labels.customInstructions}
-          value={instructionsValue}
-          onChange={(value) => {
-            setInstructionsDraft(value);
-            setSavedField(null);
-            setFailedField(null);
-          }}
-          placeholder={labels.instructionsPlaceholder}
-          rows={8}
-          className="resize-y text-sm"
-          disabled={saving}
-        />
-        <div className="flex min-h-9 items-center gap-3">
-          <ActionButton
-            type="button"
-            emphasis="solid"
-            disabled={!canSaveInstructions || saving}
-            onPress={() =>
-              void save({
-                field: "instructions",
-                path: "AGENTS.md",
-                resource: instructionsMeta,
-                content: instructionsValue,
-              })
-            }
-          >
-            {savingField === "instructions" ? labels.saving : labels.save}
-          </ActionButton>
-          {renderSaveStatus("instructions")}
-        </div>
-      </section>
+      </SettingsGroup>
 
-      <section className="space-y-2">
-        <div className="flex items-center gap-1">
-          <label
-            htmlFor="agent-personal-memory-instructions"
-            className="text-sm font-medium text-foreground"
-          >
-            {labels.memoryInstructions}
-          </label>
-          {help(labels.memoryInstructionsHelp)}
+      <SettingsGroup
+        title={labels.memoryInstructions}
+        description={labels.memoryInstructionsHelp}
+      >
+        <div className="space-y-2 px-5 py-4 sm:px-6">
+          <TextArea
+            id="agent-personal-memory-instructions"
+            aria-label={labels.memoryInstructions}
+            value={memoryValue}
+            onChange={(value) => {
+              setMemoryDraft(value);
+              setSavedField(null);
+              setFailedField(null);
+            }}
+            placeholder={labels.memoryPlaceholder}
+            rows={5}
+            className="resize-y text-sm"
+            disabled={saving}
+          />
+          <div className="flex min-h-9 items-center gap-3">
+            <ActionButton
+              type="button"
+              emphasis="solid"
+              disabled={!canSaveMemory || saving}
+              onPress={() =>
+                void save({
+                  field: "memory",
+                  path: "memory/INSTRUCTIONS.md",
+                  resource: memoryInstructionsMeta,
+                  content: memoryValue,
+                })
+              }
+            >
+              {savingField === "memory" ? labels.saving : labels.save}
+            </ActionButton>
+            {renderSaveStatus("memory")}
+          </div>
         </div>
-        <TextArea
-          id="agent-personal-memory-instructions"
-          aria-label={labels.memoryInstructions}
-          value={memoryValue}
-          onChange={(value) => {
-            setMemoryDraft(value);
-            setSavedField(null);
-            setFailedField(null);
-          }}
-          placeholder={labels.memoryPlaceholder}
-          rows={5}
-          className="resize-y text-sm"
-          disabled={saving}
-        />
-        <div className="flex min-h-9 items-center gap-3">
-          <ActionButton
-            type="button"
-            emphasis="solid"
-            disabled={!canSaveMemory || saving}
-            onPress={() =>
-              void save({
-                field: "memory",
-                path: "memory/INSTRUCTIONS.md",
-                resource: memoryInstructionsMeta,
-                content: memoryValue,
-              })
-            }
-          >
-            {savingField === "memory" ? labels.saving : labels.save}
-          </ActionButton>
-          {renderSaveStatus("memory")}
-        </div>
-      </section>
+      </SettingsGroup>
     </div>
   );
 }

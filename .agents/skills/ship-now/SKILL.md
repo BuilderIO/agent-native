@@ -52,6 +52,18 @@ settings, provider callback registration, deployed auth configuration, or
 serverless session behavior; AuthPage copy or layout changes alone do not
 trigger it.
 
+## Existing PR authorization
+
+Before pushing to or merging an existing PR, resolve the active GitHub login
+with `gh api user --jq .login` and query the live PR including `author`,
+`headRepository`, `headRefName`, `headRefOid`, `baseRefName`, and `state`.
+Compare `author.login` with the active login. A push to another person's PR
+requires the current request to explicitly authorize a push to that exact PR;
+a PR link, branch match, or generic `/ship-now` request is not authorization.
+Merging another person's PR requires separate authorization to merge that exact
+PR. Repeat the live checks immediately before each push and merge, and push only
+to the verified head repository and branch with a normal fast-forward.
+
 ## Fast-path contract
 
 `/ship-now` publishes one complete, coherent nonignored current-branch
@@ -93,7 +105,7 @@ isolated safely, preserve all state and report the exact paths or commits.
    git status --short
    git log --oneline -5
    git branch --show-current
-   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url
+   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url,author
    ```
 
    Stay on the current branch until its PR is merged. Do not reset, rebase,
@@ -157,12 +169,20 @@ isolated safely, preserve all state and report the exact paths or commits.
      remaining;
    - every review item has a fix or an explicit reply;
    - the PR is not conflicting; and
-   - the user has explicitly authorized this `/ship-now` invocation.
+   - the user has explicitly authorized this `/ship-now` invocation; when the
+     existing PR is authored by someone else, the current request separately
+     authorizes merging that exact PR.
 
-   Use the current PR number and no force push:
+   Recheck the active login, PR author, head repository, branch, current head
+   OID, base, and state immediately before merging. Bind the merge to that
+   verified head and do not retry against a changed head without rechecking:
+
+   Before merging, record that exact OID as `ship_merge_head_oid` in the active
+   goal or task transcript and carry it unchanged through `origin/main`
+   verification.
 
    ```bash
-   gh pr merge <number> --squash --admin
+   gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
    ```
 
    Do not wait for remote CI, release checks, or the normal `/ship` soak, and

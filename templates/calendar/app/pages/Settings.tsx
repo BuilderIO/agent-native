@@ -1,4 +1,3 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
   AccountSettingsCard,
   SettingsTabsPage,
@@ -26,11 +25,6 @@ export default function Settings() {
       notifications={redesigned.notifications}
       notificationsSearchEntries={redesigned.notificationsSearchEntries}
       whatsNewMarkdown={changelog}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
     />
   );
 }

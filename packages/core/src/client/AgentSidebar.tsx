@@ -252,6 +252,8 @@ function AgentSidebarPanelSkeleton() {
 export interface AgentSidebarProps {
   children: React.ReactNode;
   enabled?: boolean;
+  screenRefreshEnabled?: boolean;
+  /** @deprecated Use screenRefreshEnabled when disabling this boundary. */
   screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
   suggestions?: AssistantChatProps["suggestions"];
@@ -327,7 +329,8 @@ interface HostedHarnessStatus {
 export function AgentSidebar({
   children,
   enabled = true,
-  screenRefreshOnlyWhenPanelActive = false,
+  screenRefreshEnabled = true,
+  screenRefreshOnlyWhenPanelActive,
   emptyStateText = "How can I help you?",
   defaultMode = "chat",
   suggestions,
@@ -1298,7 +1301,10 @@ export function AgentSidebar({
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
           <ScreenRefreshBoundary
-            active={!screenRefreshOnlyWhenPanelActive || shouldMountPanel}
+            active={
+              screenRefreshEnabled &&
+              (screenRefreshOnlyWhenPanelActive === false || shouldMountPanel)
+            }
           >
             {children}
           </ScreenRefreshBoundary>

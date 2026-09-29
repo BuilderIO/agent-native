@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "No se pudo cargar el contexto.",
   "composer.contextLinkRequired": "Introduce un enlace.",
   "composer.submitFailed": "No se pudo enviar. Inténtalo de nuevo.",
+  "composer.attachmentsRemainAfterSubmit":
+    "El mensaje se envió, pero aún quedan archivos adjuntos. Quítalos antes de volver a enviar.",
   "composer.addContext": "Añadir contexto",
   "composer.contextActionFailed": "No se pudo añadir el contexto.",
   "composer.contextBack": "Atrás",
@@ -74,6 +76,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar archivos, agentes o recursos",
   "commands.new": "Igual que /clear",
   "commands.plan": "Cambiar a la planificación de solo lectura",
+  "observability.promoteMustContain": "La respuesta debe contener…",
+  "observability.promoteMustContainOptional":
+    "La respuesta debe contener (opcional)",
+  "observability.promoteMustContainLabel":
+    "Texto que debe contener la respuesta de la evaluación promovida",
+  "observability.promoteNeedsContains":
+    "Esta ejecución no tiene ninguna llamada a herramienta exitosa. Introduce el texto que debe contener la respuesta antes de promoverla.",
   "observability.viewDetails": "Ver detalles",
   "observability.hideDetails": "Ocultar detalles",
   "observability.input": "Entrada",
@@ -83,13 +92,6 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "No capturado",
   "observability.openFullConversation": "Abrir conversación completa",
   "observability.learnAboutTab": "Más información sobre esta pestaña",
-  "observability.promoteMustContain": "La respuesta debe contener…",
-  "observability.promoteMustContainLabel":
-    "Texto que debe contener la respuesta de la evaluación promocionada",
-  "observability.promoteMustContainOptional":
-    "La respuesta debe contener (opcional)",
-  "observability.promoteNeedsContains":
-    "Esta ejecución no tiene ninguna llamada a herramienta correcta. Escribe el texto que debe contener la respuesta antes de promocionar la evaluación.",
   "observability.summarizeWithAgent": "Resumir con el agente",
   "observability.regenerateSummary": "Regenerar resumen",
   "observability.summarizeWithAgentHelp":

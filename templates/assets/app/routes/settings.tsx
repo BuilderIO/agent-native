@@ -1,4 +1,3 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   SettingsTabsPage,
@@ -98,7 +97,6 @@ export default function SettingsPage() {
       generalSearchEntries={generalSearchEntries}
       notifications={<AssetsNotificationSettings />}
       notificationsSearchEntries={notificationsSearchEntries}
-      whatsNew={<ChangelogSettingsCard markdown={changelog} />}
       whatsNewMarkdown={changelog}
     />
   );
