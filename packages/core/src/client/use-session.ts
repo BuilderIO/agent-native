@@ -4,8 +4,10 @@ import type { AuthSession } from "../server/auth.js";
 import { setSentryUser, trackSessionStatus } from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
+  expireClientStatusResult,
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
+  SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
@@ -26,7 +28,7 @@ interface UseSessionResult {
   retry: () => void;
 }
 
-const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_CACHE_TTL_MS = SESSION_RESULT_LIFETIME_MS;
 const SESSION_RETRY_BUDGET_MS = 30_000;
 const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
@@ -39,6 +41,7 @@ let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
 let sessionInvalidationListenersInstalled = false;
+let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 const sessionInvalidationSubscribers = new Set<() => void>();
 let signingOut = false;
 
@@ -115,13 +118,61 @@ function notifyParentAuthState(
   }
 }
 
-function invalidateSessionCache(): void {
+function resetSessionCache(): void {
   sessionGeneration += 1;
   cachedSession = undefined;
   cachedSessionAt = 0;
   sessionRequest = undefined;
-  invalidateClientStatusRequest(SESSION_STATUS_PATH);
+  clearTimeout(staleSessionRecheck);
+  staleSessionRecheck = undefined;
+}
+
+function notifySessionSubscribers(): void {
   for (const subscriber of sessionInvalidationSubscribers) subscriber();
+}
+
+function invalidateSessionCache(): void {
+  resetSessionCache();
+  invalidateClientStatusRequest(SESSION_STATUS_PATH);
+  notifySessionSubscribers();
+}
+
+function rereadSession(): void {
+  resetSessionCache();
+  expireClientStatusResult(SESSION_STATUS_PATH);
+  notifySessionSubscribers();
+}
+
+/**
+ * Focus and visibility say only that the answer may be stale; logout, a peer
+ * tab's invalidation, and a 401 each invalidate explicitly. A signed-in answer
+ * inside its lifetime therefore stands for now, which keeps a hard load to one
+ * session read, and is re-read when it expires if the tab still has focus. That
+ * bounds how long a tab can show an identity changed somewhere that sends
+ * neither a broadcast nor a 401. A signed-out answer is re-read at once,
+ * because signing in elsewhere is what focus reports. A read already in flight
+ * is shared rather than aborted, so analytics refreshing on the same focus
+ * event does not cost a second request.
+ */
+function revalidateStaleSession(): void {
+  if (!hasFreshSessionCache() || !cachedSession) {
+    rereadSession();
+    return;
+  }
+  if (staleSessionRecheck !== undefined) return;
+  const answeredAt = cachedSessionAt;
+  staleSessionRecheck = setTimeout(
+    () => {
+      staleSessionRecheck = undefined;
+      // Already re-read since this focus: that answer is its own recheck.
+      if (cachedSessionAt !== answeredAt) return;
+      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+        return;
+      }
+      rereadSession();
+    },
+    Math.max(0, answeredAt + SESSION_CACHE_TTL_MS - Date.now()),
+  );
 }
 
 function installSessionInvalidationListeners(): void {
@@ -134,7 +185,7 @@ function installSessionInvalidationListeners(): void {
   }
   sessionInvalidationListenersInstalled = true;
 
-  window.addEventListener("focus", invalidateSessionCache);
+  window.addEventListener("focus", revalidateStaleSession);
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       invalidateSessionCache();
@@ -143,7 +194,7 @@ function installSessionInvalidationListeners(): void {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      invalidateSessionCache();
+      revalidateStaleSession();
     }
   });
 }

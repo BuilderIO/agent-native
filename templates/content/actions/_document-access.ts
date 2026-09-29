@@ -3,8 +3,24 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import {
+  accessFilter,
+  currentAccess,
+  getShareableResource,
+  resolveAccess,
+  type AccessContext,
+  type ResolvedAccess,
+} from "@agent-native/core/sharing";
+import {
+  and,
+  eq,
+  inArray,
+  isNull,
+  or,
+  sql,
+  type SQL,
+  type SQLWrapper,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -136,8 +152,74 @@ export async function accessibleDocumentIds(
   return accessible;
 }
 
-export async function resolveDocumentAccess(id: string) {
-  const current = await resolveAccess("document", id);
+/**
+ * The grants resolveAccess gives a document unconditionally (ownership,
+ * public visibility, or a direct user or active-organization share), as a
+ * SQL predicate over already-selected document columns. It only admits: a
+ * document it rejects may still be reachable (organization visibility,
+ * registration hooks), so the caller must fall back to resolveAccess.
+ */
+export function directDocumentAccessSql(
+  document: { id: SQLWrapper; ownerEmail: SQLWrapper; visibility: SQLWrapper },
+  ctx: AccessContext = currentAccess(),
+): SQL<boolean> {
+  const registration = getShareableResource("document");
+  if (!registration || registration.resolveAccessContext) return sql`false`;
+  const email = ctx.userEmail?.trim().toLowerCase();
+  const grants: SQL[] = [];
+  if (email && registration.ownerAccessIgnoresOrg === true) {
+    grants.push(sql`lower(${document.ownerEmail}) = ${email}`);
+  }
+  if (registration.allowPublic !== false) {
+    grants.push(sql`${document.visibility} = 'public'`);
+  }
+  const principals: SQL[] = [];
+  if (email) {
+    principals.push(
+      sql`(${schema.documentShares.principalType} = 'user' and lower(${schema.documentShares.principalId}) = ${email})`,
+    );
+  }
+  if (ctx.orgId) {
+    principals.push(
+      sql`(${schema.documentShares.principalType} = 'org' and ${schema.documentShares.principalId} = ${ctx.orgId})`,
+    );
+  }
+  if (
+    principals.length &&
+    registration.requireOrgMemberForUserShares !== true
+  ) {
+    grants.push(
+      sql`exists (select 1 from ${schema.documentShares} where ${schema.documentShares.resourceId} = ${document.id} and (${sql.join(principals, sql` or `)}))`,
+    );
+  }
+  return grants.length
+    ? sql<boolean>`(${sql.join(grants, sql` or `)})`
+    : sql<boolean>`false`;
+}
+
+type DocumentAccessAuthority = {
+  authority: {
+    userEmail: ReturnType<typeof getRequestUserEmail>;
+    orgId: string | null;
+  };
+};
+
+export async function resolveDocumentAccess(
+  id: string,
+): Promise<(ResolvedAccess & DocumentAccessAuthority) | null>;
+export async function resolveDocumentAccess(
+  id: string,
+  options: { skipResourceBody: true },
+): Promise<({ role: ResolvedAccess["role"] } & DocumentAccessAuthority) | null>;
+export async function resolveDocumentAccess(
+  id: string,
+  options: { skipResourceBody?: boolean } = {},
+) {
+  const resolve = (ctx?: AccessContext) =>
+    options.skipResourceBody
+      ? resolveAccess("document", id, ctx, { skipResourceBody: true })
+      : resolveAccess("document", id, ctx);
+  const current = await resolve();
   if (current) {
     return {
       ...current,
@@ -166,7 +248,7 @@ export async function resolveDocumentAccess(id: string) {
     }
     throw error;
   }
-  const granted = await resolveAccess("document", id, {
+  const granted = await resolve({
     userEmail: spaceAccess.authority.userEmail,
     orgId: spaceAccess.authority.orgId ?? undefined,
   });
