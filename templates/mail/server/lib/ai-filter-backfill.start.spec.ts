@@ -673,7 +673,7 @@ describe("startMailAiFilterBackfill", () => {
     row.stateJson = JSON.stringify(state);
     database.rows.push(row);
     mocks.writeLocalEmails.mockRejectedValueOnce(
-      new Error("Mail write failed permanently."),
+      new Error(`Mail write failed permanently. ${"x".repeat(600)}`),
     );
 
     await processMailAiFilterBackfills(ownerEmail);
@@ -681,7 +681,8 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(row.stateJson);
     expect(row.status).toBe("failed");
     expect(saved.error).toContain("Mail write failed permanently.");
-    expect(saved.error).toContain(state.error);
+    expect(saved.error.startsWith(state.error)).toBe(true);
+    expect(saved.error.length).toBeLessThanOrEqual(500);
     expect(saved.failedKeys).toEqual(["local:thread-a"]);
   });
 
@@ -925,7 +926,7 @@ describe("startMailAiFilterBackfill", () => {
     expect(mocks.getClientsWithErrors).toHaveBeenCalledTimes(3);
   });
 
-  it("skips an unavailable Gmail candidate and continues applying reachable mail", async () => {
+  it("skips unavailable Gmail matches that need no action and continues applying reachable mail", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
     const state: any = backfillState([activeRule]);
@@ -937,7 +938,7 @@ describe("startMailAiFilterBackfill", () => {
       },
       {
         accountEmail: "unavailable@example.test",
-        threadId: "thread-no-match",
+        threadId: "thread-ignored",
       },
       {
         accountEmail: "available@example.test",
@@ -953,8 +954,8 @@ describe("startMailAiFilterBackfill", () => {
     state.evaluations = Object.fromEntries(
       state.candidates.map((candidate: Record<string, any>) => [
         candidate.key,
-        candidate.threadId === "thread-no-match"
-          ? []
+        candidate.threadId === "thread-ignored"
+          ? [{ ruleId: activeRule.id, confidence: 0.1 }]
           : [{ ruleId: activeRule.id, confidence: 0.95 }],
       ]),
     );

@@ -425,7 +425,7 @@ function appendBackfillError(
 ): string {
   if (!previous) return message;
   if (previous.includes(message)) return previous;
-  return `${message}; ${previous}`.slice(0, 500);
+  return `${previous}; ${message}`.slice(0, 500);
 }
 
 function retryAfterAtFromState(raw: string): number | undefined {
@@ -1750,10 +1750,9 @@ async function processRunningBatch(
       state.error ??= sanitizeBackfillError(
         new Error(`Gmail account ${candidate.accountEmail} is unavailable.`),
       );
-      if (candidateMatched && !state.failedKeys.includes(candidate.key))
-        state.failedKeys.push(candidate.key);
     }
     let candidateFailed = false;
+    let candidateHasUnavailableAction = false;
     for (const match of matches) {
       const rule = state.rules.find((item) => item.id === match.ruleId);
       const progress = state.perRule.find(
@@ -1772,7 +1771,12 @@ async function processRunningBatch(
         state.processedIds.push(key);
         continue;
       }
-      if (candidateSkipped) continue;
+      if (candidateSkipped) {
+        candidateHasUnavailableAction = true;
+        if (!state.failedKeys.includes(candidate.key))
+          state.failedKeys.push(candidate.key);
+        continue;
+      }
       const existingSnapshot = state.snapshots[candidate.key];
       const actions: AutomationAction[] =
         disposition === "suggest"
@@ -1880,7 +1884,7 @@ async function processRunningBatch(
       }
     }
     if (!candidateFailed) {
-      if (!candidateSkipped)
+      if (!candidateHasUnavailableAction)
         state.failedKeys = state.failedKeys.filter(
           (key) => key !== candidate.key,
         );
