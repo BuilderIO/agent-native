@@ -715,8 +715,11 @@ const PR_REVIEW_GATE_NOUN_PRECONDITION_RE =
   /\b(?:after|once|when|unless|provided(?:\s+that)?)\b(?:(?!\bmerge\b)[^.!?;]){0,80}\b(?:approvals?|reviews?|sign[-\s]+offs?)\b/i;
 const PR_REVIEW_GATE_BASE_FRESHNESS_RE =
   /\b(?:after|once|when|unless|provided(?:\s+that)?|if)\b(?:(?!\bmerge\b)[^.!?]){0,80}\b(?:up[-\s]+to[-\s]+date|current|fresh|updated)\b[^.!?]{0,40}\b(?:with|against)\s+(?:the\s+)?(?:main|base|target)(?:\s+branch)?\b/i;
-const PR_REVIEW_GATE_NEGATIVE_STATE_RE =
-  /\bmerge(?:\s+(?:it|the\s+PR))?(?:\s+only)?\s+(?:after|once|when|unless|if|provided(?:\s+that)?)\b[^.!?;]{0,80}\b(?:no\s+(?:unresolved|outstanding|open)\s+review\s+threads?|no\s+(?:(?:failed|failing|pending)\s+(?:required\s+)?checks?|(?:required\s+)?checks?\s+(?:are\s+)?(?:failed|failing|pending))|no\s+(?:merge\s+)?conflicts?)\b/i;
+const PR_REVIEW_GATE_NEGATIVE_STATE = String.raw`\b(?:no\s+(?:unresolved|outstanding|open)\s+review\s+threads?|no\s+(?:(?:failed|failing|pending)\s+(?:required\s+)?checks?|(?:required\s+)?checks?\s+(?:are\s+)?(?:failed|failing|pending))|no\s+(?:merge\s+)?conflicts?)\b`;
+const PR_REVIEW_GATE_NEGATIVE_STATE_RE = new RegExp(
+  String.raw`(?:\bmerge(?:\s+(?:it|the\s+PR))?(?:\s+only)?\s+(?:after|once|when|unless|if|provided(?:\s+that)?)\b[^.!?;]{0,80}${PR_REVIEW_GATE_NEGATIVE_STATE}|\bprovided(?:\s+that)?\b[^.!?;]{0,80}${PR_REVIEW_GATE_NEGATIVE_STATE}[^.!?;]{0,80}\bmerge\b)`,
+  "i",
+);
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
   /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
@@ -836,7 +839,7 @@ function followingPrReviewMergeRequirement(text, match) {
   const following = text.slice(match.index + match[0].length);
   const nextWait =
     following.match(
-      /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,100}\b(?:first|before\s+(?:we\s+)?merging?)\b[^.!?]*/i,
+      /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,120}\b(?:first|before\s+(?:we\s+)?merging?|then\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing))\b[^.!?]*/i,
     )?.[0] ?? "";
   const nextSentence = following.match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
   return (
@@ -981,6 +984,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   ],
   [
     false,
+    "Provided that there are no merge conflicts, if no changes are needed, merge it.",
+  ],
+  [
+    false,
     "If no changes are needed, merge provided the security team approves.",
   ],
   [false, "If no changes are needed, merge only after product-owner sign-off."],
@@ -1019,6 +1026,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "This PR is ready to merge. Don't wait for another approval; merge it once CI passes.",
+  ],
+  [
+    false,
+    "This PR is ready to merge. Merge it. Wait for security approval; then merge.",
   ],
   [
     false,
