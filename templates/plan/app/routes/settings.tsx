@@ -1,6 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
-import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -8,7 +6,9 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
-} from "@agent-native/toolkit/app/settings";
+} from "@agent-native/core/client/settings";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { PLAN_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       extraTabs={agentSettingsTabs}
+      labs={PLAN_LABS}
       generalSearchEntries={generalSearchEntries}
       generalGroups={
         <SettingsGroup title={t("settings.editorGroupTitle")}>

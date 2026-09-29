@@ -191,6 +191,7 @@ export async function listObservationalMemory(
     clauses.push("tier = ?");
     args.push(options.tier);
   }
+  // guard:allow-unscoped — dynamic clauses include owner_email and org_id from addOwnerScope before execution
   const result = await client.execute({
     sql: `SELECT * FROM observational_memory WHERE ${clauses.join(
       " AND ",
@@ -208,6 +209,7 @@ export async function getObservedThroughIndex(
   const clauses = ["thread_id = ?", "tier = 'observation'"];
   const args: unknown[] = [options.threadId];
   addOwnerScope(clauses, args, options);
+  // guard:allow-unscoped — dynamic clauses include owner_email and org_id from addOwnerScope before execution
   const result = await client.execute({
     sql: `SELECT MAX(source_end_index) AS max_idx
       FROM observational_memory
@@ -227,6 +229,7 @@ export async function getObservationLogTokens(
   const clauses = ["thread_id = ?", "tier = 'observation'"];
   const args: unknown[] = [options.threadId];
   addOwnerScope(clauses, args, options);
+  // guard:allow-unscoped — dynamic clauses include owner_email and org_id from addOwnerScope before execution
   const result = await client.execute({
     sql: `SELECT COALESCE(SUM(token_estimate), 0) AS total
       FROM observational_memory

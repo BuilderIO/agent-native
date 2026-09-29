@@ -1,13 +1,18 @@
 import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useDbSync } from "@agent-native/core/client/hooks";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+  useDbSync,
+} from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { AppProviders } from "@agent-native/toolkit/app/providers";
-import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
-import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { PLAN_KIND_ROUTE_SEGMENT } from "@shared/plan-routes";
 import {
   IconHierarchy2,
   IconMoon,
@@ -36,8 +41,10 @@ import {
 } from "@/components/plan/wireframe/use-wireframe-style";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { useNavigationState } from "@/hooks/use-navigation-state";
+// Side effect: register Plan's native chat renderers so visual answers render
+// their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
 import { shouldCapturePlanContent } from "@/lib/plan-tracking";
 import { TAB_ID } from "@/lib/tab-id";
@@ -46,6 +53,16 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+
+/**
+ * Routes that render the impersonal public shell. A plan kind missing here
+ * bounces an anonymous reader through the session gate before the SSR shell can
+ * render, so the list is derived from the route-segment map.
+ */
+const PUBLIC_SHELL_ROUTE_PREFIXES = [
+  ...Object.values(PLAN_KIND_ROUTE_SEGMENT),
+  "local-plans",
+].map((segment) => `/${segment}`);
 configureTracking({
   contentCaptureForPath: shouldCapturePlanContent,
   getDefaultProps: (_name, properties) => ({
@@ -219,12 +236,9 @@ export default function Root() {
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const sessionBypass =
     pathname === "/chat" ||
-    pathname === "/plans" ||
-    pathname.startsWith("/plans/") ||
-    pathname === "/recaps" ||
-    pathname.startsWith("/recaps/") ||
-    pathname === "/local-plans" ||
-    pathname.startsWith("/local-plans/");
+    PUBLIC_SHELL_ROUTE_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
   const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
   return (
     <AppToolkitProvider>
@@ -248,4 +262,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/toolkit/app/shared";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

@@ -24,12 +24,14 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import { planPathForKind } from "@shared/plan-routes";
 import {
   IconClipboardCheck,
   IconEdit,
   IconMessageCircle,
   IconPlus,
   IconRefresh,
+  IconNews,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -55,6 +57,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEditionsLab } from "@/hooks/use-editions-lab";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
 import { planReturnPathFromLocation } from "@/lib/plan-return-path";
@@ -419,10 +422,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
         <div className="grid gap-0.5">
           {plans.map((plan) => {
             const isActive = plan.id === selectedPlanId;
-            const href =
-              plan.kind === "recap"
-                ? `/recaps/${plan.id}`
-                : `/plans/${plan.id}`;
+            const href = planPathForKind(plan.id, plan.kind);
             return (
               <Link
                 key={plan.id}
@@ -577,6 +577,7 @@ export function Sidebar({
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
+  const editionsEnabled = useEditionsLab();
   const returnPath = planReturnPathFromLocation(location);
 
   const feedbackButton = (
@@ -658,6 +659,17 @@ export function Sidebar({
           <PlansSidebarSection collapsed={collapsed} />
         ) : null}
       </div>
+
+      {editionsEnabled ? (
+        <div>
+          <AppSidebarNavItem
+            to="/editions"
+            label={t("edition.nav.label")}
+            icon={IconNews}
+            active={pathname.startsWith("/editions")}
+          />
+        </div>
+      ) : null}
     </AppSidebar>
   );
 }

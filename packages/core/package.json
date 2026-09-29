@@ -202,6 +202,7 @@
     "./client/application-state": "./dist/client/application-state.js",
     "./client/api-path": "./dist/client/api-path.js",
     "./client/status-requests": "./dist/client/client-status-requests.js",
+    "./client/speak": "./dist/client/speak.js",
     "./client/sign-in-landing": "./dist/client/sign-in-landing.js",
     "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/route-state": "./dist/client/route-state.js",
@@ -738,7 +739,7 @@
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {
-    "@agent-native/core-corpus": "workspace:^",
+    "@agent-native/core-corpus": ">=0.196.0",
     "@ai-sdk/anthropic": ">=3",
     "@ai-sdk/cohere": ">=3",
     "@ai-sdk/google": ">=3",

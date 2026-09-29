@@ -6,12 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useShellSettled } from "./shell-ready";
 
 const {
+  agentSidebarProps,
   agentSidebarSpy,
   docsWebMcpActions,
   navigateMock,
   revalidateMock,
   routerRootHref,
 } = vi.hoisted(() => ({
+  agentSidebarProps: [] as Array<Record<string, unknown>>,
   agentSidebarSpy: vi.fn(),
   docsWebMcpActions: [] as Array<{ run: (args: unknown) => unknown }>,
   navigateMock: vi.fn(),
@@ -29,9 +31,14 @@ function ShellSettledProbe() {
 }
 
 vi.mock("@agent-native/toolkit/app/chat", () => ({
-  AgentSidebar: ({ children }: { children: React.ReactNode }) => {
-    agentSidebarSpy();
-    return <div data-testid="real-sidebar">{children}</div>;
+  AgentSidebar: (props: {
+    children: React.ReactNode;
+    defaultOpen?: boolean;
+    screenRefreshEnabled?: boolean;
+  }) => {
+    agentSidebarSpy(props);
+    agentSidebarProps.push(props);
+    return <div data-testid="real-sidebar">{props.children}</div>;
   },
 }));
 vi.mock("@agent-native/core/client/route-warmup", () => ({
@@ -102,6 +109,7 @@ vi.mock("./components/website-redesign/footer", () => ({ Footer: () => null }));
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  agentSidebarProps.length = 0;
   agentSidebarSpy.mockClear();
   docsWebMcpActions.length = 0;
   navigateMock.mockClear();
@@ -118,6 +126,17 @@ describe("RootShell tree stability", () => {
     rerender(<RootShell mounted />);
 
     expect(screen.getAllByTestId("page")[0]).toBe(before);
+  });
+
+  it("keeps closed Docs sidebars out of screen-refresh sync", async () => {
+    const { RootShell } = await import("./root");
+    render(<RootShell mounted />);
+
+    await vi.waitFor(() => expect(agentSidebarProps).toHaveLength(1));
+    expect(agentSidebarProps[0]).toMatchObject({
+      defaultOpen: false,
+      screenRefreshEnabled: false,
+    });
   });
 
   it("only marks the shell settled inside the real sidebar subtree", async () => {

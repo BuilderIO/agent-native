@@ -94,7 +94,10 @@ describe("computeSatisfactionScore", () => {
       },
     ]);
 
-    const score = await computeSatisfactionScore("t1", { userId: "alice" });
+    const score = await computeSatisfactionScore("t1", {
+      ownerEmail: "alice",
+      userId: "alice",
+    });
 
     expect(score.rephrasingScore).toBe(0);
     expect(score.abandonmentScore).toBe(0);
@@ -129,7 +132,7 @@ describe("computeSatisfactionScore", () => {
       },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.rephrasingScore).toBeGreaterThan(0);
     expect(score.sentimentScore).toBeGreaterThan(0);
@@ -139,7 +142,7 @@ describe("computeSatisfactionScore", () => {
   it("flags abandonment when the thread ends on an unanswered user message", async () => {
     setThread([{ role: "user", content: "Can you help me with the report?" }]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.abandonmentScore).toBe(80);
     expect(score.frustrationScore).toBe(16);
@@ -155,7 +158,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.rephrasingScore).toBe(100);
     expect(score.frustrationScore).toBeGreaterThan(0);
@@ -169,7 +172,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.sentimentScore).toBe(70);
   });
@@ -182,7 +185,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "Anything else?" },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.abandonmentScore).toBe(40);
   });
 
@@ -200,7 +203,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.lengthTrendScore).toBeGreaterThan(0);
   });
 
@@ -212,14 +215,14 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "..." },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.frustrationScore).toBeGreaterThanOrEqual(15);
   });
 
   it("returns all zeros and still upserts when the thread has no messages", async () => {
     setThread(null);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
 
     expect(score.frustrationScore).toBe(0);
     expect(score.rephrasingScore).toBe(0);
@@ -230,7 +233,7 @@ describe("computeSatisfactionScore", () => {
   it("tolerates malformed thread_data JSON without throwing", async () => {
     threadData = "{ this is not valid json";
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.frustrationScore).toBe(0);
   });
 
@@ -244,19 +247,19 @@ describe("computeSatisfactionScore", () => {
       { role: "user", content: "no" },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.frustrationScore).toBeLessThanOrEqual(100);
   });
 
   it("reads thread_data scoped by threadId (parameterized, no injection)", async () => {
     setThread([{ role: "user", content: "hi" }]);
-    await computeSatisfactionScore("thread-xyz");
+    await computeSatisfactionScore("thread-xyz", { ownerEmail: "alice" });
 
     const call = mockExecute.mock.calls[0][0];
     expect(call.sql).toMatch(
       /SELECT thread_data FROM chat_threads WHERE id = \?/,
     );
-    expect(call.args).toEqual(["thread-xyz"]);
+    expect(call.args).toEqual(["thread-xyz", "alice"]);
   });
 
   it("parses structured (array-of-parts) message content", async () => {
@@ -272,7 +275,7 @@ describe("computeSatisfactionScore", () => {
       { role: "assistant", content: "ok" },
     ]);
 
-    const score = await computeSatisfactionScore("t1");
+    const score = await computeSatisfactionScore("t1", { ownerEmail: "alice" });
     expect(score.sentimentScore).toBe(0);
   });
 });

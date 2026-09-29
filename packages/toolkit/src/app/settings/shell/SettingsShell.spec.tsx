@@ -168,6 +168,7 @@ describe("SettingsShell", () => {
         pages: [
           "model",
           "instructions",
+          "personalization",
           "memory",
           "skills",
           "files",
