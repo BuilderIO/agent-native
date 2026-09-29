@@ -295,6 +295,7 @@ production deployment:
 | `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                         |
 | `QUERY_BUDGET_APPS`           | JSON list of first-party templates the cold-request query budget job builds and measures, chosen by the change-scope classifier.                                                        |
 | `SSR_BOOT_APPS`               | JSON list of templates the SSR cold-start smoke builds and imports, chosen by the change-scope classifier.                                                                              |
+| `NIGHTLY_PATHS`               | Newline-separated publishable paths the scheduled nightly publish compares against its last successful run; must match `auto-publish.yml`'s `push.paths`.                               |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
 ### Clips Chrome Web Store release
