@@ -24,13 +24,13 @@ import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
 import { authoredCandidateMatchesContent } from "./document-save-retry";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
+import { LiveEditorSessionContext } from "./live-editor-session";
 import {
   clearPageDraftJournal,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
   writePageDraftJournal,
 } from "./page-draft-journal";
-import { LiveEditorSessionContext } from "./live-editor-session";
 import { RecoveryComparison } from "./RecoveryComparison";
 
 type DraftRecoveryFailure = "conflict" | "error";
