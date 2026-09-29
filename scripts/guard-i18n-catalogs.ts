@@ -18,6 +18,11 @@ import {
 import { splitDocSegments } from "../packages/docs/lib/doc-block-segments";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
+
+// Baseline ids and ignore checks use "/" separators on every OS.
+function relativeToRoot(target: string): string {
+  return path.relative(rootDir, target).split(path.sep).join("/");
+}
 const pluralSuffixes = new Set(["zero", "one", "two", "few", "many", "other"]);
 const supportedLocaleSet = new Set<string>(SUPPORTED_LOCALES);
 
@@ -214,7 +219,7 @@ async function checkCatalogKeyCoverage(catalogDirs: string[]) {
     const sourceRoot = path.dirname(dir);
 
     for (const file of collectSourceFiles(sourceRoot)) {
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
       if (
         rel.includes("/i18n/") ||
         rawLiteralFileIgnore.some((part) => rel.includes(part))
@@ -263,7 +268,7 @@ async function checkCatalogEnglishValueDebt(catalogDirs: string[]) {
   const noTranslateTerms = readNoTranslateTerms();
 
   for (const dir of catalogDirs) {
-    const relDir = path.relative(rootDir, dir);
+    const relDir = relativeToRoot(dir);
     const sourceCatalog = path.join(dir, `${DEFAULT_LOCALE}.ts`);
     if (!existsSync(sourceCatalog)) continue;
 
@@ -343,7 +348,7 @@ function safeReadDir(dir: string) {
 }
 
 async function checkCatalogDir(dir: string): Promise<string[]> {
-  const relDir = path.relative(rootDir, dir);
+  const relDir = relativeToRoot(dir);
   const errors: string[] = [];
   const files = safeReadDir(dir)
     .filter((file) => file.endsWith(".ts") && file !== "index.ts")
@@ -417,7 +422,7 @@ async function checkCatalogScriptContamination(
 ): Promise<string[]> {
   const errors: string[] = [];
   for (const dir of catalogDirs) {
-    const relDir = path.relative(rootDir, dir);
+    const relDir = relativeToRoot(dir);
     for (const file of safeReadDir(dir).sort()) {
       if (!file.endsWith(".ts") || file === "index.ts") continue;
       const locale = file.replace(/\.ts$/, "");
@@ -472,7 +477,7 @@ async function loadFlatCatalog(file: string): Promise<{
     return {
       flat: new Map(),
       errors: [
-        `failed to import ${path.relative(rootDir, file)}: ${
+        `failed to import ${relativeToRoot(file)}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       ],
@@ -508,7 +513,7 @@ function flattenCatalog(
 }
 
 function checkDuplicateTopLevelCatalogKeys(file: string) {
-  const rel = path.relative(rootDir, file);
+  const rel = relativeToRoot(file);
   const text = readFileSync(file, "utf8");
   const start = findCatalogObjectStart(text);
   if (start < 0) return [];
@@ -1041,7 +1046,7 @@ function checkRawVisibleLiterals(): { errors: string[]; issueIds: string[] } {
     if (!existsSync(abs)) continue;
     const files = collectSourceFiles(abs);
     for (const file of files) {
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
       if (rawLiteralFileIgnore.some((part) => rel.includes(part))) continue;
       const text = readFileSync(file, "utf8");
       const issues = checkRawVisibleLiteralFile(rel, text);
@@ -1332,7 +1337,7 @@ function checkLocalizedDocsEmbeddedStrings(): {
       );
       if (sourceStrings.length === 0) continue;
 
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
       for (const source of sourceStrings) {
         if (noTranslateTerms.has(source)) continue;
         if (!containsSourcePhrase(localizedText, source)) continue;
@@ -1365,7 +1370,7 @@ function checkLocalizedDocsProtectedIdentifiers(): string[] {
 
       const sourceText = readFileSync(sourceFile, "utf8");
       const localizedText = readFileSync(file, "utf8");
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
 
       for (const identifier of protectedLocalizedDocsIdentifiers) {
         if (!sourceText.includes(identifier)) continue;

@@ -233,7 +233,7 @@ const findings = [];
 const seenAllowed = new Set();
 
 for await (const file of walk(path.join(REPO_ROOT, "templates"))) {
-  if (!file.endsWith("/server/db/schema.ts")) continue;
+  if (!file.replaceAll("\\", "/").endsWith("/server/db/schema.ts")) continue;
   const template = templateNameFromSchemaPath(file);
   if (!template) continue;
 

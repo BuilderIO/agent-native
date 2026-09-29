@@ -180,12 +180,17 @@ function expectedFiles(): ExpectedFile[] {
   return files;
 }
 
+// Windows reports symlink targets with backslashes; expected targets are POSIX.
+function readSymlinkTarget(abs: string): string {
+  return readlinkSync(abs).replaceAll("\\", "/");
+}
+
 function generateSymlinks(): void {
   for (const link of REPO_SKILL_SYMLINKS) {
     const abs = join(rootDir, link.rel);
     if (existsSync(abs)) {
       const stat = lstatSync(abs);
-      if (stat.isSymbolicLink() && readlinkSync(abs) === link.target) {
+      if (stat.isSymbolicLink() && readSymlinkTarget(abs) === link.target) {
         continue;
       }
       rmSync(abs, { recursive: true, force: true });
@@ -255,7 +260,7 @@ function checkInSync(files: ExpectedFile[]): void {
     const abs = join(rootDir, link.rel);
     if (!existsSync(abs)) return true;
     const stat = lstatSync(abs);
-    return !stat.isSymbolicLink() || readlinkSync(abs) !== link.target;
+    return !stat.isSymbolicLink() || readSymlinkTarget(abs) !== link.target;
   }).map((link) => `${link.rel} -> ${link.target}`);
 
   if (
