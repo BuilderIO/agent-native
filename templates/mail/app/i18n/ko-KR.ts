@@ -327,14 +327,14 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "예약 발송 취소",
       deliveryUnknownWarning:
-        "전송 상태를 알 수 없습니다. 해결하기 전에 Gmail의 보낸편지함을 확인하세요.",
+        "전송 상태를 알 수 없습니다. 해결하기 전에 Mail의 보낸편지함 보기를 확인하세요.",
       markSentAfterChecking: "보낸편지함을 확인했습니다. 전송됨으로 표시",
       sendNewCopy: "새 사본 보내기",
       sendingStatus:
         "예약된 메일을 처리 중입니다. 작업을 일시적으로 사용할 수 없습니다.",
       confirmSendNewCopyTitle: "사본을 한 번 더 보낼까요?",
       confirmSendNewCopyDescription:
-        "원본이 이미 전송되었을 수 있습니다. 먼저 Gmail의 보낸편지함을 확인하세요. 다시 보내면 메일이 중복될 수 있습니다.",
+        "원본이 이미 전송되었을 수 있습니다. 먼저 Mail의 보낸편지함 보기를 확인하세요. 다시 보내면 메일이 중복될 수 있습니다.",
       dateInput: "날짜 및 시간",
       noDateMatch: "일치하는 미래 시간이 없습니다",
       inputPlaceholder: "예: 오전 8시, 3일 후, 8월 7일",

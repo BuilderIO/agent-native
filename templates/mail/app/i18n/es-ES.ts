@@ -339,14 +339,14 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
       deliveryUnknownWarning:
-        "Se desconoce el estado de entrega; revisa Enviados de Gmail antes de resolverlo.",
+        "Se desconoce el estado de entrega; revisa la vista Enviados de Mail antes de resolverlo.",
       markSentAfterChecking: "Revisé Enviados; marcar como enviado",
       sendNewCopy: "Enviar una copia nueva",
       sendingStatus:
         "El envío programado se está procesando. Las acciones no están disponibles temporalmente.",
       confirmSendNewCopyTitle: "¿Enviar otra copia?",
       confirmSendNewCopyDescription:
-        "Es posible que el mensaje original ya se haya entregado. Revisa primero Enviados de Gmail. Enviar otra copia podría crear un duplicado.",
+        "Es posible que el mensaje original ya se haya entregado. Revisa primero la vista Enviados de Mail. Enviar otra copia podría crear un duplicado.",
       dateInput: "Fecha y hora",
       noDateMatch: "No hay una hora futura coincidente",
       inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",

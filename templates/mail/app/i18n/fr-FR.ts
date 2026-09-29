@@ -342,7 +342,7 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "Annuler l’envoi programmé",
       deliveryUnknownWarning:
-        "État de livraison inconnu ; vérifiez les messages envoyés dans Gmail avant de résoudre le problème.",
+        "État de livraison inconnu ; vérifiez la vue Envoyés de Mail avant de résoudre le problème.",
       markSentAfterChecking:
         "J’ai vérifié les messages envoyés ; marquer comme envoyé",
       sendNewCopy: "Envoyer une nouvelle copie",
@@ -350,7 +350,7 @@ const messages = {
         "L’envoi programmé est en cours. Les actions sont temporairement indisponibles.",
       confirmSendNewCopyTitle: "Envoyer une autre copie ?",
       confirmSendNewCopyDescription:
-        "L’original a peut-être déjà été remis. Vérifiez d’abord les messages envoyés dans Gmail. Un nouvel envoi peut créer un doublon.",
+        "L’original a peut-être déjà été remis. Vérifiez d’abord la vue Envoyés de Mail. Un nouvel envoi peut créer un doublon.",
       dateInput: "Date et heure",
       noDateMatch: "Aucun horaire futur correspondant",
       inputPlaceholder: "Essayez : 8 h, 3 jours, 7 août",

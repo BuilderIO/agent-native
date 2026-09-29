@@ -570,14 +570,6 @@ export async function getSyntheticEmailsForView(
   ownerEmail: string,
   view: "snoozed" | "scheduled",
 ): Promise<EmailMessage[]> {
-  if (view === "scheduled") {
-    const expired = await markExpiredScheduledSendsUncertain();
-    if (expired > 0) {
-      console.info(
-        `[mail] Marked ${expired} scheduled send(s) with expired dispatch leases as uncertain.`,
-      );
-    }
-  }
   const jobs = await listPendingJobs(ownerEmail);
 
   if (view === "snoozed") {

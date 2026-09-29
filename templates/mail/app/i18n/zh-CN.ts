@@ -320,13 +320,13 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "取消定时发送",
       deliveryUnknownWarning:
-        "送达状态未知；处理前请先检查 Gmail 的“已发送”文件夹。",
+        "送达状态未知；处理前请先检查 Mail 的“已发送”视图。",
       markSentAfterChecking: "我已检查“已发送”；标记为已发送",
       sendNewCopy: "发送新副本",
       sendingStatus: "正在处理定时邮件。暂时无法使用相关操作。",
       confirmSendNewCopyTitle: "要再发送一份吗？",
       confirmSendNewCopyDescription:
-        "原邮件可能已经送达。请先检查 Gmail 的“已发送”文件夹。再次发送可能会造成重复邮件。",
+        "原邮件可能已经送达。请先检查 Mail 的“已发送”视图。再次发送可能会造成重复邮件。",
       dateInput: "日期和时间",
       noDateMatch: "没有匹配的未来时间",
       inputPlaceholder: "试试：上午 8 点、3 天后、8 月 7 日",
