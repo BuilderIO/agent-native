@@ -89,7 +89,7 @@ describe("out-of-office action parity", () => {
       verb: "created",
       kind: "calendar-event",
       title: "Out of office",
-      detail: "Oct 31, 2026–Nov 1, 2026 America/New_York",
+      detail: "Oct 31, 2026–Nov 1, 2026 ET",
     });
     expect(
       new URL(

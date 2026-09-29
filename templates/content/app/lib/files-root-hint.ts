@@ -2,6 +2,8 @@ import { callAction } from "@agent-native/core/client/hooks";
 import type { ContentDatabaseNavigationSort } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
 
+import { filesNavigationPageParams } from "@/lib/files-navigation";
+
 // The Files tree's root page is keyed by the space's Files database and the
 // personal view's order, which arrive from two other reads. The inputs this
 // browser last used for the same person in the same active organization let
@@ -22,25 +24,6 @@ export type PagedFilesRoot = {
   sort: ContentDatabaseNavigationSort;
   viewId?: string;
 };
-
-export function pagedFilesNavigationArgs(args: {
-  databaseId: string;
-  parentId: string | null;
-  sort: ContentDatabaseNavigationSort;
-  viewId?: string;
-  cursor?: string;
-}) {
-  return {
-    databaseId: args.databaseId,
-    limit: 20,
-    navigation: {
-      parentId: args.parentId,
-      sort: args.sort,
-      viewId: args.viewId,
-      cursor: args.cursor,
-    },
-  };
-}
 
 export function readPagedFilesRootHint(scope: string): PagedFilesRoot | null {
   let raw: string | null;
@@ -88,7 +71,7 @@ export function prefetchPagedFilesRoot(
   queryClient: QueryClient,
   root: PagedFilesRoot,
 ) {
-  const args = pagedFilesNavigationArgs({ ...root, parentId: null });
+  const args = filesNavigationPageParams({ ...root, parentId: null });
   void queryClient.prefetchQuery({
     queryKey: ["action", "query-content-database-items", args],
     queryFn: ({ signal }) =>

@@ -206,6 +206,7 @@ export async function dispatchRemoteAutomation(
         scope: input.orgId ? "organization" : "personal",
         orgId: input.orgId ?? null,
         appId: input.appId,
+        notificationEmail: input.ownerEmail,
       });
       createdHistory = true;
     } catch (error) {

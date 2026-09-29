@@ -442,6 +442,39 @@ export async function setOAuthDisplayName(
  * "set" for user B as soon as ANY user in the deployment connected the
  * provider, and user B would never see the prompt to connect.
  */
+const OWNER_LOOKUP_BATCH = 500;
+
+/**
+ * The stored `(account_id, owner)` pairs among `accountIds` for `provider`,
+ * read in bounded batches so a whole organization costs a few queries rather
+ * than one per member. Presence only; no token is read or decrypted.
+ */
+export async function listOAuthTokenOwners(
+  provider: string,
+  accountIds: readonly string[],
+): Promise<Array<{ accountId: string; owner: string | null }>> {
+  const unique = [...new Set(accountIds)];
+  if (unique.length === 0) return [];
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const found: Array<{ accountId: string; owner: string | null }> = [];
+  for (let start = 0; start < unique.length; start += OWNER_LOOKUP_BATCH) {
+    const batch = unique.slice(start, start + OWNER_LOOKUP_BATCH);
+    const { rows } = await client.execute({
+      sql: `SELECT account_id, owner FROM ${table} WHERE provider = ? AND account_id IN (${batch.map(() => "?").join(", ")})`,
+      args: [provider, ...batch],
+    });
+    for (const row of rows) {
+      found.push({
+        accountId: String(row.account_id),
+        owner: row.owner == null ? null : String(row.owner),
+      });
+    }
+  }
+  return found;
+}
+
 export async function hasOAuthTokens(
   provider: string,
   owner: string,

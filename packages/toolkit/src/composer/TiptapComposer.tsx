@@ -4106,7 +4106,10 @@ export function TiptapComposer({
         } finally {
           submitInFlightRef.current = false;
         }
-        if (!isCurrentDraftScope()) return true;
+        if (!isCurrentDraftScope()) {
+          clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+          return true;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
@@ -4725,14 +4728,27 @@ export function TiptapComposer({
                     type="button"
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend}
-                    aria-label={sendButtonTooltip}
+                    aria-label={
+                      submitting
+                        ? t("agentChat.setup.checkingProvider")
+                        : sendButtonTooltip
+                    }
+                    aria-busy={submitting || undefined}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+                    {submitting ? (
+                      <IconLoader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{sendButtonTooltip}</TooltipContent>
+                <TooltipContent>
+                  {submitting
+                    ? t("agentChat.setup.checkingProvider")
+                    : sendButtonTooltip}
+                </TooltipContent>
               </Tooltip>
             )}
           </>

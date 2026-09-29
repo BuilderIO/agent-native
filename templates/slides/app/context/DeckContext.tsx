@@ -1,5 +1,4 @@
 import { captureError } from "@agent-native/core/client/analytics";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   createLocalOpUndoController,
   type LocalOpUndoController,
@@ -8,6 +7,8 @@ import {
 import {
   callAction,
   callActionWithRetry,
+  tryCallActionKeepalive,
+  type KeepaliveActionCallResult,
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -344,6 +345,9 @@ function normalizeActionDeck(value: unknown): Deck | null {
   if (!value || typeof value !== "object") return null;
   const deck = value as Partial<Deck>;
   if (typeof deck.id !== "string") return null;
+  if (typeof deck.updatedAt === "string") {
+    deckServerRevisions.set(deck.id, deck.updatedAt);
+  }
 
   const deckRecord = deck as unknown as Record<string, unknown>;
   const cleanedDeck = { ...deckRecord };
@@ -394,6 +398,7 @@ export function getDuplicateSourceSlides(deck: Deck): Slide[] {
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
+const inFlightKeepaliveSaves = new Map<string, Promise<void>>();
 const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
@@ -408,6 +413,10 @@ const pendingPersistedResultHandlers = new Map<
   string,
   PendingPersistedResultHandler[]
 >();
+const deckClientWriteId = nanoid(12);
+const deckClientWriteSequences = new Map<string, number>();
+const deckKeepaliveSuccessGenerations = new Map<string, number>();
+const deckServerRevisions = new Map<string, string | null>();
 const slideLocalWriteSequences = new Map<string, Map<string, number>>();
 const sentSlideContent = new Map<
   string,
@@ -418,6 +427,26 @@ const draftCommittedContent = new WeakMap<GranularOp, string>();
 const deckLocalWriteSeq = new Map<string, number>();
 
 const inFlightOpSlides = new Map<string, GranularOp[]>();
+
+function nextDeckClientWrite(deckId: string) {
+  const sequence = (deckClientWriteSequences.get(deckId) ?? 0) + 1;
+  deckClientWriteSequences.set(deckId, sequence);
+  return {
+    clientId: deckClientWriteId,
+    sequence,
+    ...(deckServerRevisions.has(deckId)
+      ? { expectedUpdatedAt: deckServerRevisions.get(deckId) }
+      : {}),
+  };
+}
+
+function rememberDeckServerRevision(deckId: string, value: unknown) {
+  if (!value || typeof value !== "object") return;
+  const updatedAt = (value as Record<string, unknown>).updatedAt;
+  if (typeof updatedAt === "string") {
+    deckServerRevisions.set(deckId, updatedAt);
+  }
+}
 
 const activeInlineEditSlides = new Map<string, Set<string>>();
 
@@ -454,7 +483,10 @@ const serverSaveSnapshot: SaveStateSnapshot = {
 
 function recomputeSnapshot() {
   const saving =
-    pendingSaves.size > 0 || inFlightSaves.size > 0 || pendingOpsQueue.size > 0;
+    pendingSaves.size > 0 ||
+    inFlightSaves.size > 0 ||
+    inFlightKeepaliveSaves.size > 0 ||
+    pendingOpsQueue.size > 0;
   const hasUnsavedChanges = saving || failedSaveDecks.size > 0;
   if (
     saving !== cachedSnapshot.saving ||
@@ -490,6 +522,7 @@ export function hasUnsavedDeckChanges(deckId: string): boolean {
   return (
     pendingSaves.has(deckId) ||
     inFlightSaves.has(deckId) ||
+    inFlightKeepaliveSaves.has(deckId) ||
     pendingOpsQueue.has(deckId) ||
     failedSaveDecks.has(deckId)
   );
@@ -507,26 +540,47 @@ function deckPayload(deck: Deck): Record<string, unknown> {
   return { ...deck };
 }
 
-async function sendKeepaliveAction(
-  url: string,
-  method: "POST" | "PUT",
-  body: Record<string, unknown>,
-  signal?: AbortSignal,
-): Promise<void> {
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-Frontend": "1",
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-    keepalive: true,
-    signal,
-  });
-  if (!response.ok) {
-    throw new Error(`Action request failed with status ${response.status}`);
+function requireKeepaliveAction<TResult>(
+  actionName: string,
+  attempt: KeepaliveActionCallResult<TResult>,
+): Promise<TResult> {
+  if (!attempt.accepted) {
+    throw new Error(
+      `Keepalive ${actionName} was not started (${attempt.reason}; ${attempt.bodyBytes} bytes)`,
+    );
   }
+  return attempt.completion;
+}
+
+async function callDeckWriteAction<TResult>(
+  actionName: string,
+  deckId: string,
+  payload: Record<string, unknown>,
+  options?: {
+    keepalive?: boolean;
+    method?: "POST" | "PUT";
+    signal?: AbortSignal;
+  },
+): Promise<TResult> {
+  const body = {
+    deckId,
+    ...payload,
+    clientWrite: nextDeckClientWrite(deckId),
+  };
+  const result = options?.keepalive
+    ? await requireKeepaliveAction(
+        actionName,
+        tryCallActionKeepalive<TResult>(actionName, body, {
+          method: options.method,
+          signal: options.signal,
+        }),
+      )
+    : await callAction<TResult>(actionName, body, {
+        ...(options?.method ? { method: options.method } : {}),
+        ...(options?.signal ? { signal: options.signal } : {}),
+      });
+  rememberDeckServerRevision(deckId, result);
+  return result;
 }
 
 async function persistDeckOps(
@@ -536,32 +590,35 @@ async function persistDeckOps(
   options?: { keepalive?: boolean },
 ): Promise<unknown[]> {
   if (options?.keepalive) {
-    const actionsBase = agentNativePath("/_agent-native/actions");
     if (ops[0].op === "full-replace") {
       const deck = ops[0].deck;
-      await sendKeepaliveAction(
-        `${actionsBase}/save-deck`,
-        "PUT",
-        { deckId, deck: deckPayload(deck) },
-        signal,
+      await callDeckWriteAction(
+        "save-deck",
+        deckId,
+        { deck: deckPayload(deck) },
+        { keepalive: true, method: "PUT", signal },
       );
       const trailingOps = ops.slice(1) as PatchDeckOp[];
       if (trailingOps.length > 0) {
-        await sendKeepaliveAction(
-          `${actionsBase}/patch-deck`,
-          "POST",
-          { deckId, operations: trailingOps },
-          signal,
+        await callDeckWriteAction(
+          "patch-deck",
+          deckId,
+          { operations: trailingOps },
+          { keepalive: true, signal },
         );
       }
     } else {
-      await sendKeepaliveAction(
-        `${actionsBase}/patch-deck`,
-        "POST",
-        { deckId, operations: ops as PatchDeckOp[] },
-        signal,
+      await callDeckWriteAction(
+        "patch-deck",
+        deckId,
+        { operations: ops as PatchDeckOp[] },
+        { keepalive: true, signal },
       );
     }
+    deckKeepaliveSuccessGenerations.set(
+      deckId,
+      (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) + 1,
+    );
     return [];
   }
 
@@ -569,33 +626,30 @@ async function persistDeckOps(
   if (ops[0].op === "full-replace") {
     const deck = ops[0].deck;
     results.push(
-      await callAction<unknown>(
+      await callDeckWriteAction<unknown>(
         "save-deck",
-        { deckId, deck: deckPayload(deck) },
+        deckId,
+        { deck: deckPayload(deck) },
         { method: "PUT", signal },
       ),
     );
     const trailingOps = ops.slice(1) as PatchDeckOp[];
     if (trailingOps.length > 0) {
       results.push(
-        await callAction<unknown>(
+        await callDeckWriteAction<unknown>(
           "patch-deck",
-          {
-            deckId,
-            operations: trailingOps,
-          },
+          deckId,
+          { operations: trailingOps },
           { signal },
         ),
       );
     }
   } else {
     results.push(
-      await callAction<unknown>(
+      await callDeckWriteAction<unknown>(
         "patch-deck",
-        {
-          deckId,
-          operations: ops as PatchDeckOp[],
-        },
+        deckId,
+        { operations: ops as PatchDeckOp[] },
         { signal },
       ),
     );
@@ -710,13 +764,59 @@ function drainPendingDeckOps(
 
   const active = inFlightSaveChains.get(deckId);
   if (active) {
+    const keepaliveAlreadyRequested =
+      immediateFlushRequests.get(deckId) === true;
     immediateFlushRequests.set(
       deckId,
       (immediateFlushRequests.get(deckId) ?? false) ||
         options?.keepalive === true,
     );
+    const activeOps = inFlightOpSlides.get(deckId);
+    const controller = inFlightSaveControllers.get(deckId);
+    if (
+      options?.keepalive &&
+      !keepaliveAlreadyRequested &&
+      !inFlightKeepaliveSaves.has(deckId) &&
+      activeOps?.length
+    ) {
+      const queuedOps = pendingOpsQueue.get(deckId) ?? [];
+      const replacementIndex = queuedOps.findIndex(
+        (op) => op.op === "full-replace",
+      );
+      const keepaliveOps =
+        replacementIndex >= 0
+          ? queuedOps.slice(replacementIndex)
+          : [...activeOps, ...queuedOps];
+      const keepaliveSave = persistDeckOps(
+        deckId,
+        keepaliveOps,
+        controller?.signal,
+        { keepalive: true },
+      ).then(
+        () => undefined,
+        (err) => {
+          if (!controller?.signal.aborted) {
+            console.error(`Failed to keepalive save deck ${deckId}:`, err);
+          }
+          throw err;
+        },
+      );
+      inFlightKeepaliveSaves.set(deckId, keepaliveSave);
+      const clearKeepaliveSave = () => {
+        if (inFlightKeepaliveSaves.get(deckId) === keepaliveSave) {
+          inFlightKeepaliveSaves.delete(deckId);
+          notifySaveListeners();
+        }
+      };
+      void keepaliveSave.then(clearKeepaliveSave, clearKeepaliveSave);
+    }
     notifySaveListeners();
     return active;
+  }
+
+  const activeKeepalive = inFlightKeepaliveSaves.get(deckId);
+  if (activeKeepalive) {
+    return activeKeepalive.then(() => drainPendingDeckOps(deckId, options));
   }
 
   const ops = pendingOpsQueue.get(deckId) ?? [];
@@ -746,6 +846,8 @@ function drainPendingDeckOps(
     ops[0]?.op === "full-replace" ? ops[0].onSaveSuccess : undefined;
 
   const generation = deckSaveGenerations.get(deckId) ?? 0;
+  const keepaliveSuccessGenerationAtStart =
+    deckKeepaliveSuccessGenerations.get(deckId) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   if (controller) inFlightSaveControllers.set(deckId, controller);
@@ -763,17 +865,28 @@ function drainPendingDeckOps(
       deckSaveRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
     })
-    .catch((err) => {
+    .catch(async (err) => {
+      if (!isCurrentGeneration()) return;
+      const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+      let replayedByKeepalive =
+        (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) >
+        keepaliveSuccessGenerationAtStart;
+      if (!replayedByKeepalive && keepaliveSave) {
+        const [keepaliveResult] = await Promise.allSettled([keepaliveSave]);
+        replayedByKeepalive = keepaliveResult?.status === "fulfilled";
+      }
       if (!isCurrentGeneration()) return;
       console.error(`Failed to save deck ${deckId}:`, err);
       const pending = pendingOpsQueue.get(deckId) ?? [];
-      pendingOpsQueue.set(
-        deckId,
-        pending[0]?.op === "full-replace" ? pending : [...ops, ...pending],
-      );
+      if (!replayedByKeepalive) {
+        pendingOpsQueue.set(
+          deckId,
+          pending[0]?.op === "full-replace" ? pending : [...ops, ...pending],
+        );
+      }
       const pendingHandlers = pendingPersistedResultHandlers.get(deckId) ?? [];
       const handlers =
-        pending[0]?.op === "full-replace"
+        pending[0]?.op === "full-replace" || replayedByKeepalive
           ? pendingHandlers
           : [...persistedResultHandlers, ...pendingHandlers];
       if (handlers.length > 0) {
@@ -812,10 +925,14 @@ function drainPendingDeckOps(
         immediateFlushRequests.delete(deckId);
         notifySaveListeners();
         if (flushImmediately) {
-          void drainPendingDeckOps(
-            deckId,
-            requestedFlush ? { keepalive: true } : undefined,
-          );
+          const flush = () =>
+            void drainPendingDeckOps(
+              deckId,
+              requestedFlush ? { keepalive: true } : undefined,
+            );
+          const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+          if (keepaliveSave) void keepaliveSave.then(flush, flush);
+          else flush();
         }
       }
     });
@@ -829,6 +946,11 @@ async function flushDeckSave(deckId: string): Promise<void> {
     const active = inFlightSaveChains.get(deckId);
     if (active) {
       await active;
+      continue;
+    }
+    const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+    if (keepaliveSave) {
+      await keepaliveSave;
       continue;
     }
     if (failedSaveDecks.has(deckId)) {
@@ -978,7 +1100,10 @@ function saveDeckToAPI(
 }
 
 export function flushPendingSaves() {
-  for (const deckId of [...pendingSaves.keys()]) {
+  for (const deckId of new Set([
+    ...pendingSaves.keys(),
+    ...inFlightSaveChains.keys(),
+  ])) {
     void drainPendingDeckOps(deckId, { keepalive: true });
   }
 }
@@ -1359,6 +1484,9 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
 async function deleteDeckFromAPI(id: string): Promise<void> {
   try {
     await callAction("delete-deck", { id }, { method: "DELETE" });
+    deckServerRevisions.delete(id);
+    deckClientWriteSequences.delete(id);
+    deckKeepaliveSuccessGenerations.delete(id);
   } catch (error) {
     if (
       !(
@@ -1370,11 +1498,17 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
     ) {
       throw error;
     }
+    deckServerRevisions.delete(id);
+    deckClientWriteSequences.delete(id);
+    deckKeepaliveSuccessGenerations.delete(id);
   }
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
-  await callAction("add-deck", { deck: deckPayload(deck) });
+  const result = await callAction<unknown>("add-deck", {
+    deck: deckPayload(deck),
+  });
+  rememberDeckServerRevision(deck.id, result);
 }
 
 export function changedDeckIds(before: Deck[], after: Deck[]): string[] {
@@ -1857,7 +1991,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const setDecksLocal = useCallback((updater: (prev: Deck[]) => Deck[]) => {
-    setDecks(updater);
+    const next = updater(decksRef.current);
+    decksRef.current = next;
+    setDecks(next);
   }, []);
 
   const reconcilePersistedLayoutFit = useCallback(
@@ -2408,6 +2544,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     for (const deckId of scopedDeckIds) {
       discardPendingDeckOps(deckId);
       deckLocalWriteSeq.delete(deckId);
+      deckClientWriteSequences.delete(deckId);
+      deckKeepaliveSuccessGenerations.delete(deckId);
+      deckServerRevisions.delete(deckId);
       slideLocalWriteSequences.delete(deckId);
       sentSlideContent.delete(deckId);
       activeInlineEditSlides.delete(deckId);
@@ -2904,7 +3043,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ? { slideIds: optimistic.slides.map((s) => s.id) }
             : {}),
         },
-      ).then(() => undefined);
+      ).then((created) => {
+        rememberDeckServerRevision(newId, created);
+      });
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
       duplicatePromise
         .catch(async (err) => {
@@ -3008,7 +3149,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (before && op && !deriveInverseOp(before, op)) return;
 
       markDeckDirty(id);
-      setDecks((prev) =>
+      setDecksLocal((prev) =>
         prev.map((d) =>
           d.id === id
             ? {
@@ -3043,7 +3184,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [markDeckDirty, recordUndo, reconcilePersistedLayoutFit],
+    [markDeckDirty, recordUndo, reconcilePersistedLayoutFit, setDecksLocal],
   );
 
   const deckScopeMatchesOrg =
@@ -3281,7 +3422,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         };
       };
       markDeckDirty(deckId);
-      decksRef.current = decksRef.current.map(applyUpdates);
       setDecksLocal((prev) => prev.map(applyUpdates));
       for (const op of ops) enqueueDeckOp(deckId, op);
       recordUndoBatch(before, ops, "Update slides");
@@ -3313,7 +3453,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           updatedAt: new Date().toISOString(),
         };
       };
-      decksRef.current = decksRef.current.map(removeSlide);
       setDecksLocal((prev) => prev.map(removeSlide));
       const op: PatchDeckOp = { op: "delete-slide", slideId };
       enqueueDeckOp(deckId, op);
@@ -3355,7 +3494,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           updatedAt: new Date().toISOString(),
         };
       };
-      decksRef.current = decksRef.current.map(removeSlides);
       setDecksLocal((prev) => prev.map(removeSlides));
       for (const op of ops) enqueueDeckOp(deckId, op);
       recordUndoBatch(before, ops, "Delete slides");
@@ -3506,7 +3644,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           updatedAt: new Date().toISOString(),
         };
       };
-      decksRef.current = decksRef.current.map(addSlides);
       setDecksLocal((prev) => prev.map(addSlides));
       for (const op of ops) enqueueDeckOp(deckId, op);
       recordUndoBatch(before, ops, "Paste slides");
@@ -3539,11 +3676,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const updatedAt = new Date().toISOString();
 
       markDeckDirty(deckId);
-      decksRef.current = decksRef.current.map((d) =>
-        d.id === deckId
-          ? { ...clearSourceImport(d), slides: orderedSlides, updatedAt }
-          : d,
-      );
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -3592,9 +3724,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ? captureReplacedSlideDeleteTombstones(after)
         : undefined;
       markDeckDirty(deckId);
-      decksRef.current = decksRef.current.map((d) =>
-        d.id === deckId ? after : d,
-      );
       setDecksLocal((prev) => prev.map((d) => (d.id === deckId ? after : d)));
       enqueueDeckOp(
         deckId,

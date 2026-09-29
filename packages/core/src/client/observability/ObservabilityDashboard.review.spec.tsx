@@ -64,12 +64,22 @@ vi.mock("./useObservability.js", () => ({
   }),
   useTraces: (...args: unknown[]) => mockTraces(...args),
   useTraceDetail: (...args: unknown[]) => mockTraceDetail(...args),
+  usePromoteTraceEval: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    data: undefined,
+    error: null,
+  }),
   useFeedbackList: vi.fn(),
   useFeedbackStats: vi.fn(),
   useEvalStats: vi.fn(),
+  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useExperiments: () => ({ data: [], isLoading: false }),
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
+  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useOutputReviews: () => mockOutputReviews(),
   useOutputReviewDetail: (runId: string | null) =>
     mockOutputReviewDetail(runId),
@@ -643,8 +653,18 @@ describe("ObservabilityDashboard human review", () => {
           ...primary,
           runCount: 2,
           runs: [
-            { runId: "run-1", model: "test-model", createdAt: 20 },
-            { runId: "run-1-older", model: "test-model", createdAt: 10 },
+            {
+              runId: "run-1",
+              threadId: "thread-1",
+              model: "test-model",
+              createdAt: 20,
+            },
+            {
+              runId: "run-1-older",
+              threadId: "thread-older",
+              model: "test-model",
+              createdAt: 10,
+            },
           ],
         },
       ],
@@ -688,6 +708,9 @@ describe("ObservabilityDashboard human review", () => {
       runPicker.value = "run-1-older";
       runPicker.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    expect(
+      reviewDetail("run-1")?.querySelector('a[href*="thread=thread-older"]'),
+    ).toBeTruthy();
     const summaryButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>(
         'button[aria-label="Summarize with agent"]',
@@ -990,12 +1013,12 @@ describe("ObservabilityDashboard human review", () => {
         window.HTMLInputElement.prototype,
         "value",
       )?.set;
-      setter?.call(search, "campaign");
+      setter?.call(search, "Design a compact analytics view");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
     expect(
-      container.querySelector('[data-review-run-id="run-2"]'),
+      container.querySelector('[data-review-run-id="run-1"]'),
     ).toBeTruthy();
 
     await act(async () => {
@@ -1017,6 +1040,19 @@ describe("ObservabilityDashboard human review", () => {
         "value",
       )?.set;
       setter?.call(search, "Keep the chart inline");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
+    expect(
+      container.querySelector('[data-review-run-id="run-1"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Sessions grew 18% this week");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);

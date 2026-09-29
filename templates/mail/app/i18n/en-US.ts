@@ -45,9 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "Skip inbox",
       aiSetupSave: "Save setup",
       aiSetupSkip: "Skip for now",
-      aiSetupImportantHeadline: "What’s important",
-      aiSetupSkipInboxHeadline: "What can skip your inbox",
-      aiSetupTagsHeadline: "Pick your tabs",
+      aiSetupImportantHeadline: "What’s important to you?",
+      aiSetupSkipInboxHeadline: "What can skip your inbox?",
+      aiSetupTagsHeadline: "Sort mail into tabs",
       aiSetupArchiveSpamHeadline: "Skip inbox and Spam",
       aiSetupTagReceipts: "Receipts",
       aiSetupTagUpdates: "Product updates",
@@ -63,6 +63,14 @@ const messages = {
         "Skip inbox: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
       aiSetupCustomTag: "Custom",
       aiSetupDone: "Done",
+      aiSetupConnectGmailHeadline: "Connect Gmail to sort your inbox",
+      aiSetupConnectGmailDescription:
+        "Connect Google to apply your rules to recent mail.",
+      aiSetupConnectJevHeadline: "Connect Jev to sort your inbox",
+      aiSetupConnectJevDescription:
+        "Connect Jev to apply your rules to recent mail.",
+      aiSetupCustomTabName: "Tab name",
+      aiSetupCustomTabExample: "e.g. Invoices and bills from vendors",
       aiSetupRunAgain: "Run setup again",
       aiSetupTagCalendar: "Calendar",
       aiSetupPromptCalendar: "Calendar invitations and event updates I need",
@@ -75,13 +83,21 @@ const messages = {
       aiSetupFilteredExample:
         "Cold sales outreach and recruiters I haven't replied to",
       aiSetupSortingHeadline: "Sorting your inbox",
+      aiSetupSortingDescription: "Here’s what your rules found in recent mail.",
       aiSetupFindingRecentMail: "Finding recent mail…",
+      aiSetupRetry: "Retry",
+      aiSetupGmailStatusFailed: "Couldn't check your Gmail connection",
+      aiSetupAutomationSettingsFailed: "Couldn't check your AI model settings",
       aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
       aiSetupUndoing: "Undoing inbox changes…",
+      aiSetupUndoBeforeRetry: "Undo the partial changes before trying again.",
       aiSetupSortingFailed:
         "Could not sort your inbox. Your rules are saved; try again.",
       aiSetupUndoComplete:
         "Restored {{count}} messages to their previous state.",
+      aiSetupUndoFailed: "Couldn't undo these inbox changes. Try again.",
+      aiSetupUndoStatusFailed:
+        "Undo was submitted, but the latest results couldn't be loaded.",
       aiSetupRuleCount: "{{count}} matched",
       aiSetupNoMatches: "No messages in the last 14 days matched these rules.",
       aiSetupChatTip: "You can refine or add rules anytime in chat.",
@@ -89,7 +105,29 @@ const messages = {
       aiSetupNoRules: "No rules were selected.",
       aiSetupPartialFailure: "{{count}} messages could not be updated.",
       aiSetupSortInbox: "Sort my inbox",
-      aiSetupImportantExample: "Anything from my manager, Priya…",
+      aiSetupImportantExample:
+        "Anything from my boss, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "AI tags matching mail and gives each tag its own tab next to your inbox.",
+      aiSetupImportantDescription:
+        "AI adds the Important label to matching mail so it appears in your Important tab.",
+      aiSetupSkipInboxDescription:
+        "AI archives matching mail so it never lands in your inbox. It’s still in All Mail and search.",
+      aiSetupAddTab: "Add tab",
+      aiSetupAdjustRules: "Adjust rules",
+      aiSetupImportantBoss: "Messages from my boss, ",
+      aiSetupImportantBossChip: "Messages from my boss",
+      aiSetupImportantReply: "Needs a reply",
+      aiSetupImportantDeadlines: "Deadlines",
+      aiSetupImportantCustomers: "Customers",
+      aiSetupImportantGitHub: "People on GitHub",
+      aiSetupImportantCalendar: "Calendar invitations",
+      aiSetupSkipNewsletters: "Newsletters",
+      aiSetupSkipPromotions: "Promotions",
+      aiSetupSkipBots: "Bot & CI alerts",
+      aiSetupSkipColdSales: "Cold sales outreach",
+      aiSetupSkipRecruiters: "Unanswered recruiters",
+      aiSetupSkipSocial: "Social notifications",
       priorityFeedbackLabel: "Importance feedback",
       priorityScoreHigh: "High importance",
       priorityScoreMedium: "Medium importance",
@@ -290,6 +328,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancel scheduled send",
+      deliveryUnknownWarning:
+        "Delivery status unknown; check Gmail Sent before resolving.",
+      markSentAfterChecking: "I checked Sent; mark as sent",
+      sendNewCopy: "Send a new copy",
+      sendingStatus:
+        "Scheduled send is processing. Actions are temporarily unavailable.",
+      confirmSendNewCopyTitle: "Send another copy?",
+      confirmSendNewCopyDescription:
+        "The original may already have been delivered. Check Gmail Sent first. Sending another copy can create a duplicate email.",
       dateInput: "Date and time",
       laterToday: "Later today",
       noDateMatch: "No matching future time",
@@ -399,6 +446,10 @@ const messages = {
       scheduledSendFailed: "Failed to send scheduled email",
       scheduledCancelled: "Scheduled email cancelled.",
       scheduledCancelFailed: "Failed to cancel scheduled email",
+      uncertainScheduledMarkedSent: "Scheduled email marked as sent.",
+      uncertainScheduledResolveFailed: "Failed to resolve scheduled email.",
+      uncertainScheduledRetryStarted: "A new copy is being sent.",
+      uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
       failedToSendEmail: "Failed to send email",
@@ -446,6 +497,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connect your Google account",
+      connectionNotConfigured:
+        "Gmail connection isn't configured for this app. Ask your administrator to enable it, or skip this step for now.",
       heroDescription:
         "Send and receive real email. Connect your Gmail account to get started.",
       setupIntro:
@@ -610,6 +663,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} messages restored",
       ruleBackfillReview: "Review matches",
       importantMode: "Important",
+      notifyMode: "Notify",
+      notifyModeHelp:
+        "Marks matches Important and shows a browser popup while Mail is open and notifications are enabled from the bell. Mobile app coming soon.",
+      manageAutomationsLink: "More automation actions",
       notImportantMode: "Not important",
       importantLabel: "AI Important",
       reviewImportant: "View important",
@@ -738,6 +795,7 @@ const messages = {
     markRead: "Mark as read",
     star: "Star",
     trash: "Trash",
+    notify: "Notify",
     labelName: "Label name",
     addAction: "+ Add action",
     ruleName: "Rule name",
@@ -812,8 +870,6 @@ const messages = {
     slackPostEndpoint: "Slack POST endpoint",
     slackPostEndpointHelp:
       "Use in Slack Event Subscriptions. Browser GET may show Not Found.",
-    teamDescription:
-      "Set up a team to share email automations and settings with your colleagues.",
     title: "Settings",
     general: "General",
     generalDescription: "Language and account-level preferences for Mail.",
@@ -838,12 +894,19 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
+    rules: "Rules",
+    rulesModel: "Rules model",
+    rulesModelDescription: "Matches incoming mail against your rules.",
+    slackDraftRequests: "Draft requests",
+    slackDraftQueue: "Queue drafts from Slack",
+    slackDraftQueueDescription:
+      "Teammates mention the agent in Slack to request an email draft. Drafts wait in your draft queue for review.",
+    openDraftQueue: "Open draft queue",
     aiFilter: "AI triage",
-    gmailFilters: "Gmail Filters",
+    gmailFilters: "Gmail filters",
     aliases: "Aliases",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },

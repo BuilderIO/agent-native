@@ -1,4 +1,4 @@
-import { getMethod, setResponseStatus } from "h3";
+import { getMethod, setResponseHeader, setResponseStatus } from "h3";
 
 import { autoMountAuth } from "./auth.js";
 import { getSession } from "./auth.js";
@@ -24,6 +24,7 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
     if (!isByoa) {
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [sessionPath]);
       app.use(sessionPath, async (event: any) => {
+        setResponseHeader(event, "Cache-Control", "no-store");
         const method = getMethod(event);
         if (method !== "GET" && method !== "HEAD") {
           setResponseStatus(event, 405);

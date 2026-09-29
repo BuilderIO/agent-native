@@ -30,6 +30,7 @@ import { useT } from "../i18n.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import type {
   BuilderConnectFlow,
+  BuilderConnectionScope,
   BuilderStatus,
 } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -63,13 +64,57 @@ export interface BuilderConnectionMenuProps {
   trackingSource?: string;
   trackingFlow?: string;
   variant?: "icon" | "text";
+  /**
+   * The connection this menu manages; Reconnect and Disconnect act on that
+   * grant only. Defaults to the connection in effect for the caller.
+   */
+  scope?: BuilderConnectionScope;
+}
+
+function scopeForEffectiveConnection(
+  effective: BuilderConnectFlow["effective"],
+): BuilderConnectionScope | undefined {
+  if (effective === "org") return "org";
+  if (effective === "personal") return "personal";
+  return undefined;
+}
+
+/**
+ * Which connection Reconnect targets, or null when this caller has none to
+ * reconnect. Following the connection in effect, an owner or admin who can't
+ * reconnect it reconnects the org's instead: account activation saves their
+ * keys personally, so "personal" is often what is in effect for them. Anyone
+ * else keeps the role-decided unscoped connect, unless they ride the org
+ * grant, which that connect would silently shadow for them.
+ */
+function builderReconnectTarget(
+  flow: BuilderConnectFlow,
+  scopeProp: BuilderConnectionScope | undefined,
+): { scope?: BuilderConnectionScope } | null {
+  if (scopeProp)
+    return flow.canConnect[scopeProp] ? { scope: scopeProp } : null;
+  const effectiveScope = scopeForEffectiveConnection(flow.effective);
+  if (effectiveScope && flow.canConnect[effectiveScope]) {
+    return { scope: effectiveScope };
+  }
+  if (flow.canConnect.org) return { scope: "org" };
+  return effectiveScope === "org" ? null : {};
+}
+
+function hasBuilderConnection(
+  flow: BuilderConnectFlow,
+  scope: BuilderConnectionScope,
+): boolean {
+  return Boolean(flow.grants?.[scope]) || flow.effective === scope;
 }
 
 function DisconnectBuilderButton({
   canDisconnect,
+  scope,
   onDisconnected,
 }: {
   canDisconnect: boolean;
+  scope?: BuilderConnectionScope;
   onDisconnected: () => void;
 }) {
   const t = useT();
@@ -98,6 +143,7 @@ function DisconnectBuilderButton({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          ...(scope ? { body: JSON.stringify({ scope }) } : {}),
         },
       );
       const text = await res.text();
@@ -126,7 +172,7 @@ function DisconnectBuilderButton({
       setErr(error instanceof Error ? error.message : "Disconnect failed");
       setPhase("idle");
     }
-  }, [clearArmedTimer, onDisconnected]);
+  }, [clearArmedTimer, onDisconnected, scope]);
 
   const handleDisconnectClick = useCallback(() => {
     if (phase === "busy") return;
@@ -202,11 +248,21 @@ export function BuilderConnectionMenu({
   trackingSource = "builder_connection_menu",
   trackingFlow = "connect_llm",
   variant = "icon",
+  scope: scopeProp,
 }: BuilderConnectionMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const source = credentialSource ?? flow.credentialSource;
-  const canDisconnect = flow.canDisconnect === true;
+  // Disconnect acts on the connection this menu shows; Reconnect goes where
+  // this caller may connect (see builderReconnectTarget).
+  const scope = scopeProp ?? scopeForEffectiveConnection(flow.effective);
+  const reconnectTarget = builderReconnectTarget(flow, scopeProp);
+  const canReconnect = reconnectTarget !== null;
+  const reconnectScope = reconnectTarget?.scope;
+  const canDisconnect = scope
+    ? hasBuilderConnection(flow, scope) &&
+      (scope === "personal" || flow.canConnect.org)
+    : flow.canDisconnect === true;
   const manageLabel = t("settings.builderConnection.manage", {
     defaultValue: "Manage Builder.io connection",
   });
@@ -217,8 +273,9 @@ export function BuilderConnectionMenu({
       trackingSource,
       trackingFlow,
       provisionAccount: false,
+      ...(reconnectScope ? { scope: reconnectScope } : {}),
     });
-  }, [flow, trackingFlow, trackingSource]);
+  }, [flow, reconnectScope, trackingFlow, trackingSource]);
 
   if (flow.connecting) {
     return (
@@ -234,6 +291,8 @@ export function BuilderConnectionMenu({
       </Button>
     );
   }
+
+  if (!canReconnect && !canDisconnect) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -266,22 +325,26 @@ export function BuilderConnectionMenu({
         aria-label={manageLabel}
       >
         <div className="space-y-0.5">
-          <button
-            type="button"
-            onClick={handleReconnect}
-            disabled={flow.connecting}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-60"
-          >
-            <IconRefresh size={14} />
-            {flow.connecting
-              ? t("agentChat.recovery.connectingBuilder")
-              : source === "env"
-                ? t("agentChat.setup.connectBuilder")
-                : t("agentChat.recovery.reconnectBuilder")}
-          </button>
+          {canReconnect ? (
+            <button
+              type="button"
+              onClick={handleReconnect}
+              disabled={flow.connecting}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-60"
+            >
+              <IconRefresh size={14} />
+              {flow.connecting
+                ? t("agentChat.recovery.connectingBuilder")
+                : source === "env" ||
+                    (scope !== undefined && !hasBuilderConnection(flow, scope))
+                  ? t("agentChat.setup.connectBuilder")
+                  : t("agentChat.recovery.reconnectBuilder")}
+            </button>
+          ) : null}
           {canDisconnect ? (
             <DisconnectBuilderButton
               canDisconnect={canDisconnect}
+              scope={scope}
               onDisconnected={() => setOpen(false)}
             />
           ) : null}
@@ -348,6 +411,7 @@ export function DefaultBuilderConnectCardView({
               <BuilderConnectionMenu
                 flow={viewModel.connectFlow}
                 trackingSource={trackingSource}
+                scope={viewModel.scope}
               />
             ) : null}
           </div>
@@ -406,12 +470,14 @@ export function BuilderConnectCard({
   onConnected,
   render,
   showManage = false,
+  scope,
 }: BuilderConnectCardProps) {
   const viewModel = useBuilderConnectCardController({
     title,
     description,
     trackingSource,
     onConnected,
+    scope,
   });
 
   const fallback = (

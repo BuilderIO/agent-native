@@ -44,6 +44,8 @@ const messages = {
     suggestionSurvey: "Creer une enquete de satisfaction client",
     suggestionSubmissions: "Afficher les reponses par jour",
     suggestionExport: "Exporter les reponses en CSV",
+    topSignal: "Signal principal",
+    draftFollowUp: "Rédiger une question de suivi",
   },
   sidebar: {
     collapseSidebar: "Réduire la barre latérale",

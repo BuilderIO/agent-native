@@ -247,6 +247,18 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 
 將任何評分器降低到閾值以下的回歸會導致該步驟失敗並阻止部署。沒有評估檔案的應用程式會退出 `0`，因此采用評估是每個應用程式的選取。
 
+## 從生產 Trace 提升 {#from-trace}
+
+當一次真實執行出乎意料——示範能跑、上線卻壞了，或呼叫了錯誤的工具——把這條已完成的 trace 提升為 CI 案例，而不是憑空寫 prompt。
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+此命令寫入一列 `EvalDataset`（與儀表板和 `promote-trace-eval` 相同的 helper），並寫出 `agent-native eval` 門檻已經會發現的 `defineEval` 檔。預設 scorer 是每個成功工具的 `usesTool(...)`，加上可選的 `--must-contain`。截斷、中止或沒有使用者訊息的執行會閉合失敗。
+
+託管 action 和 `POST /_agent-native/observability/traces/:runId/promote` 不會寫入應用程式樹。要用 `--write` 才能讓 CI 擋住。Observability 的 trace 詳情有 **Promote to eval**。
+
 ## 下一步是什麼
 
 - [**Observability**](/docs/observability) - 實際正式環境執行的事後評分（補充層）

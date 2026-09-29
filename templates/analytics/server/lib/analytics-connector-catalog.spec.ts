@@ -100,7 +100,10 @@ describe("Analytics MCP connector catalog", () => {
     expect(parameterNames(getSessionReplayTimeline)).toEqual(
       expect.arrayContaining(["recordingId", "eventLimit"]),
     );
-    expect(parameterNames(queryAgentNativeAnalytics)).toEqual(["sql"]);
+    expect(parameterNames(queryAgentNativeAnalytics)).toEqual([
+      "sql",
+      "showTable",
+    ]);
     expect(parameterNames(listErrorIssues)).toEqual(
       expect.arrayContaining([
         "status",
@@ -119,7 +122,10 @@ describe("Analytics MCP connector catalog", () => {
 
   it("keeps raw SQL available only to Analytics' own agent", () => {
     expect(queryAgentNativeAnalytics.http).toBe(false);
-    expect(parameterNames(queryAgentNativeAnalytics)).toEqual(["sql"]);
+    expect(parameterNames(queryAgentNativeAnalytics)).toEqual([
+      "sql",
+      "showTable",
+    ]);
     expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain(
       "query-agent-native-analytics",
     );

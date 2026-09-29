@@ -659,6 +659,14 @@ export default defineAction({
           title: filter.criteriaSummary.slice(0, 180),
           detail: filter.actionSummary.slice(0, 500),
           url: gmailFiltersUrl(account.email),
+          undo: {
+            action: "manage-gmail-filters",
+            args: {
+              operation: "delete",
+              id: created.id,
+              account: account.email,
+            },
+          },
         },
       };
     }
@@ -717,6 +725,18 @@ export default defineAction({
           title: filter.criteriaSummary.slice(0, 180),
           detail: filter.actionSummary.slice(0, 500),
           url: gmailFiltersUrl(target.account.email),
+          undo: {
+            action: "manage-gmail-filters",
+            args: {
+              operation: "replace",
+              id: created.id,
+              account: target.account.email,
+              criteriaJson: JSON.stringify(target.filter.criteria),
+              filterActionJson: JSON.stringify(target.filter.action),
+              replaceCriteria: true,
+              replaceAction: true,
+            },
+          },
         },
       };
     }

@@ -1558,7 +1558,7 @@ export function EventDetailPopover({
       if (!open) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "j" && meetingLink) {
         e.preventDefault();
-        window.open(meetingLink.url, "_blank");
+        window.open(meetingLink.url, "_blank", "noopener,noreferrer");
       }
     },
     [open, meetingLink],
@@ -2118,7 +2118,7 @@ export function EventDetailPopover({
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="size-9 shrink-0"
+                          className="shrink-0"
                           aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           disabled={mutationPending}

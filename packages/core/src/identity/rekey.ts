@@ -8,6 +8,7 @@ import {
   encryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { createTtlCache } from "../shared/ttl-cache.js";
 
 export interface IdentityRekeyDb {
   unsafe(
@@ -34,6 +35,42 @@ export type IdentityColumn = {
     | "custom-scope"
     | "scope-key"
     | "unsupported-oauth";
+  /** Email-change behavior. Omitted means rewrite the value to the new address. */
+  emailChange?: IdentityEmailChange;
+  /** Offboarding behavior. Omitted means offboard.ts derives it from `mode`. */
+  offboard?: IdentityOffboard;
+  /** How an organization-scoped offboard finds this organization's rows. Omitted means an `org_id` column. */
+  orgScope?: IdentityOrgScope;
+};
+
+export type IdentityEmailChange = "rekey" | "delete" | "retain";
+export type IdentityOffboard = "transfer" | "delete" | "retain";
+
+export type IdentityOrgScope =
+  | { column: string }
+  | {
+      column: string;
+      references: { table: string; column: string; orgColumn: string };
+    };
+
+/**
+ * An app-owned column that matches the identity-column naming pattern. Every
+ * such column must be declared, including ones that are not member
+ * identities, so a new column cannot silently escape email change or
+ * offboarding.
+ */
+export type AppIdentityColumn = {
+  table: string;
+  column: string;
+  /** What an email change does to rows holding the old address. */
+  emailChange: IdentityEmailChange;
+  /** What removing the member does to rows holding their address. */
+  offboard: IdentityOffboard;
+  /** `secret-scope` values are scoped by a sibling `secret_scope` column, as in `integration_installations`. */
+  mode?: "email" | "secret-scope";
+  orgScope?: IdentityOrgScope;
+  /** Why this policy is right for the data. Required so every declaration is a visible decision. */
+  reason: string;
 };
 
 export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
@@ -68,10 +105,16 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   },
   { table: "agent_evals", column: "user_id", mode: "email-user-id" },
   {
+    table: "agent_eval_datasets",
+    column: "user_id",
+    mode: "email-user-id",
+  },
+  {
     table: "agent_experiment_assignments",
     column: "user_id",
     mode: "email-user-id",
   },
+  { table: "agent_turn_initiators", column: "principal_email" },
   { table: "chat_threads", column: "owner_email" },
   { table: "chat_thread_shares", column: "principal_id", mode: "user-share" },
   { table: "chat_thread_shares", column: "created_by" },
@@ -150,6 +193,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "agent_review_suggestion_amendments", column: "author_email" },
   { table: "agent_review_suggestion_amendments", column: "owner_email" },
   { table: "agent_review_suggestion_creations", column: "author_email" },
+  { table: "agent_review_suggestion_proposals", column: "author_email" },
+  {
+    table: "agent_review_suggestion_proposal_creations",
+    column: "author_email",
+  },
   { table: "agent_team_run_queue", column: "owner_email" },
   { table: "sessions", column: "email" },
   { table: "scim_user", column: "primary_email" },
@@ -160,6 +208,9 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "token_usage", column: "owner_email" },
   { table: "chat_threads", column: "scope_id", mode: "typed-scope" },
   { table: "tool_data", column: "scope_key", mode: "scope-key" },
+  { table: "automation_runs", column: "owner", mode: "owner" },
+  { table: "automation_runs", column: "notification_email" },
+  { table: "sandbox_executions", column: "owner", mode: "owner" },
 ];
 
 const OPTIONAL_TABLES = new Set(
@@ -189,45 +240,195 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "identity_rekeys.old_email",
   "identity_rekeys.new_email",
   "identity_rekeys.actor_email",
+  // Actor kind enum ('user' | 'agent' | 'system'), not an address.
+  "context_directives.created_by",
+  "resources.created_by",
+  // Integration conversation-scope record id.
+  "token_usage.integration_scope_id",
+  "twoFactor.user_id",
+  // Browser-extension session ids; the row identity is owner_email.
+  "agent_native_browser_sessions.session_id",
+  "agent_native_browser_session_requests.session_id",
 ]);
 
 const IDENTITY_COLUMN_PATTERN =
   /^(?:email|[a-z0-9]+_email|[a-z0-9_]*scope_id|updated_by|invited_by|created_by|owner|principal_id|session_id|user_id)$/i;
 
-export function assertIdentityColumnRows(
-  rows: readonly Record<string, unknown>[],
+const SQL_IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
+
+// Stash app declarations on globalThis so they survive SSR bundle duplication,
+// as the sharing registry does: the app registers from its Nitro plugin graph
+// while the org routes may load a different copy of this module.
+const APP_IDENTITY_COLUMNS_KEY = "__agentNativeAppIdentityColumns__";
+const appIdentityGlobal = globalThis as typeof globalThis & {
+  [APP_IDENTITY_COLUMNS_KEY]?: Map<string, AppIdentityColumn>;
+};
+
+function appIdentityRegistry(): Map<string, AppIdentityColumn> {
+  return (appIdentityGlobal[APP_IDENTITY_COLUMNS_KEY] ??= new Map());
+}
+
+const samePolicy = (a: AppIdentityColumn, b: AppIdentityColumn) =>
+  JSON.stringify({ ...a, reason: "" }) === JSON.stringify({ ...b, reason: "" });
+
+/**
+ * Declare how an app's own identity-shaped columns behave on email change and
+ * member offboarding. Call it at module load from the app's server graph
+ * (beside `registerShareableResource`). Share tables made by
+ * `createSharesTable()` are recognized from their shape and need no entry.
+ */
+export function registerIdentityColumns(
+  columns: readonly AppIdentityColumn[],
 ): void {
-  const registered = new Set(
-    IDENTITY_REKEY_COLUMNS.map(({ table, column }) => `${table}.${column}`),
-  );
+  const core = new Set([
+    ...IDENTITY_REKEY_COLUMNS.map(({ table, column }) => `${table}.${column}`),
+    ...IDENTITY_REKEY_IGNORED_COLUMNS,
+  ]);
+  const registry = appIdentityRegistry();
+  for (const entry of columns) {
+    const key = `${entry.table}.${entry.column}`;
+    const identifiers = [entry.table, entry.column];
+    if (entry.orgScope) {
+      identifiers.push(entry.orgScope.column);
+      if ("references" in entry.orgScope)
+        identifiers.push(
+          entry.orgScope.references.table,
+          entry.orgScope.references.column,
+          entry.orgScope.references.orgColumn,
+        );
+    }
+    for (const identifier of identifiers)
+      if (!SQL_IDENTIFIER.test(identifier))
+        throw new Error(
+          `Invalid identity column identifier ${identifier} in ${key}.`,
+        );
+    if (!entry.reason?.trim())
+      throw new Error(`Identity column ${key} needs a reason.`);
+    if (
+      entry.mode === "secret-scope" &&
+      (entry.emailChange === "delete" || entry.offboard === "transfer")
+    )
+      throw new Error(
+        `Identity column ${key} is secret-scoped; it can only be rekeyed or retained on email change and deleted or retained on offboard.`,
+      );
+    if (core.has(key))
+      throw new Error(
+        `Identity column ${key} is owned by the framework registry and cannot be redeclared by an app.`,
+      );
+    const existing = registry.get(key);
+    if (existing && !samePolicy(existing, entry))
+      throw new Error(
+        `Identity column ${key} was declared twice with different policies.`,
+      );
+    registry.set(key, entry);
+  }
+}
+
+/** Test-only reset for the app declaration registry. */
+export function __resetAppIdentityColumnsForTests(): void {
+  appIdentityRegistry().clear();
+}
+
+function columnsByTable(
+  rows: readonly Record<string, unknown>[],
+): Map<string, Set<string>> {
+  const tables = new Map<string, Set<string>>();
   for (const row of rows) {
     const table = String(row.table_name ?? "");
     const column = String(row.column_name ?? "");
-    if (!IDENTITY_COLUMN_PATTERN.test(column)) continue;
-    const key = `${table}.${column}`;
-    // owner_email is intentionally swept at runtime because extensions and
-    // app-owned stores may add it without a core migration release.
-    if (registered.has(key) || column === "owner_email") continue;
-    if (IDENTITY_REKEY_IGNORED_COLUMNS.has(key)) continue;
-    throw new Error(
-      `${key} looks identity-bearing but is not registered for rekey; refusing to run an incomplete identity migration.`,
-    );
+    if (!table || !column) continue;
+    const columns = tables.get(table) ?? new Set<string>();
+    columns.add(column);
+    tables.set(table, columns);
   }
+  return tables;
+}
+
+/**
+ * The complete identity policy for one database schema: the framework
+ * registry, app declarations, and share tables recognized by the
+ * `createSharesTable()` shape. Throws on the first identity-shaped column
+ * with no policy, so callers never run an incomplete migration.
+ */
+export function resolveIdentityColumns(
+  rows: readonly Record<string, unknown>[],
+): IdentityColumn[] {
+  const entries: IdentityColumn[] = [
+    ...IDENTITY_REKEY_COLUMNS,
+    ...[...appIdentityRegistry().values()].map(
+      ({ reason: _reason, mode, ...entry }): IdentityColumn =>
+        mode === "secret-scope" ? { ...entry, mode } : entry,
+    ),
+  ];
+  const registered = new Set(
+    entries.map(({ table, column }) => `${table}.${column}`),
+  );
+  const tables = columnsByTable(rows);
+  for (const [table, columns] of tables) {
+    if (
+      !columns.has("resource_id") ||
+      !columns.has("principal_type") ||
+      !columns.has("principal_id")
+    )
+      continue;
+    // Same policy as the framework's own share tables: user grants follow an
+    // email change and are revoked on offboard; the granter is attribution.
+    if (!registered.has(`${table}.principal_id`))
+      entries.push({ table, column: "principal_id", mode: "user-share" });
+    if (columns.has("created_by") && !registered.has(`${table}.created_by`))
+      entries.push({ table, column: "created_by" });
+  }
+  const resolved = new Set(
+    entries.map(({ table, column }) => `${table}.${column}`),
+  );
+  for (const [table, columns] of tables) {
+    for (const column of columns) {
+      if (!IDENTITY_COLUMN_PATTERN.test(column)) continue;
+      const key = `${table}.${column}`;
+      // owner_email is intentionally swept at runtime because extensions and
+      // app-owned stores may add it without a core migration release.
+      if (resolved.has(key) || column === "owner_email") continue;
+      if (IDENTITY_REKEY_IGNORED_COLUMNS.has(key)) continue;
+      throw new Error(
+        `${key} looks identity-bearing but has no identity policy; declare it with registerIdentityColumns() from @agent-native/core/org. Refusing to run an incomplete identity migration.`,
+      );
+    }
+  }
+  return entries;
+}
+
+/**
+ * The Better Auth session column holding the user id. Migrated databases use
+ * `user_id`; older fixtures and hand-built schemas use `"userId"`. Null means
+ * there is no session table; a session table without either column throws,
+ * because skipping revocation would leave the old identity signed in.
+ */
+export function sessionUserColumn(
+  sessionColumns: ReadonlySet<string>,
+): "user_id" | "userId" | null {
+  if (!sessionColumns.size) return null;
+  if (sessionColumns.has("user_id")) return "user_id";
+  if (sessionColumns.has("userId")) return "userId";
+  throw new Error(
+    "Better Auth session table has no user id column; refusing to leave sessions unrevoked.",
+  );
+}
+
+export function assertIdentityColumnRows(
+  rows: readonly Record<string, unknown>[],
+): IdentityColumn[] {
+  return resolveIdentityColumns(rows);
 }
 
 export async function assertIdentityColumnsRegistered(
   db: IdentityRekeyDb,
-): Promise<void> {
+): Promise<IdentityColumn[]> {
   const rows = await db.unsafe(
     `SELECT table_name, column_name FROM information_schema.columns
      WHERE table_schema = 'public'
-       AND (column_name = 'email' OR column_name LIKE '%\\_email' ESCAPE '\\'
-            OR column_name = 'scope_id'
-            OR column_name LIKE '%\\_scope\\_id' ESCAPE '\\'
-            OR column_name IN ('updated_by', 'invited_by', 'created_by', 'owner', 'principal_id', 'session_id', 'user_id'))
      ORDER BY table_name, column_name`,
   );
-  assertIdentityColumnRows(rows);
+  return resolveIdentityColumns(rows);
 }
 
 const quote = (value: string) => {
@@ -305,6 +506,30 @@ export interface IdentityRekeyResult {
   oauthRevokedCount: number;
 }
 
+/**
+ * Emails whose last ledger probe found nothing pending. Every authenticated
+ * request probes for a rekey to resume, and the answer is almost always "none".
+ * Only `beginIdentityRekey` and `failIdentityRekey` leave a row pending, and
+ * both clear this; a pending row written by another process (the CLI, another
+ * instance) is picked up at most one TTL late, which only delays the automatic
+ * retry of a rekey that already failed once.
+ */
+const IDLE_REKEY_PROBE_TTL_MS = 15_000;
+const idleRekeyEmails = createTtlCache<true>({
+  ttlMs: IDLE_REKEY_PROBE_TTL_MS,
+  maxEntries: 4_096,
+});
+let rekeyLedgerGeneration = 0;
+
+function markRekeyLedgerPending(): void {
+  rekeyLedgerGeneration += 1;
+  idleRekeyEmails.clear();
+}
+
+export function __resetIdleIdentityRekeyProbeCacheForTests(): void {
+  idleRekeyEmails.clear();
+}
+
 export type IdentityRekeyLedgerStatus = "pending" | "done";
 
 export interface IdentityRekeyLedgerRow {
@@ -379,13 +604,17 @@ export async function beginIdentityRekey(
   const current = existing[0];
   if (current) {
     const id = String(current.id);
-    await db.unsafe(
-      `UPDATE identity_rekeys
-       SET status = 'pending', error = NULL, actor_email = $1,
-           updated_at = $2, completed_at = NULL
-       WHERE id = $3`,
-      [actorEmail?.trim().toLowerCase() ?? null, Date.now(), id],
-    );
+    try {
+      await db.unsafe(
+        `UPDATE identity_rekeys
+         SET status = 'pending', error = NULL, actor_email = $1,
+             updated_at = $2, completed_at = NULL
+         WHERE id = $3`,
+        [actorEmail?.trim().toLowerCase() ?? null, Date.now(), id],
+      );
+    } finally {
+      markRekeyLedgerPending();
+    }
     return {
       id,
       oldEmail: normalizedOld,
@@ -395,18 +624,22 @@ export async function beginIdentityRekey(
     };
   }
   const id = randomUUID();
-  await db.unsafe(
-    `INSERT INTO identity_rekeys
-       (id, old_email, new_email, status, actor_email, created_at, updated_at)
-     VALUES ($1, $2, $3, 'pending', $4, $5, $5)`,
-    [
-      id,
-      normalizedOld,
-      normalizedNew,
-      actorEmail?.trim().toLowerCase() ?? null,
-      Date.now(),
-    ],
-  );
+  try {
+    await db.unsafe(
+      `INSERT INTO identity_rekeys
+         (id, old_email, new_email, status, actor_email, created_at, updated_at)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $5)`,
+      [
+        id,
+        normalizedOld,
+        normalizedNew,
+        actorEmail?.trim().toLowerCase() ?? null,
+        Date.now(),
+      ],
+    );
+  } finally {
+    markRekeyLedgerPending();
+  }
   return {
     id,
     oldEmail: normalizedOld,
@@ -435,16 +668,20 @@ export async function failIdentityRekey(
   ledgerId: string,
   error: unknown,
 ): Promise<void> {
-  await db.unsafe(
-    `UPDATE identity_rekeys
-     SET status = 'pending', error = $1, updated_at = $2
-     WHERE id = $3`,
-    [
-      error instanceof Error ? error.message : String(error),
-      Date.now(),
-      ledgerId,
-    ],
-  );
+  try {
+    await db.unsafe(
+      `UPDATE identity_rekeys
+       SET status = 'pending', error = $1, updated_at = $2
+       WHERE id = $3`,
+      [
+        error instanceof Error ? error.message : String(error),
+        Date.now(),
+        ledgerId,
+      ],
+    );
+  } finally {
+    markRekeyLedgerPending();
+  }
 }
 
 export async function executeIdentityRekey(
@@ -473,8 +710,16 @@ export async function executeIdentityRekey(
 export async function resumePendingIdentityRekeys(
   db: IdentityRekeyDb,
   email: string,
-  options: { ensureLedger?: boolean } = {},
+  options: { ensureLedger?: boolean; cacheIdle?: boolean } = {},
 ): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (options.cacheIdle && idleRekeyEmails.get(normalizedEmail)) return;
+  const generation = rekeyLedgerGeneration;
+  const rememberIdle = () => {
+    if (options.cacheIdle && generation === rekeyLedgerGeneration) {
+      idleRekeyEmails.set(normalizedEmail, true);
+    }
+  };
   if (options.ensureLedger !== false) await ensureIdentityRekeyLedger(db);
   let rows: Array<Record<string, unknown>> & { count?: number };
   try {
@@ -484,7 +729,7 @@ export async function resumePendingIdentityRekeys(
        WHERE status = 'pending'
          AND (LOWER(old_email) = LOWER($1) OR LOWER(new_email) = LOWER($1))
        ORDER BY created_at ASC`,
-      [email.trim().toLowerCase()],
+      [normalizedEmail],
     );
   } catch (error) {
     const code = (error as { code?: unknown }).code;
@@ -494,9 +739,15 @@ export async function resumePendingIdentityRekeys(
         /relation ["'`]?identity_rekeys["'`]? does not exist|no such table: ["'`]?identity_rekeys/i.test(
           String((error as { message?: unknown }).message ?? error),
         ))
-    )
+    ) {
+      rememberIdle();
       return;
+    }
     throw error;
+  }
+  if (rows.length === 0) {
+    rememberIdle();
+    return;
   }
   for (const row of rows) {
     const id = String(row.id);
@@ -571,6 +822,91 @@ export async function rekeyIdentityAfterEmailVerification(
   });
 }
 
+/**
+ * Promotion keys embed the owner email (`from-trace:<encoded-email>:<run>`).
+ * Rewriting only `user_id` would hide the row from the new email and insert
+ * a duplicate on the next promote.
+ */
+function rekeyedPromotedDatasetIdempotencyKey(
+  current: string | null,
+  newEmail: string,
+): string | null {
+  if (current == null) return null;
+  const prefix = "from-trace:";
+  if (!current.startsWith(prefix)) return current;
+  const rest = current.slice(prefix.length);
+  const separator = rest.indexOf(":");
+  if (separator < 0) return current;
+  return `${prefix}${encodeURIComponent(newEmail)}:${rest.slice(separator + 1)}`;
+}
+
+async function rekeyPromotedEvalDatasetKeys(
+  db: IdentityRekeyDb,
+  oldEmail: string,
+  newEmail: string,
+  dryRun: boolean | undefined,
+): Promise<void> {
+  const datasetRows = await db.unsafe(
+    `SELECT id, idempotency_key FROM agent_eval_datasets WHERE LOWER(user_id) = LOWER($1) FOR UPDATE`,
+    [oldEmail],
+  );
+  const updates = datasetRows.map((row) => {
+    const currentKey =
+      typeof row.idempotency_key === "string" ? row.idempotency_key : null;
+    return {
+      id: row.id,
+      previousKey: currentKey,
+      nextKey: rekeyedPromotedDatasetIdempotencyKey(currentKey, newEmail),
+    };
+  });
+  const seen = new Set<string>();
+  for (const update of updates) {
+    if (update.nextKey == null) continue;
+    if (seen.has(update.nextKey)) {
+      throw new Error(
+        "Promoted eval dataset collision detected; no identity data was changed.",
+      );
+    }
+    seen.add(update.nextKey);
+  }
+  const nextKeys = [...seen];
+  if (nextKeys.length > 0 && updates.length > 0) {
+    const keyPlaceholders = nextKeys
+      .map((_, index) => `$${index + 1}`)
+      .join(", ");
+    const idPlaceholders = updates
+      .map((_, index) => `$${nextKeys.length + 1 + index}`)
+      .join(", ");
+    const collisionRows = await db.unsafe(
+      `SELECT 1 FROM agent_eval_datasets
+       WHERE idempotency_key IN (${keyPlaceholders})
+         AND id NOT IN (${idPlaceholders})
+       LIMIT 1`,
+      [...nextKeys, ...updates.map((update) => update.id)],
+    );
+    if (collisionRows.length) {
+      throw new Error(
+        "Promoted eval dataset collision detected; no identity data was changed.",
+      );
+    }
+  }
+  if (dryRun) return;
+  for (const update of updates) {
+    if (update.previousKey != null && update.previousKey !== update.nextKey) {
+      await db.unsafe(
+        `UPDATE agent_eval_datasets SET idempotency_key = NULL WHERE id = $1 AND idempotency_key = $2`,
+        [update.id, update.previousKey],
+      );
+    }
+  }
+  for (const update of updates) {
+    await db.unsafe(
+      `UPDATE agent_eval_datasets SET user_id = $1, idempotency_key = $2 WHERE id = $3`,
+      [newEmail, update.nextKey, update.id],
+    );
+  }
+}
+
 /** Run inside the caller's PostgreSQL transaction. It deliberately refuses credential and derived-key stores it cannot safely rewrite. */
 export async function rekeyIdentity(
   db: IdentityRekeyDb,
@@ -594,7 +930,7 @@ export async function rekeyIdentity(
     throw new Error("Provide two different valid email addresses.");
   }
 
-  await assertIdentityColumnsRegistered(db);
+  const identityColumns = await assertIdentityColumnsRegistered(db);
 
   const userColumns = await columns(db, "user");
   if (!userColumns.has("id") || !userColumns.has("email"))
@@ -635,8 +971,8 @@ export async function rekeyIdentity(
   const counts: Record<string, number> = {};
   let oauthRevokedCount = 0;
   counts["user.email"] = 1;
-  for (const entry of IDENTITY_REKEY_COLUMNS) {
-    if (entry.table === "user") continue;
+  for (const entry of identityColumns) {
+    if (entry.table === "user" || entry.emailChange === "retain") continue;
     if (entry.mode === "unsupported-oauth") {
       const oauthColumns = await columns(db, "oauth_tokens");
       if (!oauthColumns.size) continue;
@@ -848,7 +1184,13 @@ export async function rekeyIdentity(
     counts[`${entry.table}.${entry.column}`] = count;
     if (!count) continue;
 
-    if (entry.mode === "user-scope") {
+    if (entry.emailChange === "delete") {
+      if (!options.dryRun)
+        await db.unsafe(
+          `DELETE FROM ${quote(entry.table)} WHERE ${where}`,
+          args,
+        );
+    } else if (entry.mode === "user-scope") {
       const destination = await db.unsafe(
         `SELECT 1 FROM app_secrets source JOIN app_secrets target ON target.key = source.key AND target.scope = source.scope WHERE ((source.scope = 'user' AND LOWER(source.scope_id) = LOWER($1)) OR (source.scope = 'workspace' AND LOWER(source.scope_id) = LOWER($2))) AND ((target.scope = 'user' AND LOWER(target.scope_id) = LOWER($3)) OR (target.scope = 'workspace' AND LOWER(target.scope_id) = LOWER($4))) LIMIT 1`,
         [oldEmail, `solo:${oldEmail}`, newEmail, `solo:${newEmail}`],
@@ -886,6 +1228,18 @@ export async function rekeyIdentity(
           throw new Error(
             "Experiment assignment collision detected; no identity data was changed.",
           );
+      }
+      if (
+        entry.table === "agent_eval_datasets" &&
+        available.has("idempotency_key")
+      ) {
+        await rekeyPromotedEvalDatasetKeys(
+          db,
+          oldEmail,
+          newEmail,
+          options.dryRun,
+        );
+        continue;
       }
       if (!options.dryRun)
         await db.unsafe(
@@ -1057,9 +1411,9 @@ export async function rekeyIdentity(
   }
 
   const registeredOwnerEmailTables = new Set(
-    IDENTITY_REKEY_COLUMNS.filter(({ column }) => column === "owner_email").map(
-      ({ table }) => table,
-    ),
+    identityColumns
+      .filter(({ column }) => column === "owner_email")
+      .map(({ table }) => table),
   );
   const dynamicOwnerColumns = await db.unsafe(
     `SELECT table_name, data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'owner_email' ORDER BY table_name`,
@@ -1105,18 +1459,18 @@ export async function rekeyIdentity(
         "Better Auth account changed during rekey; transaction aborted.",
       );
   }
-  const sessions = await columns(db, "session");
+  const sessionUser = sessionUserColumn(await columns(db, "session"));
   let sessionCount = 0;
-  if (sessions.has("userId")) {
+  if (sessionUser) {
     if (options.dryRun && options.revokeSessions !== false) {
       const found = await db.unsafe(
-        `SELECT COUNT(*)::int AS count FROM "session" WHERE "userId" = $1`,
+        `SELECT COUNT(*)::int AS count FROM "session" WHERE ${quote(sessionUser)} = $1`,
         [userId],
       );
       sessionCount = Number(found[0]?.count ?? 0);
     } else if (!options.dryRun && options.revokeSessions !== false) {
       const revoked = await db.unsafe(
-        `DELETE FROM "session" WHERE "userId" = $1`,
+        `DELETE FROM "session" WHERE ${quote(sessionUser)} = $1`,
         [userId],
       );
       sessionCount = revoked.count ?? 0;

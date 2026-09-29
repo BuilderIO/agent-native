@@ -88,7 +88,7 @@ export function ImportDeckButton({
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <div className="inline-flex">
+        <div className="inline-flex shrink-0">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -102,7 +102,7 @@ export function ImportDeckButton({
                 )}
               >
                 <IconUpload />
-                <span className="slides-home-import-label">
+                <span>
                   {t(
                     busy ? "editorToolbar.importing" : "home.importMenu.import",
                   )}

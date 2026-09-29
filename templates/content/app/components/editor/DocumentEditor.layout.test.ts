@@ -2591,6 +2591,87 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("builds breadcrumbs from the navigation path without a document list", () => {
+    const path = Array.from({ length: 7 }, (_, index) => ({
+      id: `level-${index + 1}`,
+      parentId: index === 0 ? null : `level-${index}`,
+      title: `Level ${index + 1}`,
+      icon: null,
+      databaseId: "personal",
+    }));
+    const deepest = path[6]!;
+    const items = documentEditorBreadcrumbItems(
+      {
+        ...deepest,
+        databaseMembership: {
+          databaseId: "personal",
+          databaseDocumentId: "personal-files",
+          databaseTitle: "Personal",
+          position: 0,
+        },
+      },
+      path,
+    );
+
+    expect(items.map((item) => item.title)).toEqual([
+      "Personal",
+      ...path.map((entry) => entry.title),
+    ]);
+    const navigation = documentEditorBreadcrumbNavigationItems(
+      items,
+      [],
+      [{ filesDocumentId: "personal-files", name: "Personal" }],
+      undefined,
+      path,
+    );
+    expect(navigation[0]?.siblings).toBeUndefined();
+    expect(navigation[0]?.menuItems?.map((item) => item.title)).toEqual([
+      "Personal",
+    ]);
+    expect(navigation[1]).toMatchObject({
+      filesDatabaseId: "personal",
+      siblings: { filesDatabaseId: "personal", parentId: null },
+    });
+    expect(navigation[7]?.siblings).toEqual({
+      filesDatabaseId: "personal",
+      parentId: "level-6",
+    });
+  });
+
+  it("stops breadcrumbs and peer menus at an unreadable ancestor", () => {
+    const path = [
+      {
+        id: "shared-child",
+        parentId: "private-parent",
+        title: "Shared child",
+        icon: null,
+        databaseId: "team",
+      },
+      {
+        id: "draft",
+        parentId: "shared-child",
+        title: "Draft",
+        icon: null,
+        databaseId: "team",
+      },
+    ];
+    const items = documentEditorBreadcrumbItems(path[1]!, path);
+    expect(items.map((item) => item.title)).toEqual(["Shared child", "Draft"]);
+
+    const navigation = documentEditorBreadcrumbNavigationItems(
+      items,
+      [],
+      [],
+      undefined,
+      path,
+    );
+    expect(navigation[0]?.siblings).toBeUndefined();
+    expect(navigation[1]?.siblings).toEqual({
+      filesDatabaseId: "team",
+      parentId: "shared-child",
+    });
+  });
+
   it("links a top-level Files database back to Workspaces", () => {
     const items = documentEditorBreadcrumbNavigationItems(
       [{ id: "personal-files", title: "Personal" }],

@@ -6,6 +6,7 @@ vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
   hasBuilderOAuthSession: vi.fn(async () => false),
   resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
+  isBuilderOrgManager: vi.fn(async () => false),
 }));
 
 function providerFailureFingerprint(key: string, value: string): string {
@@ -444,7 +445,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("returns the stored model when the stored engine name matches", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:openrouter",
           model: "google/gemini-2.5-flash",
@@ -457,7 +459,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("returns undefined when the stored engine doesn't match", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "anthropic",
           model: "claude-sonnet-5",
@@ -471,7 +474,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("returns undefined when no model is stored", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({ engine: "ai-sdk:openrouter" }),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
@@ -482,7 +486,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("returns undefined for an empty-string model", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi
           .fn()
           .mockResolvedValue({ engine: "ai-sdk:openrouter", model: "" }),
@@ -494,8 +499,42 @@ describe("AgentEngine registry", () => {
       ).toBeUndefined();
     });
 
+    it("reads the request org's default before the legacy deployment row", async () => {
+      const stored: Record<string, Record<string, unknown>> = {
+        "o:org-a:agent-engine": {
+          engine: "ai-sdk:openrouter",
+          model: "org-a/model",
+        },
+        "agent-engine": {
+          engine: "ai-sdk:openrouter",
+          model: "legacy/model",
+        },
+      };
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
+        getSetting: vi.fn(async (key: string) => stored[key] ?? null),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+      const { runWithRequestContext } =
+        await import("../../server/request-context.js");
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "a@example.test", orgId: "org-a" },
+          () => getStoredModelForEngine("ai-sdk:openrouter"),
+        ),
+      ).resolves.toBe("org-a/model");
+      await expect(
+        runWithRequestContext(
+          { userEmail: "b@example.test", orgId: "org-b" },
+          () => getStoredModelForEngine("ai-sdk:openrouter"),
+        ),
+      ).resolves.toBe("legacy/model");
+    });
+
     it("swallows settings-store errors", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi
           .fn()
           .mockRejectedValue(new Error("settings table not ready")),
@@ -508,7 +547,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("accepts an engine instance and uses its .name", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi
           .fn()
           .mockResolvedValue({ engine: "ai-sdk:openai", model: "gpt-4o" }),
@@ -525,7 +565,8 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "owner@example.com",
         getRequestOrgId: () => undefined,
       }));
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn(async (key: string) => {
           if (key === "u:owner@example.com:agent-app-model-default:analytics") {
             return { engine: "builder", model: "gemini-3-1-pro" };
@@ -910,7 +951,8 @@ describe("AgentEngine registry", () => {
   });
 
   it("strips legacy inline api keys from the global agent-engine setting before creating the engine", async () => {
-    vi.doMock("../../settings/store.js", () => ({
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
       getSetting: vi.fn().mockResolvedValue({
         engine: "stored-engine",
         apiKey: "sk-global-top-level",
@@ -973,7 +1015,8 @@ describe("AgentEngine registry", () => {
       getRequestUserEmail: () => "owner@example.com",
       getRequestOrgId: () => undefined,
     }));
-    vi.doMock("../../settings/store.js", () => ({
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
       getSetting: vi.fn(async (key: string) => {
         if (key === "u:owner@example.com:agent-app-model-default:analytics") {
           return { engine: "app-engine", model: "app-model" };
@@ -1038,7 +1081,8 @@ describe("AgentEngine registry", () => {
   });
 
   it("resolveEngine ignores stored engines whose optional runtime packages are missing", async () => {
-    vi.doMock("../../settings/store.js", () => ({
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
       getSetting: vi.fn().mockResolvedValue({
         engine: "ai-sdk:openai",
         model: "gpt-5.4",
@@ -1268,7 +1312,8 @@ describe("AgentEngine registry", () => {
 
     beforeEach(() => {
       vi.resetModules();
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue(null),
         deleteSetting: vi.fn(),
       }));
@@ -2126,7 +2171,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("does not treat Builder as usable from a stored engine when required keys only exist across mixed scopes", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "builder",
           model: "m",
@@ -2200,7 +2246,8 @@ describe("AgentEngine registry", () => {
 
     it("resolveEngine prefers a usable stored provider over connected Builder", async () => {
       process.env.OPENAI_API_KEY = "sk-openai-provider"; // guard:allow-env-credential — fixture: stored BYOK provider should beat automatic Builder
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:openai",
           model: "gpt-5.4",
@@ -2276,7 +2323,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("pairs an automatically selected provider with that provider's key", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:openai",
           model: "gpt-5.4",
@@ -2382,7 +2430,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("preserves an opaque explicit key when no different provider owns it", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:openai",
           model: "gpt-5.4",
@@ -2563,7 +2612,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("does not pass a known different-provider key to the final Anthropic fallback", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue(null),
       }));
       vi.doMock("../../server/request-context.js", () => ({
@@ -2625,7 +2675,8 @@ describe("AgentEngine registry", () => {
         "OPENAI_API_KEY",
         badOpenAiKey,
       );
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn(async (key: string) => {
           if (key === "agent-engine") {
             return { engine: "ai-sdk:openai", model: "gpt-5.4" };
@@ -2706,7 +2757,8 @@ describe("AgentEngine registry", () => {
         "OPENAI_API_KEY",
         badOpenAiKey,
       );
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn(async (key: string) =>
           key === `provider-auth-failure:${fingerprint}`
             ? {
@@ -2969,7 +3021,8 @@ describe("AgentEngine registry", () => {
     });
 
     it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue({
           engine: "ai-sdk:google",
           model: "gemini-3.1-pro-preview",
@@ -3049,6 +3102,61 @@ describe("AgentEngine registry", () => {
         allowEnvFallback: true,
       });
       expect(openAiCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(googleEngine);
+    });
+
+    it("runs Gemini chat on a key saved under the older GEMINI_API_KEY name", async () => {
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:google",
+          model: "gemini-3.1-pro-preview",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+          key === "GEMINI_API_KEY"
+            ? { key, value: "gemini-service-key" }
+            : null,
+        );
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+
+      const {
+        registerAgentEngine,
+        resolveEngine,
+        detectEngineFromUserSecrets,
+      } = await import("./registry.js");
+
+      const googleEngine = { name: "ai-sdk:google", stream: vi.fn() } as any;
+      const googleCreate = vi.fn().mockReturnValue(googleEngine);
+      registerAgentEngine({
+        name: "ai-sdk:google",
+        label: "Gemini",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gemini-3.1-pro-preview",
+        supportedModels: [],
+        requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        create: googleCreate,
+      });
+
+      await expect(detectEngineFromUserSecrets()).resolves.toMatchObject({
+        name: "ai-sdk:google",
+      });
+      const resolved = await resolveEngine({});
+      expect(googleCreate).toHaveBeenCalledWith({
+        apiKey: "gemini-service-key",
+        allowEnvFallback: true,
+      });
       expect(resolved).toBe(googleEngine);
     });
 
@@ -3635,7 +3743,8 @@ describe("AgentEngine registry", () => {
     it("does not auto-detect deploy-level provider env keys for signed-in production users", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies hosted resolution ignores this key
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue(null),
       }));
       vi.doMock("../../server/request-context.js", () => ({
@@ -3708,6 +3817,10 @@ describe("AgentEngine registry", () => {
     it("disables deploy env fallback for explicitly selected LLM engines in hosted requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies explicit hosted selection ignores this key
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
+        getSetting: vi.fn().mockResolvedValue(null),
+      }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
@@ -3760,7 +3873,8 @@ describe("AgentEngine registry", () => {
         "OPENAI_API_KEY",
         badDeployKey,
       );
-      vi.doMock("../../settings/store.js", () => ({
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn(async (key: string) =>
           key === `provider-auth-failure:${fingerprint}`
             ? {

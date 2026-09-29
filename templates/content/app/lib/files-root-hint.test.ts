@@ -9,9 +9,9 @@ const { callAction } = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
 
+import { filesNavigationPageParams } from "./files-navigation";
 import {
   filesRootHintScope,
-  pagedFilesNavigationArgs,
   prefetchPagedFilesRoot,
   readPagedFilesRootHint,
   rememberPagedFilesRoot,
@@ -78,7 +78,7 @@ describe("Files root hint", () => {
       viewId: "default",
     });
 
-    const treeArgs = pagedFilesNavigationArgs({
+    const treeArgs = filesNavigationPageParams({
       databaseId: "files-1",
       parentId: null,
       sort: "custom",

@@ -1,12 +1,19 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import type { AuthPageProps } from "../client/auth/AuthPage.js";
+import { AuthPage } from "../client/auth/AuthPage.js";
+import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "../localization/environment-badge-messages.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
+import type {
+  AuthPageProps,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -16,9 +23,31 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { AUTH_MARKETING_LOCALE_COPY } from "./auth-marketing-locales.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
-import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import {
+  getOnboardingHtml as getCoreOnboardingHtml,
+  getResetPasswordHtml as getCoreResetPasswordHtml,
+} from "./onboarding-html.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(createElement(AuthPage, props))),
+  });
+
+const getResetPasswordHtml: typeof getCoreResetPasswordHtml = (
+  requestPath,
+  renderer,
+) =>
+  getCoreResetPasswordHtml(
+    requestPath,
+    renderer ??
+      ((props) => renderToString(createElement(ResetPasswordPage, props))),
+  );
 
 function readAuthPageData(html: string): AuthPageProps {
   const match = html.match(
@@ -40,6 +69,61 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("local@localhost");
     expect(html).not.toContain("You started this flow");
     expect(html).toContain('id="upgrade-note"');
+  });
+
+  it("uses the injected auth renderer and falls back to a plain HTML shell", () => {
+    const renderSignInPage = vi.fn(
+      (props: AuthPageProps) =>
+        `<main data-view="${props.initialView}">Custom sign-in</main>`,
+    );
+    const rendered = getCoreOnboardingHtml({ renderSignInPage });
+
+    expect(renderSignInPage).toHaveBeenCalledWith(
+      expect.objectContaining({ initialView: "signup" }),
+    );
+    expect(rendered).toContain(
+      '<main data-view="signup">Custom sign-in</main>',
+    );
+    expect(rendered).not.toContain("data-agent-native-auth-fallback");
+
+    const fallback = getCoreOnboardingHtml();
+    expect(fallback).toContain('data-agent-native-auth-fallback="true"');
+    expect(fallback).toContain('<main class="auth-fallback"');
+    expect(fallback).toContain('id="agent-native-auth-data"');
+    expect(readAuthPageData(fallback).initialView).toBe("signup");
+  });
+
+  it("uses the injected reset renderer and a plain HTML fallback", () => {
+    const renderResetPasswordPage = vi.fn(
+      (props: ResetPasswordPageProps) =>
+        `<main data-page="${props.pageType}">Custom reset</main>`,
+    );
+    const rendered = getCoreResetPasswordHtml(
+      "/workspace/_agent-native/auth/reset",
+      renderResetPasswordPage,
+    );
+
+    expect(renderResetPasswordPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageType: "reset-password",
+      }),
+    );
+    expect(rendered).toContain(
+      '<main data-page="reset-password">Custom reset</main>',
+    );
+    expect(rendered).not.toContain("data-agent-native-auth-fallback");
+
+    const fallback = getCoreResetPasswordHtml();
+    expect(fallback).toContain('data-agent-native-auth-fallback="true"');
+    expect(fallback).toContain('<main class="card"><h1>Reset password</h1>');
+    expect(fallback).toContain('id="agent-native-auth-data"');
+    expect(
+      JSON.parse(
+        fallback.match(
+          /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+        )?.[1] ?? "{}",
+      ),
+    ).toMatchObject({ pageType: "reset-password" });
   });
 
   it("includes an environment switcher on the standalone auth page", () => {
@@ -86,12 +170,13 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("__anAuthView");
   });
 
-  it("keeps app identity while rendering the shared auth surface", () => {
+  it("renders the built-in app marketing surface beside shared auth", () => {
     const html = getOnboardingHtml({ requestHost: "clips.agent-native.com" });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
-    expect(html).not.toContain("auth-marketing");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("@media not all and (min-width: 901px)");
+    expect(html).toContain('href="https://agent-native.com/apps/clips"');
   });
 
   it("version-stamps the auth client when the deployment build id is available", () => {
@@ -177,7 +262,7 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("renders the federation CTA on canonical hosted login pages", () => {
+    it("uses silent federation instead of showing a manual CTA on canonical hosted login pages", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -185,10 +270,7 @@ describe("getOnboardingHtml", () => {
         requestHost: "calendar.agent-native.com",
       });
 
-      expect(html).toContain('id="identity-sso-btn"');
-      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
-      expect(html).toContain("Continue with Agent-Native");
-      expect(html).not.toContain("Sign in with Agent-Native");
+      expect(html).not.toContain('id="identity-sso-btn"');
       expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
@@ -197,42 +279,33 @@ describe("getOnboardingHtml", () => {
       ["return", encodeURIComponent("/protected?tab=1")],
       ["c", encodeContinuation("/protected?tab=1")],
     ])(
-      "preserves a validated %s destination in the federation CTA",
+      "preserves a validated %s destination for an explicitly configured hub",
       (key, value) => {
-        vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
-        delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+        vi.stubEnv(
+          "AGENT_NATIVE_IDENTITY_HUB_URL",
+          "https://dispatch.agent-native.com",
+        );
 
         const html = getOnboardingHtml({
-          requestHost: "calendar.agent-native.com",
+          requestHost: "app.example.test",
           requestPath: `/sign-in?${key}=${value}`,
         });
 
         expect(html).toContain(
           'href="/_agent-native/identity/login?return=%2Fprotected%3Ftab%3D1"',
         );
+        expect(readAuthPageData(html).identitySsoAuto).toBe(false);
       },
     );
 
-    it("carries a direct protected request into the federation CTA", () => {
-      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
-      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
-
-      const html = getOnboardingHtml({
-        requestHost: "calendar.agent-native.com",
-        requestPath: "/protected?tab=1",
-      });
-
-      expect(html).toContain(
-        'href="/_agent-native/identity/login?return=%2Fprotected%3Ftab%3D1"',
+    it("rejects an external return target for an explicitly configured hub", () => {
+      vi.stubEnv(
+        "AGENT_NATIVE_IDENTITY_HUB_URL",
+        "https://dispatch.agent-native.com",
       );
-    });
-
-    it("rejects an external federation return target", () => {
-      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
-      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
       const html = getOnboardingHtml({
-        requestHost: "calendar.agent-native.com",
+        requestHost: "app.example.test",
         requestPath: "/sign-in?return=https%3A%2F%2Fevil.example",
       });
 
@@ -250,7 +323,8 @@ describe("getOnboardingHtml", () => {
         requestPath: "/?return=%2Fprotected",
       });
 
-      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
+      expect(html).not.toContain('id="identity-sso-btn"');
+      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
     it("keeps silent federation enabled in cached canonical login HTML", () => {
@@ -340,6 +414,25 @@ describe("getOnboardingHtml", () => {
 
     expect(html).toContain('data-i18n-data-upgrade-copy="upgradeCopy"');
     expect(readAuthPageData(html).initialPrompt).toBe(false);
+  });
+
+  it("uses readable text and visible control borders for branded auth in light mode", () => {
+    const html = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+    });
+
+    expect(html).toContain(
+      ".auth-marketing-home .card input {\n      color: var(--auth-marketing-foreground);\n      border-color: var(--auth-marketing-border);",
+    );
+    expect(html).toContain(
+      ".auth-marketing-home .auth-marketing-description-link {\n    color: var(--auth-marketing-muted);",
+    );
+    expect(html).toContain("--auth-marketing-muted: GrayText;");
+    expect(html).toContain(".auth-marketing-home .card input:focus {");
+    expect(html).toContain(".auth-marketing-home .card input::placeholder {");
+    expect(html).toContain(
+      '.auth-marketing-home .card .btn-google,\n    .auth-marketing-home .card .btn-primary,\n    .auth-marketing-home .card button[type="submit"]',
+    );
   });
 
   it("injects APP_BASE_PATH so mounted login pages call app-scoped auth endpoints", () => {
@@ -490,7 +583,7 @@ describe("getOnboardingHtml", () => {
     expect(resetHtml).toContain(`maxLength="${PASSWORD_MAX_LENGTH}"`);
   });
 
-  it("renders the shared auth surface regardless of app metadata", () => {
+  it("renders configured marketing beside Google-only auth", () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
     const html = getOnboardingHtml({
@@ -501,8 +594,8 @@ describe("getOnboardingHtml", () => {
       },
     });
 
-    expect(html).not.toContain('class="marketing-panel"');
-    expect(html).not.toContain("auth-marketing-visual");
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("auth-marketing-visual");
     expect(html).toContain('id="google-btn"');
     expect(readAuthPageData(html).showGoogle).toBe(true);
   });
@@ -679,26 +772,43 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("Crear cuenta");
   });
 
-  it("uses the shared auth surface for branded template hosts", () => {
+  it("uses the marketing auth surface for branded template hosts", () => {
     const html = getOnboardingHtml({
       requestHost: "forms.agent-native.com",
     });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Forms");
-    expect(html).not.toContain("auth-marketing");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
   });
 
-  it("keeps the app title on beta template subdomains", () => {
+  it("keeps the app marketing on beta template subdomains", () => {
     const html = getOnboardingHtml({
       requestHost: "beta.clips.agent-native.com",
     });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
   });
 
-  it("does not render custom marketing copy beside the auth form", () => {
+  it("localizes configured marketing for its hosted built-in template", () => {
+    const html = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+      marketing: {
+        appName: "Slides",
+        learnMoreUrl: "https://agent-native.com/apps/slides",
+        tagline: BUILT_IN_AUTH_MARKETING.slides.tagline,
+      },
+    });
+    const chineseCopy = readAuthPageData(html).marketingLocales["zh-CN"];
+
+    expect(chineseCopy?.tagline).toBe(
+      AUTH_MARKETING_LOCALE_COPY["zh-CN"]?.slides?.tagline,
+    );
+    expect(chineseCopy?.authHeadline).toBe(chineseCopy?.tagline);
+    expect(chineseCopy?.authDescription).toBeUndefined();
+  });
+
+  it("renders custom marketing copy beside the auth form", () => {
     const html = getOnboardingHtml({
       requestHost: "clips.agent-native.com",
       marketing: {
@@ -716,11 +826,18 @@ describe("getOnboardingHtml", () => {
 
     const pageData = readAuthPageData(html);
     expect(pageData.appName).toBe("Clips");
-    expect(html).not.toContain("One-click screen recording");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(pageData.marketing?.tagline).toBe(
+      "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
+    );
+    expect(pageData.marketing?.features).toContain(
+      "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+    );
+    expect(pageData.marketingLocales).toEqual({});
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("Your AI agent transcribes, summarizes");
   });
 
-  it("keeps branded social metadata without a marketing panel", () => {
+  it("keeps branded social metadata with the marketing panel", () => {
     const html = getOnboardingHtml({
       marketing: {
         appName: "Clips",
@@ -731,7 +848,8 @@ describe("getOnboardingHtml", () => {
 
     expect(readAuthPageData(html).appName).toBe("Clips");
     expect(html).toContain('property="og:image:alt"');
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain('href="https://agent-native.com/apps/clips"');
   });
 
   it("keeps custom marketing that reuses a built-in app name out of built-in localized copy", () => {
@@ -742,13 +860,20 @@ describe("getOnboardingHtml", () => {
         tagline: BUILT_IN_AUTH_MARKETING.dispatch.tagline,
         description: "Route parcels across your own fleet.",
         features: ["Track every van on one map"],
+        learnMoreUrl: "https://agent-native.com/apps/slides",
       },
     });
 
     expect(readAuthPageData(html).appName).toBe("Dispatch");
-    expect(html).not.toContain("Route parcels across your own fleet.");
-    expect(html).not.toContain("Track every van on one map");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(readAuthPageData(html).marketing?.description).toBe(
+      "Route parcels across your own fleet.",
+    );
+    expect(readAuthPageData(html).marketing?.features).toEqual([
+      "Track every van on one map",
+    ]);
+    expect(readAuthPageData(html).marketingLocales).toEqual({});
+    expect(html).toContain("Route parcels across your own fleet.");
+    expect(html).toContain('class="marketing-panel"');
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
@@ -810,20 +935,20 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(getOnboardingHtml()).homePath).toBe("/inbox");
   });
 
-  it("uses app branding without rendering first-party marketing UI", () => {
+  it("uses app branding in the first-party marketing UI", () => {
     const html = getOnboardingHtml({
       requestHost: "dispatch.agent-native.com",
     });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Dispatch");
-    expect(html).not.toContain('class="marketing-panel"');
-    expect(html).not.toContain("FREE &amp; OPEN SOURCE");
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("FREE &amp; OPEN SOURCE");
     expect(html).toContain(
       `${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
     );
   });
 
-  it("uses the shared auth surface for every built-in template host", () => {
+  it("uses the marketing auth surface for every built-in template host", () => {
     const coreSlugs = [
       "calendar",
       "content",
@@ -845,21 +970,24 @@ describe("getOnboardingHtml", () => {
         requestHost: `${slug}.agent-native.com`,
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
+      expect(html).toContain('class="marketing-panel"');
       expect(readAuthPageData(html).appName).toBe(
         BUILT_IN_AUTH_MARKETING[slug]!.appName,
+      );
+      expect(readAuthPageData(html).marketing?.learnMoreUrl).toBe(
+        `https://agent-native.com/apps/${slug}`,
       );
     }
   });
 
-  it("does not add app-specific CTAs to Mail or Calendar auth pages", () => {
+  it("keeps the marketing panel on Mail and Calendar Google-only auth pages", () => {
     for (const slug of ["mail", "calendar"]) {
       const html = getOnboardingHtml({
         requestHost: `${slug}.agent-native.com`,
         googleOnly: true,
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
+      expect(html).toContain('class="marketing-panel"');
     }
   });
 
@@ -872,7 +1000,7 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(html).appName).toBeUndefined();
   });
 
-  it("keeps custom metadata out of the shared auth UI", () => {
+  it("renders custom marketing metadata on the shared auth UI", () => {
     const html = getOnboardingHtml({
       marketing: {
         appName: "Calendar",
@@ -881,13 +1009,14 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(readAuthPageData(html).appName).toBe("Calendar");
-    expect(JSON.stringify(readAuthPageData(html))).not.toContain(
+    expect(readAuthPageData(html).marketing?.tagline).toBe(
       "Plan your team's work with a custom calendar.",
     );
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain("Plan your team's work with a custom calendar.");
+    expect(html).toContain('class="marketing-panel"');
   });
 
-  it("keeps custom metadata out of the auth UI on built-in hosts", () => {
+  it("renders configured marketing metadata on built-in hosts", () => {
     const html = getOnboardingHtml({
       requestHost: "dispatch.agent-native.com",
       marketing: {
@@ -897,10 +1026,11 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(readAuthPageData(html).appName).toBe("Custom Dispatch");
-    expect(JSON.stringify(readAuthPageData(html))).not.toContain(
+    expect(readAuthPageData(html).marketing?.tagline).toBe(
       "Route your own work with a custom dispatch flow.",
     );
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain("Route your own work with a custom dispatch flow.");
+    expect(html).toContain('class="marketing-panel"');
   });
 
   it("embeds the public OAuth origin for Builder desktop redirects", () => {

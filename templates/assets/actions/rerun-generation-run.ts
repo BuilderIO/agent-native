@@ -7,6 +7,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
 import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { normalizePresetReferences } from "../server/lib/preset-references.js";
+import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
 import { resolveTemplateAccess } from "./_template-access.js";
 import generateImage from "./generate-image.js";
@@ -14,6 +18,11 @@ import generateImage from "./generate-image.js";
 export default defineAction({
   description:
     "Rerun a prior asset generation using its original prompt and settings, but recompile against the latest library custom instructions, style brief, collection data, and deterministic references.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     runId: z.string().describe("Generation run to rerun"),
     slotId: z

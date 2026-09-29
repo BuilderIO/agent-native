@@ -50,6 +50,7 @@ import {
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
+import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
@@ -722,6 +723,19 @@ export async function run(
       action ? "direct_action" : taskId ? "task_poll" : "message",
     );
   }
+  const targetHandle =
+    normalizeAppHandle((agent as { id?: string }).id) ||
+    normalizeAppHandle(agent.name) ||
+    normalizeAppHandle(agentIdOrName);
+  const blockedReason = context?.blockedA2ATargets?.get(targetHandle);
+  if (blockedReason !== undefined) {
+    throw new A2AInvocationError(
+      `Not calling ${agent.name} again this turn: its earlier delegated call ` +
+        "hit a permanent precondition. Continue with other sources.\n\nRemote detail:\n" +
+        wrapDiagnosticSnippet(blockedReason),
+      { errorCode: "a2a_target_blocked_this_turn" },
+    );
+  }
 
   if (!taskId) {
     const visited = new Set(
@@ -1102,16 +1116,31 @@ export async function run(
           terminalStatus = "error";
           const terminal = terminalTaskError(pollErr)!;
           invocationTaskId = terminal.taskId;
-          invocationTerminalCode = terminal.errorCode ?? terminal.state;
+          const childPermanentPrecondition =
+            terminal.errorCode === "permanent_precondition";
+          invocationTerminalCode = childPermanentPrecondition
+            ? "a2a_child_permanent_precondition"
+            : (terminal.errorCode ?? terminal.state);
           const detail = expandRelativeUrls(
             terminal.responseText ?? pollErr?.message ?? "unknown failure",
             agent.url,
           );
-          responseText =
-            `Error: The ${agent.name} agent ended ${terminal.state}` +
-            (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-            (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-            (detail ? `: ${detail}` : "");
+          if (childPermanentPrecondition) {
+            context.blockedA2ATargets?.set(targetHandle, detail);
+            responseText =
+              `The ${agent.name} agent could not complete this delegated request because one of its actions hit a permanent precondition. ` +
+              `Do not call ${agent.name} again this turn; continue with other sources.` +
+              (detail
+                ? `\n\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
+                : "");
+          } else {
+            responseText =
+              `Error: The ${agent.name} agent ended ${terminal.state}` +
+              (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+              (detail
+                ? `\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
+                : "");
+          }
         } else {
           terminalStatus = "error";
           const authFailure = remoteAgentAuthFailure(
@@ -1257,15 +1286,30 @@ export async function run(
     if (terminal) {
       invocationStatus = "error";
       invocationTaskId = terminal.taskId;
-      invocationTerminalCode = terminal.errorCode ?? terminal.state;
+      const childPermanentPrecondition =
+        terminal.errorCode === "permanent_precondition";
+      invocationTerminalCode = childPermanentPrecondition
+        ? "a2a_child_permanent_precondition"
+        : (terminal.errorCode ?? terminal.state);
+      const detail = terminal.responseText
+        ? `\nRemote detail:\n${wrapDiagnosticSnippet(terminal.responseText)}`
+        : "";
+      if (childPermanentPrecondition) {
+        context?.blockedA2ATargets?.set(
+          targetHandle,
+          terminal.responseText ?? "",
+        );
+      }
       throw new A2AInvocationError(
-        `Error calling ${agent.name}: remote task ${terminal.state}` +
-          (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-          (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-          (terminal.responseText ? `: ${terminal.responseText}` : ""),
+        childPermanentPrecondition
+          ? `The ${agent.name} agent could not complete this delegated request because one of its actions hit a permanent precondition. ` +
+              `Do not call ${agent.name} again this turn; continue with other sources.${detail}`
+          : `Error calling ${agent.name}: remote task ${terminal.state}` +
+              (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+              detail,
         {
           taskId: terminal.taskId,
-          errorCode: terminal.errorCode ?? terminal.state,
+          errorCode: invocationTerminalCode,
         },
       );
     }

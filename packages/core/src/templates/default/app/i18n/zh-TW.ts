@@ -213,6 +213,9 @@ const messages = {
       noErrorMessage: "（無錯誤訊息）",
     },
   },
+  settingsShortcut: {
+    command: "設定",
+  },
   agentPanel: {
     useBuilder: "使用生成器",
     openDesktopToEditCode: "開啟桌面編輯程式碼",
@@ -228,6 +231,7 @@ const messages = {
     newChat: "新聊天",
     newTerminal: "新航站樓",
     panelOptions: "代理面板選項",
+    integrations: "整合",
     collapseSidebar: "收起側邊欄",
     widenChat: "將聊天視窗加寬",
     returnChatToLayout: "將聊天視窗放回版面配置",
@@ -253,6 +257,8 @@ const messages = {
     sharedKeyInEffect: "目前使用的是共用金鑰。",
     useOrganizationKey: "改用組織金鑰",
     keyStatusUnavailable: "無法取得金鑰狀態。",
+    saveScopeRoleUnavailable:
+      "無法載入你在組織中的角色，因此暫時無法儲存金鑰。",
   },
   share: {
     titleWithResource: "分享「{{title}}」",
@@ -618,6 +624,11 @@ const messages = {
     time: "Time",
     failedCount: "（{{count}} 個失敗）",
     backToList: "返回清單",
+    promoteMustContain: "回覆必須包含…",
+    promoteMustContainOptional: "回覆必須包含（選填）",
+    promoteMustContainLabel: "升級後的評測回覆必須包含的文字",
+    promoteNeedsContains:
+      "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再將其升級為評測。",
     spans: "Spans",
     type: "型別",
     name: "名稱",

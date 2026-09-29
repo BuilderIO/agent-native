@@ -16,6 +16,10 @@ import type { H3Event } from "h3";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  newOrgSelection,
+  ORG_SELECTION_COOKIE,
+} from "../org/request-org-cache.js";
+import {
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
@@ -101,6 +105,10 @@ import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import type {
+  AuthPageProps,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import {
   resolveSsrCacheHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -247,13 +255,6 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
-import {
-  forgetCachedSessionEmail,
-  getCachedSessionEmail,
-  getSessionEmailCacheGeneration,
-  invalidateSessionEmailCache,
-  setCachedSessionEmail,
-} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 function stripAppBasePath(pathname: string): string {
@@ -337,6 +338,8 @@ export interface AuthOptions {
   workspaceAppPublicPaths?: string[];
   workspaceAppProtectedPaths?: string[];
   loginHtml?: string;
+  renderSignInPage?: (props: AuthPageProps) => string;
+  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string;
   rootAuth?: boolean;
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
@@ -622,6 +625,20 @@ async function getLegacyCookieSession(
       }
     }
     if (email && resolvedToken) {
+      if (name !== COOKIE_NAME || resolvedToken !== value) {
+        setFrameworkSessionCookie(event, resolvedToken);
+      }
+      const known = await readLegacySessionUser(email);
+      if (known.kind === "canonical") {
+        return enrichLegacySessionIdentity(
+          legacySessionWithVerification(
+            email,
+            resolvedToken,
+            known.verification,
+          ),
+          known.canonicalUser,
+        );
+      }
       let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
         canonicalUser = await resolveCanonicalUserForLegacySession(email);
@@ -630,9 +647,6 @@ async function getLegacyCookieSession(
           "[auth] legacy session canonical-user backfill failed:",
           error instanceof Error ? error.message : error,
         );
-      }
-      if (name !== COOKIE_NAME || resolvedToken !== value) {
-        setFrameworkSessionCookie(event, resolvedToken);
       }
       return enrichLegacySessionIdentity(
         await mapLegacySession(email, resolvedToken),
@@ -1798,7 +1812,6 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 async function replaceSession(
@@ -1823,7 +1836,6 @@ async function replaceSession(
       });
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1849,7 +1861,6 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 /**
@@ -1907,7 +1918,6 @@ async function performLogout(
       candidates,
       Boolean(auth || revocationFailed),
     );
-    invalidateSessionEmailCache();
     await ensureSessionTable();
     await revokeEmbedSessionsForOwners([...identities], async (tx) => {
       const canRevokeBetterAuth = auth
@@ -1927,12 +1937,9 @@ async function performLogout(
       }
     });
   } catch (error) {
-    invalidateSessionEmailCache();
     captureAuthError(error, { route: "logout" });
     setResponseStatus(event, 503);
     return { error: "Unable to revoke session" };
-  } finally {
-    invalidateSessionEmailCache();
   }
 
   if (!revocationFailed) {
@@ -1976,9 +1983,6 @@ export async function logout(
 }
 
 export async function getSessionEmail(token: string): Promise<string | null> {
-  const cached = getCachedSessionEmail(token);
-  if (cached !== undefined) return cached;
-  const cacheGeneration = getSessionEmailCacheGeneration();
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1994,11 +1998,9 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
-    forgetCachedSessionEmail(token);
     return null;
   }
   const email = (rows[0].email as string) ?? null;
-  if (email) setCachedSessionEmail(token, email, cacheGeneration);
   return email;
 }
 
@@ -2017,10 +2019,7 @@ async function resolveLegacySessionEmailVerification(
       args: [email],
     });
     if (rows.length === 0) return "absent";
-    const value = rows[0].email_verified;
-    if (value === true || value === 1 || value === "1") return "verified";
-    if (value === false || value === 0 || value === "0") return "unverified";
-    return "unreadable";
+    return emailVerificationFromColumn(rows[0].email_verified);
   } catch (error) {
     console.warn(
       "[auth] failed to resolve legacy session email verification:",
@@ -2030,11 +2029,71 @@ async function resolveLegacySessionEmailVerification(
   }
 }
 
-async function mapLegacySession(
+function emailVerificationFromColumn(
+  value: unknown,
+): LegacySessionEmailVerification {
+  if (value === true || value === 1 || value === "1") return "verified";
+  if (value === false || value === 0 || value === "0") return "unverified";
+  return "unreadable";
+}
+
+type LegacySessionUserRead =
+  | {
+      kind: "canonical";
+      canonicalUser: CanonicalLegacyUser;
+      verification: LegacySessionEmailVerification;
+    }
+  | { kind: "two-step" };
+
+/**
+ * One `"user"` read for both legacy-session lookups: it is the verification
+ * query widened to the profile columns. Its row is also the canonical Better
+ * Auth user only when the stored address is already the normalized one, since
+ * Better Auth's adapter matches that exact value and `"user".email` is unique.
+ * Anything else keeps the two-step path, which also backfills a missing user.
+ */
+async function readLegacySessionUser(
+  email: string,
+): Promise<LegacySessionUserRead> {
+  if (!getBetterAuthSync()) return { kind: "two-step" };
+  let row: Record<string, unknown> | undefined;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT id, email, name, image, email_verified FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      args: [email],
+    });
+    row = rows[0] as Record<string, unknown> | undefined;
+  } catch {
+    // The two-step path repeats both reads and reports their failures.
+    return { kind: "two-step" };
+  }
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    row.email !== email.trim().toLowerCase()
+  ) {
+    return { kind: "two-step" };
+  }
+  return {
+    kind: "canonical",
+    canonicalUser: {
+      user: {
+        id: row.id,
+        email: row.email,
+        ...(typeof row.name === "string" ? { name: row.name } : {}),
+        image: typeof row.image === "string" ? row.image : null,
+      },
+      accounts: [],
+    },
+    verification: emailVerificationFromColumn(row.email_verified),
+  };
+}
+
+function legacySessionWithVerification(
   email: string,
   token: string,
-): Promise<AuthSession> {
-  const verification = await resolveLegacySessionEmailVerification(email);
+  verification: LegacySessionEmailVerification,
+): AuthSession {
   return {
     email,
     ...(verification === "verified"
@@ -2044,6 +2103,17 @@ async function mapLegacySession(
         : {}),
     token,
   };
+}
+
+async function mapLegacySession(
+  email: string,
+  token: string,
+): Promise<AuthSession> {
+  return legacySessionWithVerification(
+    email,
+    token,
+    await resolveLegacySessionEmailVerification(email),
+  );
 }
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
@@ -2205,6 +2275,7 @@ function getOnboardingHtmlOptions(
     marketing: options.marketing,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
+    renderSignInPage: options.renderSignInPage,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
@@ -2720,7 +2791,6 @@ async function consumeDesktopExchangeFromDB(
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS, packed],
     });
     if (deleted.rows.length === 0) return { status: "missing" };
-    forgetCachedSessionEmail(`dex:${flowId}`);
     return { status: "entry", entry };
   } catch {
     // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
@@ -3588,7 +3658,7 @@ function createAuthGuardFn(
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
     const requestPath = queryStart >= 0 ? url : rawPath;
-    const p = stripAppBasePath(rawPath);
+    const p = stripAppBasePath(canonicalFrameworkPathname(rawPath));
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const previewCallbackRelay =
       await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
@@ -4586,6 +4656,13 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     maxAge: sessionMaxAge,
   });
   setFrameworkSessionHintCookie(event);
+  // Signing in can assign an organization (invitations, domain join, SSO), so
+  // a new session starts from a fresh org selection on every instance.
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+  });
 }
 
 export function redirectWithStagedCookies(
@@ -6151,7 +6228,6 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
-              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -6477,36 +6553,31 @@ async function mountBetterAuthRoutes(
         );
         const sessionEmail = normalizeAuthEmail(session.email);
         if (sessionEmail) identities.add(sessionEmail);
-        invalidateSessionEmailCache();
         await ensureSessionTable();
-        try {
-          await revokeEmbedSessionsForOwners([...identities], async (tx) => {
-            const canRevokeBetterAuth = await betterAuthTablesAvailable(tx);
-            for (const email of identities) {
-              if (canRevokeBetterAuth) {
-                const { rows } = await tx.execute({
-                  sql: 'SELECT id FROM "user" WHERE email = ?',
-                  args: [email],
-                });
-                const userId = (rows[0]?.id ?? rows[0]?.[0]) as
-                  | string
-                  | undefined;
-                if (userId) {
-                  await tx.execute({
-                    sql: 'DELETE FROM "session" WHERE user_id = ?',
-                    args: [userId],
-                  });
-                }
-              }
-              await tx.execute({
-                sql: "DELETE FROM sessions WHERE email = ?",
+        await revokeEmbedSessionsForOwners([...identities], async (tx) => {
+          const canRevokeBetterAuth = await betterAuthTablesAvailable(tx);
+          for (const email of identities) {
+            if (canRevokeBetterAuth) {
+              const { rows } = await tx.execute({
+                sql: 'SELECT id FROM "user" WHERE email = ?',
                 args: [email],
               });
+              const userId = (rows[0]?.id ?? rows[0]?.[0]) as
+                | string
+                | undefined;
+              if (userId) {
+                await tx.execute({
+                  sql: 'DELETE FROM "session" WHERE user_id = ?',
+                  args: [userId],
+                });
+              }
             }
-          });
-        } finally {
-          invalidateSessionEmailCache();
-        }
+            await tx.execute({
+              sql: "DELETE FROM sessions WHERE email = ?",
+              args: [email],
+            });
+          }
+        });
         clearFrameworkSessionCookies(event);
         clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
@@ -6532,6 +6603,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
+      setResponseHeader(event, "Cache-Control", "no-store");
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -6564,9 +6636,12 @@ async function mountBetterAuthRoutes(
         event.node?.req?.url ??
         event.path ??
         "/";
-      return new Response(getResetPasswordHtml(requestPath), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return new Response(
+        getResetPasswordHtml(requestPath, options.renderResetPasswordPage),
+        {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
     }),
   );
 
@@ -6729,6 +6804,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
+      setResponseHeader(event, "Cache-Control", "no-store");
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -6764,7 +6840,12 @@ export async function autoMountAuth(
         options.trustCustomEmailVerification === true;
     }
     if (_authGuardConfig) {
-      if (options.googleOnly || options.loginHtml || options.marketing) {
+      if (
+        options.googleOnly ||
+        options.loginHtml ||
+        options.marketing ||
+        options.renderSignInPage
+      ) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,
@@ -6841,6 +6922,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
+        setResponseHeader(event, "Cache-Control", "no-store");
         if (!isReadMethod(event)) {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };

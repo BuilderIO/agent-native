@@ -174,6 +174,27 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
+  it("keeps agent-team spawn results in the live task card", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent-teams"
+          args={{ action: "spawn", task: "Draft Monday update" }}
+          result={
+            '{"taskId":"task-1","threadId":"thread-1","description":"Draft Monday update"}'
+          }
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Spawned agent: Draft Monday update",
+    );
+    expect(container.textContent).toContain("Open task thread");
+    expect(container.querySelector("[data-action-card]")).toBeNull();
+  });
+
   it("renders the provider logo for catalog-backed MCP tools", async () => {
     await act(async () => {
       root.render(

@@ -1,12 +1,16 @@
 import crypto from "node:crypto";
 
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { AuthPage } from "../client/auth/AuthPage.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
+import type { AuthPageProps } from "../shared/auth-page-types.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -23,6 +27,20 @@ import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
+
+function renderAuthPage(props: AuthPageProps): string {
+  return renderToString(createElement(AuthPage, props));
+}
+
+function withAuthPageRenderer(
+  getHtml: typeof import("./onboarding-html.js").getOnboardingHtml,
+): typeof import("./onboarding-html.js").getOnboardingHtml {
+  return (options = {}) =>
+    getHtml({
+      ...options,
+      renderSignInPage: options.renderSignInPage ?? renderAuthPage,
+    });
+}
 
 function expectLoginHtmlCacheHeaders(response: Response) {
   expect(response.headers.get("Cache-Control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
@@ -3281,6 +3299,31 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("allows Better Auth endpoints under a custom framework route prefix", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        "/_platform",
+      );
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createJsonPostEvent("/_platform/auth/ba/sign-in/email", {})),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createJsonPostEvent("/_platform/actions/list", {})),
+      ).resolves.toEqual({ error: "Unauthorized" });
+    });
+
     it("allows public workspace app pages while keeping API and framework routes protected", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -6074,6 +6117,7 @@ describe("server/auth", () => {
       const result = await sessionHandler(event);
 
       expect(event.res.status).toBe(200);
+      expect(event.res.headers.get("Cache-Control")).toBe("no-store");
       expect(result).toEqual({ error: "Not authenticated" });
     });
 
@@ -8021,23 +8065,39 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("does not cache a legacy lookup that finishes after invalidation", async () => {
-      const {
-        getCachedSessionEmail,
-        getSessionEmailCacheGeneration,
-        invalidateSessionEmailCache,
-        setCachedSessionEmail,
-      } = await import("./session-email-cache.js");
-      const generation = getSessionEmailCacheGeneration();
+    it("rechecks the database after a legacy session is revoked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      let sessionPresent = true;
+      const sessionLookups = vi.fn(async () => ({
+        rows: sessionPresent
+          ? [{ email: "owner@example.com", created_at: Date.now() }]
+          : [],
+      }));
+      const execute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        return sql?.includes("SELECT email, created_at FROM sessions")
+          ? sessionLookups()
+          : { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("../db/widen-columns.js", () => ({
+        widenIntColumnsToBigInt: vi.fn(),
+      }));
 
-      invalidateSessionEmailCache();
-      setCachedSessionEmail(
-        "late-session-lookup",
+      const { getSessionEmail } = await import("./auth.js");
+      await expect(getSessionEmail("revoked-session-token")).resolves.toBe(
         "owner@example.com",
-        generation,
       );
-
-      expect(getCachedSessionEmail("late-session-lookup")).toBeUndefined();
+      sessionPresent = false;
+      await expect(
+        getSessionEmail("revoked-session-token"),
+      ).resolves.toBeNull();
+      expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
 
     it("records identity resolution start before asynchronous credential validation", async () => {
@@ -9433,7 +9493,9 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
 
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({ googleOnly: true });
       const data = readAuthPageData(html);
 
@@ -9458,7 +9520,7 @@ describe("server/auth", () => {
 
       const { createGoogleAuthPlugin } =
         await import("./google-auth-plugin.js");
-      createGoogleAuthPlugin();
+      createGoogleAuthPlugin({ renderSignInPage: renderAuthPage });
 
       const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml as
         | string
@@ -9477,7 +9539,9 @@ describe("server/auth", () => {
     it("defaults googleAuthMode to 'auto' and honors explicit overrides + env var", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
 
       const auto = getOnboardingHtml({ googleOnly: true });
       expect(readAuthPageData(auto).googleAuthMode).toBe("auto");
@@ -9502,7 +9566,9 @@ describe("server/auth", () => {
     it("uses sign-in copy when only Google auth is enabled", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({ googleOnly: true });
       const data = readAuthPageData(html);
 
@@ -9517,7 +9583,9 @@ describe("server/auth", () => {
 
     it("keeps app branding and auth assets under APP_BASE_PATH", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({
         marketing: {
           appName: "Dispatch",
@@ -9530,8 +9598,10 @@ describe("server/auth", () => {
       expect(html).not.toContain("/dispatch/auth-marketing/");
     });
 
-    it("does not render legacy auth marketing CTAs", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+    it("renders app marketing beside Google sign-in", async () => {
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({
         marketing: {
           appName: "Agent-Native Mail",
@@ -9539,12 +9609,15 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
-      expect(html).not.toContain("auth-marketing-visual");
+      expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain("Manage email with an agent.");
+      expect(html).toContain("auth-marketing-visual");
     });
 
     it("defaults the active tab from the login or signup path", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
 
       expect(
         readAuthPageData(getOnboardingHtml({ requestPath: "/login" }))
@@ -9559,7 +9632,9 @@ describe("server/auth", () => {
 
   describe("onboarding signup verification flow", () => {
     it("renders a dedicated email verification step after signup", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
       expect(html).toContain('id="verification-step"');
@@ -9574,7 +9649,9 @@ describe("server/auth", () => {
     });
 
     it("only shows verification after an explicit unverified login response", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
       expect(html).toContain('id="login-form"');
@@ -9586,7 +9663,9 @@ describe("server/auth", () => {
     });
 
     it("silently signs in after verification completes outside the app", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml({ requestPath: "/sign-in?verified=1" });
 
       expect(readAuthPageData(html).initialView).toBe("login");
@@ -9595,7 +9674,9 @@ describe("server/auth", () => {
     });
 
     it("keeps resend verification on a visible cooldown after sending", async () => {
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const { getOnboardingHtml: renderOnboardingHtml } =
+        await import("./onboarding-html.js");
+      const getOnboardingHtml = withAuthPageRenderer(renderOnboardingHtml);
       const html = getOnboardingHtml();
 
       expect(html).toContain('id="resend-verification"');
@@ -11003,6 +11084,146 @@ describe("server/auth", () => {
       ]) {
         expect(isLoopbackAddress(ip)).toBe(false);
       }
+    });
+  });
+
+  describe("org selection on a new session", () => {
+    it("starts every new session from a fresh org selection", async () => {
+      const { setFrameworkSessionCookie } = await import("./auth.js");
+      const selection = (event: any) =>
+        event.res.headers
+          .getSetCookie()
+          .find((cookie: string) => cookie.startsWith("an_org_selection="));
+
+      const first = createMockEvent();
+      setFrameworkSessionCookie(first, "session-token-1");
+      const second = createMockEvent();
+      setFrameworkSessionCookie(second, "session-token-2");
+
+      expect(selection(first)).toMatch(
+        /^an_org_selection=[\w-]{16,64}; Path=\/; HttpOnly/,
+      );
+      expect(selection(second)?.split(";")[0]).not.toBe(
+        selection(first)?.split(";")[0],
+      );
+    });
+  });
+
+  describe("legacy cookie session user reads", () => {
+    async function resolveLegacySession(userRows: {
+      combined: Record<string, unknown> | undefined;
+      verification?: Record<string, unknown>;
+    }) {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const betterAuth = { api: { getSession: vi.fn(async () => null) } };
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => betterAuth),
+        getBetterAuthSync: vi.fn(() => betterAuth),
+      }));
+      const userQueries: string[] = [];
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql: string = typeof query === "string" ? query : query.sql;
+        if (sql.includes("FROM sessions WHERE token")) {
+          return {
+            rows: [{ email: "person@example.com", created_at: Date.now() }],
+          };
+        }
+        if (sql.includes('FROM "user"')) {
+          userQueries.push(sql);
+          if (sql.startsWith("SELECT id, email, name, image, email_verified")) {
+            return { rows: userRows.combined ? [userRows.combined] : [] };
+          }
+          return {
+            rows: userRows.verification ? [userRows.verification] : [],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../db/client.js")>()),
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      const resolveCanonicalUserForLegacySession = vi.fn(async () => ({
+        user: { id: "user-1", email: "person@example.com", name: "Canonical" },
+        accounts: [],
+      }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession,
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const session = await getSession(
+        createMockEvent({ headers: { cookie: "an_session=legacy-token" } }),
+      );
+      return { session, userQueries, resolveCanonicalUserForLegacySession };
+    }
+
+    it("answers verification and the canonical profile from one user read", async () => {
+      const { session, userQueries, resolveCanonicalUserForLegacySession } =
+        await resolveLegacySession({
+          combined: {
+            id: "user-1",
+            email: "person@example.com",
+            name: "Person",
+            image: null,
+            email_verified: true,
+          },
+        });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: true,
+        token: "legacy-token",
+        name: "Person",
+      });
+      expect(userQueries).toHaveLength(1);
+      expect(resolveCanonicalUserForLegacySession).not.toHaveBeenCalled();
+    });
+
+    it("keeps both reads when the stored address is not the normalized one", async () => {
+      const { session, userQueries, resolveCanonicalUserForLegacySession } =
+        await resolveLegacySession({
+          combined: {
+            id: "user-legacy",
+            email: "Person@Example.com",
+            name: "Differently Cased",
+            image: null,
+            email_verified: true,
+          },
+          verification: { email_verified: false },
+        });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        emailVerified: false,
+        token: "legacy-token",
+        name: "Canonical",
+      });
+      expect(userQueries).toHaveLength(2);
+      expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
+        "person@example.com",
+      );
+    });
+
+    it("keeps both reads, and backfills, when no user row exists yet", async () => {
+      const { session, resolveCanonicalUserForLegacySession } =
+        await resolveLegacySession({ combined: undefined });
+
+      expect(session).toEqual({
+        email: "person@example.com",
+        token: "legacy-token",
+        name: "Canonical",
+      });
+      expect(resolveCanonicalUserForLegacySession).toHaveBeenCalledWith(
+        "person@example.com",
+      );
     });
   });
 });

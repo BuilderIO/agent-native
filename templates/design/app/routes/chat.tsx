@@ -76,6 +76,7 @@ export default function ChatRoute() {
           t("chat.suggestionBrandMatch"),
           t("chat.suggestionMobile"),
         ]}
+        suggestionPlacement="after-composer"
         emptyStateText={t("chat.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty

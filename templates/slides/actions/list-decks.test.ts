@@ -225,6 +225,33 @@ describe("list-decks", () => {
     }
   });
 
+  it("falls back when Postgres rejects an unsupported Unicode escape", async () => {
+    rowsForQuery = [
+      {
+        ...deckRows[0],
+        data: JSON.stringify({ slides: [{ id: "slide-1", text: "\u0000" }] }),
+      },
+    ];
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("unsupported Unicode escape sequence"), {
+          code: "22P05",
+        }),
+      ),
+    );
+
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(result.decks[0]?.previewSlide).toEqual({
+      id: "slide-1",
+      text: "\u0000",
+    });
+    expect(selectFn).toHaveBeenCalledTimes(2);
+  });
+
   it("does not fall back on a non-JSON-cast failure, so a real outage isn't doubled with a heavier full-data scan", async () => {
     orderByFn.mockImplementationOnce(() =>
       Promise.reject(Object.assign(new Error("timeout"), { code: "57014" })),

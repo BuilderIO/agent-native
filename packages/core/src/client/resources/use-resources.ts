@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import type {
   CustomAgentProfile,
@@ -7,6 +12,8 @@ import type {
   SkillMetadata,
 } from "../../resources/metadata.js";
 import { agentNativePath } from "../api-path.js";
+import { callActionWithRetry, useActionMutation } from "../use-action.js";
+import { useChangeVersion } from "../use-change-version.js";
 import {
   mcpBuiltinVirtualId,
   type BuiltinCapability,
@@ -246,10 +253,15 @@ export function resourceDownloadUrl(id: string): string {
   );
 }
 
+// Agent resource tools (save-memory, resources write) reach the client only as
+// `action` change events; folding that counter into the key is what makes an
+// agent's write show up without a reload.
 export function useResources(scope: ResourceScope = "personal") {
   const query = new URLSearchParams({ scope });
+  const agentWrites = useChangeVersion("action");
   return useQuery<ResourceMeta[]>({
-    queryKey: ["resources", "list", scope],
+    queryKey: ["resources", "list", scope, agentWrites],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
         agentNativePath(`/_agent-native/resources?${query.toString()}`),
@@ -263,8 +275,16 @@ export function useResourceTree(
   scope: ResourceScope = "personal",
   opts?: { includeAgentScratch?: boolean },
 ) {
+  const agentWrites = useChangeVersion("action");
   return useQuery<TreeNode[]>({
-    queryKey: ["resources", "tree", scope, opts?.includeAgentScratch ?? false],
+    queryKey: [
+      "resources",
+      "tree",
+      scope,
+      opts?.includeAgentScratch ?? false,
+      agentWrites,
+    ],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const query = new URLSearchParams({ scope });
       if (opts?.includeAgentScratch) query.set("includeAgentScratch", "true");
@@ -365,6 +385,60 @@ export function useDeleteResource() {
       );
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
     },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["resources"] });
+    },
+  });
+}
+
+export type ResourcePackExportScope =
+  | "personal"
+  | "organization"
+  | "workspace"
+  | "accessible";
+
+export function resourcePackScopeFromPanel(
+  scope: ResourceScope,
+): ResourcePackExportScope {
+  if (scope === "shared") return "organization";
+  if (scope === "all") return "accessible";
+  return scope;
+}
+
+export function resourcePackDownloadFilename(exportedAt = Date.now()): string {
+  return `agent-resource-pack-${exportedAt}.json`;
+}
+
+export function downloadResourcePackJson(
+  pack: unknown,
+  filename = resourcePackDownloadFilename(),
+): void {
+  const blob = new Blob([JSON.stringify(pack, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function useExportResourcePack() {
+  return useMutation({
+    mutationFn: (params: {
+      scope?: ResourcePackExportScope;
+      prefix?: string;
+    }) =>
+      callActionWithRetry<{ pack: unknown }>("export-resource-pack", params, {
+        method: "GET",
+      }),
+  });
+}
+
+export function useImportResourcePack() {
+  const queryClient = useQueryClient();
+  return useActionMutation("import-resource-pack", {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["resources"] });
     },

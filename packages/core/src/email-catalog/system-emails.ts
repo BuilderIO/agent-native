@@ -1,11 +1,14 @@
+import englishMessages from "../localization/core-messages/en-US.js";
 import {
   renderChangeEmailConfirmationEmail,
   renderChangeEmailVerificationEmail,
+  renderBuilderCreditLimitEmail,
   renderInviteEmail,
   renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "../server/email-templates.js";
+import { builderSubscriptionUpgradeUrl } from "../shared/builder-link-tracking.js";
 import { defineTransactionalEmail } from "./registry.js";
 
 const SAMPLE_URL = "https://example.com/accept/sample-token";
@@ -19,12 +22,33 @@ export const CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID =
   "core.change-email-confirmation";
 export const CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID =
   "core.change-email-verification";
+export const CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID = "core.builder-credit-limit";
 
 let registered = false;
 
 export function registerCoreSystemEmails(): void {
   if (registered) return;
   registered = true;
+
+  defineTransactionalEmail({
+    id: CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID,
+    app: "core",
+    name: "Builder credits exhausted",
+    trigger:
+      "A Builder-backed agent run stops with an explicit Builder credits-limit error code.",
+    recipientLabel: "Affected account",
+    recipient: "The signed-in user whose Builder-backed run hit the limit.",
+    senderLabel: "Default, app-branded",
+    sender: "The configured EMAIL_FROM, branded with the app name.",
+    preview: () =>
+      renderBuilderCreditLimitEmail({
+        subject: englishMessages["billing.builderCreditLimitTitle"],
+        heading: englishMessages["billing.builderCreditLimitTitle"],
+        body: englishMessages["billing.builderCreditLimitEmailBody"],
+        upgradeLabel: englishMessages["billing.builderCreditUpgrade"],
+        upgradeUrl: builderSubscriptionUpgradeUrl("builder_credit_limit_email"),
+      }),
+  });
 
   defineTransactionalEmail({
     id: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,

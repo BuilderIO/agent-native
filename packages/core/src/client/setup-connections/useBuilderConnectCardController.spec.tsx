@@ -144,4 +144,95 @@ describe("useBuilderConnectCardController", () => {
     expect(onConnected).toHaveBeenCalledOnce();
     expect(onConnected).toHaveBeenCalledWith("Acme workspace");
   });
+
+  describe("with a named connection", () => {
+    const memberRidingOrg = {
+      configured: true,
+      hasFetchedStatus: true,
+      orgName: "Acme workspace",
+      connecting: false,
+      error: null,
+      grants: { org: { connectedAt: 1_000, needsReconnect: false } },
+      effective: "org",
+      canConnect: { org: false, personal: true },
+      start: mocks.start,
+    };
+
+    it("offers a member Connect on the Personal row while the org connection is in use", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(memberRidingOrg);
+
+      const result = render({ scope: "personal" });
+      expect(result).toMatchObject({
+        configured: false,
+        status: { kind: "ready" },
+        scope: "personal",
+        action: { label: "Connect Builder.io" },
+      });
+
+      act(() => result.action?.onPress(true));
+      expect(mocks.start).toHaveBeenCalledWith({
+        provisionAccount: true,
+        scope: "personal",
+      });
+    });
+
+    it("keeps the Organization row connected and without an action for a member", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(memberRidingOrg);
+
+      expect(render({ scope: "org" })).toMatchObject({
+        configured: true,
+        status: { kind: "connected" },
+        action: null,
+      });
+    });
+
+    it("offers no Connect a caller isn't allowed to make", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue({
+        ...memberRidingOrg,
+        grants: {},
+        effective: null,
+        configured: false,
+      });
+
+      expect(render({ scope: "org" })).toMatchObject({
+        configured: false,
+        action: null,
+      });
+    });
+
+    it("shows an organization connected by stored keys as connected", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue({
+        ...memberRidingOrg,
+        grants: {
+          org: { connectedAt: 1_000, needsReconnect: false, kind: "keys" },
+        },
+        canConnect: { org: true, personal: false },
+      });
+
+      expect(render({ scope: "org" })).toMatchObject({
+        configured: true,
+        status: { kind: "connected" },
+        action: null,
+      });
+    });
+
+    it("treats a grant that needs reconnecting as not connected", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue({
+        ...memberRidingOrg,
+        grants: {
+          org: { connectedAt: 1_000, needsReconnect: false },
+          personal: {
+            connectedAt: 2_000,
+            needsReconnect: true,
+            restricted: false,
+          },
+        },
+      });
+
+      expect(render({ scope: "personal" })).toMatchObject({
+        configured: false,
+        action: { label: "Connect Builder.io" },
+      });
+    });
+  });
 });

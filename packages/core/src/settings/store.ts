@@ -27,6 +27,8 @@ const _requestAllSettingsCache = new WeakMap<
   Promise<Map<string, string>>
 >();
 
+const SETTINGS_KEY_SEGMENT = "substring(key from '[^:]+$')";
+
 function invalidateRequestAllSettings(): void {
   const ctx = getRequestContext();
   if (ctx && typeof ctx === "object") _requestAllSettingsCache.delete(ctx);
@@ -64,6 +66,10 @@ export async function ensureTable(): Promise<void> {
       await ensureIndexExists(
         "settings_updated_at_idx",
         `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
+      );
+      await ensureIndexExists(
+        "settings_key_segment_idx",
+        `CREATE INDEX IF NOT EXISTS settings_key_segment_idx ON ${table} ((${SETTINGS_KEY_SEGMENT}))`,
       );
     })().catch((err) => {
       _initPromise = undefined;
@@ -331,6 +337,35 @@ export async function listSettingsByPrefix(
     key: String(row.key),
     value: JSON.parse(String(row.value)) as Record<string, unknown>,
   }));
+}
+
+export async function listSettingsByKeySegments(
+  segments: readonly string[],
+): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+  const uniqueSegments = [...new Set(segments)];
+  if (uniqueSegments.length === 0) return [];
+  if (uniqueSegments.some((segment) => !segment || segment.includes(":"))) {
+    throw new RangeError(
+      "Settings key segments must be non-empty and colon-free.",
+    );
+  }
+
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const placeholders = uniqueSegments.map(() => "?").join(", ");
+  const { rows } = await client.execute({
+    sql: `SELECT key, value FROM ${table}
+      WHERE ${SETTINGS_KEY_SEGMENT} IN (${placeholders})`,
+    args: uniqueSegments,
+  });
+  const cache = requestSettingsCache();
+  return rows.map((row) => {
+    const key = String(row.key);
+    const raw = String(row.value);
+    if (cache && !cache.has(key)) cache.set(key, raw);
+    return { key, value: JSON.parse(raw) as Record<string, unknown> };
+  });
 }
 
 export async function getAllSettings(): Promise<

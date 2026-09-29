@@ -322,6 +322,16 @@ export function contentActionInvalidatePredicate(
       return true;
     }
     if (
+      query.queryKey[0] === "action" &&
+      query.queryKey[1] === "get-content-notification-prefs"
+    ) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          event.key === "update-content-notification-prefs",
+      );
+    }
+    if (
       queryTargetsActiveNavigationOrRecent(query) &&
       events.some(
         (event) => event.source === "action" && event.key === "update-document",

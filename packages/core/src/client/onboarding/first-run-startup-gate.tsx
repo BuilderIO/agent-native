@@ -7,10 +7,12 @@ import React, {
   useState,
 } from "react";
 
-import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { AppShellSkeleton } from "../AppShellSkeleton.js";
 import { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
-import { fetchFirstRunOnboardingStatus } from "./first-run-status.js";
+import {
+  fetchFirstRunOnboardingStatus,
+  readFirstRunOnboardingCookieState,
+} from "./first-run-status.js";
 import { trackOnboardingEvent } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -21,26 +23,8 @@ const FirstRunOnboarding = lazy(() =>
 );
 
 type FirstRunDecision = "pending" | "eligible" | "ineligible";
-type FirstRunCookieState = "present" | "absent" | "unreadable";
 
 const FirstRunOnboardingGateContext = createContext(false);
-
-function readFirstRunOnboardingCookieState(): FirstRunCookieState {
-  if (typeof document === "undefined") return "present";
-  const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
-  try {
-    const present = document.cookie.split(";").some((cookie) => {
-      const entry = cookie.trim();
-      return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
-    });
-    return present ? "present" : "absent";
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "SecurityError") {
-      return "unreadable";
-    }
-    throw error;
-  }
-}
 
 export function useFirstRunOnboardingGateOwnsSurface(): boolean {
   return useContext(FirstRunOnboardingGateContext);
@@ -49,9 +33,11 @@ export function useFirstRunOnboardingGateOwnsSurface(): boolean {
 export function FirstRunOnboardingStartupGate({
   children,
   fallback = <AppShellSkeleton />,
+  suppressSurface = false,
 }: {
   children: React.ReactNode;
   fallback?: React.ReactNode;
+  suppressSurface?: boolean;
 }) {
   const previewMode = useOnboardingPreviewMode();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -104,8 +90,9 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [shouldResolve]);
 
-  const ownsSurface = decision === "eligible";
-  const hideApp = decision !== "ineligible";
+  const ownsSurface = !suppressSurface && decision === "eligible";
+  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
+  const hideApp = gateOwnsSurface;
   const app = shouldResolve ? (
     <div
       aria-hidden={hideApp ? "true" : undefined}
@@ -122,9 +109,9 @@ export function FirstRunOnboardingStartupGate({
   );
 
   return (
-    <FirstRunOnboardingGateContext.Provider value={ownsSurface}>
+    <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       {app}
-      {decision === "pending" && (
+      {!suppressSurface && decision === "pending" && (
         <FirstRunOnboardingStartupLoading fallback={fallback} />
       )}
       {ownsSurface && (

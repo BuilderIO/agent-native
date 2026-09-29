@@ -19,6 +19,8 @@ const credentialState = vi.hoisted(() => ({
   builderOrgName: null as string | null,
   lane: "identity" as "identity" | "gateway-deploy" | null,
   recordBuilderGatewayAuthFailure: vi.fn(async () => {}),
+  sendBuilderCreditLimitNotice: vi.fn(async () => {}),
+  clearBuilderCreditLimitNotice: vi.fn(async () => {}),
 }));
 
 const oauthState = vi.hoisted(() => ({
@@ -85,7 +87,13 @@ vi.mock("../../server/builder-oauth.js", () => ({
 vi.mock("../../server/request-context.js", () => ({
   getRequestContext: vi.fn(() => undefined),
   getRequestOrgId: vi.fn(() => oauthState.orgId),
+  getRequestRunContext: vi.fn(() => undefined),
   getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
+}));
+
+vi.mock("../../usage/builder-credit-notice.js", () => ({
+  clearBuilderCreditLimitNotice: credentialState.clearBuilderCreditLimitNotice,
+  sendBuilderCreditLimitNotice: credentialState.sendBuilderCreditLimitNotice,
 }));
 
 async function collectEvents(iterable: AsyncIterable<any>) {
@@ -144,6 +152,8 @@ describe("createBuilderEngine", () => {
     credentialState.builderOrgName = null;
     credentialState.lane = "identity";
     credentialState.recordBuilderGatewayAuthFailure.mockClear();
+    credentialState.sendBuilderCreditLimitNotice.mockClear();
+    credentialState.clearBuilderCreditLimitNotice.mockClear();
     oauthState.ownerEmail = undefined;
     oauthState.orgId = undefined;
     oauthState.accessToken = null;
@@ -807,6 +817,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("maps 402 credits-limit-monthly to stop-error with errorCode + upgradeUrl", async () => {
+    oauthState.ownerEmail = "owner@example.com";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -831,6 +842,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("credits-limit-monthly");
     expect(stop?.upgradeUrl).toContain("builder.io");
     expect(stop?.error).toContain("monthly AI credits");
+    expect(credentialState.sendBuilderCreditLimitNotice).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: undefined,
+    });
+    expect(
+      credentialState.clearBuilderCreditLimitNotice,
+    ).not.toHaveBeenCalled();
   });
 
   it("routes upgradeUrl to the org-agnostic subscription page with Agent-Native attribution", async () => {
@@ -879,6 +897,27 @@ describe("createBuilderEngine", () => {
       message: "Invalid key",
     });
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("clears a previous credits-limit notice after a successful Builder response", async () => {
+    oauthState.ownerEmail = "owner@example.com";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonlResponse([{ type: "stop", reason: "end_turn" }]),
+        ),
+    );
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(credentialState.clearBuilderCreditLimitNotice).toHaveBeenCalledWith(
+      "owner@example.com",
+      undefined,
+    );
+    expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
   it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
@@ -1477,6 +1516,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
+    expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
   it("maps 429 concurrency to a retryable stop event, message unchanged", async () => {

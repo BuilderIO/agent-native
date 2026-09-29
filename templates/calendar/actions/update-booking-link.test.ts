@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { selectMock, updateSetMock, rowToBookingLinkMock } = vi.hoisted(() => ({
-  selectMock: vi.fn(),
-  updateSetMock: vi.fn(),
-  rowToBookingLinkMock: vi.fn((row) => row),
-}));
+const { buildDeepLinkMock, selectMock, updateSetMock, rowToBookingLinkMock } =
+  vi.hoisted(() => ({
+    buildDeepLinkMock: vi.fn(
+      () => "/_agent-native/open?bookingLinkId=booking-link-1",
+    ),
+    selectMock: vi.fn(),
+    updateSetMock: vi.fn(),
+    rowToBookingLinkMock: vi.fn((row) => row),
+  }));
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => ({})),
@@ -17,6 +21,10 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue({ role: "owner" }),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: buildDeepLinkMock,
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -91,6 +99,8 @@ describe("update-booking-link", () => {
           {
             id: "booking-link-1",
             slug: "old-slug",
+            title: "Updated title",
+            duration: 30,
             isActive: false,
           },
         ]),
@@ -98,11 +108,13 @@ describe("update-booking-link", () => {
   });
 
   it("preserves a disabled link when updating fields without isActive", async () => {
-    await updateBookingLinkAction.run({
+    const result = await updateBookingLinkAction.run({
       id: "booking-link-1",
       title: "Updated title",
       slug: "old-slug",
       duration: 30,
+      description: "Private booking description",
+      hosts: ["cohost@example.com"],
     });
 
     expect(updateSetMock).toHaveBeenCalledWith(
@@ -111,6 +123,22 @@ describe("update-booking-link", () => {
         isActive: false,
       }),
     );
+    expect(result.change).toEqual({
+      verb: "updated",
+      kind: "booking-link",
+      title: "Updated title",
+      detail: "30",
+      url: "/_agent-native/open?bookingLinkId=booking-link-1",
+    });
+    expect(JSON.stringify(result.change)).not.toContain(
+      "Private booking description",
+    );
+    expect(JSON.stringify(result.change)).not.toContain("cohost@example.com");
+    expect(buildDeepLinkMock).toHaveBeenCalledWith({
+      app: "calendar",
+      view: "booking-links",
+      params: { bookingLinkId: "booking-link-1" },
+    });
   });
 
   it("keeps legacy Zoom bookings under review when the link changes provider", async () => {
@@ -129,7 +157,14 @@ describe("update-booking-link", () => {
         ]),
       )
       .mockReturnValueOnce(
-        selectResult([{ id: "booking-link-1", slug: "old-slug" }]),
+        selectResult([
+          {
+            id: "booking-link-1",
+            slug: "old-slug",
+            title: "Updated title",
+            duration: 30,
+          },
+        ]),
       );
 
     await updateBookingLinkAction.run({

@@ -282,6 +282,35 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.breadcrumbs-and-link-targets",
+    surface: "editor",
+    label:
+      "Show page breadcrumbs and peer menus, and resolve page-link blocks and local-source reference previews",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/editor/ContentReferencePreview.tsx",
+      "app/hooks/use-content-links.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Breadcrumbs read the bounded active-item navigation context and load peer menus from the Files navigation page when opened; page-link blocks and reference previews resolve only their own targets instead of listing the workspace.",
+    status: "action-backed",
+    actions: ["resolve-content-links"],
+    exception:
+      "resolve-content-links is hidden with agentTool: false because it only resolves link targets for rendering; agents read linked pages with get-document and search-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-links.db.test.ts",
+      "app/hooks/use-content-links.test.ts",
+      "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -936,6 +965,34 @@ export const parityMatrix: ParityRow[] = [
       "actions/undo-comment-ai-request.db.test.ts",
       "app/components/editor/comment-ai.test.tsx",
       "server/lib/comment-ai-progress.test.ts",
+    ],
+  },
+  {
+    id: "comments.email-preferences",
+    surface: "comments",
+    label:
+      "Read and turn the current user's comment, reply, and mention emails on or off",
+    uiEntrypoints: [
+      "app/components/settings/notification-settings.tsx",
+      "app/routes/_app.settings.tsx",
+    ],
+    durableEffect:
+      "The per-user content-user-prefs setting stores emailNotifications, which the comment senders read before emailing each recipient.",
+    uiImplementation:
+      "Settings reads the preference and saves the switch optimistically, with rollback, through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "get-content-notification-prefs",
+      "update-content-notification-prefs",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-notification-prefs.test.ts",
+      "app/components/settings/notification-settings.test.tsx",
     ],
   },
   {

@@ -65,6 +65,7 @@ export async function scoreEval(
       passed: true,
       avgScore: 0,
       durationMs: 0,
+      ...(evalCase.source ? { source: evalCase.source } : {}),
     };
   }
 
@@ -97,6 +98,7 @@ export async function scoreEval(
     avgScore,
     durationMs: run.durationMs,
     error: run.ok ? undefined : run.error,
+    ...(evalCase.source ? { source: evalCase.source } : {}),
   };
 }
 

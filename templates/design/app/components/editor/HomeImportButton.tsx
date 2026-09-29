@@ -98,7 +98,7 @@ export function HomeImportButton() {
       />
       <Popover open={open} onOpenChange={changeOpen}>
         <PopoverAnchor asChild>
-          <div className="inline-flex">
+          <div className="inline-flex shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -108,9 +108,7 @@ export function HomeImportButton() {
                   aria-label={t("home.import")}
                 >
                   <IconUpload />
-                  <span className="design-home-import-label">
-                    {t("home.import")}
-                  </span>
+                  <span>{t("home.import")}</span>
                   <IconChevronDown />
                 </Button>
               </DropdownMenuTrigger>

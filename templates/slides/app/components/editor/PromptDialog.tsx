@@ -35,6 +35,7 @@ import {
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -165,6 +166,7 @@ interface PromptPopoverProps {
     attachments: PromptAttachmentActions,
     options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   loading?: boolean;
   disabled?: boolean;
   submissionDisabled?: boolean;
@@ -204,6 +206,7 @@ export default function PromptPopover({
   title,
   placeholder = "Describe what you want...",
   onSubmit,
+  onBeforeSubmit,
   loading = false,
   disabled = false,
   submissionDisabled = false,
@@ -231,6 +234,7 @@ export default function PromptPopover({
     storageQuery.data?.configured === true && !storageQuery.isError;
   const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
+  const [checkingProvider, setCheckingProvider] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
   const retainingAttachmentsRef = useRef(false);
@@ -410,11 +414,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
       });
@@ -541,11 +547,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
         throw error;
@@ -565,6 +573,16 @@ export default function PromptPopover({
       storageQuery.refetch,
     ],
   );
+
+  const handleBeforeSubmit = useCallback(async () => {
+    if (!onBeforeSubmit) return true;
+    setCheckingProvider(true);
+    try {
+      return await onBeforeSubmit();
+    } finally {
+      setCheckingProvider(false);
+    }
+  }, [onBeforeSubmit]);
 
   useImperativeHandle(
     controllerRef,
@@ -778,10 +796,13 @@ export default function PromptPopover({
                   loading ||
                   uploading ||
                   submitting ||
+                  checkingProvider ||
                   Boolean(importMode)
                 }
+                submitting={submitting || checkingProvider}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onBeforeSubmit={handleBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}
@@ -926,12 +947,13 @@ export default function PromptPopover({
                     <GoogleDriveConnectionCta />
                     <div className="flex gap-2">
                       <Input
+                        size="sm"
                         autoFocus
                         type="url"
                         value={googleSlidesUrl}
                         placeholder={t("home.googleSlidesReferenceUrl")}
                         aria-label={t("home.googleSlidesReferenceUrl")}
-                        className="h-8 text-xs"
+                        className="text-xs"
                         disabled={importingSource !== null || loading}
                         onChange={(event) =>
                           setGoogleSlidesUrl(event.target.value)
@@ -943,7 +965,7 @@ export default function PromptPopover({
                       <Button
                         type="button"
                         size="sm"
-                        className="h-8 shrink-0 px-3 text-xs"
+                        className="shrink-0 text-xs"
                         disabled={
                           !googleSlidesUrl.trim() ||
                           importingSource !== null ||

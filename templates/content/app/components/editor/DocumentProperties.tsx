@@ -1,5 +1,5 @@
 import { emailToName } from "@agent-native/core/client/collab";
-import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
@@ -81,7 +81,6 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -131,7 +130,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAddContentDatabaseSourceFieldProperty } from "@/hooks/use-content-database";
+import { useContentActionMutation } from "@/hooks/use-content-action-mutation";
+import {
+  contentDatabaseConstrainedQueryFilter,
+  useAddContentDatabaseSourceFieldProperty,
+} from "@/hooks/use-content-database";
 import {
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
@@ -1191,23 +1194,16 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
   );
-  const bindQueryClient = useQueryClient();
-  const bindSourceField = useActionMutation<
+  const bindSourceField = useContentActionMutation<
     ContentDatabaseResponse,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
-    onSuccess: () => {
-      void bindQueryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void bindQueryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId, databaseId },
-        ],
-      });
-    },
+    invalidates: [
+      ["action", "get-content-database"],
+      ["action", "list-document-properties", { documentId, databaseId }],
+      ["action", "get-content-database-source"],
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
   const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
     src.fields.map((field) => ({ source: src, field })),
@@ -1692,6 +1688,7 @@ export function PropertyManagementPopover({
                   />
                 </button>
                 <Input
+                  size="sm"
                   ref={propertyNameInputRef}
                   value={name}
                   aria-label={t("editor.properties.propertyName")}
@@ -1703,7 +1700,6 @@ export function PropertyManagementPopover({
                       event.currentTarget.blur();
                     }
                   }}
-                  className="h-8"
                 />
               </div>
 
@@ -1839,11 +1835,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <Input
+                      size="sm"
                       value={newOption}
                       placeholder={t("editor.properties.addOption")}
                       onChange={(event) => setNewOption(event.target.value)}
                       onKeyDown={(event) => event.stopPropagation()}
-                      className="h-8"
                     />
                     <Button
                       type="submit"
@@ -2029,11 +2025,16 @@ export function PropertyManagementPopover({
             </div>
           ) : null}
           <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
+            <AlertDialogCancel
+              size="sm"
+              className="mt-0 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+            >
               {t("editor.properties.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
-              className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+              variant="destructive"
+              size="sm"
+              className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
               onClick={() => void deleteProperty()}
             >
               {t("editor.properties.deleteProperty")}
@@ -2870,7 +2871,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -2888,7 +2889,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
