@@ -26,6 +26,7 @@ export interface CreateAccountDialogProps {
   onOpenChange: (open: boolean) => void;
   returnTo: string;
   intent?: AccountGateIntent;
+  portalContainer?: HTMLElement | null;
   onSignIn?: () => void;
   onAuthenticated: () => void;
 }
@@ -119,6 +120,7 @@ export function AccountGateDialog({
   onOpenChange,
   returnTo,
   intent = "continue",
+  portalContainer,
   onSignIn,
   onAuthenticated,
 }: AccountGateDialogProps) {
@@ -418,6 +420,7 @@ export function AccountGateDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        container={portalContainer}
         className="w-[calc(100%-2rem)] max-h-[min(90vh,44rem)] gap-0 overflow-y-auto p-0 sm:max-w-md"
         data-auth-pattern="native"
         data-account-gate-intent={intent}
