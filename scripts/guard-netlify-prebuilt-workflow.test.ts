@@ -690,6 +690,43 @@ describe("production Netlify site concurrency guard", () => {
       "./.github/workflows/deploy-netlify-prebuilt.yml",
     );
     assert.deepEqual(betaBuild.needs, ["resolve-source", "discover-sites"]);
+    assert.equal(
+      betaBuild.if,
+      "needs.discover-sites.outputs.has_sites == 'true'",
+    );
+    const betaDiscover = (beta.jobs as Workflow)["discover-sites"] as Workflow;
+    const betaDiscoverSteps = betaDiscover.steps as Array<Workflow>;
+    const betaBasesIndex = betaDiscoverSteps.findIndex(
+      (step) => step.id === "bases",
+    );
+    const betaBases = betaDiscoverSteps[betaBasesIndex];
+    assert.equal(betaBases?.if, "github.event_name == 'push'");
+    assert.equal(
+      (betaBases?.env as Workflow)?.NETLIFY_AUTH_TOKEN,
+      "${{ secrets.NETLIFY_AUTH_TOKEN }}",
+    );
+    assert.ok(
+      betaBasesIndex <
+        betaDiscoverSteps.findIndex((step) =>
+          String(step.uses ?? "").startsWith("actions/checkout@"),
+        ),
+      "the Netlify token step must run before repository code is checked out",
+    );
+    assert.match(
+      String((betaBases?.with as Workflow)?.script),
+      /published_deploy\?\.title/,
+    );
+    assert.equal(
+      betaDiscoverSteps.some((step) =>
+        String(step.uses ?? "").startsWith("actions/checkout@"),
+      ) && betaDiscover.permissions === undefined,
+      true,
+      "discover-sites checks out code and must keep the read-only workflow permissions",
+    );
+    assert.match(
+      String(betaDiscoverSteps.find((step) => step.id === "matrix")?.run ?? ""),
+      /scripts\/netlify-beta-targets\.ts/,
+    );
     assert.equal((betaBuild.with as Workflow).target, "beta");
     assert.equal((betaBuild.with as Workflow).deploy, false);
     assert.equal((betaBuild.with as Workflow).deploy_mode, "draft");
