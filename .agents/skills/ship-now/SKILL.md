@@ -169,7 +169,9 @@ isolated safely, preserve all state and report the exact paths or commits.
      remaining;
    - every review item has a fix or an explicit reply;
    - the PR is not conflicting; and
-   - the user has explicitly authorized this `/ship-now` invocation.
+   - the user has explicitly authorized this `/ship-now` invocation; when the
+     existing PR is authored by someone else, the current request separately
+     authorizes merging that exact PR.
 
    Recheck the active login, PR author, head repository, branch, current head
    OID, base, and state immediately before merging. Bind the merge to that
