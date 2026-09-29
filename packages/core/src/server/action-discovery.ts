@@ -181,6 +181,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
   }
+  if (typeof entry.agentDiscoveryAvailable === "function") {
+    out.agentDiscoveryAvailable = entry.agentDiscoveryAvailable;
+  }
   if (
     Array.isArray(entry.capabilityScopes) &&
     entry.capabilityScopes.length > 0 &&

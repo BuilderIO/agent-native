@@ -340,9 +340,16 @@ function RuleBackfillStatus({
         role="alert"
         className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5"
       >
-        <p className="text-xs text-destructive">
-          {t("mail.aiFilter.ruleBackfillFailed")}
-        </p>
+        <div className="min-w-0">
+          <p className="text-xs text-destructive">
+            {t("mail.aiFilter.ruleBackfillFailed")}
+          </p>
+          {status?.error && (
+            <p className="mt-1 break-words text-xs text-muted-foreground">
+              {status.error}
+            </p>
+          )}
+        </div>
         {status?.undoToken && (
           <Button
             variant="ghost"

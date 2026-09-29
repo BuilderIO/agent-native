@@ -342,7 +342,7 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "Geplanten Versand abbrechen",
       deliveryUnknownWarning:
-        "Zustellstatus unbekannt; prüfe vor der Klärung den Gmail-Ordner „Gesendet“.",
+        "Zustellstatus unbekannt; prüfe vor der Klärung die Ansicht „Gesendet“ in Mail.",
       markSentAfterChecking:
         "Ich habe „Gesendet“ geprüft; als gesendet markieren",
       sendNewCopy: "Neue Kopie senden",
@@ -350,7 +350,7 @@ const messages = {
         "Geplanter Versand wird verarbeitet. Aktionen sind vorübergehend nicht verfügbar.",
       confirmSendNewCopyTitle: "Eine weitere Kopie senden?",
       confirmSendNewCopyDescription:
-        "Die ursprüngliche Nachricht wurde möglicherweise bereits zugestellt. Prüfe zuerst den Gmail-Ordner „Gesendet“. Beim erneuten Senden kann eine doppelte E-Mail entstehen.",
+        "Die ursprüngliche Nachricht wurde möglicherweise bereits zugestellt. Prüfe zuerst die Ansicht „Gesendet“ in Mail. Beim erneuten Senden kann eine doppelte E-Mail entstehen.",
       dateInput: "Datum und Uhrzeit",
       noDateMatch: "Keine passende zukünftige Zeit",
       inputPlaceholder: "Versuche: 8 Uhr, 3 Tage, 7. Aug.",

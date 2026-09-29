@@ -3525,6 +3525,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
   const missingFinalResponse =
     runWarning?.errorCode === "final_response_missing_after_tool";
+  const loopBreakerStopped = runWarning?.errorCode === "tool_loop_stopped";
   return (
     <>
       {missingFinalResponse ? (
@@ -3533,6 +3534,14 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
           role="status"
         >
           {t("agentChat.message.missingFinal")}
+        </div>
+      ) : null}
+      {loopBreakerStopped ? (
+        <div
+          className="rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          <span>{t("agentChat.error.stopped")}</span>
         </div>
       ) : null}
       {value.role === "assistant" && value.status === "complete" ? (

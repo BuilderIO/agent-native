@@ -30,9 +30,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
-  hasRetainedPageDraftNotice: () => false,
+  sweepLegacyRetainedPageDraftMarkers: () => undefined,
   clearPageDraftJournal: () => true,
-  markPageDraftJournalRetained: () => true,
 }));
 vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),

@@ -330,14 +330,14 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "予約送信をキャンセル",
       deliveryUnknownWarning:
-        "配信状況を確認できません。解決する前に Gmail の送信済みを確認してください。",
+        "配信状況を確認できません。解決する前に Mail の送信済みビューを確認してください。",
       markSentAfterChecking: "送信済みを確認しました。送信済みとしてマーク",
       sendNewCopy: "新しいコピーを送信",
       sendingStatus:
         "予約したメールを処理中です。操作は一時的に利用できません。",
       confirmSendNewCopyTitle: "もう一通送信しますか？",
       confirmSendNewCopyDescription:
-        "元のメールはすでに配信されている可能性があります。先に Gmail の送信済みを確認してください。もう一通送ると重複する可能性があります。",
+        "元のメールはすでに配信されている可能性があります。先に Mail の送信済みビューを確認してください。もう一通送ると重複する可能性があります。",
       dateInput: "日時",
       noDateMatch: "一致する未来の時間がありません",
       inputPlaceholder: "例: 午前8時、3日後、8月7日",

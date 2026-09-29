@@ -1489,11 +1489,6 @@ export default {
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
       permissionPromptSettingsInstructions:
         "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
-      permissionCloseTitle: "設定を閉じますか？",
-      permissionCloseDescription:
-        "Chrome でアクセスを許可するまで、ライブ編集は使えません。",
-      permissionCloseStay: "設定を開いたままにする",
-      permissionCloseAnyway: "閉じる",
       permissionPromptRetry: "接続を再試行",
     },
   },

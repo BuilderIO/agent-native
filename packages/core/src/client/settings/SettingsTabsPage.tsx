@@ -102,14 +102,15 @@ export interface SettingsAppArea {
 
 export interface SettingsTabsPageProps {
   /**
-   * Today's General tab. The redesigned app General page shows
+   * The tabbed page's General tab, for surfaces that opt out of the Settings
+   * shell (`redesign={false}`). The shell's app General page shows
    * `generalGroups` instead when a template passes both.
    */
   general?: ReactNode;
   /**
-   * The app's own groups on its General page in the redesigned Settings,
-   * between core's Agent and This browser groups. Today's General tab shows
-   * `general` when both are passed, else these.
+   * The app's own groups on its General page in the Settings shell, between
+   * core's Agent and This browser groups. Only the shell renders these: they
+   * may call `useSettingsShell()`, which throws outside it.
    */
   generalGroups?: ReactNode;
   /** The app's own areas, as tabs on its General page (see `SettingsAppArea`). */
@@ -355,8 +356,7 @@ function isEditableElement(element: Element | null): boolean {
 }
 
 function SettingsTabsPageContent({
-  general: generalTab,
-  generalGroups,
+  general,
   account,
   team,
   whatsNew,
@@ -391,7 +391,6 @@ function SettingsTabsPageContent({
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
   const t = useT();
-  const general = generalTab ?? generalGroups;
   const notificationsFallbackLabel = t(
     "agentChat.settingsShell.page.notifications",
   );
