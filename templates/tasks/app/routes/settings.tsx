@@ -1,6 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsTabsPage, useAgentSettingsTabs } from "@agent-native/toolkit/app/settings";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
 
 import { APP_TITLE } from "@/lib/app-config";
 

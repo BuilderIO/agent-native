@@ -1,5 +1,5 @@
-import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";

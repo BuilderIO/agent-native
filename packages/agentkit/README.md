@@ -812,7 +812,7 @@ Keep the Core runtime and replace the presentation boundary in one pass:
 
 1. Create `createAgentNativeAgentKitTransport()` for the default Agent-Native
    runtime. A custom `AgentChatRuntime` can use
-   `createAgentKitProtocolAdapter()` from `@agent-native/core/client/chat`.
+   `createAgentKitProtocolAdapter()` from `@agent-native/core/client/agent-chat`.
 2. Replace the existing Core transcript component with `AgentChat`, or with
    `AgentKitRoot` plus `AgentKitChat` for a composed surface.
 3. Move render overrides to `slots` and kind-specific `registry` entries. Move

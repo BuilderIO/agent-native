@@ -1,11 +1,15 @@
-import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsTabsPage, useAgentSettingsTabs, type SettingsSearchEntry } from "@agent-native/toolkit/app/settings";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   createCreativeContextAgentTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  type SettingsSearchEntry,
+} from "@agent-native/toolkit/app/settings";
 import { useMemo } from "react";
 
 import { AssetsGeneralGroups } from "@/components/settings/AssetsGeneralGroups";

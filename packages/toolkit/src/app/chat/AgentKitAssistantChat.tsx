@@ -15,6 +15,53 @@ import type {
   AgentUploadTarget,
   FilePart,
 } from "@agent-native/agentkit/protocol";
+import type { AgentChatAttachment } from "@agent-native/core";
+import {
+  appendAgentChatContextToMessage,
+  filterAgentChatContextItems,
+  formatAgentChatContextItemsForPrompt,
+  getAgentChatContextState,
+  normalizeAgentChatContextItem,
+  publishAgentChatContextItems,
+  reportAgentChatSubmitResult,
+  refreshAgentChatContext,
+  subscribeAgentChatContext,
+  type AgentChatContextItem,
+} from "@agent-native/core/client/agent-chat";
+import type { CreateAgentNativeAgentKitTransportOptions } from "@agent-native/core/client/agent-chat";
+import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "@agent-native/core/client/agent-chat";
+import {
+  readAssistantChatComposerDraft,
+  writeAssistantChatComposerDraft,
+} from "@agent-native/core/client/agent-chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
+import type { CreateAgentNativeChatRuntimeOptions } from "@agent-native/core/client/agent-chat";
+import { useAgentDynamicSuggestionsResult } from "@agent-native/core/client/agent-chat";
+import {
+  formatChatErrorText,
+  localizeKnownChatErrorText,
+} from "@agent-native/core/client/agent-chat";
+import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
+import {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  compareAndSetClientAppState,
+  deleteClientAppState,
+  isClientAppStateMutationPending,
+  readClientAppState,
+} from "@agent-native/core/client/application-state";
+import { signOut } from "@agent-native/core/client/hooks";
+import { callAction } from "@agent-native/core/client/hooks";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
+import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -29,6 +76,7 @@ import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
   IconMessage,
@@ -48,7 +96,6 @@ import React, {
   useState,
 } from "react";
 
-import type { AgentChatAttachment } from "../agent/types.js";
 import {
   AgentKitChat,
   AgentKitComposer,
@@ -63,20 +110,6 @@ import {
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
 import { AgentKitRoot } from "../agentkit/react/root.js";
-import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "../package-lifecycle/migration-message.js";
-import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
-import {
-  appendAgentChatContextToMessage,
-  filterAgentChatContextItems,
-  formatAgentChatContextItemsForPrompt,
-  getAgentChatContextState,
-  normalizeAgentChatContextItem,
-  publishAgentChatContextItems,
-  reportAgentChatSubmitResult,
-  refreshAgentChatContext,
-  subscribeAgentChatContext,
-  type AgentChatContextItem,
-} from "./agent-chat.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -101,21 +134,7 @@ import {
   AgentKitFilesChangedSummary,
   AgentKitMarkdownText,
 } from "./agentkit-chat/parity-renderers.js";
-import { agentNativePath } from "./api-path.js";
-import {
-  compareAndSetClientAppState,
-  deleteClientAppState,
-  isClientAppStateMutationPending,
-  readClientAppState,
-} from "./application-state.js";
-import { isInBuilderFrame } from "./builder-frame.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
-import type { CreateAgentNativeAgentKitTransportOptions } from "./chat/agentkit-agent-native.js";
-import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./chat/agentkit-protocol.js";
-import {
-  readAssistantChatComposerDraft,
-  writeAssistantChatComposerDraft,
-} from "./chat/composer-draft.js";
 import { renderMarkdownToClipboardHtml } from "./chat/markdown-renderer.js";
 import {
   RunErrorRecoveryCard,
@@ -125,8 +144,6 @@ import {
   getRequestModeMetadata,
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
-import { createAgentNativeChatRuntime } from "./chat/runtime.js";
-import type { CreateAgentNativeChatRuntimeOptions } from "./chat/runtime.js";
 import type {
   AssistantChatAdapterContext,
   AssistantChatHandle,
@@ -140,27 +157,10 @@ import {
   ReasoningCell,
   ToolCallDisplay,
 } from "./chat/tool-call-display.js";
-import { writeClipboardText } from "./clipboard.js";
-import { useAgentDynamicSuggestionsResult } from "./dynamic-suggestions.js";
-import {
-  formatChatErrorText,
-  localizeKnownChatErrorText,
-} from "./error-format.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
-import { useFormatters, useT } from "./i18n.js";
-import { buildSignInReturnHref } from "./require-session.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
-import { signOut } from "./sign-out.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
-import { useFileUploadStatus } from "./uploads/use-file-upload-status.js";
-import { callAction } from "./use-action.js";
-import { dispatchAgentChatRunning } from "./use-agent-chat-running-threads.js";
-import {
-  useAgentEngineConfigured,
-  type AgentEngineConfiguredState,
-} from "./use-agent-engine-configured.js";
-import { cn } from "./utils.js";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */

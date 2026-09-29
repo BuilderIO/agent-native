@@ -1541,7 +1541,7 @@ function getCoreSourceAliases(
   const entries: Record<string, string> = Object.fromEntries(
     getCoreSourceEntries(cwd),
   );
-  Object.assign(entries, {
+  const fallbackEntries: Record<string, string> = {
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/server/edge": path.join(coreSrc, "server/edge.ts"),
@@ -1549,14 +1549,6 @@ function getCoreSourceAliases(
     "@agent-native/core/client/agent-chat": path.join(
       coreSrc,
       "client/agent-chat/index.ts",
-    ),
-    "@agent-native/core/client/agentkit-chat": path.join(
-      coreSrc,
-      "client/agentkit-chat/index.ts",
-    ),
-    "@agent-native/core/client/agent-native-icon": path.join(
-      coreSrc,
-      "client/components/icons/AgentNativeIcon.tsx",
     ),
     "@agent-native/core/client/analytics": path.join(
       coreSrc,
@@ -1566,10 +1558,6 @@ function getCoreSourceAliases(
       coreSrc,
       "client/automation/index.ts",
     ),
-    "@agent-native/core/client/chat": path.join(
-      coreSrc,
-      "client/chat/index.ts",
-    ),
     "@agent-native/core/client/changelog": path.join(
       coreSrc,
       "client/changelog/index.ts",
@@ -1577,14 +1565,6 @@ function getCoreSourceAliases(
     "@agent-native/core/client/collab": path.join(
       coreSrc,
       "client/collab/index.ts",
-    ),
-    "@agent-native/core/client/composer": path.join(
-      coreSrc,
-      "client/composer/index.ts",
-    ),
-    "@agent-native/core/client/conversation": path.join(
-      coreSrc,
-      "client/conversation/index.ts",
     ),
     "@agent-native/core/client/dev-overlay": path.join(
       coreSrc,
@@ -1683,19 +1663,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/route-chunk-recovery/index.ts",
     ),
-    "@agent-native/core/client/settings": path.join(
-      coreSrc,
-      "client/settings/index.ts",
-    ),
     "@agent-native/core/client/theme": path.join(coreSrc, "client/theme.ts"),
-    "@agent-native/core/client/error-boundary": path.join(
-      coreSrc,
-      "client/ErrorBoundary.tsx",
-    ),
-    "@agent-native/core/client/feedback": path.join(
-      coreSrc,
-      "client/FeedbackButton.tsx",
-    ),
     "@agent-native/core/client/ui": path.join(coreSrc, "client/ui/index.ts"),
     "@agent-native/core/client/uploads": path.join(
       coreSrc,
@@ -1709,44 +1677,15 @@ function getCoreSourceAliases(
       coreSrc,
       "client/api-path.ts",
     ),
-    "@agent-native/core/client/clipboard": path.join(
-      coreSrc,
-      "client/clipboard.ts",
-    ),
     "@agent-native/core/client/zoom-gesture": path.join(
       coreSrc,
       "client/zoom-gesture.ts",
     ),
-    "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/server.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
       "client/blocks/server.ts",
     ),
-    "@agent-native/core/client/extensions": path.join(
-      coreSrc,
-      "client/extensions/index.ts",
-    ),
-    "@agent-native/core/client/tools": path.join(
-      coreSrc,
-      "client/extensions/index.ts",
-    ),
     "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
-    "@agent-native/core/client/org-switcher": path.join(
-      coreSrc,
-      "client/org/OrgSwitcher.tsx",
-    ),
-    "@agent-native/core/client/team-page": path.join(
-      coreSrc,
-      "client/org/TeamPage.tsx",
-    ),
-    "@agent-native/core/client/db-admin": path.join(
-      coreSrc,
-      "client/db-admin/index.ts",
-    ),
-    "@agent-native/core/client/observability": path.join(
-      coreSrc,
-      "client/observability/index.ts",
-    ),
     "@agent-native/core/client/onboarding": path.join(
       coreSrc,
       "client/onboarding/index.ts",
@@ -1824,7 +1763,10 @@ function getCoreSourceAliases(
       coreSrc,
       "server/entry-server.tsx",
     ),
-  });
+  };
+  for (const [specifier, sourcePath] of Object.entries(fallbackEntries)) {
+    if (!(specifier in entries)) entries[specifier] = sourcePath;
+  }
 
   return Object.entries(entries).map(([find, replacement]) => ({
     find: new RegExp(`^${find.replace(/[/]/g, "\\/")}$`),

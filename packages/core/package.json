@@ -431,6 +431,10 @@
       "types": "./dist/package-lifecycle/index.d.ts",
       "default": "./dist/package-lifecycle/index.js"
     },
+    "./package-lifecycle/migration-message": {
+      "types": "./dist/package-lifecycle/migration-message.d.ts",
+      "default": "./dist/package-lifecycle/migration-message.js"
+    },
     "./agent-native.eject.json": "./agent-native.eject.json",
     "./migration-manifest.json": "./migration-manifest.json",
     "./code-agents": "./dist/code-agents/index.js",

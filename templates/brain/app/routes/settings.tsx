@@ -1,4 +1,7 @@
-import { SettingsTabsPage, useAgentSettingsTabs } from "@agent-native/toolkit/app/settings";
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
 import { Navigate, useSearchParams } from "react-router";
 
 import { useBrainSettingsAreas } from "@/components/settings/BrainSettingsAreas";

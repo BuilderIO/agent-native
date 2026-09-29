@@ -167,7 +167,7 @@ run streams, approval continuation, feedback, durable queue operations, and
 thread forking. It preserves Core's runtime and request boundaries.
 
 Runtime implementers that already expose Core's `AgentChatRuntime` can use
-`createAgentKitProtocolAdapter()` from `@agent-native/core/client/chat`.
+`createAgentKitProtocolAdapter()` from `@agent-native/core/client/agent-chat`.
 Provider-neutral backends implement `AgentTransport` directly. They may expose
 that transport with `createAgentKitHttpHandler()` and consume it with
 `createAgentKitHttpTransport()`.

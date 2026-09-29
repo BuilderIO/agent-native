@@ -1,14 +1,25 @@
-import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
-import { GuidedQuestionFlow, useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
-import { isAgentChatHomeHandoffActive, markAgentChatHomeHandoff, navigateWithAgentChatViewTransition, useAgentChatHomeHandoff, useAgentChatHomeHandoffLinks, isAssistantChatHistoryVersion, type AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
-import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import {
+  isAgentChatHomeHandoffActive,
+  markAgentChatHomeHandoff,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/toolkit/app/org";
-import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 

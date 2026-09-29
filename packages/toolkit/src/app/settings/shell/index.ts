@@ -1,6 +1,6 @@
 import { lazy } from "react";
 
-// Lazy so importing `@agent-native/core/client/settings` (every template's
+// Lazy so importing `@agent-native/toolkit/app/settings` (every template's
 // settings route does) doesn't ship the shell to surfaces that opt out with
 // `redesign={false}`. Render it inside `<Suspense>`.
 export const SettingsShell = lazy(() =>

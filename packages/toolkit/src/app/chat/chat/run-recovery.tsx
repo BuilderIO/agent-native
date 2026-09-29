@@ -6,7 +6,7 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";

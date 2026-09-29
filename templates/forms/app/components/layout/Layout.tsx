@@ -1,9 +1,14 @@
-import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
-import { isAgentChatHomeHandoffActive, navigateWithAgentChatViewTransition, useAgentChatHomeHandoff, useAgentChatHomeHandoffLinks } from "@agent-native/core/client/agent-chat";
+import {
+  isAgentChatHomeHandoffActive,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
-import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 

@@ -1,4 +1,3 @@
-import { ChangelogDialog } from "@agent-native/toolkit/app/changelog";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -6,6 +5,7 @@ import {
   openSettingsPage,
 } from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { ChangelogDialog } from "@agent-native/toolkit/app/changelog";
 import type { SettingsPageContext } from "@agent-native/toolkit/app/settings";
 import {
   IconFlask,

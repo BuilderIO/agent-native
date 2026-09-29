@@ -51,7 +51,7 @@ export interface AgentProviderSetupFormProps {
 }
 
 /**
- * @deprecated Open {@link ProviderDialog} from `@agent-native/core/client/settings`
+ * @deprecated Open {@link ProviderDialog} from `@agent-native/toolkit/app/settings`
  * instead: one dialog adds and manages every provider key, with the key
  * check, model list, and scope. Kept for one release.
  */

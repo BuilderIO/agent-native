@@ -18,10 +18,10 @@ The `AssistantChat` name still works, but now renders the AgentKit-backed
 implementation. New chat imports should use the canonical
 `@agent-native/core/client/agent-chat` entrypoint.
 
-The `@agent-native/core/client/chat` compatibility entry remains useful for a
-small number of exports that have not moved, including
-`createAgentKitProtocolAdapter()`. Keep using that entry for those exports; do
-not rewrite every `/client/chat` import without checking the imported symbol.
+`createAgentKitProtocolAdapter()` remains available from
+`@agent-native/core/client/agent-chat` for apps with a custom Core runtime. The
+old `@agent-native/core/client/chat` entry is removed and throws a migration
+error.
 
 ## Removed APIs
 

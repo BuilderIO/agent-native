@@ -1,11 +1,11 @@
 import {
+  isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
-} from "@agent-native/core/code-agents";
-import { isCredentialGapCodeAgentEvent } from "@agent-native/core/code-agents/transcript-normalizer";
+} from "@agent-native/core/code-agents/transcript-normalizer";
 
 import type {
   AgentConversationAttachment,

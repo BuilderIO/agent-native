@@ -6,7 +6,13 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow, SettingsTabsPage, useAgentSettingsTabs, type SettingsAppArea } from "@agent-native/toolkit/app/settings";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  type SettingsAppArea,
+} from "@agent-native/toolkit/app/settings";
 import {
   mailSettingsRedirect,
   mailSettingsSectionFromPath,

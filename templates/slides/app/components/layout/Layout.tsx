@@ -100,7 +100,7 @@ function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
   // /extensions (list) and /extensions/<id> (viewer) both render their own headers
-  // from @agent-native/core/client/extensions.
+  // from @agent-native/toolkit/app/extensions.
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;

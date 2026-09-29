@@ -3878,7 +3878,6 @@ describe("local-core dev aliases and router dedupe", () => {
       "@agent-native/core/client/navigation": "client/navigation/index.ts",
       "@agent-native/core/client/route-chunk-recovery":
         "client/route-chunk-recovery/index.ts",
-      "@agent-native/core/client/settings": "client/settings/index.ts",
       "@agent-native/core/client/ui": "client/ui/index.ts",
       "@agent-native/core/client/uploads": "client/uploads/index.ts",
       "@agent-native/core/client/widgets": "client/widgets/index.ts",
@@ -3934,6 +3933,14 @@ describe("local-core dev aliases and router dedupe", () => {
       "./client/use-after-paint": "./dist/client/use-after-paint.js",
       "./shared/ssr-session-bootstrap":
         "./dist/shared/ssr-session-bootstrap.js",
+      "./client/chat": "./dist/client/tombstone/chat.js",
+      "./client/settings": "./dist/client/tombstone/settings.js",
+      "./client/observability": "./dist/client/tombstone/observability.js",
+      "./client/db-admin": "./dist/client/tombstone/db-admin.js",
+      "./client/agentkit-chat": "./dist/client/tombstone/agentkit-chat.js",
+      "./client/org-switcher": "./dist/client/tombstone/org-switcher.js",
+      "./client/team-page": "./dist/client/tombstone/team-page.js",
+      "./blocks": "./dist/client/tombstone/blocks.js",
     };
     const sourceModules = {
       "index.ts": "export {};\n",
@@ -3941,6 +3948,14 @@ describe("local-core dev aliases and router dedupe", () => {
       "client/use-session.ts": "export {};\n",
       "client/use-after-paint.ts": "export {};\n",
       "shared/ssr-session-bootstrap.ts": "export {};\n",
+      "client/tombstone/chat.ts": "export {};\n",
+      "client/tombstone/settings.ts": "export {};\n",
+      "client/tombstone/observability.ts": "export {};\n",
+      "client/tombstone/db-admin.ts": "export {};\n",
+      "client/tombstone/agentkit-chat.ts": "export {};\n",
+      "client/tombstone/org-switcher.ts": "export {};\n",
+      "client/tombstone/team-page.ts": "export {};\n",
+      "client/tombstone/blocks.ts": "export {};\n",
     };
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(coreSrcDir, { recursive: true });
@@ -3979,6 +3994,26 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/core/shared/ssr-session-bootstrap",
           "shared/ssr-session-bootstrap.ts",
         ],
+        ["@agent-native/core/client/chat", "client/tombstone/chat.ts"],
+        ["@agent-native/core/client/settings", "client/tombstone/settings.ts"],
+        [
+          "@agent-native/core/client/observability",
+          "client/tombstone/observability.ts",
+        ],
+        ["@agent-native/core/client/db-admin", "client/tombstone/db-admin.ts"],
+        [
+          "@agent-native/core/client/agentkit-chat",
+          "client/tombstone/agentkit-chat.ts",
+        ],
+        [
+          "@agent-native/core/client/org-switcher",
+          "client/tombstone/org-switcher.ts",
+        ],
+        [
+          "@agent-native/core/client/team-page",
+          "client/tombstone/team-page.ts",
+        ],
+        ["@agent-native/core/blocks", "client/tombstone/blocks.ts"],
       ]) {
         expect(exclude).toContain(specifier);
         expect(
