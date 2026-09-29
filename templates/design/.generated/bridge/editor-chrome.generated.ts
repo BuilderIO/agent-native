@@ -7519,6 +7519,25 @@ export const editorChromeBridgeScript: string = `"use strict";
       var alpha = /\\/\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))%?\\s*\\)$/.exec(color);
       return !alpha || Number(alpha[1]) > 0;
     }
+    function cornerRadiusColorPrefix(value) {
+      var color = String(value || "").trim();
+      var functionName = /^[a-z][\\w-]*\\(/i.exec(color);
+      if (functionName) {
+        var depth = 0;
+        for (var index = functionName[0].length - 1; index < color.length; index += 1) {
+          if (color[index] === "(") depth += 1;
+          else if (color[index] === ")") {
+            depth -= 1;
+            if (depth === 0) return color.slice(0, index + 1);
+          }
+        }
+        return null;
+      }
+      var keyword = /^(?:transparent|[a-z]+)\\b/i.exec(color);
+      if (keyword) return keyword[0];
+      var hex = /^#[\\da-f]{3,8}\\b/i.exec(color);
+      return hex ? hex[0] : null;
+    }
     function cornerRadiusSplitCssList(value) {
       var parts = [];
       var depth = 0;
@@ -7535,21 +7554,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       return parts;
     }
     function cornerRadiusGradientHasVisiblePaint(value) {
-      var gradient = /^(?:repeating-)?(?:linear|radial|conic)-gradient\\((.*)\\)$/i.exec(value);
+      var gradient = /^(?:repeating-)?(linear|radial|conic)-gradient\\((.*)\\)$/i.exec(value);
       if (!gradient) return true;
-      var stops = cornerRadiusSplitCssList(gradient[1]);
+      var stops = cornerRadiusSplitCssList(gradient[2]);
       for (var index = 0; index < stops.length; index += 1) {
         var stop = stops[index];
         if (/^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)%$/.test(stop)) continue;
+        if (index === 0 && gradient[1].toLowerCase() === "radial" && (/\\bat\\b/i.test(stop) || /^(?:[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:px|em|rem|vw|vh|vmin|vmax|cm|mm|in|pt|pc|q)\\s*){1,2}$/i.test(
+          stop
+        ))) {
+          continue;
+        }
         if (index === 0 && /^(?:to\\b|from\\b|in\\b|at\\b|[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:deg|grad|rad|turn)\\b|(?:circle|ellipse|closest|farthest)\\b)/i.test(
           stop
         )) {
           continue;
         }
-        var color = /^(?:transparent\\b|rgba?\\([^)]*\\)|hsla?\\([^)]*\\)|#[\\da-f]{3,8}|color\\([^)]*\\)|color-mix\\([^)]*\\)|[a-z]+)/i.exec(
-          stop
-        );
-        if (!color || cornerRadiusColorIsVisible(color[0])) return true;
+        var color = cornerRadiusColorPrefix(stop);
+        if (!color || cornerRadiusColorIsVisible(color)) return true;
       }
       return false;
     }
@@ -7561,13 +7583,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return false;
     }
-    function cornerRadiusNodeAndAncestorsAreVisible(node, stopAt) {
+    function cornerRadiusVisibilityIsVisible(node) {
+      var visibility = window.getComputedStyle(node).visibility;
+      return visibility !== "hidden" && visibility !== "collapse";
+    }
+    function cornerRadiusNodeAndAncestorsAllowPaint(node, stopAt) {
       var cursor = node;
       while (cursor) {
         var style = window.getComputedStyle(cursor);
-        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
-          return false;
-        }
+        if (style.display === "none" || Number(style.opacity) === 0) return false;
         if (cursor === stopAt) return true;
         cursor = cursor.parentElement;
       }
@@ -7594,7 +7618,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return cornerRadiusSvgGradientHasVisibleStops(inherited, visited);
     }
-    function cornerRadiusSvgPaintIsVisible(value, target) {
+    function cornerRadiusSvgPatternHasVisibleContent(pattern, visited) {
+      if (visited.indexOf(pattern) >= 0) return false;
+      var seen = visited.concat([pattern]);
+      if (!cornerRadiusNodeAndAncestorsAllowPaint(pattern, null)) return false;
+      var graphics = pattern.querySelectorAll(
+        "circle, ellipse, image, line, path, polygon, polyline, rect, text, use"
+      );
+      for (var index = 0; index < graphics.length; index += 1) {
+        var graphic = graphics[index];
+        if (!cornerRadiusNodeAndAncestorsAllowPaint(graphic, pattern) || !cornerRadiusVisibilityIsVisible(graphic)) {
+          continue;
+        }
+        var style = window.getComputedStyle(graphic);
+        if (style.fill !== "none" && Number(style.fillOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)) {
+          return true;
+        }
+        if (style.stroke !== "none" && parseFloat(style.strokeWidth) > 0 && Number(style.strokeOpacity) > 0 && cornerRadiusSvgPaintIsVisible(style.stroke, graphic, seen)) {
+          return true;
+        }
+      }
+      if (graphics.length) return false;
+      var reference = pattern.getAttribute("href") || pattern.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+      if (reference.charAt(0) !== "#") return false;
+      var inherited = pattern.ownerDocument.getElementById(reference.slice(1));
+      return inherited && /^pattern$/i.test(inherited.localName || "") ? cornerRadiusSvgPatternHasVisibleContent(inherited, seen) : false;
+    }
+    function cornerRadiusSvgPaintIsVisible(value, target, visited) {
       var paint = String(value || "").trim();
       if (!paint || paint === "none") return false;
       var reference = /^url\\(\\s*(['"]?)#([^)'"\\s]+)\\1\\s*\\)(?:\\s+(.+))?$/i.exec(
@@ -7607,21 +7657,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!paintServer) {
         return reference[3] ? cornerRadiusColorIsVisible(reference[3]) : false;
       }
+      var seen = visited || [];
+      if (seen.indexOf(paintServer) >= 0) return false;
       if (/^(?:linear|radial)gradient$/i.test(paintServer.localName || "")) {
         return cornerRadiusSvgGradientHasVisibleStops(paintServer, []);
+      }
+      if (/^pattern$/i.test(paintServer.localName || "")) {
+        return cornerRadiusSvgPatternHasVisibleContent(paintServer, seen);
       }
       return false;
     }
     function cornerRadiusHasVisiblePaint(el) {
-      if (!cornerRadiusNodeAndAncestorsAreVisible(el, null)) return false;
+      if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
       var style = window.getComputedStyle(el);
-      if (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) || cornerRadiusColorIsVisible(style.backgroundColor)) {
+      if (cornerRadiusVisibilityIsVisible(el) && (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) || cornerRadiusColorIsVisible(style.backgroundColor))) {
         return true;
       }
       var borderSides = ["top", "right", "bottom", "left"];
       for (var index = 0; index < borderSides.length; index += 1) {
         var side = borderSides[index];
-        if (parseFloat(style.getPropertyValue("border-" + side + "-width")) > 0 && style.getPropertyValue("border-" + side + "-style") !== "none" && style.getPropertyValue("border-" + side + "-style") !== "hidden" && cornerRadiusColorIsVisible(
+        if (cornerRadiusVisibilityIsVisible(el) && parseFloat(style.getPropertyValue("border-" + side + "-width")) > 0 && style.getPropertyValue("border-" + side + "-style") !== "none" && style.getPropertyValue("border-" + side + "-style") !== "hidden" && cornerRadiusColorIsVisible(
           style.getPropertyValue("border-" + side + "-color")
         )) {
           return true;
@@ -7629,7 +7684,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (el.tagName.toLowerCase() !== "svg") return false;
       var paintTarget = vectorPaintTarget(el);
-      if (!paintTarget || !cornerRadiusNodeAndAncestorsAreVisible(paintTarget, el)) {
+      if (!paintTarget || !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) || !cornerRadiusVisibilityIsVisible(paintTarget)) {
         return false;
       }
       var paintStyle = window.getComputedStyle(paintTarget);

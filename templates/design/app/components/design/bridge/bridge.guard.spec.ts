@@ -7080,6 +7080,9 @@ it(
   <div id="no-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:40px;width:120px;height:80px"></div>
   <div id="transparent-fill-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:140px;width:120px;height:80px;background:rgba(20,40,60,0)"></div>
   <div id="transparent-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:300px;width:120px;height:80px;background-image:linear-gradient(transparent, rgba(20,40,60,0))"></div>
+  <div id="transparent-oklch-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:400px;width:120px;height:80px;background-image:linear-gradient(oklch(60% 0.2 20 / 0), oklch(70% 0.1 40 / 0))"></div>
+  <div id="transparent-hwb-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:500px;width:120px;height:80px;background-image:linear-gradient(hwb(0 0% 0% / 0%), hwb(120 0% 0% / 0%))"></div>
+  <div id="transparent-radial-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:400px;width:120px;height:80px;background-image:radial-gradient(10px 20px at center, transparent, transparent)"></div>
   <div id="visible-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:300px;width:120px;height:80px;background-image:linear-gradient(transparent, rgba(20,40,60,0)), linear-gradient(#f00, #00f)"></div>
   <div id="stroke-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:240px;width:120px;height:80px;background:transparent;border:2px solid #222;box-sizing:border-box"></div>
   <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
@@ -7089,6 +7092,11 @@ it(
   <svg id="display-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:240px;width:80px;height:80px"><g display="none"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="transparent-paint-server-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:300px;width:80px;height:80px"><defs><linearGradient id="radius-transparent-gradient"><stop offset="0%" stop-color="#222" stop-opacity="0"></stop><stop offset="100%" stop-color="#eee" stop-opacity="0"></stop></linearGradient></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-gradient)"></path></svg>
   <svg id="visible-paint-server-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:300px;width:80px;height:80px"><defs><linearGradient id="radius-visible-gradient"><stop offset="0%" stop-color="#222"></stop><stop offset="100%" stop-color="#eee"></stop></linearGradient></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-gradient)"></path></svg>
+  <svg id="visible-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:400px;width:80px;height:80px"><defs><pattern id="radius-visible-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-pattern)"></path></svg>
+  <svg id="inherited-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:400px;width:80px;height:80px"><defs><pattern id="radius-base-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern><pattern id="radius-inherited-pattern" href="#radius-base-pattern"></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-inherited-pattern)"></path></svg>
+  <svg id="transparent-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:400px;width:80px;height:80px"><defs><pattern id="radius-transparent-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="transparent"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-pattern)"></path></svg>
+  <div style="position:absolute;left:640px;top:560px;width:80px;height:80px;visibility:hidden"><svg id="visibility-override-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222" visibility="visible"></path></svg></div>
+  <div id="collapsed-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:500px;width:120px;height:80px;background:#ddd;visibility:collapse"></div>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
   <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
   <div id="unknown" style="position:absolute;left:520px;top:40px;width:60px;height:30px"></div>
@@ -7115,6 +7123,9 @@ it(
         "no-paint-rectangle",
         "transparent-fill-rectangle",
         "transparent-gradient-rectangle",
+        "transparent-oklch-gradient-rectangle",
+        "transparent-hwb-gradient-rectangle",
+        "transparent-radial-gradient-rectangle",
         "visible-gradient-rectangle",
         "stroke-rectangle",
         "zero-opacity-rectangle",
@@ -7124,6 +7135,11 @@ it(
         "display-group-polygon",
         "transparent-paint-server-polygon",
         "visible-paint-server-polygon",
+        "visible-pattern-polygon",
+        "inherited-pattern-polygon",
+        "transparent-pattern-polygon",
+        "visibility-override-polygon",
+        "collapsed-paint-rectangle",
       ]) {
         await selectElementDirect(page, `#${id}`);
         const visible = await page.evaluate(() =>
@@ -7278,6 +7294,29 @@ it(
           );
           expect(visibleAtVertex).toEqual(["vertex-0"]);
         }
+        if (
+          id === "visible-pattern-polygon" ||
+          id === "inherited-pattern-polygon" ||
+          id === "visibility-override-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex, id).toEqual(["vertex-0"]);
+        }
         if (id === "stroke-rectangle") {
           await page.mouse.move(644, 244);
           const visibleAtCorner = await page.evaluate(() =>
@@ -7318,8 +7357,13 @@ it(
           id === "no-paint-rectangle" ||
           id === "transparent-fill-rectangle" ||
           id === "transparent-gradient-rectangle" ||
+          id === "transparent-oklch-gradient-rectangle" ||
+          id === "transparent-hwb-gradient-rectangle" ||
+          id === "transparent-radial-gradient-rectangle" ||
           id === "transparent-paint-server-polygon" ||
-          id === "zero-opacity-rectangle"
+          id === "transparent-pattern-polygon" ||
+          id === "zero-opacity-rectangle" ||
+          id === "collapsed-paint-rectangle"
         ) {
           const box = await page.locator(`#${id}`).boundingBox();
           if (!box) throw new Error(`${id} is not visible`);
