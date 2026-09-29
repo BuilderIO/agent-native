@@ -305,7 +305,7 @@ describe("agent-native create TUI", () => {
         cwd,
         encoding: "utf8",
         timeout: 60_000,
-        env: { ...process.env, NO_COLOR: "1" },
+        env: { ...process.env, NO_COLOR: "1", NODE_NO_WARNINGS: "1" },
       },
     );
 
