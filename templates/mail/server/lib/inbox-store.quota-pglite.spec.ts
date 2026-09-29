@@ -59,5 +59,44 @@ describe("Gmail quota timestamps in PGlite", () => {
     expect(Number(row.created_at)).toBe(now);
     expect(Number(row.updated_at)).toBe(now);
     expect(Number(row.quota_cooldown_until)).toBeGreaterThan(now);
-  });
+  }, 15_000);
+
+  it("leaves room for the first backfill page after the initial inbox slice", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+
+    const [{ default: initializeMailDb }, quotaStore] = await Promise.all([
+      import("../plugins/db.js"),
+      import("./inbox-store.js"),
+    ]);
+    await initializeMailDb({});
+
+    const now = Date.now();
+    for (const units of [1, 10, 2_000, 10, 960]) {
+      await expect(
+        quotaStore.reserveGmailQuota(
+          "owner@example.com",
+          "account@example.com",
+          units,
+          "interactive",
+          now,
+        ),
+      ).resolves.toMatchObject({ retryAfterMs: 0 });
+    }
+
+    for (const [units, lane] of [
+      [2, "incremental"],
+      [10, "backfill"],
+      [1_960, "backfill"],
+    ] as const) {
+      await expect(
+        quotaStore.reserveGmailQuota(
+          "owner@example.com",
+          "account@example.com",
+          units,
+          lane,
+          now,
+        ),
+      ).resolves.toMatchObject({ retryAfterMs: 0 });
+    }
+  }, 15_000);
 });
