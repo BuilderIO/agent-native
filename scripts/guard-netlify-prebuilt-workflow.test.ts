@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { runInNewContext } from "node:vm";
 
 import { parse } from "yaml";
 
@@ -73,6 +74,104 @@ const trustedPreviewBuildSource = reusableSource.slice(
   trustedPreviewBuildStart,
   trustedPreviewBuildEnd,
 );
+
+describe("Brain branch production source policy", () => {
+  const branchSha = "b".repeat(40);
+  const mainSha = "a".repeat(40);
+  const reusable = readWorkflow(
+    ".github/workflows/deploy-netlify-prebuilt.yml",
+  );
+  const childStep = (
+    ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>
+  ).find((step) => step.id === "source")!;
+  const childScript = String((childStep.with as Workflow).script);
+
+  async function evaluate(
+    script: string,
+    options: {
+      sourceRef?: string;
+      site?: string;
+      caller?: string;
+      target?: string;
+      ref?: string;
+      comparison?: string;
+    } = {},
+  ) {
+    const errors: string[] = [];
+    const outputs: Record<string, string> = {};
+    let comparisons = 0;
+    const sourceRef = options.sourceRef ?? branchSha;
+    await runInNewContext(`(async () => { ${script}\n })()`, {
+      process: {
+        env: {
+          SOURCE_REF: sourceRef,
+          SITE: options.site ?? "brain",
+          CALLER: options.caller ?? "fleet",
+          TARGET: options.target ?? "production",
+        },
+      },
+      context: {
+        ref: options.ref ?? "refs/heads/make_brain_work",
+        eventName: "workflow_dispatch",
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+      },
+      core: {
+        setFailed: (error: string) => errors.push(error),
+        setOutput: (key: string, value: string) => {
+          outputs[key] = value;
+        },
+        info: () => {},
+      },
+      github: {
+        rest: {
+          git: {
+            getRef: async ({ ref }: { ref: string }) => ({
+              data: {
+                object: { sha: ref === "heads/main" ? mainSha : branchSha },
+              },
+            }),
+          },
+          repos: {
+            compareCommits: async () => {
+              comparisons += 1;
+              return { data: { status: options.comparison ?? "diverged" } };
+            },
+          },
+        },
+      },
+    });
+    return { errors, outputs, comparisons };
+  }
+
+  it("accepts only the current Brain branch tip without main ancestry", async () => {
+    const allowed = await evaluate(childScript);
+    assert.equal(allowed.outputs.source_ref, branchSha);
+    assert.equal(allowed.comparisons, 0);
+    for (const options of [
+      { sourceRef: "c".repeat(40) },
+      { site: "mail" },
+      { caller: "direct" },
+      { ref: "refs/heads/main" },
+    ]) {
+      const result = await evaluate(childScript, options);
+      assert.match(result.errors.join(" "), /not an ancestor of main/);
+      assert.equal(result.outputs.source_ref, undefined);
+    }
+  });
+
+  it("retains the ancestor check for other production sources", async () => {
+    const allowed = await evaluate(childScript, {
+      site: "mail",
+      comparison: "ahead",
+    });
+    assert.equal(allowed.outputs.source_ref, branchSha);
+    assert.equal(allowed.comparisons, 1);
+    assert.match(
+      (await evaluate(childScript, { target: "beta" })).errors.join(" "),
+      /not an ancestor of main/,
+    );
+  });
+});
 
 describe("Google callback deploy verification guard", () => {
   it("requires direct probe execution and rolls back only definitive mismatches", () => {
