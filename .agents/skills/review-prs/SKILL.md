@@ -78,9 +78,10 @@ For every PR you inspect, read:
 Inspect repository rulesets as well as branch protection. List them with
 `gh api repos/BuilderIO/agent-native/rulesets`, then inspect each matching
 `/rulesets/<id>` definition's `conditions.ref_name` and
-`required_status_checks` for the PR base branch. `gh pr checks --required` can
-omit ruleset requirements; never infer that no checks are required from that
-command alone.
+all applicable rules for the PR base branch, including required status checks,
+deployments, and other non-status conditions. `gh pr checks --required` can
+omit ruleset requirements; never infer that no merge requirements exist from
+that command alone.
 
 Use the GitHub organization membership API to verify that the author and any
 reviewer whose approval you rely on are current members of `BuilderIO`. Do not
@@ -298,7 +299,8 @@ for 10 consecutive minutes on that same head:
 
  - every status context required by branch protection or an applicable
    repository ruleset reports success on the recorded head, including contexts
-   published by GitHub Actions and other integrations;
+   published by GitHub Actions and other integrations, and every other
+   applicable merge requirement (such as a required deployment) is satisfied;
  - every actionable review finding has a verified fix or terminal disposition;
  - the PR is `MERGEABLE` with no conflicts;
  - the same recorded `headRefOid` remains unchanged for the entire 10-minute
@@ -306,8 +308,11 @@ for 10 consecutive minutes on that same head:
 
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. This skill itself authorizes the guarded merge;
-do not hand off to standalone `babysit-pr` or wait for another approval. When
-the gate holds, revalidate the exact live head and use the guarded admin merge:
+do not hand off to standalone `babysit-pr` or wait for another approval. The
+admin merge may bypass only a missing human PR approval or
+`REVIEW_REQUIRED`; do not use it to bypass any other applicable protection
+requirement. When the gate holds, revalidate the exact live head and use the
+guarded admin merge:
 
 ```bash
 gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
@@ -316,8 +321,11 @@ gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
 
 `REVIEW_REQUIRED` alone is not a reason to wait for another reviewer or ask
 Steve to click Merge. This skill's standing authorization covers that merge.
-If the head or another gate changes, restart the gate. If no code or author
-action is needed and the PR is otherwise ready, merge it.
+After the command, re-query the PR for its merged state and merge commit, fetch
+`origin/main`, and verify that commit is an ancestor of `origin/main`. Report a
+merge only after that verification; otherwise report the actual pending or
+not-merged state. If the head or another gate changes, restart the gate. If no
+code or author action is needed and the PR is otherwise ready, merge it.
 
 For every verified external PR needing a code update or evidence necessary to
 assess a material behavior change, draft a concise reply that names the concrete
