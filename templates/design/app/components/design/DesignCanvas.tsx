@@ -1521,6 +1521,7 @@ export function DesignCanvas({
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
+  const [iframeReloadSequence, setIframeReloadSequence] = useState(0);
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
@@ -2918,6 +2919,7 @@ export function DesignCanvas({
     liveEditBridgeRegistered,
     externalPreviewUrl,
     readyIframeDocumentIdentity,
+    iframeReloadSequence,
     handleSuspectedBridgeRestart,
   ]);
 
@@ -3702,6 +3704,7 @@ export function DesignCanvas({
           editorChromeReadyRef.current = false;
           liveRoutePathRef.current = null;
           onBootStart?.();
+          setIframeReloadSequence((sequence) => sequence + 1);
           setReadyIframeDocumentIdentity(null);
           const pendingDelete =
             runtimeStructureDeleteRequest ??

@@ -233,6 +233,51 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").not.toContain("Preparing live editor");
   });
 
+  it("restarts the ready watchdog when a reload arrives before the first ready handshake", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2700);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBeGreaterThanOrEqual(1);
+  });
+
   it("does NOT tear down the iframe or show an error when /health reports the SAME bridgeInstanceId at the first 4s timeout — it re-arms the watchdog instead (regression coverage)", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url =
