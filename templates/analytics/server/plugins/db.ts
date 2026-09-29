@@ -1044,6 +1044,7 @@ export const runAnalyticsMigrations = runMigrations(
       name: "uptime-monitors-timeout-10s",
       // guard:allow-unscoped — migration normalizes every existing monitor timeout independent of tenant ownership
       sql: {
+        // guard:allow-unscoped — this versioned migration normalizes existing monitor timeouts.
         postgres: `
         ALTER TABLE monitors ALTER COLUMN timeout_ms SET DEFAULT 10000;
         UPDATE monitors

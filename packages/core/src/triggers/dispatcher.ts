@@ -100,12 +100,30 @@ const DB_QUERY_TIMEOUT_MS = 15_000;
 const DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS = 5_000;
 const MAX_MAIL_TRIGGER_EVENT_AGE_MS = 60 * 60_000;
 const MAIL_RECEIVED_EVENT = "mail.message.received";
+const MIN_TRIGGER_QUEUE_IDLE_BACKOFF_MS = 10_000;
+const MAX_TRIGGER_QUEUE_IDLE_BACKOFF_MS = 60_000;
 const DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS: AutomationTriggerQueueQueryOptions =
   {
     timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
   };
 let _deps: TriggerDispatcherDeps | null = null;
 let _triggerQueueWorkerStarted = false;
+// ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
+let _triggerQueueIdleBackoffMs = 0;
+let _triggerQueueResumeAt = 0;
+
+function backOffTriggerQueueWorker(): void {
+  _triggerQueueIdleBackoffMs = Math.min(
+    MAX_TRIGGER_QUEUE_IDLE_BACKOFF_MS,
+    Math.max(MIN_TRIGGER_QUEUE_IDLE_BACKOFF_MS, _triggerQueueIdleBackoffMs * 2),
+  );
+  _triggerQueueResumeAt = Date.now() + _triggerQueueIdleBackoffMs;
+}
+
+function resetTriggerQueueWorkerBackoff(): void {
+  _triggerQueueIdleBackoffMs = 0;
+  _triggerQueueResumeAt = 0;
+}
 
 export function buildAutomationTriggerPrompt(input: {
   triggerName: string;
@@ -217,6 +235,7 @@ export async function initTriggerDispatcher(
   deps: TriggerDispatcherDeps,
 ): Promise<void> {
   _deps = deps;
+  resetTriggerQueueWorkerBackoff();
   await ensureAutomationTriggerEventQueue();
   await refreshEventSubscriptions();
   registerRecurringSweepHandler("automation-trigger-queue", async (context) => {
@@ -249,6 +268,7 @@ function startTriggerQueueWorker(): void {
 async function drainReadyTriggerQueue(
   context?: RecurringSweepContext,
 ): Promise<void> {
+  if (_triggerQueueResumeAt > Date.now()) return;
   const deps = _deps;
   if (!deps) return;
   if (!context) {
@@ -256,7 +276,19 @@ async function drainReadyTriggerQueue(
       deps.appId,
       DURABLE_TRIGGER_READY_PAGE_SIZE,
     );
-    for (const triggerId of triggerIds) void startTriggerDrain(triggerId);
+    if (triggerIds.length === 0) {
+      backOffTriggerQueueWorker();
+      return;
+    }
+    void Promise.allSettled(
+      triggerIds.map((triggerId) => startTriggerDrain(triggerId)),
+    ).then((results) => {
+      if (
+        results.some((result) => result.status === "fulfilled" && result.value)
+      ) {
+        resetTriggerQueueWorkerBackoff();
+      } else backOffTriggerQueueWorker();
+    });
     return;
   }
 
@@ -543,6 +575,12 @@ async function drainReadyTriggerQueue(
       }
     }
   }
+
+  if (claimedEventCount > 0 || reclaimedExpiredCount > 0) {
+    resetTriggerQueueWorkerBackoff();
+  } else {
+    backOffTriggerQueueWorker();
+  }
 }
 
 export async function refreshEventSubscriptions(): Promise<boolean> {
@@ -615,6 +653,7 @@ async function handleEvent(
         eventOwner: eventMeta.owner,
         emittedAt: eventMeta.emittedAt,
       });
+      resetTriggerQueueWorkerBackoff();
       if (!isProductionServerlessFunctionRuntime()) {
         void startTriggerDrain(resource.id);
       }

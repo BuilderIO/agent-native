@@ -29,6 +29,7 @@ import {
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
+  ensureAutomationTriggerEventQueue,
   expireAutomationTriggerEvent,
   expireStaleAutomationTriggerEvents,
   failAutomationTriggerEvent,
@@ -45,6 +46,15 @@ describe("automation trigger event queue", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+  });
+
+  it("ensures the active-head index during queue initialization", async () => {
+    await ensureAutomationTriggerEventQueue();
+
+    expect(ensureIndexExistsMock).toHaveBeenCalledWith(
+      "idx_automation_trigger_event_queue_active_head",
+      expect.stringContaining("WHERE status IN ('pending', 'processing')"),
+    );
   });
 
   it("persists payload and source metadata with a stable per-trigger dedupe key", async () => {
@@ -140,9 +150,14 @@ describe("automation trigger event queue", () => {
       args: unknown[];
       sql: string;
     };
-    expect(update.sql).toContain("ORDER BY candidate.sequence_id ASC");
-    expect(update.sql).toContain("earlier.status IN ('pending', 'processing')");
-    expect(update.sql).toContain("candidate.status = 'processing'");
+    expect(update.sql).toContain("ORDER BY head.sequence_id ASC");
+    expect(update.sql).toContain("head.status IN ('pending', 'processing')");
+    expect(update.sql).toContain("head.app_id = ?");
+    expect(update.sql).not.toContain("NOT EXISTS");
+    expect(update.sql).toContain(
+      "claimed.status = 'pending' AND claimed.available_at <= ?",
+    );
+    expect(update.sql).toContain("claimed.status = 'processing'");
     expect(update.sql).toContain(
       "failure_attempts = claimed.failure_attempts +",
     );
@@ -150,7 +165,40 @@ describe("automation trigger event queue", () => {
       "CASE WHEN claimed.status = 'processing' THEN 1 ELSE 0 END",
     );
     expect(update.sql).toContain("RETURNING claimed.id");
-    expect(update.args).toContain("mail");
+    expect(update.args).toEqual([
+      expect.any(Number),
+      "resource-1",
+      "mail",
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
+  it("returns null without mutating a FIFO head that is not claimable", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      claimNextAutomationTriggerEvent("resource-1", "mail"),
+    ).resolves.toBeNull();
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("SELECT head.id");
+    expect(query.sql).toContain("head.status IN ('pending', 'processing')");
+    expect(query.sql).toContain("ORDER BY head.sequence_id ASC");
+    expect(query.sql).toContain("LIMIT 1");
+    expect(query.sql).toContain("claimed.available_at <= ?");
+    expect(query.sql).toContain("claimed.claimed_at <= ?");
+    expect(query.args).toEqual([
+      expect.any(Number),
+      "resource-1",
+      "mail",
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+    expect(executeMock).toHaveBeenCalledOnce();
   });
 
   it("defers busy events without consuming a failure attempt", async () => {
@@ -347,6 +395,22 @@ describe("automation trigger event queue", () => {
     });
     expect(staleIndexMigration?.sql).toContain(
       "ON automation_trigger_event_queue (app_id, event_name, emitted_at)",
+    );
+  });
+
+  it("adds a partial index for active FIFO heads", () => {
+    const activeHeadIndexMigration = AUTOMATION_TRIGGER_EVENT_MIGRATIONS.find(
+      ({ name }) => name === "automation-trigger-event-active-head-index",
+    );
+    expect(activeHeadIndexMigration).toMatchObject({
+      version: 5,
+      name: "automation-trigger-event-active-head-index",
+    });
+    expect(activeHeadIndexMigration?.sql).toContain(
+      "ON automation_trigger_event_queue (app_id, trigger_id, sequence_id)",
+    );
+    expect(activeHeadIndexMigration?.sql).toContain(
+      "WHERE status IN ('pending', 'processing')",
     );
   });
 

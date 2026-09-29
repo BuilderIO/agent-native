@@ -30,7 +30,9 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
   eq: vi.fn(),
+  isNull: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({
