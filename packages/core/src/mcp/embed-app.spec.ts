@@ -539,19 +539,52 @@ describe("embedApp", () => {
     expect(html).toContain(
       "if (contextResult && (contextResult.isError === true || contextResult.ok === false))",
     );
-    expect(html).toContain('audience.includes("assistant")');
-    expect(html).not.toContain('!audience.includes("user")');
+    expect(html).toContain(
+      '(!audience.includes("assistant") || !audience.includes("user"))',
+    );
     expect(html).toContain('message.type === "agentNative.cancelChat"');
     expect(html).toContain('if (request.state === "queued")');
-    expect(html).toContain('hostChatRequest.state = "sending"');
+    const sendHostChatNow = html.indexOf(
+      "async function sendHostChatNow(chat, hostChatRequest)",
+    );
+    const hostConnect = html.indexOf(
+      "await ensureHostAppConnected();",
+      sendHostChatNow,
+    );
+    const cancellationCheck = html.indexOf(
+      "if (hostChatRequest && hostChatRequest.cancelled)",
+      hostConnect,
+    );
+    const sending = html.indexOf(
+      'hostChatRequest.state = "sending"',
+      cancellationCheck,
+    );
+    expect(hostConnect).toBeGreaterThan(sendHostChatNow);
+    expect(cancellationCheck).toBeGreaterThan(hostConnect);
+    expect(sending).toBeGreaterThan(cancellationCheck);
+    const modelContextStart = html.indexOf("const modelContext = {");
+    const contextResultStart = html.indexOf(
+      "const contextResult = await updateHostModelContext(modelContext)",
+      modelContextStart,
+    );
+    expect(html.slice(modelContextStart, contextResultStart)).toContain(
+      "...requestModePayload",
+    );
     expect(html).toContain(
       "const methodNotFound = err && Number(err.code) === -32601;",
     );
+    expect(html).toContain("if (methodNotFound) {");
     expect(html).toContain(
-      'if (methodNotFound && openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function")',
+      'typeof openAiBridge.sendFollowUpMessage === "function"',
     );
     expect(html).toContain("notSubmitted: true");
-    expect(html).toContain("...requestModePayload");
+    const methodNotFoundStart = html.indexOf(
+      "if (methodNotFound) {",
+      sendHostChatNow,
+    );
+    expect(
+      html.indexOf("notSubmitted: true", methodNotFoundStart),
+    ).toBeGreaterThan(methodNotFoundStart);
   });
 });
 
