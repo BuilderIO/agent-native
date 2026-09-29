@@ -14,6 +14,7 @@ import {
   personalContentSpaceId,
   systemIdsForContentSpace,
 } from "./_content-spaces.js";
+import { getContentSourceMode } from "./_local-file-documents.js";
 
 export default defineAction({
   description:
@@ -30,7 +31,10 @@ export default defineAction({
     const personalSpaceId = personalContentSpaceId(email);
     const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
     const favoritesIds = systemIdsForContentSpace(personalSpaceId, "favorites");
-    const memberships = await listContentOrganizationMemberships(email);
+    const [memberships, sourceMode] = await Promise.all([
+      listContentOrganizationMemberships(email),
+      getContentSourceMode(),
+    ]);
     const roleByOrgId = new Map(
       memberships.map((membership) => [
         membership.orgId,
@@ -153,6 +157,7 @@ export default defineAction({
       )
       .digest("hex");
     return {
+      sourceMode,
       catalogDatabaseId: catalogIds.databaseId,
       catalogDocumentId: catalogIds.documentId,
       favoritesDatabaseId: filesDocumentIdByDatabaseId.has(

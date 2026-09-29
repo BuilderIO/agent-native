@@ -28,6 +28,7 @@ vi.mock("./list-events.js", () => ({
   resolveCalendarEventRange: resolveCalendarEventRangeMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./update-events";
 
 const OWNER = "owner@example.com";
@@ -55,9 +56,6 @@ describe("update-events", () => {
   });
 
   it("rejects a same-day timed range that collapses to a zero-day all-day span", async () => {
-    // 09:00-10:00 is a valid timed range, but all-day targets take date-only
-    // bounds, so both ends truncate to the same date and Google's exclusive
-    // end would produce an all-day event covering no day at all.
     listCalendarEventsMock.mockResolvedValue({
       events: [
         {
@@ -161,6 +159,27 @@ describe("update-events", () => {
     expect(updateEventMock).not.toHaveBeenCalled();
   });
 
+  it("rejects an explicit account that conflicts with an opaque event id", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      run({
+        ids: [id],
+        accountEmail: "zulu@example.com",
+        shiftMinutes: 15,
+      }),
+    ).rejects.toThrow("does not match");
+
+    expect(getEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
   it("skips read-only shared events discovered by a filtered bulk update", async () => {
     listCalendarEventsMock.mockResolvedValue({
       events: [
@@ -206,9 +225,6 @@ describe("update-events", () => {
       sendUpdates: "none",
     });
 
-    // Before the fix this stayed 0: the summary only counted failures out of
-    // `updated`, so a lookup that never made it into that array vanished from
-    // the aggregate while the per-event list still said "failed".
     expect(result.failed).toBe(1);
     expect(result.updated).toBe(0);
     expect(result.skipped).toBe(1);

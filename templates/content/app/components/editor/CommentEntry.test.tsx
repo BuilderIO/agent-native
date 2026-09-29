@@ -9,13 +9,18 @@ import type { Comment } from "@/hooks/use-comments";
 import { CommentDraftProvider, useCommentDraft } from "./comment-drafts";
 import { CommentEntry } from "./CommentEntry";
 
-const { reconcile, mutateAsync } = vi.hoisted(() => ({
+const { reconcile, mutateAsync, createRetry } = vi.hoisted(() => ({
   reconcile: vi.fn(),
   mutateAsync: vi.fn(),
+  createRetry: vi.fn(),
 }));
 vi.mock("@/hooks/use-comments", () => ({
-  useCreateComment: () => ({ reconcileAmbiguous: reconcile }),
+  useCreateComment: () => ({
+    reconcileAmbiguous: reconcile,
+    mutateAsync: createRetry,
+  }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
@@ -44,21 +49,31 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
 }));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
     onChange,
+    onCancel,
     ariaLabel,
   }: {
     value: string;
     onChange: (value: string) => void;
+    onCancel?: () => void;
     ariaLabel: string;
   }) => (
-    <textarea
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <>
+      <textarea
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
+    </>
   ),
 }));
 
@@ -94,6 +109,7 @@ function DraftProbe() {
   editDraft = useCommentDraft("edit:comment-1", {
     text: comment.content,
     mentions: [],
+    aiDraft: null,
   });
   return null;
 }
@@ -132,9 +148,40 @@ async function click(label: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   reconcile.mockResolvedValue("confirmed");
+  createRetry.mockResolvedValue({ id: "saved-reply", threadId: "comment-1" });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+});
+
+it("checks an uncertain reply before retrying with its original operation ID", async () => {
+  reconcile.mockResolvedValue("unresolved");
+  const entry: Comment = {
+    ...comment,
+    id: "optimistic-operation-1",
+    parent_id: "comment-1",
+    content: "Reply text",
+    mutation: {
+      operationId: "operation-1",
+      kind: "create",
+      status: "error",
+      ambiguous: true,
+    },
+  };
+  await act(async () => root.render(<Harness entry={entry} />));
+  expect(container.textContent).not.toContain("comments.retry");
+  await click("comments.checkSaved");
+  expect(reconcile).toHaveBeenCalledWith("doc-1", "operation-1");
+  await click("comments.retry");
+  expect(createRetry).toHaveBeenCalledWith(
+    expect.objectContaining({
+      clientOperationId: "operation-1",
+      documentId: "doc-1",
+      threadId: "comment-1",
+      parentId: "comment-1",
+      content: "Reply text",
+    }),
+  );
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -208,4 +255,84 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(
     "comments.saveUnconfirmed",
   );
+});
+
+it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "agent",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+
+  expect(container.textContent).toContain("GPT");
+  const badge = container.querySelector("[data-comment-agent-badge]");
+  expect(badge?.textContent).toBe("comments.agentBadge");
+  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  const time = container.querySelector("time");
+  expect(time?.getAttribute("datetime")).toBe(comment.created_at);
+  // The time truncates before a short author name does.
+  expect(time?.className).toContain("truncate");
+  expect(time?.className).toContain("whitespace-nowrap");
+});
+
+it("places thread actions inline after the comment menu", async () => {
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          members={[]}
+          headerActions={<button data-testid="resolve">resolve</button>}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  const actions = container.querySelector("[data-comment-row-actions]");
+  const buttons = [...(actions?.querySelectorAll("button") ?? [])];
+  expect(buttons[buttons.length - 1]?.dataset.testid).toBe("resolve");
+  expect(
+    buttons.some(
+      (button) =>
+        button.getAttribute("aria-label") === "comments.commentActions",
+    ),
+  ).toBe(true);
+});
+
+it("keeps the exact AI conversation link in the comment overflow", async () => {
+  const onOpenAiConversation = vi.fn();
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          members={[]}
+          onOpenAiConversation={onOpenAiConversation}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  await click("comments.aiOpenConversation");
+  expect(onOpenAiConversation).toHaveBeenCalledOnce();
 });

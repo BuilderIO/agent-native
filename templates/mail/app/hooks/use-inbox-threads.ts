@@ -7,6 +7,7 @@ import type {
 } from "@shared/inbox-threads";
 import {
   keepPreviousData,
+  skipToken,
   useQuery,
   useQueries,
   useQueryClient,
@@ -15,22 +16,115 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-/** Action query key prefix — matches every `list-inbox-threads` variant
- * (any tab/account/pagination params), so a single invalidate call reaches
- * every cached page. See useActionQuery's `["action", name, params]` shape. */
 export const INBOX_THREADS_QUERY_KEY = ["action", "list-inbox-threads"];
 
 const SYNCING_POLL_MS = 3_000;
 const IDLE_POLL_MS = 20_000;
+const INBOX_THREADS_STALE_TIME_MS = IDLE_POLL_MS;
+const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
 
-/** Rows per page. Page 0 comes from `useInboxThreads` (polled); pages beyond
- * that come from `useInboxThreadsPages` (fetched on demand, no poll). */
+export type InboxOverview = Pick<
+  ListInboxThreadsResult,
+  "tabs" | "syncing" | "accounts" | "labels"
+> & { clientSnapshotId: number };
+
+type InboxPageCountSnapshot = Pick<
+  ListInboxThreadsResult,
+  "activeTabId" | "tabs"
+> & { clientSnapshotId: number };
+
+export function mergeOptimisticInboxTabCounts(
+  overview: Pick<InboxOverview, "tabs" | "clientSnapshotId">,
+  base: InboxPageCountSnapshot | undefined,
+  projected: InboxPageCountSnapshot | undefined,
+) {
+  if (
+    !base ||
+    !projected ||
+    base.clientSnapshotId !== overview.clientSnapshotId ||
+    projected.clientSnapshotId !== overview.clientSnapshotId ||
+    base.activeTabId !== projected.activeTabId
+  ) {
+    return overview.tabs;
+  }
+  const baseTab = base.tabs.find((tab) => tab.id === base.activeTabId);
+  const projectedTab = projected.tabs.find(
+    (tab) => tab.id === projected.activeTabId,
+  );
+  if (!baseTab || !projectedTab) return overview.tabs;
+
+  const totalDelta = projectedTab.total - baseTab.total;
+  const unreadDelta = projectedTab.unread - baseTab.unread;
+  if (totalDelta === 0 && unreadDelta === 0) return overview.tabs;
+
+  return overview.tabs.map((tab) =>
+    tab.id === projectedTab.id
+      ? {
+          ...tab,
+          total: Math.max(0, tab.total + totalDelta),
+          unread: Math.max(0, tab.unread + unreadDelta),
+        }
+      : tab,
+  );
+}
+
+export function inboxOverviewQueryKey(accountEmails?: readonly string[]) {
+  const accounts = accountEmails
+    ? [...accountEmails].map((email) => email.toLowerCase()).sort()
+    : undefined;
+  return ["mail-inbox-overview", accounts] as const;
+}
+
+export function publishInboxOverview(
+  qc: QueryClient,
+  accountEmails: readonly string[] | undefined,
+  incoming: InboxOverview,
+) {
+  const queryKey = inboxOverviewQueryKey(accountEmails);
+  const current = qc.getQueryData<InboxOverview>(queryKey);
+  if (current && current.clientSnapshotId >= incoming.clientSnapshotId) return;
+  qc.setQueryData(queryKey, incoming);
+}
+
+export function useInboxOverview(accountEmails?: readonly string[]) {
+  return useQuery<InboxOverview>({
+    queryKey: inboxOverviewQueryKey(accountEmails),
+    queryFn: skipToken,
+    staleTime: Infinity,
+  });
+}
+
+export function isUnauthorizedError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
+export function inboxThreadsRefetchInterval(query: {
+  state: { error: unknown; data?: { syncing?: boolean } };
+}): number | false {
+  if (isUnauthorizedError(query.state.error)) return false;
+  return query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS;
+}
+
 export const INBOX_PAGE_SIZE = 100;
 
 type InboxQueryResult = ListInboxThreadsResult & {
-  /** Client-only request-start fence for optimistic journal evidence. */
   clientSnapshotId: number;
 };
+
+export function keepLatestInboxSnapshot(
+  current: InboxQueryResult | undefined,
+  incoming: InboxQueryResult,
+): InboxQueryResult {
+  return current && current.clientSnapshotId > incoming.clientSnapshotId
+    ? current
+    : incoming;
+}
 
 let nextInboxSnapshotId = 0;
 
@@ -82,22 +176,32 @@ function freshCompleteInboxScope(
 function fetchInboxThreads(
   input: ListInboxThreadsInput,
   signal: AbortSignal,
+  qc: QueryClient,
+  queryKey: QueryKey,
 ): Promise<InboxQueryResult> {
   const clientSnapshotId = ++nextInboxSnapshotId;
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
     input,
-    { method: "GET", signal },
-  ).then((data) => ({ ...data, clientSnapshotId }));
+    {
+      method: "GET",
+      signal,
+      timeoutMs: INBOX_THREADS_REQUEST_TIMEOUT_MS,
+    },
+  ).then((data) => {
+    const incoming = { ...data, clientSnapshotId };
+    publishInboxOverview(qc, input.accountEmails, {
+      tabs: incoming.tabs,
+      syncing: incoming.syncing,
+      accounts: incoming.accounts,
+      labels: incoming.labels,
+      clientSnapshotId,
+    });
+    const current = qc.getQueryData<InboxQueryResult>(queryKey);
+    return keepLatestInboxSnapshot(current, incoming);
+  });
 }
 
-/**
- * The inbox tab bar and list's first page both read through this hook with
- * identical `input`, so React Query dedupes them into one network request —
- * same pattern as `useLabels` being called independently from AppLayout and
- * InboxPage today. Tabs, counts, sync status, accounts, and labels all come
- * from this page-0 response; later pages only ever contribute more `items`.
- */
 export function useInboxThreads(
   input: ListInboxThreadsInput,
   opts?: { enabled?: boolean },
@@ -105,29 +209,17 @@ export function useInboxThreads(
   const qc = useQueryClient();
   return useQuery<InboxQueryResult>({
     queryKey: ["action", "list-inbox-threads", input],
-    queryFn: ({ signal }) => fetchInboxThreads(input, signal),
+    queryFn: ({ signal, queryKey }) =>
+      fetchInboxThreads(input, signal, qc, queryKey),
     enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
     retry: false,
-    // The 3s/20s poll below already keeps this fresh — an extra unbounded
-    // window-focus refetch fans out across every mounted instance (bar +
-    // list) and isn't worth the added request-storm risk.
-    refetchInterval: (query) =>
-      query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS,
-    // Tab switches must never blank the list while the new tab's page loads.
+    refetchInterval: inboxThreadsRefetchInterval,
+    staleTime: INBOX_THREADS_STALE_TIME_MS,
     placeholderData: keepPreviousData,
     select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,
   });
 }
 
-/**
- * "Load more" pages beyond page 0, one query per offset. Deliberately NOT a
- * single `useInfiniteQuery`: refetching an infinite query (on focus, on
- * interval) replays every loaded page's request, which is exactly the
- * request-storm pattern `useEmails` already avoids for the same reason. A
- * `useQueries` array keeps each page an independent, unpolled query that
- * still shares the `["action","list-inbox-threads",...]` key prefix, so
- * `invalidateInboxThreads` and the optimistic helpers below reach it too.
- */
 export function useInboxThreadsPages(
   input: Omit<ListInboxThreadsInput, "offset">,
   offsets: readonly number[],
@@ -139,8 +231,13 @@ export function useInboxThreadsPages(
       const params: ListInboxThreadsInput = { ...input, offset };
       return {
         queryKey: ["action", "list-inbox-threads", params],
-        queryFn: ({ signal }: { signal: AbortSignal }) =>
-          fetchInboxThreads(params, signal),
+        queryFn: ({
+          signal,
+          queryKey,
+        }: {
+          signal: AbortSignal;
+          queryKey: QueryKey;
+        }) => fetchInboxThreads(params, signal, qc, queryKey),
         enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
         retry: false,
         placeholderData: keepPreviousData,
@@ -152,16 +249,12 @@ export function useInboxThreadsPages(
   });
 }
 
-/** Concatenates loaded pages' items in offset order. `undefined` entries
- * (a page not yet fetched) contribute nothing. */
 export function mergeInboxThreadPages(
   pages: ReadonlyArray<Pick<ListInboxThreadsResult, "items"> | undefined>,
 ): InboxThreadItem[] {
   return pages.flatMap((page) => page?.items ?? []);
 }
 
-/** More rows exist beyond what's loaded when the loaded count hasn't caught
- * up to the tab's total (read from page 0 — see `useInboxThreads`'s doc). */
 export function inboxThreadsHasNextPage(
   loadedCount: number,
   total: number,
@@ -173,17 +266,12 @@ export function invalidateInboxThreads(qc: QueryClient) {
   return qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY });
 }
 
-/** Snapshot every cached `list-inbox-threads` page before an optimistic
- * write, for `restoreInboxThreadsOptimistic` to roll back on mutation error.
- * Take this alongside the existing `['emails']` snapshot — the two caches
- * are restored independently. */
 export function snapshotInboxThreads(qc: QueryClient) {
   return qc.getQueriesData<ListInboxThreadsResult>({
     queryKey: INBOX_THREADS_QUERY_KEY,
   });
 }
 
-/** Resolve a message id to the thread key used by the action-backed inbox. */
 export function findInboxThreadIdByMessageId(
   qc: QueryClient,
   messageId: string,
@@ -197,8 +285,6 @@ export function findInboxThreadIdByMessageId(
   return item ? threadKeyOf(item) : undefined;
 }
 
-/** Restore a raw inbox snapshot for an explicit cache reset. Optimistic
- * mutation rollbacks retire journal entries instead of replacing this base. */
 export function restoreInboxThreadsOptimistic(
   qc: QueryClient,
   snapshot: ReturnType<typeof snapshotInboxThreads>,
@@ -206,9 +292,6 @@ export function restoreInboxThreadsOptimistic(
   for (const [key, data] of snapshot) qc.setQueryData(key, data);
 }
 
-/** Notify inbox observers after the journal changes without changing the raw
- * server snapshot underneath them. The select overlay is the optimistic
- * projection; keeping the base intact makes overlapping rollbacks additive. */
 function notifyInboxQueries(qc: QueryClient) {
   qc.setQueriesData<ListInboxThreadsResult>(
     { queryKey: INBOX_THREADS_QUERY_KEY },
@@ -223,9 +306,6 @@ function notifyInboxQueries(qc: QueryClient) {
   );
 }
 
-/** Back-compat: old `?label=<id>` / `?filter=<id>` links and the `?tab=other`
- * sentinel all resolve to the same `?tab=<id>` the new contract expects.
- * Undefined means "let the server default to its first configured tab". */
 export function resolveInboxTabId(
   searchParams: URLSearchParams,
 ): string | undefined {
@@ -451,7 +531,6 @@ export function forgetInboxMutation(qc: QueryClient, id: string) {
   if (inboxMutationJournal(qc).delete(id)) notifyInboxQueries(qc);
 }
 
-/** Keep only the targets that a partially completed bulk mutation changed. */
 export function retainInboxMutationTargets(
   qc: QueryClient,
   id: string,
@@ -501,7 +580,6 @@ export function retainInboxMutationTargets(
   return journal.has(id) ? id : undefined;
 }
 
-/** Retire a journal entry only after a refetch contains the requested state. */
 export function settleInboxMutationIfObserved(
   qc: QueryClient,
   id: string | undefined,
@@ -601,7 +679,6 @@ export function settleInboxMutationIfObserved(
   forgetInboxMutation(qc, id);
 }
 
-/** Drop only the optimistic removals for one thread, used by archive undo. */
 export function clearInboxThreadRemoval(
   qc: QueryClient,
   threadId: string,
@@ -775,8 +852,6 @@ export function applyInboxMutationOverlay(
       }
     }
   }
-  // Keep older entries for rollback, but project only the newest intent for
-  // each thread field until that newer mutation settles.
   for (const mutation of mutations) {
     const current = currentInboxMutation(mutation, latestByKey);
     if (current) result = applyInboxMutation(result, current);
@@ -826,8 +901,6 @@ export function removeInboxThreadsOptimistic(
   return mutation.id;
 }
 
-/** Optimistically patch a thread's read state (mark-read/mark-thread-read)
- * and adjust the active tab's unread count by the resulting delta. */
 export function markInboxThreadReadOptimistic(
   qc: QueryClient,
   threadIds: ReadonlySet<string>,
@@ -846,17 +919,6 @@ export function markInboxThreadReadOptimistic(
   return mutation.id;
 }
 
-/**
- * Optimistically adjust one thread row's unread count by a single message's
- * read/unread delta (±1), instead of setting the whole row read/unread like
- * `markInboxThreadReadOptimistic` — for message-scoped mutations (mark one
- * message read/unread) where other messages in the thread may still be
- * unread. The journal stores the absolute target so replaying it over an
- * already-updated server response is idempotent. Mirrors the clamp-to-[0,
- * messageCount] rule in server/lib/inbox-store.ts's message scope. The active
- * tab's unread count only moves when the row itself crosses the zero/nonzero
- * boundary — the tab counts unread *threads*, not messages.
- */
 export function adjustInboxThreadUnreadOptimistic(
   qc: QueryClient,
   threadId: string,
@@ -878,7 +940,6 @@ export function adjustInboxThreadUnreadOptimistic(
   return mutation.id;
 }
 
-/** Optimistically toggle star — no tab count is derived from star state. */
 export function toggleInboxThreadsStarOptimistic(
   qc: QueryClient,
   threadIds: ReadonlySet<string>,

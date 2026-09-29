@@ -15,7 +15,7 @@ Read the relevant skill before deeper work:
 - `draft-queue` for org and Slack draft review/send workflows.
 - `contacts-and-crm` for resolving recipients and CRM reach.
 - `mail-backends` for real Gmail vs synthetic local fallback.
-- `inbox-automations` for automation rules, AI filtering, and Gmail-native filters.
+- `inbox-automations` for AI rules and Gmail filters.
 - `provider-api-scans` for raw provider API calls and staged large scans.
 
 ## Core Rules
@@ -58,41 +58,40 @@ Read the relevant skill before deeper work:
 
 | Action | Purpose |
 | --- | --- |
-| `list-inbox-threads` | Inbox tab bar, counts, and rows from one synced-store partition; other views/search use `list-emails`/`search-emails`. |
-| `resync-inbox` | Force an immediate inbox resync from Gmail, bypassing the freshness window. |
-| `search-emails` / `list-emails` | Query mail by view/query. |
-| `list-labels` | List mailbox labels. |
-| `get-email` / `get-thread` | Full body/metadata for a message or thread. |
-| `find-contact` | Resolve a name/partial address to a real email. |
-| `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
-| `create-attachment-upload` | Short-lived upload URL for an attachment. |
-| `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` / `send-queued-drafts` | Approval-gated real sends; use the in-app agent/MCP, not `provider-api-request`. |
-| `create-scheduled-send` | Schedule a future send (`payload.to`, `.subject`, `.body` required). |
-| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Teammate/Slack draft review. |
-| `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
-| `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
+| `list-inbox-threads` | Inbox tabs, counts, and rows. |
+| `resync-inbox` | Force a Gmail resync. |
+| `search-emails` / `list-emails` | Search or list by view/query. |
+| `list-labels` | Mailbox labels. |
+| `get-email` / `get-thread` | Full message or thread. |
+| `find-contact` | Resolve contacts. |
+| `get-hubspot-contact` | HubSpot contact data. |
+| `create-attachment-upload` | Upload attachments. |
+| `manage-draft` | Manage a `compose-{id}` draft. |
+| `send-email` / `send-queued-drafts` | Approval-gated sends. |
+| `create-scheduled-send` | Schedule a send. |
+| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Team drafts. |
+| `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Mail state. |
+| `send-scheduled-email-now` / `cancel-scheduled-email` | Scheduled sends. |
 | `manage-gmail-filters` | Gmail-native filters. |
-| `manage-automations` | Recurring and event-triggered automations shown in Settings. |
-| `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
-| `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
-| `respond-calendar-invite` | Accept/decline/tentative an invite. |
-| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Drafting preferences, including Send + Mark Done. |
-| `manage-snippets` | Saved reply snippets. |
-| `get-tracking` | Open/click stats for a sent message. |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw Gmail/Calendar/HubSpot API calls. |
-| `refresh-list` | Make the UI refetch. |
+| `manage-automations` | Recurring and event-triggered automations. |
+| `manage-email-rules` / `trigger-automations` | AI rules; one rule call; see `inbox-automations`. |
+| `get-ai-filter` / `apply-ai-filter` / `refine-ai-filter` / `record-ai-priority-feedback` | AI filtering and per-message corrections. |
+| `get-ai-priority` | Optional Jev Priority sort. |
+| `respond-calendar-invite` | Respond to a calendar invite. |
+| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Mail settings. |
+| `manage-snippets` | Saved replies. |
+| `get-tracking` | Sent message open/click stats. |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Direct provider APIs. |
+| `refresh-list` | Refetch the UI. |
 
 ## Application State
 
 - `navigation` exposes inbox/thread/draft-queue views and selected ids.
 - `compose-{id}` entries are open compose tabs and draft content.
-- `navigate` moves the UI via `view`, `tab` (inbox tab id; `label`/`filter`
-  are aliases), `threadId`, `settingsSection`, `queuedDraftId`, or
-  `composeDraftId`; accepted values are listed in `inbox-reads-and-triage`.
-- `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
+- `navigate` moves the UI via `view`, `tab` (`label`/`filter` aliases), `sort`
+  (`newest` or `priority`), `threadId`, `settingsSection`, `queuedDraftId`,
+  or `composeDraftId`.
+- `settingsSection` opens a Settings tab: `rules` (inbox rules), `ai-filter`.
 
-## Source Changes
-
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`;
+read `customizing-agent-native` before adapting shared UI.

@@ -1,19 +1,21 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
   SettingsRow,
+  SettingsShellSkeleton,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   IconAdjustments,
   IconDeviceFloppy,
@@ -25,9 +27,10 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
 import { EmptyActionState } from "@/components/brain/Surface";
+import { useBrainSettingsAreas } from "@/components/settings/BrainSettingsAreas";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,6 +61,7 @@ import {
   defaultSettings,
 } from "@/lib/brain";
 import {
+  brainSettingsRedirect,
   createSettingsSectionIds,
   resolveSettingsSection,
   withSettingsSection,
@@ -284,15 +288,8 @@ function PrivacySensitivitySettings({
     "get-brain-health" as any,
     {} as any,
   );
-  const privacy = (
-    healthQuery.data as BrainHealthResponse & {
-      privacy?: {
-        classifierReady?: boolean;
-        classifierModel?: string | null;
-        quarantineRetentionDays?: number | null;
-      };
-    }
-  )?.privacy;
+  const classifierReadiness = healthQuery.data?.privacy?.classifier;
+  const retentionHours = settings.quarantineRetentionHours ?? 72;
   return (
     <div className="mx-auto w-full max-w-3xl">
       <Card id="privacy-sensitivity" className="scroll-mt-4">
@@ -310,29 +307,67 @@ function PrivacySensitivitySettings({
             <PolicyRow
               label={t("settings.privacyClassifier")}
               value={
-                privacy?.classifierReady
+                classifierReadiness?.configured
                   ? t("settings.ready")
                   : t("settings.readinessPending")
               }
             />
             <PolicyRow
-              label={t("settings.privacyModel")}
-              value={privacy?.classifierModel ?? t("settings.notSet")}
+              label={t("settings.jevCredentialLabel")}
+              value={t(
+                JEV_CREDENTIAL_KEYS[
+                  classifierReadiness?.jevCredential ?? "none"
+                ],
+              )}
             />
             <PolicyRow
               label={t("settings.quarantineRetention")}
               value={
-                privacy?.quarantineRetentionDays
+                retentionHours >= 24
                   ? t("settings.days", {
-                      count: privacy.quarantineRetentionDays,
+                      count: Math.round(retentionHours / 24),
                     })
-                  : t("settings.notSet")
+                  : t("settings.hours", { count: retentionHours })
               }
             />
           </div>
+          {classifierReadiness?.warning ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs leading-5 text-muted-foreground">
+              {classifierReadiness.warning}
+            </p>
+          ) : null}
           <p className="rounded-md border border-border bg-background p-3 text-xs leading-5 text-muted-foreground">
             {t("settings.tightenOnly")}
           </p>
+          <div className="grid gap-2">
+            <Label htmlFor="privacy-classifier-choice">
+              {t("settings.privacyClassifierChoice")}
+            </Label>
+            <Select
+              value={settings.privacyClassifier ?? "jev"}
+              onValueChange={(value) =>
+                update(
+                  "privacyClassifier",
+                  value as BrainSettings["privacyClassifier"],
+                )
+              }
+            >
+              <SelectTrigger id="privacy-classifier-choice">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="jev">
+                  {t("settings.privacyClassifierJev")}
+                </SelectItem>
+                <SelectItem value="model">
+                  {t("settings.privacyClassifierCustom")}
+                </SelectItem>
+                <SelectItem value="deterministic">
+                  {t("settings.privacyClassifierDeterministic")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField
               id="privacy-classifier-model"
@@ -357,12 +392,12 @@ function PrivacySensitivitySettings({
               id="quarantine-retention-hours"
               type="number"
               min={1}
-              max={8760}
+              max={720}
               value={settings.quarantineRetentionHours ?? 72}
               onChange={(event) =>
                 update(
                   "quarantineRetentionHours",
-                  Math.max(1, Math.min(8760, Number(event.target.value) || 1)),
+                  Math.max(1, Math.min(720, Number(event.target.value) || 1)),
                 )
               }
             />
@@ -509,10 +544,35 @@ function SafetyEvidenceSettings({
 }
 
 export default function SettingsRoute() {
+  const flag = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  if (flag.status === "loading") return <SettingsShellSkeleton />;
+  return flag.enabled ? <BrainSettingsShell /> : <LegacyBrainSettings />;
+}
+
+/**
+ * Brain › General with its areas as tabs. Every row saves as it changes, so
+ * there is no page-level Save.
+ */
+function BrainSettingsShell() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const appAreas = useBrainSettingsAreas();
+  const [searchParams] = useSearchParams();
+  const redirect = brainSettingsRedirect(searchParams.get("section"));
+  if (redirect) return <Navigate to={redirect} replace />;
+  return (
+    <SettingsTabsPage
+      extraTabs={agentSettingsTabs}
+      appAreas={appAreas}
+      whatsNewMarkdown={changelog}
+    />
+  );
+}
+
+function LegacyBrainSettings() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeSection, setActiveSection] = useState("integrations");
+  const [activeSection, setActiveSection] = useState("general");
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -555,10 +615,8 @@ export default function SettingsRoute() {
         label: t("settings.privacySensitivityTitle"),
         icon: IconLock,
         keywords:
-          "privacy sensitivity classifier quarantine retention tighten only",
-        content: (
-          <PrivacySensitivitySettings settings={settings} update={update} />
-        ),
+          "privacy sensitivity classifier jev quarantine retention tighten only",
+        hash: "privacy-sensitivity",
       },
       {
         id: "brain-identity",
@@ -681,7 +739,6 @@ export default function SettingsRoute() {
 
       <SettingsTabsPage
         account={<AccountSettingsCard />}
-        teamLabel={t("team.title")}
         extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
         value={activeSection}
@@ -716,6 +773,8 @@ export default function SettingsRoute() {
                   />
                 </CardContent>
               </Card>
+
+              <PrivacySensitivitySettings settings={settings} update={update} />
             </main>
 
             <aside className="grid content-start gap-5">
@@ -828,14 +887,6 @@ export default function SettingsRoute() {
                 />
               ) : null}
             </aside>
-          </div>
-        }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("team.createOrgDescription")}
-            />
           </div>
         }
         whatsNew={
@@ -978,6 +1029,13 @@ function SettingSwitch({
     </label>
   );
 }
+
+const JEV_CREDENTIAL_KEYS = {
+  "stored-key": "settings.jevCredentialStoredKey",
+  "builder-gateway": "settings.jevCredentialGateway",
+  none: "settings.jevCredentialNone",
+  unavailable: "settings.jevCredentialUnavailable",
+} as const;
 
 function PolicyRow({ label, value }: { label: string; value: string }) {
   return (

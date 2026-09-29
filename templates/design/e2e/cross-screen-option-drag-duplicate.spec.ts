@@ -146,6 +146,40 @@ function layerIds(html: string, layerName: string) {
   return ids;
 }
 
+async function selectionOverlayMatchesNode(
+  page: Page,
+  screenId: string,
+  nodeId: string,
+): Promise<boolean> {
+  const frame = designFrame(page, screenId);
+  const overlay = frame.locator('[data-agent-native-edit-overlay="selection"]');
+  const node = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
+  const [overlayVisible, overlayBox, nodeBox] = await Promise.all([
+    overlay.isVisible().catch(() => false),
+    overlay.boundingBox().catch(() => null),
+    node.boundingBox().catch(() => null),
+  ]);
+  if (!overlayVisible || !overlayBox || !nodeBox) return false;
+  return ["x", "y", "width", "height"].every(
+    (key) =>
+      Math.abs(
+        overlayBox[key as keyof typeof overlayBox] -
+          nodeBox[key as keyof typeof nodeBox],
+      ) <= 4,
+  );
+}
+
+async function historyTraceCounts(page: Page) {
+  const trace = await page.evaluate(
+    () => (window as any).__designTrace?.dump?.() ?? "",
+  );
+  const entries = String(trace);
+  return {
+    undo: (entries.match(/\[history:undo\]/g) ?? []).length,
+    redo: (entries.match(/\[history:redo\]/g) ?? []).length,
+  };
+}
+
 async function deleteDesign(request: APIRequestContext, designId: string) {
   await action(request, "delete-design", { id: designId });
 }
@@ -367,6 +401,11 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
       cssWidth: sourceBeforeGeometry.cssWidth,
       cssHeight: sourceBeforeGeometry.cssHeight,
     });
+    await expect
+      .poll(() =>
+        selectionOverlayMatchesNode(page, design.destinationId, copyId),
+      )
+      .toBe(true);
 
     await page.keyboard.press(`${PRIMARY}+z`);
     await expect
@@ -375,6 +414,11 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
     await expect
       .poll(() => content(request, design.id, "index.html"))
       .toBe(sourceBefore);
+    await expect
+      .poll(() =>
+        selectionOverlayMatchesNode(page, design.sourceId, "cross-source"),
+      )
+      .toBe(true);
 
     await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await expect
@@ -383,6 +427,7 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
     await expect
       .poll(() => content(request, design.id, "index.html"))
       .toContain('data-agent-native-node-id="cross-source"');
+    expect(await historyTraceCounts(page)).toEqual({ undo: 1, redo: 1 });
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(

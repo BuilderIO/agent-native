@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -34,8 +35,8 @@ let deleteDocumentPropertyAction: typeof import("./delete-document-property.js")
 let reorderDocumentPropertyAction: typeof import("./reorder-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
+let deleteTrashedDocumentSubtree: typeof import("./delete-document.js").deleteTrashedDocumentSubtree;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
-let permanentlyDeleteDocumentAction: typeof import("./permanently-delete-document.js").default;
 let listTrashedDocumentsAction: typeof import("./list-trashed-documents.js").default;
 
 const OWNER = "owner@example.com";
@@ -79,11 +80,11 @@ beforeAll(async () => {
     await import("./reorder-document-property.js")
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
-  deleteDocumentAction = (await import("./delete-document.js")).default;
+  const deleteDocumentModule = await import("./delete-document.js");
+  deleteDocumentAction = deleteDocumentModule.default;
+  deleteTrashedDocumentSubtree =
+    deleteDocumentModule.deleteTrashedDocumentSubtree;
   restoreDocumentAction = (await import("./restore-document.js")).default;
-  permanentlyDeleteDocumentAction = (
-    await import("./permanently-delete-document.js")
-  ).default;
   listTrashedDocumentsAction = (await import("./list-trashed-documents.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -99,6 +100,10 @@ let counter = 0;
 function nextId(prefix: string) {
   counter += 1;
   return `${prefix}_${counter}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function permanentlyDeleteFixtureDocument(id: string) {
+  return deleteTrashedDocumentSubtree(getDb(), id, OWNER);
 }
 
 function inlineDatabaseBlock(args: {
@@ -1076,18 +1081,14 @@ describe("document trash lifecycle", () => {
 
   it("requires Trash before permanent deletion", async () => {
     const documentId = await createDocument({ title: "Purge me" });
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: documentId }),
-      ),
-    ).rejects.toThrow("must be in Trash");
+    await expect(permanentlyDeleteFixtureDocument(documentId)).rejects.toThrow(
+      "must be in Trash",
+    );
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: documentId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: documentId }),
-    );
+    await permanentlyDeleteFixtureDocument(documentId);
     expect(await documentRow(documentId)).toBeUndefined();
   });
 
@@ -1135,9 +1136,7 @@ describe("document trash lifecycle", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: databaseDocumentId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: databaseDocumentId }),
-    );
+    await permanentlyDeleteFixtureDocument(databaseDocumentId);
 
     expect(
       await getDb()
@@ -1157,7 +1156,7 @@ describe("document trash lifecycle", () => {
     expect(await databaseRow(retainedDatabase.databaseId)).toBeDefined();
   });
 
-  it("permanently deletes only a selected Trash root", async () => {
+  it("permanently deletes a selected nested Page without its Trash root", async () => {
     const rootId = await createDocument({ title: "Trash root" });
     const childId = await createDocument({
       parentId: rootId,
@@ -1167,13 +1166,9 @@ describe("document trash lifecycle", () => {
       deleteDocumentAction.run({ id: rootId }),
     );
 
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        permanentlyDeleteDocumentAction.run({ id: childId }),
-      ),
-    ).rejects.toThrow("Trash root");
+    await permanentlyDeleteFixtureDocument(childId);
     expect(await documentRow(rootId)).toBeDefined();
-    expect(await documentRow(childId)).toBeDefined();
+    expect(await documentRow(childId)).toBeUndefined();
   });
 
   it("preserves an independently trashed descendant when deleting its parent root", async () => {
@@ -1188,9 +1183,7 @@ describe("document trash lifecycle", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: rootId }),
     );
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      permanentlyDeleteDocumentAction.run({ id: rootId }),
-    );
+    await permanentlyDeleteFixtureDocument(rootId);
 
     expect(await documentRow(rootId)).toBeUndefined();
     expect(await documentRow(childId)).toMatchObject({
@@ -1285,11 +1278,12 @@ describe("inline database lifecycle reconcile", () => {
       databaseId,
       databaseDocumentId,
     });
-    const db = getDb();
-    await db
-      .update(schema.documents)
-      .set({ content: originalContent })
-      .where(eq(schema.documents.id, hostDocumentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: originalContent,
+      }),
+    );
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({
@@ -1299,6 +1293,94 @@ describe("inline database lifecycle reconcile", () => {
     );
 
     expect(result.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("rolls back the browser receipt when inline database reconciliation fails", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const originalContent = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: originalContent,
+      }),
+    );
+    const db = getDb();
+    const base = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: hostDocumentId }),
+    );
+    const attemptId = nextId("inline-remove-attempt");
+    const editorSessionId = nextId("inline-remove-session");
+    const save = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id: hostDocumentId,
+            content: "The database block was removed.",
+            baseRevision: base.revision,
+            authoredBaseRevision: base.revision,
+            authoredBaseContent: originalContent,
+            authoredCandidateContent: "The database block was removed.",
+            browserSaveAttemptId: attemptId,
+            editorSessionId,
+            editorEditGeneration: 1,
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE FUNCTION fail_inline_reconcile() RETURNS trigger
+      LANGUAGE plpgsql AS $failure$
+      BEGIN
+        IF NEW.deleted_at IS NOT NULL THEN
+          RAISE EXCEPTION 'injected inline reconciliation failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $failure$;
+    `);
+    await exec.execute(`
+      CREATE TRIGGER fail_inline_reconcile
+      BEFORE UPDATE ON content_databases
+      FOR EACH ROW EXECUTE FUNCTION fail_inline_reconcile();
+    `);
+    try {
+      await expect(save()).rejects.toThrow();
+      expect((await documentRow(hostDocumentId))?.content).toBe(
+        originalContent,
+      );
+      expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
+      expect(
+        await db
+          .select()
+          .from(schema.documentBrowserSaveAttempts)
+          .where(
+            eq(schema.documentBrowserSaveAttempts.documentId, hostDocumentId),
+          ),
+      ).toHaveLength(0);
+    } finally {
+      await exec.execute(
+        `DROP TRIGGER fail_inline_reconcile ON content_databases`,
+      );
+      await exec.execute(`DROP FUNCTION fail_inline_reconcile()`);
+    }
+    const saved = await save();
+    const replayed = await save();
+    expect(saved.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect(replayed.softDeletedDatabaseIds).toEqual([databaseId]);
+    expect(replayed.browserSaveAttempt?.result).toBe("replayed");
     expect((await databaseRow(databaseId))?.deletedAt).toEqual(
       expect.any(String),
     );
@@ -2108,6 +2190,20 @@ describe("content database soft-delete actions and reads", () => {
     const db = getDb();
     const now = new Date().toISOString();
     const { databaseId } = await createDatabase({ systemRole: "files" });
+    const primaryId = nextId("files-primary");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: primaryId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: primaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, databaseId));
     const sharedDocumentId = await createDocument({
       title: "Shared Personal Page",
       content: "A Page body open to suggestions.",
@@ -2214,6 +2310,39 @@ describe("content database soft-delete actions and reads", () => {
       })
       .where(eq(schema.documents.id, inlineDocumentId));
     const fullPageDatabase = await createDatabase({});
+    const metadataDatabase = await createDatabase({});
+    const itemDatabase = await createDatabase({});
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("suggestion-metadata-item"),
+      ownerEmail: OWNER,
+      databaseId: metadataDatabase.databaseId,
+      documentId: ordinaryDocumentId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const itemPrimaryId = nextId("suggestion-primary");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: itemPrimaryId,
+      ownerEmail: OWNER,
+      databaseId: itemDatabase.databaseId,
+      name: "Content",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: itemPrimaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, itemDatabase.databaseId));
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("suggestion-item"),
+      ownerEmail: OWNER,
+      databaseId: itemDatabase.databaseId,
+      documentId: ordinaryDocumentId,
+      createdAt: now,
+      updatedAt: now,
+    });
     const sourceDocumentId = await createDocument({
       title: "Source-owned suggestion exclusion",
       content: "Source-owned content.",
@@ -2276,7 +2405,7 @@ describe("content database soft-delete actions and reads", () => {
         canSuggest: document.canSuggest,
       })),
     ).toEqual([
-      { id: ordinaryDocumentId, canComment: true, canSuggest: true },
+      { id: ordinaryDocumentId, canComment: true, canSuggest: false },
       { id: inlineDocumentId, canComment: true, canSuggest: false },
       {
         id: fullPageDatabase.databaseDocumentId,
@@ -2302,13 +2431,42 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(listedEligibility).toEqual(
       new Map([
-        [ordinaryDocumentId, true],
+        [ordinaryDocumentId, false],
         [inlineDocumentId, false],
         [fullPageDatabase.databaseDocumentId, false],
         [sourceDocumentId, false],
         ...unrecognizedSourceDocumentIds.map((id) => [id, false] as const),
       ]),
     );
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: itemDatabase.databaseDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "viewer",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+    const accessible = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => getDocumentAction.run({ id: ordinaryDocumentId }),
+    );
+    expect(accessible).toMatchObject({
+      canSuggest: true,
+      databaseMembership: { databaseId: itemDatabase.databaseId },
+    });
+    const listedWithAccess = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    expect(
+      listedWithAccess.documents.find(
+        (document) => document.id === ordinaryDocumentId,
+      ),
+    ).toMatchObject({
+      canSuggest: true,
+      databaseMembership: { databaseId: itemDatabase.databaseId },
+    });
   });
 
   it("rejects restoring a database whose page belongs to another Trash root", async () => {

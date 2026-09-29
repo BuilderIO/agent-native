@@ -24,6 +24,11 @@ const messages = {
     retry: "Reintentar",
     search: "Buscar",
   },
+  chatHome: {
+    description:
+      "Explora el contexto permitido de las cuentas, las tareas de seguimiento y las pruebas en Native SQL y los registros conectados.",
+    placeholder: "Pregunta sobre tu CRM",
+  },
   commandMenu: {
     placeholder: "Busca registros, listas y comandos…",
     groupRecords: "Registros",
@@ -66,6 +71,8 @@ const messages = {
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
     languageLabel: "Idioma de la interfaz",
+    mcpAbout:
+      "Conecta CRM con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en CRM por ti: buscar registros, actualizar campos y gestionar tareas. Solo ve lo que tú puedes ver.",
   },
   connection: {
     tab: "Conexión",
@@ -609,6 +616,20 @@ const messages = {
     evaluatedThroughAsk: "Evaluado mediante Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Revisar duplicados",
+    duplicateReviewTitle: "Posibles registros duplicados",
+    duplicateReviewDescription:
+      "Compara este registro con candidatos accesibles. Jev envía a TypeSafe nombres, tipos de registro y señales de coincidencia de hasta cinco candidatos. Su probabilidad es orientativa; fusionar exige otra revisión.",
+    duplicateReviewRun: "Comprobar duplicados",
+    duplicateReviewLoading: "Comprobando…",
+    duplicateReviewFailed: "No se pudo completar la revisión de duplicados.",
+    duplicateReviewUnavailable:
+      "Jev no pudo revisar estos registros. Los candidatos basados en reglas siguen visibles.",
+    duplicateReviewEmpty: "No se encontraron duplicados probables.",
+    duplicateRuleConfidence: "Coincidencia por reglas: {{percent}}%",
+    duplicateJevProbability:
+      "Probabilidad de misma entidad según Jev: {{percent}}%",
+    duplicateMatchedOn: "Coincide en: {{values}}",
     evidenceAttached: "Evidencia de llamada adjuntada.",
     evidenceAttachFailed: "No se pudo adjuntar la evidencia.",
     addEvidence: "Agregar evidencia",

@@ -97,7 +97,6 @@ describe("content comment notifications", () => {
       failed: [],
     });
     stubDb();
-    // Access filtering has its own tests; these assert who is offered.
     mocks.filterRecipients.mockImplementation(
       async ({ emails }: { emails: string[] }) => [...emails],
     );

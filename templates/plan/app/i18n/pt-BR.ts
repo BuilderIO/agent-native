@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     openAgentSettings: "Gerenciar agente",
+    editorGroupTitle: "Editor",
     editorTitle: "Extensão do VS Code",
     editorDescription:
       "Abra e revise planos em um painel lateral dentro do VS Code em vez de uma aba separada do navegador.",
@@ -394,6 +395,13 @@ const messages = {
       shareAria: "Compartilhe {{noun}}",
       share: "Compartilhe {{noun}}",
       shareThis: "Compartilhe isto {{noun}}",
+      teammateSuggestion: {
+        message: "Traga sua equipe para o Plan.",
+        invite: "Convidar equipe",
+        enableDomain: "Permitir que qualquer pessoa de @{{domain}} participe",
+        enableFailed:
+          "Não foi possível ativar a entrada por domínio. Tente novamente.",
+      },
       hostedCopy:
         "Este {{noun}} local possui uma cópia hospedada para compartilhamento. Abra o {{noun}} hospedado para gerenciar o acesso.",
       publishDescription:
@@ -673,6 +681,8 @@ const messages = {
       createAccount: "criar uma conta",
       signIn: "Conecte-se",
       haveAccount: "Eu já tenho uma conta",
+      storageStatusUnavailable:
+        "Não foi possível verificar o armazenamento de arquivos.",
       retry: "Tente novamente",
       sendFeedback: "Enviar feedback",
       feedbackPlaceholder:

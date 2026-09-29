@@ -11,6 +11,13 @@
  *   - internal/relative links (or an explicit `data-screen`): asked to switch
  *     to the matching screen in a multi-screen design; otherwise a no-op so the
  *     prototype never blows itself away.
+ *   - Cmd/Ctrl/Shift-click and middle-click on a real `<a href>`: left
+ *     completely alone so the browser's own new-tab/new-window gesture runs
+ *     (see the modifier-click guard below). A screen switch is a same-tab
+ *     mutation of the live editor's mode/selection state; forcing it on a
+ *     click whose entire point was "don't disturb my current tab" corrupts
+ *     that state instead of opening a new one, which is what produced the
+ *     Interact-mode crash this guard fixes.
  *
  * Protocol (iframe → parent):
  *
@@ -47,10 +54,8 @@
       if (!t || !t.closest) return;
       var a = t.closest("a[href], [data-screen]") as HTMLElement | null;
       if (!a) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       var ds = a.getAttribute && a.getAttribute("data-screen");
-      // In-page anchors ('#...') and empty hrefs must be handled in-document.
-      // A srcdoc document resolves '#'/'' against the PARENT app URL, so the
-      // browser's default action would navigate the iframe to the app itself.
       if (!ds) {
         var rawHref = a.getAttribute("href");
         if (rawHref != null) {
@@ -77,16 +82,11 @@
         : classify(a.getAttribute("href") || "");
       if (!info) return;
       if (info.external) {
-        // Open external links in a new tab from the iframe itself (the sandbox
-        // grants allow-popups), bound to this real user click. We deliberately
-        // do NOT round-trip through the parent: a parent window.open() driven
-        // by postMessage would let any script in here spawn popups without a
-        // gesture.
         try {
           a.setAttribute("target", "_blank");
           a.setAttribute("rel", "noopener noreferrer");
         } catch (_err) {}
-        return; // allow the native click to proceed
+        return;
       }
       e.preventDefault();
       try {

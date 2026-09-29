@@ -20,10 +20,6 @@ import {
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
 } from "./schema.js";
 
-// One real in-memory PGlite DB shared between the slot store's drizzle handle
-// (createGetDb is mocked to return it) and the raw getDbExec client used by
-// ensureSlotTables for DDL, plus the registered "extension" shareable resource
-// so access scoping is exercised for real (not mocked away).
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
 
@@ -111,8 +107,6 @@ async function addOrgMember(orgId: string, email: string) {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
-  // Mirror the real extensions/extension_shares tables so accessFilter and
-  // resolveAccess run against genuine rows.
   await pglite.exec(`
     CREATE TABLE tools (
       id TEXT PRIMARY KEY,
@@ -190,7 +184,6 @@ function writeJson(filePath: string, value: unknown) {
 describe("extension slots: slot-target declarations", () => {
   it("requires editor access on the extension to declare a slot target", async () => {
     await insertExtension({ id: "ext-1" });
-    // Viewer-only share — not enough to declare a slot target.
     await shareToUser("ext-1", VIEWER, "viewer");
 
     await runWithRequestContext({ userEmail: VIEWER, orgId: ORG }, async () => {
@@ -199,7 +192,6 @@ describe("extension slots: slot-target declarations", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    // No declaration row should have been written.
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
       await expect(listSlotsForExtension("ext-1")).resolves.toEqual([]);
     });
@@ -220,8 +212,6 @@ describe("extension slots: slot-target declarations", () => {
         config: '{"variant":"compact"}',
       });
 
-      // Re-declaring the same (extension, slot) pair returns the existing row
-      // instead of throwing on the unique index.
       const again = await addExtensionSlotTarget("ext-1", "mail.sidebar");
       expect(again.id).toBe(first.id);
 
@@ -351,8 +341,6 @@ describe("extension slots: listExtensionsForSlot scoping", () => {
     });
     await shareToUser("shared", OWNER, "viewer");
 
-    // Declare all three in the same slot (declaration auth is checked when
-    // adding; insert directly to bypass and focus on the read-side scoping).
     for (const id of ["mine", "theirs", "shared"]) {
       await pglite
         .prepare(
@@ -368,7 +356,6 @@ describe("extension slots: listExtensionsForSlot scoping", () => {
         "mine",
         "shared",
       ]);
-      // "theirs" (private, not shared) must never leak.
       expect(visible.some((e) => e.extensionId === "theirs")).toBe(false);
     });
   });
@@ -416,7 +403,6 @@ describe("extension slots: install / uninstall", () => {
       expect(a.ownerEmail).toBe(OWNER);
       expect(a.orgId).toBe(ORG);
 
-      // A different slot starts its own position sequence at 0.
       const otherSlot = await installExtensionSlot("ext-a", "calendar.panel");
       expect(otherSlot.position).toBe(0);
     });
@@ -432,8 +418,6 @@ describe("extension slots: install / uninstall", () => {
       });
       expect(first.position).toBe(7);
 
-      // Re-installing returns the existing row (does not create a duplicate or
-      // bump position).
       const again = await installExtensionSlot("ext-a", "mail.sidebar", {
         position: 99,
       });
@@ -457,19 +441,16 @@ describe("extension slots: install / uninstall", () => {
       installExtensionSlot("ext-a", "mail.sidebar"),
     );
 
-    // VIEWER can see ext-a (org visibility) but has installed nothing.
     await runWithRequestContext({ userEmail: VIEWER, orgId: ORG }, async () => {
       await expect(listSlotInstallsForUser("mail.sidebar")).resolves.toEqual(
         [],
       );
-      // VIEWER installs for themselves.
       await installExtensionSlot("ext-a", "mail.sidebar");
       const mine = await listSlotInstallsForUser("mail.sidebar");
       expect(mine).toHaveLength(1);
       expect(mine[0].extensionId).toBe("ext-a");
     });
 
-    // OWNER still sees only their own single install.
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
       await expect(
         listSlotInstallsForUser("mail.sidebar"),
@@ -492,7 +473,6 @@ describe("extension slots: install / uninstall", () => {
       installExtensionSlot("ext-a", "mail.sidebar"),
     );
 
-    // VIEWER uninstalls — OWNER's install must remain.
     await runWithRequestContext({ userEmail: VIEWER, orgId: ORG }, async () => {
       await expect(
         uninstallExtensionSlot("ext-a", "mail.sidebar"),
@@ -512,11 +492,9 @@ describe("extension slots: install / uninstall", () => {
     await insertExtension({ id: "ext-a", ownerEmail: OWNER });
 
     await runWithRequestContext({ userEmail: undefined }, async () => {
-      // install runs the access check first; with no user it has no access.
       await expect(
         installExtensionSlot("ext-a", "mail.sidebar"),
       ).rejects.toBeInstanceOf(ForbiddenError);
-      // uninstall has no access check — it falls straight to requireUserEmail().
       await expect(
         uninstallExtensionSlot("ext-a", "mail.sidebar"),
       ).rejects.toThrow(/authenticated user/i);
@@ -528,8 +506,6 @@ describe("extension slots: listSlotInstallsForUser", () => {
   it("sorts by position and lazily skips installs the user lost access to", async () => {
     await insertExtension({ id: "ext-a", ownerEmail: OWNER });
     await insertExtension({ id: "ext-b", ownerEmail: OWNER });
-    // ext-gone: owned by an outsider, never shared — represents an extension
-    // the user installed earlier but has since lost access to.
     await insertExtension({ id: "ext-gone", ownerEmail: OUTSIDER });
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
@@ -537,9 +513,6 @@ describe("extension slots: listSlotInstallsForUser", () => {
       await installExtensionSlot("ext-a", "mail.sidebar", { position: 1 });
     });
 
-    // Directly insert an install row for ext-gone owned by OWNER (simulating a
-    // stale install), so listSlotInstallsForUser must filter it out because
-    // accessFilter no longer admits ext-gone.
     await pglite
       .prepare(
         `INSERT INTO tool_slot_installs
@@ -550,10 +523,8 @@ describe("extension slots: listSlotInstallsForUser", () => {
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
       const installs = await listSlotInstallsForUser("mail.sidebar");
-      // ext-gone is silently dropped; the rest are sorted by position asc.
       expect(installs.map((i) => i.extensionId)).toEqual(["ext-a", "ext-b"]);
       expect(installs[0]).toMatchObject({ name: "ext-a", position: 1 });
-      // Joined extension metadata is present.
       expect(installs[0].description).toBe("ext-a description");
     });
   });

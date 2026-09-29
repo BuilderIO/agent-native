@@ -10,10 +10,6 @@ const editorSource = readFileSync(
   new URL("./DocumentEditor.tsx", import.meta.url),
   "utf8",
 );
-const sidebarSource = readFileSync(
-  new URL("../sidebar/DocumentSidebar.tsx", import.meta.url),
-  "utf8",
-);
 const treeItemSource = readFileSync(
   new URL("../sidebar/DocumentTreeItem.tsx", import.meta.url),
   "utf8",
@@ -22,17 +18,18 @@ const databaseSidebarSource = readFileSync(
   new URL("../editor/database/sidebar.tsx", import.meta.url),
   "utf8",
 );
+const sidebarRowActionsSource = readFileSync(
+  new URL("../sidebar/SidebarRowActions.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("page menu Pin/Unpin", () => {
-  it("adds a Pin/Unpin item to the page menu near Copy page link and Info", () => {
-    const copyIndex = toolbarSource.indexOf("editor.toolbar.copyPageLink");
+  it("adds a Pin/Unpin item to the page menu near Info", () => {
     const pinIndex = toolbarSource.indexOf("onToggleFavorite(!isFavorite)");
     const infoIndex = toolbarSource.indexOf("editor.toolbar.info");
 
-    expect(copyIndex).toBeGreaterThan(-1);
     expect(pinIndex).toBeGreaterThan(-1);
     expect(infoIndex).toBeGreaterThan(-1);
-    expect(pinIndex).toBeGreaterThan(copyIndex);
     expect(pinIndex).toBeLessThan(infoIndex);
   });
 
@@ -45,16 +42,17 @@ describe("page menu Pin/Unpin", () => {
     expect(toolbarSource).toContain("editor.toolbar.pin");
   });
 
-  it("uses a pin glyph for pinning in the page menu and sidebar", () => {
+  it("uses a pin glyph for the page and sidebar row pin commands", () => {
     for (const source of [
       toolbarSource,
-      sidebarSource,
       treeItemSource,
-      databaseSidebarSource,
+      sidebarRowActionsSource,
     ]) {
       expect(source).toContain("IconPin");
       expect(source).not.toContain("IconStar");
     }
+    expect(databaseSidebarSource).toContain("<SidebarPageMenu");
+    expect(databaseSidebarSource).not.toContain("IconStar");
   });
 
   it("only renders the item when a toggle handler is provided", () => {

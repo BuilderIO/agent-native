@@ -9,21 +9,46 @@ export function mayClearRecoveryDraft(
   );
 }
 
-export interface PageSaveResult {
-  contentPersisted: boolean;
+/**
+ * Whether a later save by the same editor session already carries a recovery
+ * draft it wrote when an earlier save did not land. Only those drafts qualify:
+ * others (conflicts, displaced text) may hold text the editor no longer has.
+ */
+export function ownRecoveryDraftSupersededBySave(
+  draft: {
+    editorSessionId: string | null;
+    editGeneration: number | null;
+    supersedable?: boolean;
+  },
+  save: { editorSessionId: string; editGeneration: number },
+): boolean {
+  return (
+    draft.supersedable === true &&
+    draft.editorSessionId === save.editorSessionId &&
+    draft.editGeneration !== null &&
+    draft.editGeneration <= save.editGeneration
+  );
 }
 
-/**
- * Run one primary Page save and retain only rejected or conflict-blocked edits.
- * Cleanup failures do not create a second draft after the primary write landed.
- */
+export interface PageSaveResult {
+  contentPersisted: boolean;
+  outcome?: "superseded" | "pending_preservation";
+  recoveryDraft?: {
+    title: string;
+    content: string;
+    baseContent?: string;
+    baseUpdatedAt?: string | null;
+    baseRevision?: string;
+  };
+}
+
 export async function savePageWithRecovery({
   save,
   retain,
   clear,
 }: {
   save: () => Promise<PageSaveResult>;
-  retain: (reason: "conflict" | null) => Promise<void>;
+  retain: (reason: "conflict" | null, result?: PageSaveResult) => Promise<void>;
   clear: () => Promise<void>;
 }): Promise<PageSaveResult> {
   let result: PageSaveResult;
@@ -35,7 +60,8 @@ export async function savePageWithRecovery({
   }
 
   if (!result.contentPersisted) {
-    await retain("conflict");
+    if (result.outcome === "superseded") return result;
+    await retain(result.recoveryDraft ? null : "conflict", result);
     return result;
   }
 

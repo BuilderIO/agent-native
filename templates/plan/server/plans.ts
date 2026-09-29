@@ -445,8 +445,6 @@ export function buildUpdatedPlanCommentRows(input: {
   return rows;
 }
 
-// Chunk size for batched comment inserts keeps each statement bounded even for
-// a wide comment row shape.
 const PLAN_COMMENT_INSERT_CHUNK_SIZE = 200;
 
 export async function insertInitialPlanComments(input: {
@@ -577,10 +575,6 @@ export async function writeEvent(input: {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Event-bus helpers — fire-and-forget; failures must never block callers
-// ---------------------------------------------------------------------------
-
 export function emitPlanCreated(input: {
   planId: string;
   title: string;
@@ -630,7 +624,6 @@ export function emitPlanCommented(input: {
 }) {
   if (input.comments.length === 0) return;
   try {
-    // Derive the dominant resolutionTarget (prefer "agent" if any comment targets agent)
     const resolutionTarget =
       input.comments.find((c) => c.resolutionTarget === "agent")
         ?.resolutionTarget ??
@@ -756,13 +749,6 @@ export async function assertPlanEditor(planId: string) {
     return access;
   } catch (error) {
     if (!(error instanceof ForbiddenError)) throw error;
-    // The caller failed the editor gate. If they can still READ the resource
-    // (viewer on an org/public plan or recap), replace core's bare role error
-    // ("Requires editor role on plan X (have viewer)") with a teaching error
-    // that names the resource kind and the sanctioned next step. Agents retry
-    // bare role errors verbatim in a loop; they act on errors that say what to
-    // do instead. Callers with no read access (or a deleted plan) keep the
-    // original non-leaking error.
     const readable = await resolveAccess("plan", planId, ctx).catch(() => null);
     const resource = readable?.resource as
       | typeof schema.plans.$inferSelect
@@ -896,12 +882,6 @@ async function loadPlanBundleForAuthorizedPlan(
   };
 }
 
-/**
- * Full append-only event log for a plan, ascending. `loadPlanBundle` caps its
- * events at the most recent 50 because it sits on a 3s poll; durable receipts
- * (export-visual-plan) call this instead so the exported history stays
- * complete. Callers must have already resolved access to the plan.
- */
 export async function loadFullPlanEvents(planId: string): Promise<PlanEvent[]> {
   const db = getDb();
   const rows = await db
@@ -958,10 +938,6 @@ export async function summarizePlans(
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
   const db = getDb();
-  // Project only the columns summarizePlan() actually uses — `type` for
-  // section counts and `status` for open/total comment counts. A bare
-  // `.select()` would pull every column including large html/body/anchor blobs
-  // for all comments across all listed plans, which is pure waste here.
   const [sectionRows, commentRows] = await Promise.all([
     db
       .select({
@@ -984,7 +960,6 @@ export async function summarizePlans(
       ),
   ]);
   return plans.map((plan) => {
-    // summarizePlan only needs type (sections) and status (comments).
     const sections = sectionRows
       .filter((section) => section.planId === plan.id)
       .map((row) => ({ type: row.type }) as PlanSection);
@@ -1137,9 +1112,6 @@ function normalizeStoredHtml(value: unknown): string {
     raw = Buffer.from(value).toString("utf8");
   else if (value == null) raw = "";
   else raw = String(value);
-  // Sanitize at the render/export choke point so every consumer of the legacy
-  // `html` escape-hatch — and any row written before write-time sanitization —
-  // is stripped of script execution before it reaches an iframe.
   return raw ? sanitizeStoredPlanHtml(raw) : raw;
 }
 

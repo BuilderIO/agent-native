@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseJobFrontmatter } from "./scheduler.js";
 import { createJobTools } from "./tools.js";
 
-// ── Mocks ──────────────────────────────────────────────────────────────────
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -29,8 +28,6 @@ vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
 }));
 
-// The timezone resolver reads the user's saved preference; unset here so the
-// tests exercise the request-header fallback.
 vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: async () => null,
 }));
@@ -42,8 +39,6 @@ vi.mock("../server/request-context.js", () => ({
   getRequestTimezone: () => "UTC",
 }));
 
-// Partial-mock db/client so the org-admin lookup is stubbed while other
-// exports used transitively by db/schema stay real.
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -157,7 +152,6 @@ describe("manage-jobs tool", () => {
       const { meta } = parseJobFrontmatter(content);
       expect(meta.createdBy).toBe("alice@example.com");
       expect(meta.orgId).toBe("org-1");
-      // Default runAs is "creator" unless explicitly "shared".
       expect(meta.runAs).toBe("creator");
       expect(meta.nextRun).toBeTruthy();
     });
@@ -278,6 +272,7 @@ describe("manage-jobs tool", () => {
         schedule: "0 9 * * *",
         instructions: "Post the digest.",
         model: "channel-model",
+        reasoningEffort: "high",
       });
 
       const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
@@ -288,7 +283,22 @@ describe("manage-jobs tool", () => {
         deliveryThreadRef: "123.456",
         deliveryTenantId: "T1",
         model: "channel-model",
+        reasoningEffort: "high",
       });
+    });
+
+    it("rejects an invalid reasoningEffort on create without persisting", async () => {
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "bad-effort",
+          schedule: "0 9 * * *",
+          instructions: "do it",
+          reasoningEffort: "extreme",
+        }),
+      );
+      expect(out.error).toMatch(/Invalid reasoningEffort/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
     });
   });
 
@@ -333,7 +343,6 @@ describe("manage-jobs tool", () => {
     });
 
     it("BLOCKS a non-creator non-admin from updating another user's shared job", async () => {
-      // Caller is mallory; job was created by alice; mallory is not an admin.
       getRequestUserEmailMock.mockReturnValue("mallory@example.com");
       resourceGetByPathMock.mockResolvedValueOnce({
         id: "r1",
@@ -344,7 +353,6 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      // org_members lookup returns no membership row -> not admin.
       dbExecuteMock.mockResolvedValue({ rows: [] });
 
       const out = JSON.parse(
@@ -352,7 +360,6 @@ describe("manage-jobs tool", () => {
       );
 
       expect(out.error).toMatch(/Only the job's creator \(or an org admin\)/);
-      // The mutation must never reach the store.
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
@@ -367,7 +374,6 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      // Membership row with admin role.
       dbExecuteMock.mockResolvedValue({ rows: [{ role: "owner" }] });
 
       const out = JSON.parse(
@@ -398,16 +404,12 @@ describe("manage-jobs tool", () => {
     });
 
     it("allows a personal-scope job update without an admin check", async () => {
-      // resource owner is the caller, not SHARED_OWNER -> authorizeJobMutation
-      // returns null immediately and never queries org_members.
-      resourceGetByPathMock
-        .mockResolvedValueOnce(null) // shared lookup misses
-        .mockResolvedValueOnce({
-          id: "r2",
-          owner: "alice@example.com",
-          path: "jobs/j.md",
-          content: sharedJobContent({ createdBy: "alice@example.com" }),
-        });
+      resourceGetByPathMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        id: "r2",
+        owner: "alice@example.com",
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", enabled: "false" }),
@@ -458,6 +460,35 @@ describe("manage-jobs tool", () => {
       expect(meta.schedule).toBe("*/30 * * * *");
       expect(putContent).toContain("slackChannelId: C0BUK2293SA");
       expect(putContent).toContain("displayName: Inbox digest");
+    });
+
+    it("sets reasoningEffort on update and returns it", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", reasoningEffort: "low" }),
+      );
+      expect(out.reasoningEffort).toBe("low");
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta.reasoningEffort).toBe("low");
+    });
+
+    it("rejects an invalid reasoningEffort without rewriting the job", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", reasoningEffort: "extreme" }),
+      );
+      expect(out.error).toMatch(/Invalid reasoningEffort/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
     it("rejects an invalid execution host id without rewriting the job", async () => {
@@ -596,7 +627,6 @@ describe("manage-jobs tool", () => {
     });
 
     it("merges the caller's personal and shared jobs (org isolation: no other users')", async () => {
-      // resourceList is called for the caller and active org partition.
       resourceListMock.mockImplementation(async (owner: string) => {
         if (owner === "alice@example.com") {
           return [{ owner: "alice@example.com", path: "jobs/personal.md" }];
@@ -621,8 +651,6 @@ describe("manage-jobs tool", () => {
       expect(scopes.personal).toBe("personal");
       expect(scopes.team).toBe("shared");
 
-      // The two list queries are scoped to the caller and SHARED_OWNER only —
-      // never an arbitrary other user.
       const queriedOwners = resourceListMock.mock.calls.map((c) => c[0]).sort();
       expect(queriedOwners).toEqual([SHARED_OWNER, "alice@example.com"].sort());
     });

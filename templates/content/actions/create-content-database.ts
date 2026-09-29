@@ -16,6 +16,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import type {
   ContentDatabaseResponse,
   CreateDatabaseRequest,
@@ -361,6 +366,7 @@ export async function createContentDatabaseRecord(
 ): Promise<string> {
   const db = options.db ?? getDb();
   const now = new Date().toISOString();
+  const actor = requireDocumentRequestActor();
   let title = args.title?.trim() || "";
 
   let documentId = args.documentId;
@@ -410,13 +416,17 @@ export async function createContentDatabaseRecord(
     if (title && title !== document.title && !document.title.trim()) {
       await db
         .update(schema.documents)
-        .set({ title, updatedAt: now })
+        .set({ title, updatedAt: now, ...documentEditAttribution(actor) })
         .where(eq(schema.documents.id, documentId));
     }
     if (args.description !== undefined) {
       await db
         .update(schema.documents)
-        .set({ description: args.description.trim(), updatedAt: now })
+        .set({
+          description: args.description.trim(),
+          updatedAt: now,
+          ...documentEditAttribution(actor),
+        })
         .where(eq(schema.documents.id, documentId));
     }
   } else {
@@ -464,9 +474,6 @@ export async function createContentDatabaseRecord(
     }
 
     documentId = args.newDocumentId ?? nanoid();
-    // Snapshot as a const so the closure below keeps TypeScript's
-    // non-undefined narrowing from the guard above (`let` bindings lose
-    // narrowing across a closure boundary).
     const resolvedOwnerEmail = ownerEmail;
     await withPositionLock(
       documentsPositionScope(resolvedOwnerEmail, parentId),
@@ -500,6 +507,7 @@ export async function createContentDatabaseRecord(
           isFavorite: 0,
           hideFromSearch,
           visibility,
+          ...documentCreationAttribution(actor),
           createdAt: now,
           updatedAt: now,
         });
@@ -533,8 +541,6 @@ export async function createContentDatabaseRecord(
     updatedAt: now,
   });
 
-  // Every database is seeded with one primary "Content" Blocks field, backed
-  // by `documents.content`, so each row's body is a first-class property.
   const primaryBlocksPropertyId = await seedDefaultBlocksField({
     databaseId,
     ownerEmail,

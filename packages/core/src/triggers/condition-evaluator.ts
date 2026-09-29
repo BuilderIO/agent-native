@@ -18,17 +18,10 @@ import { createHash } from "node:crypto";
 
 import { createTtlCache } from "../shared/ttl-cache.js";
 
-/**
- * Bumped whenever the prompt template, model, or hardening logic changes.
- * Included in the cache key so cached "yes" answers from a previous
- * (potentially weaker) prompt don't satisfy conditions in the new prompt.
- */
 const CONDITION_EVAL_VERSION = "v2";
+const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
 
-// Bounded TTL cache: hash → classifier result. Uses the shared primitive so
-// there is one implementation of "expire and cap an in-memory map" rather than
-// one per call site; see `shared/ttl-cache.ts` for which pattern to use where.
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
 const _cache = createTtlCache<boolean>({
   ttlMs: CACHE_TTL_MS,
@@ -52,18 +45,11 @@ function cacheKey(condition: string, payload: unknown): string {
   return createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 
-/**
- * Evaluate whether a natural-language condition matches an event payload.
- * Returns true if the condition is empty/undefined (unconditional trigger).
- *
- * Throws when the classifier is unevaluable (network/HTTP/exception). Callers
- * must not treat that as a condition non-match, and failures are never cached
- * as `false` — a transient outage must not suppress the trigger for the TTL.
- */
 export async function evaluateCondition(
   condition: string | undefined,
   payload: unknown,
   apiKey: string,
+  options: { deadlineAt?: number; signal?: AbortSignal } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
 
@@ -71,7 +57,52 @@ export async function evaluateCondition(
   const cached = _cache.get(key);
   if (cached !== undefined) return cached;
 
-  const result = await callHaikuClassifier(condition, payload, apiKey);
+  const remainingMs =
+    options.deadlineAt === undefined
+      ? CONDITION_EVALUATION_TIMEOUT_MS
+      : Math.min(
+          CONDITION_EVALUATION_TIMEOUT_MS,
+          options.deadlineAt - Date.now(),
+        );
+  if (remainingMs <= 0) {
+    throw new Error("Condition evaluation deadline elapsed.");
+  }
+  if (options.signal?.aborted) {
+    throw new Error("Condition evaluation aborted.");
+  }
+
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let removeAbortListener: (() => void) | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("Condition evaluation timed out."));
+      controller.abort();
+    }, remainingMs);
+  });
+  const aborted = options.signal
+    ? new Promise<never>((_resolve, reject) => {
+        const onAbort = () => {
+          reject(new Error("Condition evaluation aborted."));
+          controller.abort();
+        };
+        options.signal!.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () =>
+          options.signal!.removeEventListener("abort", onAbort);
+      })
+    : null;
+
+  let result: boolean;
+  try {
+    result = await Promise.race([
+      callHaikuClassifier(condition, payload, apiKey, controller.signal),
+      timeout,
+      ...(aborted ? [aborted] : []),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    removeAbortListener?.();
+  }
 
   _cache.set(key, result);
   return result;
@@ -81,6 +112,7 @@ async function callHaikuClassifier(
   condition: string,
   payload: unknown,
   apiKey: string,
+  signal: AbortSignal,
 ): Promise<boolean> {
   let payloadStr: string;
   try {
@@ -92,10 +124,6 @@ async function callHaikuClassifier(
     payloadStr = String(payload);
   }
 
-  // Defuse any "</event_payload>" tag in the payload itself so an attacker
-  // can't close the wrapper early and append their own instructions outside
-  // the tagged block. The escape is reversible-looking (still readable) but
-  // breaks the literal closing tag the model uses to bound the data.
   const safePayload = payloadStr.replace(/<\/event_payload>/gi, "</_payload>");
 
   const prompt = `You are a condition evaluator. Given an event payload and a natural-language condition, determine if the condition is satisfied.
@@ -119,6 +147,7 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
+      signal,
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 10,
@@ -126,6 +155,7 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
       }),
     });
   } catch (err) {
+    if (signal.aborted) throw err;
     console.error("[triggers] Condition eval error:", err);
     throw new Error(
       err instanceof Error
@@ -170,7 +200,6 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
   return text.startsWith("yes");
 }
 
-/** Clear the condition cache (for testing). */
 export function __clearConditionCache(): void {
   _cache.clear();
 }

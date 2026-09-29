@@ -25,7 +25,6 @@ export function isDashboardMine(
     return Boolean(ownerEmail && viewerEmail && ownerEmail === viewerEmail);
   }
 
-  // Older dashboard-shaped items do not always carry ownership metadata.
   return true;
 }
 

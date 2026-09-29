@@ -183,16 +183,17 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(42);
+    expect(entry?.panelCount).toBe(43);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(46);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(46);
+    expect(config.panels).toHaveLength(47);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(47);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
       "onboarding-step-dropoff",
+      "onboarding-setup-choice",
       "sharing-actions-by-app",
     ]) {
       expect(config.panels.find((panel) => panel.id === id)).toEqual(
@@ -252,6 +253,22 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("ships the onboarding panels with catalog SQL and columns", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+      config?: { columns?: unknown };
+    }>;
+
+    for (const id of ["onboarding-step-dropoff", "onboarding-setup-choice"]) {
+      const catalogPanel = buildPanel(id)!;
+      const seedPanel = seedPanels.find((panel) => panel.id === id);
+      expect(seedPanel?.sql).toBe(catalogPanel.sql);
+      expect(seedPanel?.config?.columns).toEqual(catalogPanel.config.columns);
+    }
+  });
+
   it("keeps observed first-seen retention scans bounded in the seed and catalog", () => {
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     const seedPanels = seed?.panels as Array<{
@@ -267,17 +284,11 @@ describe("dashboard catalog", () => {
     ]) {
       const catalogPanel = requiredFirstPartyPanel(id);
       const seedPanel = seedPanels.find((panel) => panel.id === id);
-      // retention-over-time's spine reaches 365 days back and each anchor
-      // needs the six first-seen days before it, so its base looks back 371.
       const lookbackFilter =
         id === "retention-over-time"
           ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
           : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
       expect(seedPanel?.sql).toContain(lookbackFilter);
-      // retention-over-time's description dropped the "previous 365 days"
-      // wording when it switched to describing per-row return-window
-      // maturity instead of the cohort lookback; the other two panels are
-      // unaffected by that copy change.
       if (id !== "retention-over-time") {
         expect(seedPanel?.config?.description).toContain("previous 365 days");
       }
@@ -294,6 +305,34 @@ describe("dashboard catalog", () => {
       expect(lookback).toBeLessThan(baseEnd);
       if (id !== "retention-over-time") {
         expect(catalogPanel.config?.description).toContain("previous 365 days");
+      }
+    }
+  });
+
+  it("keeps signed-in activity panels resilient to session telemetry gaps", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+    }>;
+
+    for (const id of [
+      "repeat-users",
+      "dau-over-time",
+      "wau-over-time",
+      "retention-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+      "recurring-users-by-template",
+      "recurring-users-by-template-bar",
+    ]) {
+      const catalogSql = requiredFirstPartyPanel(id).sql;
+      const seedSql = seedPanels.find((panel) => panel.id === id)?.sql;
+      for (const sql of [catalogSql, seedSql]) {
+        expect(sql).toContain(
+          "event_name IN ('session status', 'session_status')",
+        );
+        expect(sql).toContain("event_name = 'app_entered'");
       }
     }
   });
@@ -523,9 +562,6 @@ describe("dashboard catalog", () => {
   });
 
   it("repairs a retention panel persisted with the app-filter scope already injected", () => {
-    // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
-    // {{appFilter}} predicate, so the registered legacySql (unscoped) must
-    // still match already-deployed (scoped) panels.
     const deployedScopedRetention = scopeFirstPartyPanelSql(
       PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
     );

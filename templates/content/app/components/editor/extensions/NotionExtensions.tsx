@@ -1,3 +1,9 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  safeParseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS } from "@shared/nfm";
 import {
@@ -26,6 +32,9 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 
+import { usePageLinkTarget } from "../../../hooks/use-content-links";
+import { ContentIcon } from "../../icons/ContentIcon";
+import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 
 const BLOCK_ATOM_TAGS = [
@@ -52,15 +61,7 @@ const INLINE_ATOM_TAGS = [
   "mention-custom-emoji",
 ];
 
-export interface NotionPageLink {
-  notionPageId: string;
-  documentId: string;
-  title: string;
-  icon: string | null;
-}
-
 interface NotionBlockAtomOptions {
-  resolvePageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenPageLink?: (documentId: string) => void;
 }
 
@@ -506,7 +507,6 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;
-      // Delete this empty toggle and replace with paragraph
       const paragraph = editor.state.schema.nodes.paragraph;
       if (!paragraph) return;
       const tr = editor.state.tr.replaceWith(
@@ -590,10 +590,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const label = (node.attrs.label || "") as string;
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
+  const t = useT();
   const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
-  const pageLink = notionPageId
-    ? options.resolvePageLink?.(notionPageId)
-    : null;
+  const pageLinkQuery = usePageLinkTarget(
+    notionPageId && options.onOpenPageLink ? notionPageId : null,
+  );
+  const pageLink = pageLinkQuery.data ?? null;
+  // An unreadable lookup is not a missing page: keep the block usable so a
+  // click retries instead of presenting the link as gone.
+  const pageLinkLookupFailed = pageLinkQuery.isError;
   const primary =
     pageLink?.title ||
     label ||
@@ -622,6 +627,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         options.onOpenPageLink(pageLink.documentId);
         return;
       }
+      if (pageLinkLookupFailed) {
+        const retry = pageLinkQuery.refetch();
+        if (!externalUrl) {
+          void retry.then((result) => {
+            if (result.data) options.onOpenPageLink?.(result.data.documentId);
+          });
+          return;
+        }
+      }
       if (externalUrl) {
         window.open(externalUrl, "_blank", "noopener,noreferrer");
       }
@@ -630,16 +644,20 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
     return (
       <NodeViewWrapper
         className={`notion-page-reference ${
-          canOpenLocalPage || externalUrl
+          canOpenLocalPage || pageLinkLookupFailed || externalUrl
             ? "notion-page-reference--clickable"
             : ""
         }`}
+        data-page-link-state={pageLinkLookupFailed ? "unavailable" : undefined}
       >
         <button
           type="button"
           className="notion-page-reference__button"
           contentEditable={false}
-          disabled={!canOpenLocalPage && !externalUrl}
+          disabled={!canOpenLocalPage && !pageLinkLookupFailed && !externalUrl}
+          title={
+            pageLinkLookupFailed ? t("editor.reference.loadError") : undefined
+          }
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -647,7 +665,11 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
           }}
         >
           <span className="notion-page-reference__icon" aria-hidden="true">
-            {pageLink?.icon || <IconFileText size={20} stroke={1.8} />}
+            <ContentIcon
+              value={pageLink?.icon}
+              size={20}
+              fallback={<IconFileText size={20} stroke={1.8} />}
+            />
           </span>
           <span className="notion-page-reference__label">{primary}</span>
           {!pageLink && externalUrl ? (
@@ -900,13 +922,6 @@ export const NotionToggle = Node.create({
   addStorage() {
     return {
       markdown: {
-        // NOTE: must be a regular function (not arrow) so that
-        // tiptap-markdown's `serialize.bind({editor, options})` actually
-        // sets `this`. Arrow functions ignore .bind() — that left
-        // `this.editor` undefined inside `serializeInnerMarkdown`,
-        // which silently fell back to `node.textContent` and stripped
-        // every paragraph break, blockquote marker, and inline mark
-        // from the toggle's contents on save.
         serialize: function (_state: any, node: any) {
           const attrs: Record<string, string> = {};
           if (node.attrs.color) attrs.color = String(node.attrs.color);
@@ -936,6 +951,37 @@ export const NotionToggle = Node.create({
     };
   },
 });
+
+function CalloutView({ editor, getPos, node }: NodeViewProps) {
+  const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
+  const updateIcon = (value: IconValue | null) => {
+    if (!editor.isEditable) throw new Error("Callout is not editable");
+    const pos = getPos();
+    if (typeof pos !== "number") throw new Error("Callout is unavailable");
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (currentNode?.type.name !== "notionCallout")
+      throw new Error("Callout is unavailable");
+    const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+      ...currentNode.attrs,
+      icon: value ? serializeIconValue(value) : "💡",
+    });
+    tr.setMeta("preventClearDocument", true);
+    tr.setMeta("uiEvent", "pointer");
+    editor.view.dispatch(tr);
+  };
+  return (
+    <NodeViewWrapper
+      data-notion-callout="true"
+      data-icon={icon}
+      data-color={node.attrs.color || undefined}
+    >
+      <div data-notion-callout-icon="true" contentEditable={false}>
+        <EmojiPicker icon={icon} variant="compact" onSelect={updateIcon} />
+      </div>
+      <NodeViewContent data-notion-callout-content="true" />
+    </NodeViewWrapper>
+  );
+}
 
 export const NotionCallout = Node.create({
   name: "notionCallout",
@@ -981,6 +1027,11 @@ export const NotionCallout = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const parsedIcon = safeParseIconValue(HTMLAttributes.icon || "💡");
+    const fallbackIcon =
+      parsedIcon.success && parsedIcon.data?.kind === "emoji"
+        ? parsedIcon.data.emoji
+        : "";
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
@@ -988,19 +1039,18 @@ export const NotionCallout = Node.create({
         "data-icon": HTMLAttributes.icon || "💡",
         "data-color": HTMLAttributes.color || undefined,
       }),
-      [
-        "div",
-        { "data-notion-callout-icon": "true" },
-        HTMLAttributes.icon || "💡",
-      ],
+      ["div", { "data-notion-callout-icon": "true" }, fallbackIcon],
       ["div", { "data-notion-callout-content": "true" }, 0],
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutView);
   },
 
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(
@@ -1042,7 +1092,6 @@ export const NotionColumns = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("columns", {}, inner));
@@ -1074,7 +1123,6 @@ export const NotionColumn = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("column", {}, inner));
@@ -1095,7 +1143,6 @@ export const NotionBlockAtom = Node.create({
 
   addOptions(): NotionBlockAtomOptions {
     return {
-      resolvePageLink: undefined,
       onOpenPageLink: undefined,
     };
   },
@@ -1105,12 +1152,6 @@ export const NotionBlockAtom = Node.create({
       tagName: { default: "unknown" },
       attrsJson: { default: "{}" },
       label: { default: "" },
-      // Verbatim source for unrecognized raw containers (e.g. <meeting-notes>)
-      // preserved by parseRawContainer. Must survive editor load/save so the
-      // real content isn't replaced by the tagName summary on the next save.
-      // Kept out of the rendered DOM (see renderHTML) since the NodeView
-      // renders from label/tagName; parseHTML restores it from data-raw for
-      // the rare case content is round-tripped through HTML (e.g. paste).
       __raw: { default: "" },
     };
   },

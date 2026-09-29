@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AppEmptyState } from "@/components/library/empty-state";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import {
   AgendaCard,
@@ -48,24 +49,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import enMessages from "@/i18n/en-US";
 import { isCalendarConnectionComplete } from "@/lib/calendar-connection";
+import { startCalendarOAuth } from "@/lib/calendar-oauth";
 import {
   buildMeetingHistoryQuery,
   MEETING_HISTORY_PAGE_SIZE,
 } from "@/lib/meeting-history-query";
+import { PopupBlockedError } from "@/lib/popup-blocked";
 import { shortcutLabel } from "@/lib/utils";
 
 export function meta() {
@@ -154,90 +149,6 @@ async function requestDisconnectCalendar(accountId: string): Promise<void> {
   }
 }
 
-interface CalendarOAuthResult {
-  accountId: string;
-}
-
-async function startCalendarOAuth(
-  expectedAccountId?: string,
-): Promise<CalendarOAuthResult | null> {
-  const flowId = window.crypto.randomUUID();
-  const actionUrl = new URL(
-    agentNativePath("/_agent-native/actions/connect-calendar"),
-    window.location.origin,
-  );
-  actionUrl.searchParams.set("provider", "google");
-  actionUrl.searchParams.set("flowId", flowId);
-  if (expectedAccountId) {
-    actionUrl.searchParams.set("calendarAccountId", expectedAccountId);
-  }
-  const r = await fetch(actionUrl);
-  const text = await r.text();
-  let data: {
-    url?: string;
-    error?: string;
-    result?: { url?: string };
-  } = {};
-  try {
-    data = JSON.parse(text);
-  } catch {
-    // Keep the fallback below.
-  }
-  if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
-  const url = data.result?.url ?? data.url;
-  if (!url) throw new Error("No OAuth URL returned");
-  const authUrl = new URL(url, window.location.origin);
-  const popupUrl = authUrl.toString();
-  const popup = window.open(
-    popupUrl,
-    "clips-calendar-oauth",
-    "width=600,height=700",
-  );
-  if (!popup) {
-    throw new Error(
-      "Popup blocked — please allow popups for this site and try again.",
-    );
-  }
-  return await new Promise<CalendarOAuthResult | null>((resolve) => {
-    let settled = false;
-    const finish = (result: CalendarOAuthResult | null) => {
-      if (settled) return;
-      settled = true;
-      window.clearInterval(interval);
-      window.clearTimeout(timeout);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("message", onMessage);
-      resolve(result);
-    };
-    const interval = window.setInterval(() => {
-      if (popup.closed) finish(null);
-    }, 500);
-    // Some browsers (COOP) never report popup.closed; also resolve when the
-    // user returns to this tab, and give up after 5 minutes regardless so the
-    // connect flow can't hang forever.
-    const onFocus = () => {
-      if (popup.closed) finish(null);
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.source !== popup ||
-        event.origin !== window.location.origin ||
-        !event.data ||
-        typeof event.data !== "object" ||
-        event.data.type !== "agent-native:calendar-connected" ||
-        event.data.flowId !== flowId ||
-        typeof event.data.accountId !== "string"
-      ) {
-        return;
-      }
-      finish({ accountId: event.data.accountId });
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("message", onMessage);
-    const timeout = window.setTimeout(() => finish(null), 5 * 60 * 1000);
-  });
-}
-
 function calendarAccountLabel(account: CalendarAccount): string {
   return (
     account.email ||
@@ -246,10 +157,6 @@ function calendarAccountLabel(account: CalendarAccount): string {
   );
 }
 
-// Manual/ad-hoc notes-only meetings admitted into the past view (see
-// list-meetings' view='past' predicate) can have neither actualStart nor
-// scheduledStart — createdAt is the only timestamp left to group and display
-// them by.
 function historyIso(m: Meeting): string {
   return m.actualStart ?? m.scheduledStart ?? m.createdAt ?? "";
 }
@@ -259,13 +166,6 @@ function historyTimestampMs(m: Meeting): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-// Per @shawnmcclelland's review on #2887: Past now shares the same
-// day-column card shell as Agenda instead of a bare DayHeader label over a
-// flat row list, so the two tabs read as one surface. The explicit sort
-// comparator matters here too — the array can arrive sorted by a different
-// field (list-meetings' merge path sorts by `scheduledStart ?? createdAt`,
-// search-meetings doesn't guarantee this key either), so a meeting that
-// started later than scheduled could otherwise land out of order within its day.
 function MeetingHistoryList({
   meetings,
   snippets,
@@ -310,7 +210,7 @@ function CalendarReauthBanner({
         onClick={onReconnect}
         disabled={isPending}
         aria-busy={isPending}
-        className="h-8 cursor-pointer"
+        className="cursor-pointer"
       >
         {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
         Reconnect
@@ -354,24 +254,18 @@ function ConnectCalendarEmptyState({
 }) {
   const t = useT();
   return (
-    <Empty className="min-h-[24rem] w-full rounded-none border-0">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <IconCalendar />
-        </EmptyMedia>
-        <EmptyTitle>{t("meetingsRoute.connectGoogleCalendar")}</EmptyTitle>
-        <EmptyDescription>
-          {t("meetingsRoute.desktopReminder")}
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
+    <AppEmptyState
+      icon={IconCalendar}
+      title={t("meetingsRoute.connectGoogleCalendar")}
+      description={t("meetingsRoute.desktopReminder")}
+      content={
         <CalendarConnectionAction
-          label={t("meetingsRoute.connectGoogleCalendar")}
+          label={t("meetingsRoute.connectCalendar")}
           onConnect={onConnect}
           isPending={isPending}
         />
-      </EmptyContent>
-    </Empty>
+      }
+    />
   );
 }
 
@@ -626,7 +520,7 @@ function MeetingsHeader({
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={t("meetingsRoute.searchPlaceholder")}
             aria-label={t("meetingsRoute.searchPlaceholder")}
-            className="h-9 ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
+            className="ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query ? (
             <Button
@@ -672,9 +566,6 @@ export default function MeetingsIndexRoute() {
   const [query, setQuery] = useState(initialQ);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQ);
 
-  // Debounce 200ms — keep URL in sync for shareability. Use the functional
-  // updater so we read the latest params (not a stale closure) and never
-  // clobber an unrelated param another effect changed concurrently.
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQuery(query);
@@ -696,8 +587,6 @@ export default function MeetingsIndexRoute() {
   const trimmedQuery = debouncedQuery.trim();
   const isSearching = trimmedQuery.length > 0;
 
-  // Tab lives in the URL so it survives reload, is linkable, and shows up in
-  // navigation state for the agent — same treatment as `?q=`.
   const tabParam = searchParams.get("tab");
   const activeTab: MeetingsTab = isMeetingsTab(tabParam) ? tabParam : "agenda";
   const setActiveTab = useCallback(
@@ -721,9 +610,6 @@ export default function MeetingsIndexRoute() {
     { retry: false },
   );
 
-  // History is the page body: every past meeting that holds something worth
-  // reopening, paged rather than capped. `hasContent` (not `recordedOnly`) is
-  // what keeps desktop live notes without a linked recording in the list.
   const history = useInfiniteQuery({
     queryKey: ["action", "list-meetings", "history"],
     initialPageParam: 0,
@@ -739,19 +625,12 @@ export default function MeetingsIndexRoute() {
     retry: false,
   });
 
-  // The agenda window, read live from connected calendars: 24h back through
-  // the next 30 days, so a call from earlier today is still on your day rather
-  // than already filed under Past. Poll every 30s so a freshly-added event (or
-  // one crossing the "now" marker) shows up without a manual refresh.
   const agendaQuery = useActionQuery<ListMeetingsResponse | undefined>(
     "list-meetings",
     { view: "agenda", includeLiveCalendar: true, limit: 50 },
     { retry: false, refetchInterval: 30_000 },
   );
 
-  // Title / summary / notes / attendee / transcript search, server-side. The
-  // list-meetings pages only cover what has been scrolled to, so filtering
-  // them client-side could never find an older call by what was said in it.
   const searchQuery = useActionQuery<
     { meetings: SearchMeetingResult[] } | undefined
   >(
@@ -760,8 +639,6 @@ export default function MeetingsIndexRoute() {
     { enabled: isSearching, retry: false },
   );
 
-  // After the OAuth callback signals completion, poll briefly because the
-  // browser can observe the callback before React Query sees the updated row.
   const [isRefreshingCalendar, setIsRefreshingCalendar] = useState(false);
   const [isCalendarConnectionInFlight, setIsCalendarConnectionInFlight] =
     useState(false);
@@ -850,13 +727,19 @@ export default function MeetingsIndexRoute() {
             return handleCalendarConnected(result.accountId, expectedAccountId);
           }
         })
-        .catch((err: Error) => toast.error(err.message))
+        .catch((err: Error) =>
+          toast.error(
+            err instanceof PopupBlockedError
+              ? t("clipsSettings.popupBlocked")
+              : err.message,
+          ),
+        )
         .finally(() => {
           calendarConnectionInFlightRef.current = false;
           setIsCalendarConnectionInFlight(false);
         });
     },
-    [handleCalendarConnected],
+    [handleCalendarConnected, t],
   );
 
   const isLoading = accounts.isLoading || history.isLoading;
@@ -875,9 +758,6 @@ export default function MeetingsIndexRoute() {
     );
   }, [agendaMeetings]);
 
-  // A calendar can need re-auth either via a live fetch error (calendarErrors)
-  // or — more commonly — because list-meetings skips non-"connected" accounts
-  // entirely, so the only signal is the account's own status. Cover both.
   const needsCalendarReauth =
     calendarErrors.some((e) => e.needsReauth) ||
     calendarAccounts.some((account) => account.status === "needs-reauth");
@@ -954,18 +834,12 @@ export default function MeetingsIndexRoute() {
                   })}
                 </div>
               ) : searchResults.length === 0 ? (
-                <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <IconSearch />
-                    </EmptyMedia>
-                    <EmptyTitle className="text-base">
-                      {t("meetingsRoute.noMeetingsMatch", {
-                        query: trimmedQuery,
-                      })}
-                    </EmptyTitle>
-                  </EmptyHeader>
-                  <EmptyContent>
+                <AppEmptyState
+                  icon={IconSearch}
+                  title={t("meetingsRoute.noMeetingsMatch", {
+                    query: trimmedQuery,
+                  })}
+                  content={
                     <Button
                       variant="ghost"
                       size="sm"
@@ -974,8 +848,8 @@ export default function MeetingsIndexRoute() {
                     >
                       {t("meetingsRoute.clearSearch")}
                     </Button>
-                  </EmptyContent>
-                </Empty>
+                  }
+                />
               ) : (
                 <MeetingHistoryList
                   meetings={searchResults}
@@ -1017,16 +891,11 @@ export default function MeetingsIndexRoute() {
                       isPending={isCalendarBusy}
                     />
                   ) : (
-                    <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <IconCalendar />
-                        </EmptyMedia>
-                        <EmptyTitle className="text-base">
-                          {t("meetingsRoute.noMeetingsYet")}
-                        </EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
+                    <AppEmptyState
+                      icon={IconCalendar}
+                      title={t("meetingsRoute.noMeetingsYet")}
+                      description={t("meetingsRoute.noMeetingsDescription")}
+                    />
                   )}
                 </TabsContent>
 
@@ -1044,7 +913,7 @@ export default function MeetingsIndexRoute() {
                             size="sm"
                             onClick={() => history.fetchNextPage()}
                             disabled={history.isFetchingNextPage}
-                            className="h-8 cursor-pointer gap-1.5 text-xs"
+                            className="cursor-pointer gap-1.5 text-xs"
                           >
                             {history.isFetchingNextPage ? (
                               <IconLoader2 className="size-3.5 animate-spin" />
@@ -1057,18 +926,11 @@ export default function MeetingsIndexRoute() {
                       ) : null}
                     </>
                   ) : (
-                    <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <IconCalendar />
-                        </EmptyMedia>
-                        <EmptyTitle className="text-base">
-                          {t("meetingsRoute.noPastMeetings", {
-                            defaultValue: "No past meetings yet",
-                          })}
-                        </EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
+                    <AppEmptyState
+                      icon={IconCalendar}
+                      title={t("meetingsRoute.noPastMeetings")}
+                      description={t("meetingsRoute.intro")}
+                    />
                   )}
                 </TabsContent>
               </Tabs>

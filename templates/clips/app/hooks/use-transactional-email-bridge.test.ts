@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   sendToAgentChat: vi.fn(),
   sessionStatus: "authenticated" as string,
+  changeVersion: 0,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -15,8 +16,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mocks.callAction(...args),
-  useChangeVersions: vi.fn(() => "0"),
   useSession: vi.fn(() => ({ status: mocks.sessionStatus })),
+  useChangeVersions: vi.fn(() => mocks.changeVersion),
 }));
 
 import {
@@ -60,6 +61,7 @@ function BridgeHarness() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.sessionStatus = "authenticated";
+  mocks.changeVersion = 0;
   mocks.callAction.mockResolvedValue({ requests: [request] });
 });
 
@@ -115,7 +117,9 @@ describe("transactional email bridge", () => {
     );
   });
 
-  it("wakes up every 60 seconds for file-backed worker writes", async () => {
+  it("wakes up every few minutes for worker writes the browser can't observe", async () => {
+    expect(TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS).toBe(3 * 60_000);
+
     vi.useFakeTimers();
     mocks.callAction.mockResolvedValue({ requests: [] });
     const container = document.createElement("div");
@@ -125,6 +129,40 @@ describe("transactional email bridge", () => {
     await act(async () => {
       root?.render(createElement(BridgeHarness));
     });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(
+        TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS - 1,
+      );
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    container.remove();
+  });
+
+  it("does not restart the poll on an unrelated re-render", async () => {
+    vi.useFakeTimers();
+    mocks.callAction.mockResolvedValue({ requests: [] });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(createElement(BridgeHarness));
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < 5; i++) {
+      mocks.changeVersion += 1;
+      await act(async () => {
+        root?.render(createElement(BridgeHarness));
+      });
+    }
     expect(mocks.callAction).toHaveBeenCalledTimes(1);
 
     await act(async () => {

@@ -228,11 +228,12 @@ Generated apps must follow the shared Agent-Native surface model:
 - Choose a named visual direction in `DESIGN.md` before styling and build to it.
   Preserve existing brand tokens; a new unbranded app picks its own
   product-fitting palette rather than inheriting a sibling app's accent.
-- Standalone apps that render `AgentSidebar` must keep one assistant-ui runtime
-  context. Pin the versions compatible with the installed core/toolkit peer
-  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
-  duplicate assistant-ui modules. Verify a fresh AI handoff has no
-  `AssistantUiStaleIndexErrorBoundary` or stale-index console error.
+- Standalone apps that render `AgentSidebar` must use the shared AgentKit chat
+  surface with one controller/transport. Do not add a legacy `AssistantChat`
+  renderer or a second stream owner. Keep assistant-ui usage inside the shared
+  composer integration; if linked dependencies need Vite aliases, resolve one
+  `@agent-native/agentkit` context and verify a real AgentKit handoff in the
+  browser.
 - Before handoff, inspect the first viewport and remove the text density,
   repeated cards, unrelated forms, and generic helper copy the user does not
   need until the next decision.
@@ -387,13 +388,9 @@ plain `pnpm dev` has the right first-run behavior without extra flags:
 }
 ```
 
-`connect` keeps the Connect Builder / Add your own keys choice visible and
-skips only the generic “This app is an agent.” integrations catalog. The
-production value includes that catalog for a hosted app. Do not replace this
-with a local credential form or remove the shared onboarding. In development,
-the shared Connect Builder card also explains the deployment-level
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` fallback and links to the full
-environment-variable guide.
+Either value keeps the shared Connect Builder / Add your own keys choice
+visible; only `"off"` disables first-run onboarding entirely. Do not replace
+this with a local credential form or remove the shared onboarding.
 
 When the onboarding default needs code rather than a static mode map, add an
 optional `agent-native.config.ts` with the same returned shape:

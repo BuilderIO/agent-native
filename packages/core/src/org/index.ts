@@ -1,5 +1,3 @@
-// Public API for the org module.
-
 function lazyFunction<TModule, TKey extends keyof TModule>(
   load: () => Promise<TModule>,
   name: TKey,
@@ -35,8 +33,15 @@ export type {
 } from "./types.js";
 
 export {
+  SIGN_IN_METHOD_ENV_VARS,
+  type OrgSignInMethods,
+  type SocialSignInMethod,
+} from "./sign-in-methods.js";
+
+export {
   canInviteOrgMembers,
   canManageOrg,
+  canManageOrgA2ASecret,
   canManageOrgDomain,
   orgRoleAtLeast,
   orgRoleRank,
@@ -81,6 +86,13 @@ export type {
   OffboardMemberOptions,
   OffboardMemberResult,
 } from "../identity/offboard.js";
+export { registerIdentityColumns } from "../identity/rekey.js";
+export type {
+  AppIdentityColumn,
+  IdentityEmailChange,
+  IdentityOffboard,
+  IdentityOrgScope,
+} from "../identity/rekey.js";
 export {
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,
@@ -169,8 +181,6 @@ export const createOrgPlugin: (typeof import("./plugin.js"))["createOrgPlugin"] 
       })) as (typeof import("./plugin.js"))["createOrgPlugin"];
 export const defaultOrgPlugin = createOrgPlugin();
 
-// Drizzle schema (re-exported so templates can write typed queries against
-// org tables without redefining the schema themselves).
 export {
   organizations,
   orgMembers,
@@ -211,8 +221,6 @@ export const deleteSCIMHandler = lazyFunction(
   "deleteSCIMHandler",
 );
 
-// Individual handlers — exported so templates can compose a custom org plugin
-// while still using the framework-provided handlers.
 export const getMyOrgHandler = lazyFunction(loadOrgHandlers, "getMyOrgHandler");
 export const createOrgHandler = lazyFunction(
   loadOrgHandlers,
@@ -271,6 +279,10 @@ export const setRequiredAuthProviderHandler = lazyFunction(
 export const setWorkspaceAppDefaultVisibilityHandler = lazyFunction(
   loadOrgHandlers,
   "setWorkspaceAppDefaultVisibilityHandler",
+);
+export const setOrgVisualIdentityHandler = lazyFunction(
+  loadOrgHandlers,
+  "setOrgVisualIdentityHandler",
 );
 
 export const listAppRolesHandler = lazyFunction(

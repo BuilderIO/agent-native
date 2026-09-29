@@ -15,6 +15,190 @@ import {
 beforeEach(() => __clearPrimitiveParseCachesForTests());
 
 describe("primitive drop target authored layout fallback", () => {
+  it("prefers the deepest equal-sized nested container", () => {
+    const screen = {
+      id: "equal-nested-screen",
+      filename: "equal-nested-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="outer" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px">
+          <div data-agent-native-node-id="inner" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 50 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
+        () => ({ width: 200, height: 200 }),
+      )?.nodeId,
+    ).toBe("inner");
+  });
+
+  it("prefers the later painted overlapping sibling", () => {
+    const screen = {
+      id: "overlap-screen",
+      filename: "overlap-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="back" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
+        <div data-agent-native-node-id="front" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 50 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
+        () => ({ width: 200, height: 200 }),
+      )?.nodeId,
+    ).toBe("front");
+  });
+
+  it("honors explicit z-index before DOM order for overlapping siblings", () => {
+    const screen = {
+      id: "z-index-screen",
+      filename: "z-index-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="back" data-an-primitive="frame" style="position:absolute;z-index:10;left:0;top:0;width:200px;height:200px"></div>
+        <div data-agent-native-node-id="front" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:200px;height:200px"></div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 50 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
+        () => ({ width: 200, height: 200 }),
+      )?.nodeId,
+    ).toBe("back");
+  });
+
+  it("uses projection ancestry when authored ids are duplicated", () => {
+    const screen = {
+      id: "duplicate-id-screen",
+      filename: "duplicate-id-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="duplicate" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px">
+          <div data-agent-native-node-id="duplicate" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 50, y: 50 },
+      null,
+      [screen],
+      { [screen.id]: { x: 0, y: 0, width: 200, height: 200 } },
+      () => ({ width: 200, height: 200 }),
+    );
+    expect(result?.nodeId).toBe("duplicate");
+    expect(
+      primitives.filter((primitive) => primitive.nodeId === "duplicate"),
+    ).toHaveLength(2);
+    expect(primitives[1]?.parentProjectionNodeId).toBe(
+      primitives[0]?.projectionIdentity?.nodeId,
+    );
+    expect(result?.targetIdentity?.nodeId).toBe(
+      primitives[1]?.projectionIdentity?.nodeId,
+    );
+  });
+
+  it("keeps projection ancestry through duplicate authored ids when choosing a nested drop target", () => {
+    const screen = {
+      id: "duplicate-ancestor-screen",
+      filename: "duplicate-ancestor-screen.html",
+      content: `<div data-agent-native-node-id="container" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px">
+        <div data-agent-native-node-id="container" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px">
+          <div data-agent-native-node-id="target" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px"></div>
+        </div>
+      </div>`,
+    };
+
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 80, y: 80 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
+        () => ({ width: 240, height: 240 }),
+      ),
+    ).toMatchObject({ nodeId: "target" });
+  });
+
+  it("falls back to authored ancestry across an unannotated projection wrapper", () => {
+    const screen = {
+      id: "unannotated-wrapper-screen",
+      filename: "unannotated-wrapper-screen.html",
+      content: `<div data-agent-native-node-id="container" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px">
+        <div style="position:absolute;left:0;top:0;width:240px;height:240px">
+          <div data-agent-native-node-id="target" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px"></div>
+        </div>
+      </div>`,
+    };
+
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 80, y: 80 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
+        () => ({ width: 240, height: 240 }),
+      ),
+    ).toMatchObject({ nodeId: "target" });
+  });
+
+  it("does not treat a duplicate-id sibling as an ancestor after a wrapper", () => {
+    const screen = {
+      id: "duplicate-sibling-screen",
+      filename: "duplicate-sibling-screen.html",
+      content: `<div data-agent-native-node-id="same" data-an-primitive="frame" style="position:absolute;z-index:10;left:0;top:0;width:240px;height:240px"></div>
+        <div data-agent-native-node-id="same" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:240px;height:240px">
+          <div style="position:absolute;left:0;top:0;width:240px;height:240px">
+            <div data-agent-native-node-id="target" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:240px;height:240px"></div>
+          </div>
+      </div>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const foregroundSibling = primitives.find(
+      (primitive) => primitive.nodeId === "same",
+    );
+    expect(foregroundSibling?.projectionIdentity).toBeDefined();
+
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 80, y: 80 },
+      null,
+      [screen],
+      { [screen.id]: { x: 0, y: 0, width: 240, height: 240 } },
+      () => ({ width: 240, height: 240 }),
+    );
+    expect(result).toMatchObject({
+      nodeId: "same",
+      targetIdentity: { nodeId: foregroundSibling!.projectionIdentity!.nodeId },
+    });
+  });
+
+  it("treats semantic section containers as nested drop targets", () => {
+    const screen = {
+      id: "semantic-nested-screen",
+      filename: "semantic-nested-screen.html",
+      content: `<section data-agent-native-node-id="outer" style="display:flex;width:400px;height:190px">
+        <section data-agent-native-node-id="inner" style="display:flex;width:360px;height:92px"></section>
+      </section>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 40, y: 40 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 400, height: 190 } },
+        () => ({ width: 400, height: 190 }),
+      )?.nodeId,
+    ).toBe("inner");
+  });
+
   it("resolves percentage sizes against the containing block for overview hits", () => {
     const screen = {
       id: "percentage-screen",
@@ -383,12 +567,80 @@ describe("primitive drop target authored layout fallback", () => {
     expect(lowZoomHitRect.width).toBe(300);
     expect(lowZoomHitRect.height).toBe(300);
   });
+  it("ignores z-index on static non-flex/grid items", () => {
+    const screen = {
+      id: "static-z",
+      filename: "static-z.html",
+      content: `<!doctype html><html><body><div data-agent-native-node-id="a" data-an-primitive="frame" style="position:static;z-index:10;width:100px;height:100px"></div></body></html>`,
+    };
+    expect(parsePrimitivesFromScreen(screen)[0]?.zIndex).toBeUndefined();
+  });
+
+  it("orders ancestor stacking context before descendant z-index", () => {
+    const screen = {
+      id: "nested-z",
+      filename: "nested-z.html",
+      content: `<!doctype html><html><body><div data-agent-native-node-id="low" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px"><div data-agent-native-node-id="child" data-an-primitive="frame" style="position:absolute;z-index:999;left:0;top:0;width:100px;height:100px"></div></div><div data-agent-native-node-id="high" data-an-primitive="frame" style="position:absolute;z-index:2;left:0;top:0;width:100px;height:100px"></div></body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 10, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 100, height: 100 } },
+        () => ({ width: 100, height: 100 }),
+      )?.nodeId,
+    ).toBe("high");
+  });
+
+  it("keeps DOM order for equal-z sibling stacking contexts", () => {
+    const screen = {
+      id: "equal-context-z",
+      filename: "equal-context-z.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="early-context" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px">
+          <div data-agent-native-node-id="early-child" data-an-primitive="frame" style="position:absolute;z-index:999;left:0;top:0;width:100px;height:100px"></div>
+        </div>
+        <div data-agent-native-node-id="late-context" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px">
+          <div data-agent-native-node-id="late-child" data-an-primitive="frame" style="position:absolute;z-index:0;left:0;top:0;width:100px;height:100px"></div>
+        </div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 10, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 100, height: 100 } },
+        () => ({ width: 100, height: 100 }),
+      )?.nodeId,
+    ).toBe("late-child");
+  });
+
+  it("keeps descendant z-index inside an auto stacking context", () => {
+    const screen = {
+      id: "auto-context-z",
+      filename: "auto-context-z.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="auto-context" data-an-primitive="frame" style="transform:translateZ(0);left:0;top:0;width:100px;height:100px">
+          <div data-agent-native-node-id="early-child" data-an-primitive="frame" style="position:absolute;z-index:999;left:0;top:0;width:100px;height:100px"></div>
+        </div>
+        <div data-agent-native-node-id="later" data-an-primitive="frame" style="position:absolute;z-index:1;left:0;top:0;width:100px;height:100px"></div>
+      </body></html>`,
+    };
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 10, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 100, height: 100 } },
+        () => ({ width: 100, height: 100 }),
+      )?.nodeId,
+    ).toBe("later");
+  });
 });
 
 describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
-  // A flex row with two children: "first" spans local x:[320,370], "second"
-  // spans local x:[380,440] (20px left padding + 10px gap, matching the
-  // "accounts for padding, gap, and preceding siblings" fixture above).
   const flexScreen = {
     id: "screen",
     filename: "screen.html",
@@ -399,9 +651,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       </div>
     </body></html>`,
   };
-  // 1:1 scale (frame geometry matches the metadata's own 800x600 content
-  // size), so board coords equal the authored local absolute-pixel coords
-  // directly — same convention the "accounts for padding" fixture above uses.
   const identityFrameGeometry = {
     screen: { x: 0, y: 0, width: 800, height: 600 },
   };
@@ -415,7 +664,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(parent?.autoLayoutAxis).toBe("x");
     expect(first?.parentNodeId).toBe("parent");
     expect(second?.parentNodeId).toBe("parent");
-    // Plain rectangle children are never themselves auto-layout containers.
     expect(first?.autoLayoutAxis).toBeUndefined();
   });
 
@@ -442,7 +690,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(
       parsePrimitivesFromScreen(columnFlow).find((p) => p.nodeId === "parent")
         ?.autoLayoutAxis,
-    ).toBe("x");
+    ).toBe("y");
   });
 
   it("counts repeated tracks while ignoring multi-name grid lines", () => {
@@ -706,8 +954,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
   it("findAutoLayoutInsertionAnchor resolves 'before' the nearest child when the point sits in the leading padding", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;
-    // x=310 sits in the container's own left padding (content starts at 320),
-    // well left of "first"'s center (345) and far from "second"'s (410).
     const anchor = findAutoLayoutInsertionAnchor(
       parent,
       primitives,
@@ -728,8 +974,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
   it("findAutoLayoutInsertionAnchor resolves 'after' the nearest child when the point sits in the gap between children", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;
-    // x=375 sits in the 10px gap between "first" (ends at 370) and "second"
-    // (starts at 380) — nearer to "first"'s center (345) than "second"'s (410).
     const anchor = findAutoLayoutInsertionAnchor(
       parent,
       primitives,
@@ -750,8 +994,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
   it("findAutoLayoutInsertionAnchor excludes the dragged node itself (reordering within its own container)", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;
-    // Excluding "first" (e.g. it's the node being dragged) leaves "second" as
-    // the only candidate regardless of which side of it the point falls on.
     const anchor = findAutoLayoutInsertionAnchor(
       parent,
       primitives,
@@ -778,10 +1020,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
   });
 
   it("getPrimitiveDropTargetForPoint resolves a before/after flow-insert anchor for a drop inside an auto-layout screen frame", () => {
-    // Board coords equal screen-local coords here (frame geometry matches the
-    // authored absolute offsets 1:1, viewport 800x600 wider than the frame's
-    // own 500x300 box — only the frame's own x/y/width/height matter for the
-    // 1:1 scale, matching the existing "accounts for padding" fixture).
     const target = getPrimitiveDropTargetForPoint(
       { x: 375, y: 135 },
       null,
@@ -793,9 +1031,6 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(target?.anchorNodeId).toBe("first");
     expect(target?.placement).toBe("after");
     expect(target?.axis).toBe("x");
-    // The rendered insertion-line rect should track the ANCHOR child's board
-    // rect (matching getCrossScreenDropGuideStyle's contract), not the whole
-    // container's rect.
     expect(target?.boardRect.width).toBeCloseTo(50);
   });
 
@@ -832,20 +1067,12 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
   });
 
   it("resolves the same auto-layout anchor/placement when the screen frame itself is rotated", () => {
-    // Adjacent coordinate-transform check (item 6): getPrimitiveDropTargetForPoint
-    // must map the incoming board-space point back into the screen's own
-    // LOCAL space (via boardPointToScreenLocalPoint, rotation-aware) before
-    // resolving the auto-layout anchor — otherwise a rotated screen frame
-    // would resolve the wrong sibling/placement even though the unrotated
-    // case (the "gap between children" test above) works.
     const rotation = 90;
     const frameGeometry = { x: 0, y: 0, width: 800, height: 600, rotation };
     const center = {
       x: frameGeometry.x + frameGeometry.width / 2,
       y: frameGeometry.y + frameGeometry.height / 2,
     };
-    // Same local drop point as the "gap between children" test (375, 135),
-    // mapped into board/world space through the frame's own rotation.
     const worldPoint = rotatePoint({ x: 375, y: 135 }, center, rotation);
     const target = getPrimitiveDropTargetForPoint(
       worldPoint,

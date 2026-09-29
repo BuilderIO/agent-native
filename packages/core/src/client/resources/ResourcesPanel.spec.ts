@@ -1,12 +1,103 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
 
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+type StorageStatus = {
+  data?: { configured: boolean };
+  isError: boolean;
+  isSuccess: boolean;
+};
+
+const storageMocks = vi.hoisted(() => ({
+  status: null as unknown as StorageStatus,
+  refetch: vi.fn<
+    () => Promise<{
+      isError: boolean;
+      data?: { configured?: unknown };
+    }>
+  >(),
+  upload: vi.fn<(formData: FormData) => void>(),
+  open: false,
+  retry: null as (() => void) | null,
+  dismiss: null as (() => void) | null,
+  setup: null as (() => void) | null,
+}));
+
+vi.mock("../uploads/use-file-upload-status.js", () => ({
+  useFileUploadStatus: () => ({
+    ...storageMocks.status,
+    refetch: storageMocks.refetch,
+  }),
+}));
+vi.mock("../uploads/use-upload-resource.js", () => ({
+  useUploadResource: () => ({ mutate: storageMocks.upload }),
+}));
+vi.mock("../org/hooks.js", () => ({
+  useOrg: () => ({ data: { orgId: "org-test", role: "member" } }),
+}));
+vi.mock("../i18n.js", () => ({ useT: () => (key: string) => key }));
+vi.mock("./use-resources.js", () => ({
+  useResourceTree: () => ({ data: [], isLoading: false }),
+  useResource: () => ({ data: undefined, isError: false }),
+  useCreateResource: () => ({ isPending: false, mutate: vi.fn() }),
+  useUpdateResource: () => ({ mutate: vi.fn() }),
+  useDeleteResource: () => ({ isPending: false, mutate: vi.fn() }),
+  useExportResourcePack: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useImportResourcePack: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  resourceDownloadUrl: (id: string) => id,
+  withMcpServersFolder: (tree: unknown[]) => tree,
+  withAgentScratchFolder: (tree: unknown[]) => tree,
+}));
+vi.mock("./use-mcp-servers.js", () => ({
+  useMcpServers: () => ({ data: undefined }),
+  useCreateMcpServer: () => ({ mutateAsync: vi.fn() }),
+  useDeleteMcpServer: () => ({ isPending: false, mutate: vi.fn() }),
+  parseMcpVirtualId: () => null,
+}));
+vi.mock("./use-builtin-capabilities.js", () => ({
+  useBuiltinCapabilities: () => ({ data: undefined }),
+  parseMcpBuiltinVirtualId: () => null,
+}));
+vi.mock("./ResourceTree.js", () => ({ ResourceTree: () => null }));
+vi.mock("../FileStorageSetupPopover.js", () => ({
+  FileStorageSetupPopover: ({
+    open,
+    onOpenChange,
+    onRetry,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean, reason?: string) => void;
+    onRetry?: () => void;
+  }) => {
+    storageMocks.open = open;
+    if (open) {
+      storageMocks.retry = onRetry ?? null;
+      storageMocks.dismiss = () => onOpenChange(false, "dismiss");
+      storageMocks.setup = () => onOpenChange(false, "setup");
+    }
+    return null;
+  },
+}));
+
+import { isResourceRowReadOnly } from "./ResourceSettingsGroups.js";
 import {
+  canEditOrganizationResources,
+  canUploadResourceFile,
   filterResourceTree,
+  isOrganizationResourceOwner,
   hasAvailableMcpIntegrations,
+  mergePendingResourceUploads,
   normalizeResourceFileName,
   resolveInitialResourceScope,
   resolveResourceCreateMenuMode,
+  shouldClearPendingResourceUploads,
+  resourcePackImportToast,
+  resourcePackPrefixForView,
   shouldRenderResourceSectionCreateMenu,
+  takePendingResourceUploads,
+  ResourcesPanel,
 } from "./ResourcesPanel.js";
 import type { TreeNode } from "./use-resources.js";
 
@@ -125,6 +216,84 @@ describe("normalizeResourceFileName", () => {
   });
 });
 
+describe("canUploadResourceFile", () => {
+  it("keeps text and JSON resource uploads available without object storage", () => {
+    expect(canUploadResourceFile("text/markdown", false)).toBe(true);
+    expect(canUploadResourceFile("application/json", false)).toBe(true);
+  });
+
+  it("requires configured storage for binary files and unknown MIME types", () => {
+    expect(canUploadResourceFile("image/png", false)).toBe(false);
+    expect(canUploadResourceFile("", false)).toBe(false);
+    expect(canUploadResourceFile("image/png", true)).toBe(true);
+  });
+});
+
+describe("mergePendingResourceUploads", () => {
+  it("replaces a queued file for the same resource path and keeps other scopes", () => {
+    const first = new File(["first"], "notes.bin", { lastModified: 1 });
+    const latest = new File(["latest"], "notes.bin", { lastModified: 2 });
+    const pending = [{ file: first, targetScope: "personal" as const }];
+
+    expect(
+      mergePendingResourceUploads(pending, [
+        { file: latest, targetScope: "personal" },
+        { file: first, targetScope: "shared" },
+      ]),
+    ).toEqual([
+      { file: latest, targetScope: "personal" },
+      { file: first, targetScope: "shared" },
+    ]);
+  });
+});
+
+describe("takePendingResourceUploads", () => {
+  it("keeps a failed probe batch for retry and consumes it once on a valid status", () => {
+    const batch = [
+      {
+        file: new File(["notes"], "notes.md", { type: "text/markdown" }),
+        targetScope: "personal" as const,
+      },
+      {
+        file: new File(["image"], "image.png", { type: "image/png" }),
+        targetScope: "shared" as const,
+      },
+    ];
+    const pending = mergePendingResourceUploads([], batch);
+
+    expect(takePendingResourceUploads(pending, { isError: true })).toBeNull();
+    expect(pending).toEqual(batch);
+
+    const retry = takePendingResourceUploads(pending, {
+      isError: false,
+      data: { configured: false },
+    });
+    expect(retry).toEqual({ uploads: batch, storageConfigured: false });
+    expect(pending).toEqual([]);
+    expect(
+      canUploadResourceFile("text/markdown", retry!.storageConfigured),
+    ).toBe(true);
+    expect(canUploadResourceFile("image/png", retry!.storageConfigured)).toBe(
+      false,
+    );
+    expect(
+      takePendingResourceUploads(pending, {
+        isError: false,
+        data: { configured: false },
+      }),
+    ).toEqual({ uploads: [], storageConfigured: false });
+  });
+});
+
+describe("shouldClearPendingResourceUploads", () => {
+  it("discards only when the user dismisses the storage popover", () => {
+    expect(shouldClearPendingResourceUploads(false, "dismiss")).toBe(true);
+    expect(shouldClearPendingResourceUploads(false, "setup")).toBe(false);
+    expect(shouldClearPendingResourceUploads(false, "connected")).toBe(false);
+    expect(shouldClearPendingResourceUploads(true, "dismiss")).toBe(false);
+  });
+});
+
 describe("filterResourceTree", () => {
   const resource = (path: string) => ({
     id: path,
@@ -200,5 +369,434 @@ describe("filterResourceTree", () => {
     expect(filterResourceTree(tree, "skills")[0]?.path).toBe("skills");
     expect(filterResourceTree(tree, "instructions")[0]?.path).toBe("AGENTS.md");
     expect(filterResourceTree(tree, "learnings")[0]?.path).toBe("LEARNINGS.md");
+  });
+});
+
+describe("canEditOrganizationResources", () => {
+  it("lets owners, admins, and solo deployments edit organization resources", () => {
+    expect(canEditOrganizationResources({ orgId: "org", role: "owner" })).toBe(
+      true,
+    );
+    expect(canEditOrganizationResources({ orgId: "org", role: "admin" })).toBe(
+      true,
+    );
+    expect(canEditOrganizationResources({ orgId: null, role: null })).toBe(
+      true,
+    );
+  });
+
+  it("keeps organization resources read only for members", () => {
+    expect(canEditOrganizationResources({ orgId: "org", role: "member" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("isOrganizationResourceOwner", () => {
+  it("treats legacy shared and organization owners as organization resources", () => {
+    expect(isOrganizationResourceOwner("__shared__")).toBe(true);
+    expect(isOrganizationResourceOwner("__organization__:org-1")).toBe(true);
+    expect(isOrganizationResourceOwner("member@example.test")).toBe(false);
+    expect(isOrganizationResourceOwner("__workspace__")).toBe(false);
+  });
+});
+
+describe("isResourceRowReadOnly", () => {
+  const meta = (metadata: string | null) => ({
+    id: "id",
+    path: "AGENTS.md",
+    owner: "owner",
+    mimeType: "text/markdown",
+    size: 1,
+    createdAt: 0,
+    updatedAt: 0,
+    createdBy: "user" as const,
+    visibility: "workspace" as const,
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata,
+  });
+
+  it("follows the viewer's role for organization rows", () => {
+    expect(isResourceRowReadOnly("personal", meta(null), false)).toBe(false);
+    expect(isResourceRowReadOnly("shared", meta(null), false)).toBe(true);
+    expect(isResourceRowReadOnly("shared", meta(null), true)).toBe(false);
+  });
+
+  it("keeps Dispatch rows read only and local workspace files editable", () => {
+    const dispatch = JSON.stringify({ source: "dispatch-workspace-resource" });
+    const local = JSON.stringify({ source: "local-workspace-resource" });
+    expect(isResourceRowReadOnly("workspace", meta(dispatch), true)).toBe(true);
+    expect(isResourceRowReadOnly("workspace", meta("{bad json"), true)).toBe(
+      true,
+    );
+    expect(isResourceRowReadOnly("workspace", meta(local), false)).toBe(false);
+  });
+});
+
+describe("ResourcesPanel storage retries", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    storageMocks.status = { isError: true, isSuccess: false };
+    storageMocks.refetch.mockReset();
+    storageMocks.upload.mockReset();
+    storageMocks.open = false;
+    storageMocks.retry = null;
+    storageMocks.dismiss = null;
+    storageMocks.setup = null;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean })
+      .IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  function renderPanel() {
+    act(() =>
+      root.render(
+        createElement(ResourcesPanel, {
+          scope: "personal",
+          showOnlyRequestedScope: true,
+          resourceFilter: "instructions",
+          showMcpServers: false,
+        }),
+      ),
+    );
+  }
+
+  async function chooseFile(file: File) {
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error("file input not rendered");
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+  }
+
+  it("retries queued uploads once and drops them on dismissal", async () => {
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } })
+      .mockResolvedValueOnce({ isError: true });
+    renderPanel();
+    await chooseFile(new File(["image"], "image.png", { type: "image/png" }));
+
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+    expect(storageMocks.retry).not.toBeNull();
+    act(() => storageMocks.retry?.());
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    renderPanel();
+
+    expect(storageMocks.refetch).toHaveBeenCalledTimes(2);
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+    expect(
+      (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
+    ).toBe("image.png");
+
+    storageMocks.status = { isError: true, isSuccess: false };
+    renderPanel();
+    await chooseFile(new File(["image"], "image.png", { type: "image/png" }));
+    expect(storageMocks.dismiss).not.toBeNull();
+    act(() => storageMocks.dismiss?.());
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    renderPanel();
+
+    expect(storageMocks.refetch).toHaveBeenCalledTimes(3);
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not queue a batch after a successful status probe", async () => {
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } })
+      .mockResolvedValueOnce({ isError: true })
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } });
+    renderPanel();
+    await chooseFile(
+      new File(["success"], "success.png", { type: "image/png" }),
+    );
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+
+    storageMocks.status = { isError: true, isSuccess: false };
+    renderPanel();
+    await chooseFile(new File(["retry"], "retry.png", { type: "image/png" }));
+    act(() => storageMocks.retry?.());
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(
+      storageMocks.upload.mock.calls.map(
+        ([formData]) => (formData.get("file") as File).name,
+      ),
+    ).toEqual(["success.png", "retry.png"]);
+  });
+
+  it("flushes an earlier failed batch when a later probe succeeds", async () => {
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } });
+    renderPanel();
+    await chooseFile(
+      new File(["earlier"], "earlier.png", { type: "image/png" }),
+    );
+    await chooseFile(new File(["later"], "later.png", { type: "image/png" }));
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(
+      storageMocks.upload.mock.calls.map(
+        ([formData]) => (formData.get("file") as File).name,
+      ),
+    ).toEqual(["earlier.png", "later.png"]);
+  });
+
+  it("ignores an older probe after a later probe uploads both batches", async () => {
+    let rejectEarlierProbe!: (error: Error) => void;
+    let resolveLaterProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    storageMocks.refetch
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectEarlierProbe = reject;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLaterProbe = resolve;
+          }),
+      );
+    renderPanel();
+    await chooseFile(
+      new File(["earlier"], "earlier.png", { type: "image/png" }),
+    );
+    await chooseFile(new File(["later"], "later.png", { type: "image/png" }));
+
+    await act(async () => {
+      resolveLaterProbe({ isError: false, data: { configured: true } });
+      storageMocks.status = {
+        data: { configured: true },
+        isError: false,
+        isSuccess: true,
+      };
+      await Promise.resolve();
+    });
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(storageMocks.open).toBe(false);
+
+    await act(async () => {
+      rejectEarlierProbe(new Error("probe failed"));
+      await Promise.resolve();
+    });
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(storageMocks.open).toBe(false);
+  });
+
+  it("resumes queued uploads after storage is configured in settings", async () => {
+    storageMocks.refetch.mockResolvedValueOnce({ isError: true });
+    renderPanel();
+    await chooseFile(new File(["notes"], "notes.png", { type: "image/png" }));
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    act(() => {
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+    });
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+    expect(
+      (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
+    ).toBe("notes.png");
+  });
+
+  it("invalidates in-flight probes when custom setup opens and keeps their files", async () => {
+    let resolveProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveProbe = resolve;
+          }),
+      );
+    renderPanel();
+    await chooseFile(new File(["queued"], "queued.png", { type: "image/png" }));
+    await chooseFile(
+      new File(["inflight"], "inflight.png", { type: "image/png" }),
+    );
+    act(() => storageMocks.setup?.());
+
+    await act(async () => {
+      resolveProbe({ isError: true });
+      await Promise.resolve();
+    });
+    renderPanel();
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    act(() => {
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+    });
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(
+      storageMocks.upload.mock.calls.map(
+        ([formData]) => (formData.get("file") as File).name,
+      ),
+    ).toEqual(["queued.png", "inflight.png"]);
+  });
+
+  it("ignores an upload probe after its attempt was dismissed", async () => {
+    let resolveDismissedProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    let resolveCurrentProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDismissedProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCurrentProbe = resolve;
+          }),
+      );
+    renderPanel();
+    await chooseFile(new File(["old"], "old.png", { type: "image/png" }));
+    await chooseFile(
+      new File(["dismissed"], "dismissed.png", { type: "image/png" }),
+    );
+    act(() => storageMocks.dismiss?.());
+    await chooseFile(
+      new File(["current"], "current.png", { type: "image/png" }),
+    );
+
+    await act(async () => {
+      resolveDismissedProbe({ isError: false, data: { configured: true } });
+      storageMocks.status = {
+        data: { configured: true },
+        isError: false,
+        isSuccess: true,
+      };
+      await Promise.resolve();
+    });
+    renderPanel();
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCurrentProbe({ isError: false, data: { configured: true } });
+      await Promise.resolve();
+    });
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+    expect(
+      (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
+    ).toBe("current.png");
+  });
+});
+
+describe("resourcePackPrefixForView", () => {
+  it("scopes a pack export to the open collection", () => {
+    expect(resourcePackPrefixForView("memory")).toBe("memory/");
+    expect(resourcePackPrefixForView("skills")).toBe("skills/");
+    expect(resourcePackPrefixForView("agents")).toBe("agents/");
+    expect(resourcePackPrefixForView("files")).toBeUndefined();
+    expect(resourcePackPrefixForView(undefined)).toBeUndefined();
+  });
+});
+
+describe("resourcePackImportToast", () => {
+  function translate(key: string, values?: Record<string, unknown>) {
+    if (key === "agentResources.importPackSuccess") {
+      return `Imported ${values?.imported} files, skipped ${values?.skipped}`;
+    }
+    if (key === "agentResources.importPackFailed")
+      return "Could not import pack";
+    return key;
+  }
+
+  it("reports a complete import as success", () => {
+    expect(
+      resourcePackImportToast(
+        { imported: 2, skipped: 1, errors: [] },
+        translate,
+      ),
+    ).toEqual({
+      kind: "ok",
+      message: "Imported 2 files, skipped 1",
+    });
+  });
+
+  it("reports per-file failures instead of a success toast", () => {
+    const toast = resourcePackImportToast(
+      {
+        imported: 1,
+        skipped: 0,
+        errors: [
+          { path: "blocked.md", error: "not allowed" },
+          { path: "other.md", error: "missing" },
+        ],
+      },
+      translate,
+    );
+
+    expect(toast.kind).toBe("err");
+    expect(toast.message).toContain("Imported 1 files, skipped 0");
+    expect(toast.message).toContain("Could not import pack (2)");
+    expect(toast.message).toContain("blocked.md: not allowed");
+    expect(toast.message).toContain("other.md: missing");
   });
 });

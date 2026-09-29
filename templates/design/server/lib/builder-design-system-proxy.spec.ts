@@ -1,18 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isBuilderDesignSystemReady,
-  reconcileBuilderProxyData,
-} from "./builder-design-system-proxy.js";
-
-describe("isBuilderDesignSystemReady", () => {
-  it("does not treat an in-progress DSI job as a usable default", () => {
-    expect(isBuilderDesignSystemReady("in-progress")).toBe(false);
-    expect(isBuilderDesignSystemReady("ready")).toBe(true);
-    expect(isBuilderDesignSystemReady("complete")).toBe(true);
-    expect(isBuilderDesignSystemReady("completed")).toBe(true);
-  });
-});
+import { reconcileBuilderProxyData } from "./builder-design-system-proxy.js";
 
 describe("reconcileBuilderProxyData", () => {
   const reference = {
@@ -70,6 +58,7 @@ describe("reconcileBuilderProxyData", () => {
     const data = JSON.parse(result!.data) as Record<string, any>;
     expect(data.builderStatus).toBe("ready");
     expect(data.builderSyncedAt).toBe("2026-08-21T00:00:00.000Z");
+    expect(data.docCount).toBe(1);
     expect(data.colors).toMatchObject({
       primary: "#123456",
       accent: "#abcdef",
@@ -128,12 +117,12 @@ describe("reconcileBuilderProxyData", () => {
     expect(data.colors.primary).toBe("var(--primary)");
   });
 
-  it("keeps valid tokens in progress until Builder confirms completion", () => {
+  it("keeps valid tokens in progress until Builder reports a document", () => {
     const result = reconcileBuilderProxyData(
       JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
       {
         ...reference,
-        completionConfirmed: false,
+        docCount: 0,
         tokenValues: { "--brand-primary": "#123456" },
       },
       "2026-08-21T00:00:00.000Z",
@@ -146,7 +135,28 @@ describe("reconcileBuilderProxyData", () => {
     });
     const data = JSON.parse(result!.data) as Record<string, any>;
     expect(data.builderStatus).toBe("in-progress");
+    expect(data.docCount).toBe(0);
     expect(data.builderSyncedAt).toBeUndefined();
+  });
+
+  it("marks a stale in-progress status ready once documents exist", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
+      {
+        ...reference,
+        builderStatus: "in-progress",
+        completionConfirmed: false,
+        docCount: 12,
+        tokenValues: { "--brand-primary": "#123456" },
+      },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    expect(result).toMatchObject({ completionConfirmed: true });
+    const data = JSON.parse(result!.data) as Record<string, any>;
+    expect(data.builderStatus).toBe("ready");
+    expect(data.docCount).toBe(12);
+    expect(data.builderSyncedAt).toBe("2026-08-21T00:00:00.000Z");
   });
 
   it("chooses semantic color shades and explicit font-family tokens", () => {

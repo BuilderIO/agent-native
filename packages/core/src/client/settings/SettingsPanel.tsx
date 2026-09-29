@@ -42,6 +42,7 @@ import {
   IconUsersGroup,
   IconTool,
   IconAlertCircle,
+  IconSearch,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -53,6 +54,11 @@ import React, {
   useRef,
 } from "react";
 
+import {
+  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  CHATGPT_SUBSCRIPTION_LAB_KEY,
+} from "../../agent/chatgpt-subscription-contract.js";
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import {
   buildSettingsRoute,
@@ -60,8 +66,10 @@ import {
 } from "../../navigation/index.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import {
+  fetchOllamaModels,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
+  type AgentEngineDefaultModelOutcome,
 } from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import {
@@ -72,6 +80,10 @@ import {
 } from "../agent-provider-catalog.js";
 import { agentNativePath, appMountedPath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
+import {
+  usesLiveOllamaModels,
+  type ChatModelSelectionState,
+} from "../chat-model-groups.js";
 import {
   fetchAgentEngineStatus,
   fetchEnvironmentStatus,
@@ -87,11 +99,14 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useOptionalLocale, useT } from "../i18n.js";
+import { useLabState } from "../labs/use-lab.js";
+import { openOAuthPopup } from "../oauth-popup.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectionMenu } from "../setup-connections/BuilderConnectCard.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
@@ -102,13 +117,13 @@ import {
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
 } from "./agent-settings-search.js";
+import { AgentPersonalizationSettings } from "./AgentPersonalizationSettings.js";
+import { AgentProviderPicker } from "./AgentProviderPicker.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
-import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
-import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
-import { AgentProviderPicker } from "./ProviderSetupForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -119,8 +134,12 @@ import {
 } from "./SettingsSection.js";
 import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
+import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
+import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
 import {
+  isPopupClosed,
+  POPUP_CLOSED_CONFIRMATION_GRACE_MS,
   type BuilderConnectFlow,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -130,23 +149,6 @@ import {
   useSettingsPanelController,
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
-
-const Button = React.forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "SettingsPrimitiveButton";
-
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
@@ -190,19 +192,14 @@ const CONTROL_STYLE_PAGE = {
   lineHeight: 1.2,
 } satisfies React.CSSProperties;
 
-// Surface-aware class helpers so section bodies (shared with the compact
-// sidebar) read as roomy, shadcn-style forms on the full settings page while
-// staying dense in the sidebar.
 function fieldLabelClass(isPage: boolean): string {
   return cn("font-medium text-foreground", isPage ? "text-sm" : "text-[12px]");
 }
 
-// Secondary label / row-title size (e.g. "This app", provider names).
 function subTextClass(isPage: boolean): string {
   return isPage ? "text-sm" : "text-[11px]";
 }
 
-// Helper / hint / status note size.
 function noteTextClass(isPage: boolean): string {
   return isPage ? "text-xs" : "text-[10px]";
 }
@@ -283,8 +280,6 @@ function SettingsSelect({
   );
 }
 
-// ─── "Connect Builder.io" card (shared across all sections) ─────────────────
-
 function UseBuilderCard({
   builderFlow,
   connectUrl,
@@ -310,7 +305,6 @@ function UseBuilderCard({
   label?: string;
   subtitle?: string;
   dim?: boolean;
-  /** Use a Codex-style row when this card is the primary action in a page section. */
   compact?: boolean;
 }) {
   const isPage = useSettingsSurface() === "page";
@@ -380,7 +374,7 @@ function UseBuilderCard({
 
   if (compact) {
     return (
-      <BuilderConnectPopover
+      <DeferredBuilderConnectPopover
         flow={builderFlow}
         onConnect={(provisionAccount) =>
           builderFlow.start({
@@ -402,7 +396,7 @@ function UseBuilderCard({
             <IconLoader2 size={14} className="animate-spin" />
           ) : null}
         </Button>
-      </BuilderConnectPopover>
+      </DeferredBuilderConnectPopover>
     );
   }
 
@@ -455,7 +449,7 @@ function UseBuilderCard({
           )}
         </div>
       </div>
-      <BuilderConnectPopover
+      <DeferredBuilderConnectPopover
         flow={builderFlow}
         onConnect={(provisionAccount) =>
           builderFlow.start({
@@ -480,12 +474,10 @@ function UseBuilderCard({
             <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
           ) : null}
         </Button>
-      </BuilderConnectPopover>
+      </DeferredBuilderConnectPopover>
     </div>
   );
 }
-
-// ─── Manual setup card ──────────────────────────────────────────────────────
 
 function ManualSetupCard({
   id,
@@ -508,15 +500,10 @@ function ManualSetupCard({
   docsLabel?: string;
   children?: React.ReactNode;
   dim?: boolean;
-  /** Optional "Connected via X" badge shown in the header row. */
   sourceBadge?: string;
-  /** Render the form without another card surface when used in a popover. */
   bare?: boolean;
-  /** Show only a Manage trigger and progressively disclose the form. */
   popover?: boolean;
-  /** Label for the trigger when the form is shown in a popover. */
   popoverLabel?: string;
-  /** Optional connection summary shown above the setup content. */
   summaryContent?: React.ReactNode;
 }) {
   const isPage = useSettingsSurface() === "page";
@@ -591,20 +578,19 @@ function ManualSetupCard({
   );
 }
 
-// ─── LLM helpers ────────────────────────────────────────────────────────────
-
-function friendlyModelName(model: string): string {
+export function friendlyModelName(model: string): string {
   if (model === "z-ai/glm-5.2") return "GLM 5.2";
-  const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
+  const normalizedModel = model.replace(/^(?:anthropic|openai)\//, "");
+  const claude = normalizedModel.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
     return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  if (model.startsWith("gpt-")) {
-    const rest = model.slice(4);
-    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
+  if (normalizedModel.startsWith("gpt-")) {
+    const rest = normalizedModel.slice(4);
+    const gpt = rest.match(/^(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
     if (gpt) {
       const suffix = gpt[3]
         ? ` ${gpt[3]
@@ -612,11 +598,12 @@ function friendlyModelName(model: string): string {
             .map((part) => part[0].toUpperCase() + part.slice(1))
             .join(" ")}`
         : "";
-      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
+      const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
+      return `GPT-${version}${suffix}`;
     }
     return `GPT-${rest}`;
   }
-  if (/^o\d/.test(model)) return model;
+  if (/^o\d/.test(normalizedModel)) return normalizedModel;
   const geminiVersioned = model.match(
     /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
   );
@@ -679,7 +666,9 @@ function computeSourceBadge(args: {
 function latestModelsOnly(models: string[]): string[] {
   const seen = new Set<string>();
   return models.filter((m) => {
-    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
+    const claude = m
+      .replace(/^anthropic\//, "")
+      .match(/^claude-(opus|sonnet|haiku)-/);
     if (claude) {
       if (seen.has(claude[1])) return false;
       seen.add(claude[1]);
@@ -718,10 +707,6 @@ export function AppDefaultModelField({
     (model) => ({ value: model, label: friendlyModelName(model) }),
   );
 
-  // Builder models are a closed catalog (and are validated server-side), so a
-  // real select keeps every available model visible even when one is already
-  // selected. Native datalists filter against the current input value, which
-  // made this field appear to contain only the active model.
   if (engine === "builder" && modelOptions.length > 0) {
     return (
       <SettingsSelect
@@ -769,8 +754,6 @@ export function AppDefaultModelField({
   );
 }
 
-// ─── LLM Section ────────────────────────────────────────────────────────────
-
 interface EngineInfo {
   name: string;
   label: string;
@@ -782,6 +765,7 @@ interface EngineInfo {
   installPackage?: string;
   packageInstalled?: boolean;
   configured?: boolean;
+  modelSelection?: ChatModelSelectionState;
 }
 
 const PROVIDER_DOCS: Record<string, string> = {
@@ -794,6 +778,277 @@ const PROVIDER_DOCS: Record<string, string> = {
   "ai-sdk:mistral": "https://console.mistral.ai/api-keys/",
   "ai-sdk:cohere": "https://dashboard.cohere.com/api-keys",
 };
+
+interface ChatGPTSubscriptionStatus {
+  connected: boolean;
+  reconnectRequired: boolean;
+}
+
+function ChatGPTSubscriptionCard({
+  currentEngine,
+  canUpdateDefault,
+  onConfigured,
+  grouped = false,
+}: {
+  currentEngine: string;
+  /** "Use in chat" changes the default model, so it needs owner/admin. */
+  canUpdateDefault: boolean | null;
+  onConfigured: () => void;
+  grouped?: boolean;
+}) {
+  const isPage = useSettingsSurface() === "page";
+  const t = useT();
+  const lab = useLabState(CHATGPT_SUBSCRIPTION_LAB_KEY);
+  const [status, setStatus] = useState<ChatGPTSubscriptionStatus | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const popupClosedAtRef = useRef<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = (await callAction(
+        "get-chatgpt-subscription-status" as any,
+        {} as any,
+        { method: "GET" },
+      )) as ChatGPTSubscriptionStatus;
+      setStatus(next);
+      return next;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (lab.isSuccess && lab.enabled) void refresh();
+  }, [lab.enabled, lab.isSuccess, refresh]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.origin === window.location.origin &&
+        event.data?.type === "agent-native-chatgpt-subscription-connected"
+      ) {
+        popupRef.current = null;
+        popupClosedAtRef.current = null;
+        setConnecting(false);
+        void refresh().then((next) => {
+          if (next?.connected) onConfigured();
+        });
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [onConfigured, refresh]);
+
+  useEffect(() => {
+    if (!connecting || !popupRef.current) return;
+    const timer = window.setInterval(() => {
+      if (!isPopupClosed(popupRef.current)) return;
+      popupClosedAtRef.current ??= Date.now();
+      if (
+        Date.now() - popupClosedAtRef.current <=
+        POPUP_CLOSED_CONFIRMATION_GRACE_MS
+      ) {
+        return;
+      }
+      window.clearInterval(timer);
+      popupRef.current = null;
+      popupClosedAtRef.current = null;
+      setConnecting(false);
+      void refresh().then((next) => {
+        if (next?.connected) onConfigured();
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [connecting, onConfigured, refresh]);
+
+  const connect = useCallback(() => {
+    setError(null);
+    const popup = openOAuthPopup({
+      initialUrl: agentNativePath(
+        "/_agent-native/agent-engine/chatgpt-subscription/start",
+      ),
+      features: "popup,width=520,height=720",
+    });
+    if (!popup) {
+      setError(
+        t("agentPanel.chatgptSubscriptionPopupBlocked", {
+          defaultValue: "Allow pop-ups for this site, then try again.",
+        }),
+      );
+      return;
+    }
+    popupRef.current = popup;
+    popupClosedAtRef.current = null;
+    setConnecting(true);
+  }, [t]);
+
+  const disconnect = useCallback(async () => {
+    setError(null);
+    try {
+      await callAction("disconnect-chatgpt-subscription" as any, {} as any);
+      setStatus({ connected: false, reconnectRequired: false });
+      onConfigured();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [onConfigured]);
+
+  const selectSubscriptionEngine = useCallback(async () => {
+    setError(null);
+    try {
+      await callAction(
+        "manage-agent-engine" as any,
+        {
+          action: "set",
+          engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+          model: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
+        } as any,
+      );
+      onConfigured();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [onConfigured]);
+
+  if (!lab.isSuccess || !lab.enabled) return null;
+
+  const connected = status?.connected === true;
+  const inUse = currentEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
+  const title = t("agentPanel.chatgptSubscriptionTitle", {
+    defaultValue: "ChatGPT subscription",
+  });
+  const description = t("agentPanel.chatgptSubscriptionDescription", {
+    defaultValue:
+      "Experimental Codex access through your ChatGPT subscription.",
+  });
+  const statusLabel = connected ? (
+    <span className="flex shrink-0 items-center gap-1 text-primary">
+      <IconCheck size={isPage ? 14 : 11} />
+      {inUse
+        ? t("agentPanel.chatgptSubscriptionInUse", {
+            defaultValue: "In use",
+          })
+        : t("agentPanel.chatgptSubscriptionConnected", {
+            defaultValue: "Connected",
+          })}
+    </span>
+  ) : null;
+  const actions = !connected ? (
+    <Button
+      type="button"
+      intent="primary"
+      emphasis="solid"
+      onClick={connect}
+      disabled={connecting}
+      className={cn(
+        "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-70",
+        isPage ? "text-sm" : "text-[11px]",
+      )}
+    >
+      {connecting
+        ? t("agentPanel.chatgptSubscriptionConnecting", {
+            defaultValue: "Connecting…",
+          })
+        : status?.reconnectRequired
+          ? t("agentPanel.chatgptSubscriptionReconnect", {
+              defaultValue: "Reconnect",
+            })
+          : t("agentPanel.chatgptSubscriptionConnect", {
+              defaultValue: "Connect ChatGPT",
+            })}
+    </Button>
+  ) : (
+    <>
+      {!inUse && canUpdateDefault !== false ? (
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          onClick={() => void selectSubscriptionEngine()}
+          className={cn(
+            "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90",
+            isPage ? "text-sm" : "text-[11px]",
+          )}
+        >
+          {t("agentPanel.chatgptSubscriptionUse", {
+            defaultValue: "Use in chat",
+          })}
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        intent="neutral"
+        emphasis="outline"
+        onClick={() => void disconnect()}
+        className={cn(
+          "rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent/40",
+          isPage ? "text-sm" : "text-[11px]",
+        )}
+      >
+        {t("agentPanel.chatgptSubscriptionDisconnect", {
+          defaultValue: "Disconnect",
+        })}
+      </Button>
+    </>
+  );
+
+  if (isPage) {
+    return (
+      <SettingsRow
+        className={cn(grouped ? "border-b border-border/60" : "-mx-5 sm:-mx-6")}
+        label={title}
+        description={description}
+        status={statusLabel}
+        control={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {actions}
+          </div>
+        }
+      >
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </SettingsRow>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-border bg-accent/20",
+        isPage ? "px-4 py-3.5" : "px-3 py-3",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p
+            className={cn("font-medium text-foreground", subTextClass(isPage))}
+          >
+            {title}
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 text-muted-foreground",
+              noteTextClass(isPage),
+            )}
+          >
+            {description}
+          </p>
+        </div>
+        {statusLabel}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        {actions}
+      </div>
+      {error ? (
+        <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 function LLMSectionInner({
   builderFlow,
@@ -853,6 +1108,10 @@ function LLMSectionInner({
   const [applyNote, setApplyNote] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // null until the catalog answers; the server enforces it either way.
+  const [canUpdateDefault, setCanUpdateDefault] = useState<boolean | null>(
+    null,
+  );
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
     | { ok: true; latencyMs: number; model: string }
@@ -869,6 +1128,11 @@ function LLMSectionInner({
   const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(
+    null,
+  );
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
 
   const initialLoading = !enginesLoaded || !!builderLoading;
 
@@ -960,10 +1224,16 @@ function LLMSectionInner({
           const engineData = data as {
             engines?: EngineInfo[];
             current?: { engine?: string; model?: string };
+            canUpdateDefault?: boolean;
           };
           if (!Array.isArray(engineData.engines)) return;
           setEngines(engineData.engines);
           setEngineCatalogAvailable(true);
+          setCanUpdateDefault(
+            typeof engineData.canUpdateDefault === "boolean"
+              ? engineData.canUpdateDefault
+              : null,
+          );
           const cur = engineData.current ?? {};
           setSelectionState((previous) => {
             const dirty =
@@ -999,7 +1269,11 @@ function LLMSectionInner({
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
-  const selectedProvider = providerIdForEngine(selectedEngine) ?? "anthropic";
+  const selectedProvider =
+    providerIdForEngine(selectedEngine) ??
+    (selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+      ? "openai"
+      : "anthropic");
   const selectedProviderOption = getAgentProviderOption(selectedProvider);
   const envVar = selectedProviderOption.key;
   const selectedEnginePackageInstalled =
@@ -1072,28 +1346,85 @@ function LLMSectionInner({
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
   const isEndpointProvider = selectedProviderOption.supportsEndpoint === true;
+  const isOllama = selectedProvider === "ollama";
   const endpointChanged =
     isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
+  // Saving picks the provider too, so there is no separate Apply step. Only
+  // owners and admins change the organization's default model.
+  const canSelectDefault = engineChanged && canUpdateDefault !== false;
+  const keyEntryVisible = !!envVar && !(envConfigured || settingsConfigured);
+  const {
+    scope: keySaveScope,
+    roleUnavailable: keySaveRoleUnavailable,
+    retry: retryKeySaveRole,
+  } = useProviderKeySaveScope();
+
+  const handleFindOllamaModels = () => {
+    setOllamaModelsLoading(true);
+    setOllamaModelsError(null);
+    const typedEndpoint = baseUrl.trim();
+    void fetchOllamaModels(typedEndpoint || undefined)
+      .then(async (models) => {
+        setOllamaModels(models);
+        setOllamaModelsError(null);
+        if (typedEndpoint && keySaveScope) {
+          try {
+            await saveAgentEngineProviderSettings({
+              provider: selectedProvider,
+              ...(envVar ? { key: envVar } : {}),
+              baseUrl: typedEndpoint,
+              scope: keySaveScope,
+            });
+            setBaseUrlConfigured(true);
+          } catch {
+            // coercion-ok: the connectivity check itself still succeeded and
+            // the found models are shown; the address just wasn't persisted
+            // (e.g. a dropped session). The "Save endpoint" button below
+            // retries it, so this is never reported as a clean success.
+          }
+        }
+      })
+      .catch((err) => {
+        setOllamaModels(null);
+        setOllamaModelsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setOllamaModelsLoading(false));
+  };
 
   const modelOptions: SettingsSelectOption[] = (
     selectedEngineInfo?.supportedModels ?? []
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
-    if (!providerSettingsChanged || (!envVar && !isEndpointProvider)) return;
+    if (
+      !keySaveScope ||
+      !providerSettingsChanged ||
+      (!envVar && !isEndpointProvider)
+    ) {
+      return;
+    }
     setSaving(true);
     setProviderSettingsError(null);
     try {
       const nextBaseUrl = isEndpointProvider ? baseUrl.trim() : "";
-      await saveAgentEngineProviderSettings({
+      const result = await saveAgentEngineProviderSettings({
         provider: selectedProvider,
         ...(envVar ? { key: envVar } : {}),
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
-        scope: "org",
+        scope: keySaveScope,
+        ...(canSelectDefault
+          ? {
+              defaultModel: {
+                engine: selectedEngine,
+                model: selectedModel || selectedEngineInfo?.defaultModel,
+              },
+            }
+          : {}),
       });
+      applyDefaultModelOutcome(result.defaultModel);
       setSaved(true);
       setSelectionState((previous) => ({
         ...previous,
@@ -1155,8 +1486,6 @@ function LLMSectionInner({
           model: selectedModel || selectedEngineInfo?.defaultModel,
         } as any,
       );
-      // Older action paths wrapped tool output in { result }. Accept either
-      // shape while the action route normalizes JSON-string script output.
       const parsed =
         typeof data === "string"
           ? JSON.parse(data)
@@ -1185,25 +1514,40 @@ function LLMSectionInner({
     }
   };
 
-  const handleApply = async () => {
+  const showSavedSelection = (selection: { engine: string; model: string }) => {
+    setSelectionState((previous) => ({
+      ...previous,
+      currentEngine: selection.engine,
+      currentModel: selection.model,
+      selectedEngine: selection.engine,
+      selectedModel: selection.model,
+    }));
+    setApplyNote(true);
+    setTimeout(() => setApplyNote(false), 4000);
+  };
+
+  const applyDefaultModelOutcome = (
+    outcome: AgentEngineDefaultModelOutcome | undefined,
+  ) => {
+    setApplyError(null);
+    setApplyNote(false);
+    if (outcome?.status === "selected") showSavedSelection(outcome);
+    else if (outcome?.status === "failed") setApplyError(outcome.error);
+  };
+
+  // A provider that needs no new key or endpoint: saving only picks it.
+  const handleSaveSelection = async () => {
     if (applying) return;
     setApplying(true);
     setApplyError(null);
     setApplyNote(false);
     try {
-      const selection = await setAgentEngineProvider({
-        provider: selectedProvider,
-        model: selectedModel,
-      });
-      setSelectionState((previous) => ({
-        ...previous,
-        currentEngine: selection.engine,
-        currentModel: selection.model,
-        selectedEngine: selection.engine,
-        selectedModel: selection.model,
-      }));
-      setApplyNote(true);
-      setTimeout(() => setApplyNote(false), 4000);
+      showSavedSelection(
+        await setAgentEngineProvider({
+          provider: selectedProvider,
+          model: selectedModel,
+        }),
+      );
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1236,170 +1580,120 @@ function LLMSectionInner({
       {initialLoading ? (
         <SettingsLoadingRow controlCount={2} />
       ) : (
-        <div
-          className={cn(
-            isPage
-              ? "flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
-              : "flex items-center justify-between gap-2",
-          )}
-        >
-          {isPage && (
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">AI provider</p>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                {t("agentPanel.builderOrOwnKeys", {
-                  defaultValue: "Choose Builder.io or custom keys.",
-                })}
-              </p>
-            </div>
-          )}
-          <div className={cn("flex flex-wrap items-center justify-end gap-2")}>
-            {selectedConfigurationKnown && !anyKeyConfigured && (
-              <UseBuilderCard
-                builderFlow={builderFlow}
-                connectUrl={connectUrl}
-                connected={builderConnected}
-                orgName={orgName}
-                envManaged={envManaged}
-                credentialSource={credentialSource}
-                trackingSource="llm_settings"
-                trackingFlow="connect_llm"
-                label="Connect Builder.io"
-                compact
-              />
+        <>
+          <ChatGPTSubscriptionCard
+            currentEngine={currentEngine}
+            canUpdateDefault={canUpdateDefault}
+            onConfigured={notifyConfigChanged}
+            grouped={isPage && grouped}
+          />
+          <div
+            className={cn(
+              isPage
+                ? "flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
+                : "flex items-center justify-between gap-2",
             )}
-            <ManualSetupCard
-              id="llm-manual-setup"
-              title="Custom keys"
-              hint={manualSetupHint}
-              sourceBadge={
-                builderConnected || engineChanged || !anyKeyConfigured
-                  ? undefined
-                  : sourceBadge
-              }
-              bare={isPage}
-              popover
-              popoverLabel={
-                settingsConfigured
-                  ? "Manage"
-                  : t("agentPanel.addOwnKeys", {
-                      defaultValue: "Custom keys",
-                    })
-              }
-              summaryContent={
-                selectedConfigurationKnown && anyKeyConfigured ? (
-                  <UseBuilderCard
-                    builderFlow={builderFlow}
-                    connectUrl={connectUrl}
-                    connected={builderConnected}
-                    orgName={orgName}
-                    envManaged={envManaged}
-                    credentialSource={credentialSource}
-                    trackingSource="llm_settings"
-                    trackingFlow="connect_llm"
-                    label="Connect Builder.io"
-                  />
-                ) : undefined
-              }
+          >
+            {isPage && (
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  AI provider
+                </p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  {t("agentPanel.builderOrOwnKeys", {
+                    defaultValue: "Choose Builder.io or custom keys.",
+                  })}
+                </p>
+              </div>
+            )}
+            <div
+              className={cn("flex flex-wrap items-center justify-end gap-2")}
             >
-              <fieldset disabled={applying} className="space-y-2 mb-1">
-                <AgentProviderPicker
-                  value={selectedProvider}
-                  configuredProviders={
-                    configurationKnown ? configuredProviderIds : undefined
-                  }
-                  layout={isPage ? "page" : "compact"}
-                  onChange={(provider) => {
-                    const option = getAgentProviderOption(provider);
-                    setSelectionState((previous) => ({
-                      ...previous,
-                      selectedEngine: option.engine,
-                      selectedModel: option.defaultModel,
-                      apiKey: "",
-                      baseUrl: "",
-                      clearBaseUrl: false,
-                    }));
-                    setAdvancedOpen(false);
-                    setApplyError(null);
-                    setApplyNote(false);
-                    setTestResult(null);
-                  }}
+              {selectedConfigurationKnown && !anyKeyConfigured && (
+                <UseBuilderCard
+                  builderFlow={builderFlow}
+                  connectUrl={connectUrl}
+                  connected={builderConnected}
+                  orgName={orgName}
+                  envManaged={envManaged}
+                  credentialSource={credentialSource}
+                  trackingSource="llm_settings"
+                  trackingFlow="connect_llm"
+                  label="Connect Builder.io"
+                  compact
                 />
-
-                {/* Catalog entries are suggestions; every provider also accepts
-                a model ID typed here so new releases need no UI update. */}
-                <div className="space-y-1.5">
-                  <p className={fieldLabelClass(isPage)}>Model</p>
-                  <input
-                    type="text"
-                    list={`model-suggestions-${selectedEngine}`}
-                    value={selectedModel}
-                    onChange={(e) => {
-                      const model = e.target.value;
+              )}
+              <ManualSetupCard
+                id="llm-manual-setup"
+                title="Custom keys"
+                hint={manualSetupHint}
+                sourceBadge={
+                  builderConnected || engineChanged || !anyKeyConfigured
+                    ? undefined
+                    : sourceBadge
+                }
+                bare={isPage}
+                popover
+                popoverLabel={
+                  settingsConfigured
+                    ? "Manage"
+                    : t("agentPanel.addOwnKeys", {
+                        defaultValue: "Custom keys",
+                      })
+                }
+                summaryContent={
+                  selectedConfigurationKnown && anyKeyConfigured ? (
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={builderConnected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="llm_settings"
+                      trackingFlow="connect_llm"
+                      label="Connect Builder.io"
+                    />
+                  ) : undefined
+                }
+              >
+                <fieldset disabled={applying} className="space-y-2 mb-1">
+                  <AgentProviderPicker
+                    value={selectedProvider}
+                    configuredProviders={
+                      configurationKnown ? configuredProviderIds : undefined
+                    }
+                    layout={isPage ? "page" : "compact"}
+                    onChange={(provider) => {
+                      const option = getAgentProviderOption(provider);
                       setSelectionState((previous) => ({
                         ...previous,
-                        selectedModel: model,
+                        selectedEngine: option.engine,
+                        selectedModel: option.defaultModel,
+                        apiKey: "",
+                        baseUrl: "",
+                        clearBaseUrl: false,
                       }));
+                      setAdvancedOpen(false);
                       setApplyError(null);
                       setApplyNote(false);
                       setTestResult(null);
+                      setOllamaModels(null);
+                      setOllamaModelsError(null);
                     }}
-                    placeholder={
-                      selectedEngineInfo?.defaultModel ?? "e.g. model-id"
-                    }
-                    spellCheck={false}
-                    autoComplete="off"
-                    className={textInputClass(isPage)}
-                    style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
                   />
-                  {modelOptions.length > 0 && (
-                    <datalist id={`model-suggestions-${selectedEngine}`}>
-                      {modelOptions.map((opt) => (
-                        <option
-                          key={opt.value}
-                          value={opt.value}
-                          label={opt.label}
-                        />
-                      ))}
-                    </datalist>
-                  )}
-                </div>
 
-                {isEndpointProvider && (
-                  <div className="border-t border-border/70 pt-2">
-                    <Button
-                      type="button"
-                      onClick={() => setAdvancedOpen((v) => !v)}
-                      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
-                    >
-                      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
-                        {advancedOpen ? (
-                          <IconChevronDown size={12} />
-                        ) : (
-                          <IconChevronRight
-                            size={12}
-                            className="rtl:-scale-x-100"
-                          />
-                        )}
-                        Advanced
-                      </span>
-                      <span className="truncate text-[10px] text-muted-foreground">
-                        {selectedProvider === "ollama"
-                          ? "Local Ollama endpoint"
-                          : "OpenAI-compatible endpoint"}
-                      </span>
-                    </Button>
-
-                    {advancedOpen && (
-                      <div className="mt-1.5 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[12px] font-medium text-foreground">
-                            Endpoint URL
-                          </p>
-                          <span className="text-[10px] text-muted-foreground">
-                            {baseUrlConfigured ? "Configured" : "Optional"}
-                          </span>
-                        </div>
+                  {isOllama && isEndpointProvider ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[12px] font-medium text-foreground">
+                          Endpoint URL
+                        </p>
+                        <span className="text-[10px] text-muted-foreground">
+                          {baseUrlConfigured ? "Configured" : "Optional"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
                         <input
                           type="url"
                           value={baseUrl}
@@ -1412,6 +1706,8 @@ function LLMSectionInner({
                                 ? false
                                 : previous.clearBaseUrl,
                             }));
+                            setOllamaModels(null);
+                            setOllamaModelsError(null);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") void handleSave();
@@ -1419,253 +1715,485 @@ function LLMSectionInner({
                           placeholder={
                             baseUrlConfigured
                               ? "Leave blank to keep current endpoint"
-                              : selectedProvider === "ollama"
-                                ? "http://localhost:11434"
-                                : "https://gateway.example/v1"
+                              : "http://localhost:11434 or local network address like http://192.168.1.123:11434"
                           }
                           disabled={clearBaseUrl}
                           spellCheck={false}
                           autoComplete="off"
-                          className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
+                          className="flex h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
                           style={CONTROL_STYLE}
                         />
-                        {baseUrlConfigured && (
-                          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                            <Checkbox
-                              checked={clearBaseUrl}
-                              onChange={(checked) => {
-                                setSelectionState((previous) => ({
-                                  ...previous,
-                                  clearBaseUrl: checked,
-                                  baseUrl: checked ? "" : previous.baseUrl,
-                                }));
-                              }}
-                              aria-label="Clear saved endpoint override"
-                              className="shrink-0"
-                            />
-                            Clear saved endpoint override
-                          </label>
-                        )}
-                        {endpointChanged && (
-                          <Button
-                            type="button"
-                            intent="neutral"
-                            emphasis="solid"
-                            onClick={handleSave}
-                            disabled={saving}
-                            className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-                          >
-                            {saving ? (
-                              <IconLoader2 size={10} className="animate-spin" />
-                            ) : saved ? (
-                              <IconCheck size={10} />
-                            ) : (
-                              "Save endpoint"
-                            )}
-                          </Button>
-                        )}
+                        <Button
+                          type="button"
+                          intent="neutral"
+                          emphasis="outline"
+                          disabled={
+                            saving || ollamaModelsLoading || clearBaseUrl
+                          }
+                          onClick={handleFindOllamaModels}
+                          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {ollamaModelsLoading ? (
+                            <IconLoader2 size={12} className="animate-spin" />
+                          ) : (
+                            <IconSearch size={12} />
+                          )}
+                          Find models
+                        </Button>
                       </div>
-                    )}
-                  </div>
-                )}
+                      {baseUrlConfigured && (
+                        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <Checkbox
+                            checked={clearBaseUrl}
+                            onChange={(checked) => {
+                              setSelectionState((previous) => ({
+                                ...previous,
+                                clearBaseUrl: checked,
+                                baseUrl: checked ? "" : previous.baseUrl,
+                              }));
+                            }}
+                            aria-label="Clear saved endpoint override"
+                            className="shrink-0"
+                          />
+                          Clear saved endpoint override
+                        </label>
+                      )}
+                      {endpointChanged && (
+                        <Button
+                          type="button"
+                          intent="neutral"
+                          emphasis="solid"
+                          onClick={handleSave}
+                          disabled={saving}
+                          className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                        >
+                          {saving ? (
+                            <IconLoader2 size={10} className="animate-spin" />
+                          ) : saved ? (
+                            <IconCheck size={10} />
+                          ) : (
+                            "Save endpoint"
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ) : null}
 
-                {envVar && (envConfigured || settingsConfigured) ? (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1.5 text-primary",
-                      isPage ? "text-xs" : "text-[10px]",
-                    )}
-                  >
-                    <IconCheck size={isPage ? 14 : 10} />
-                    {settingsStatus?.source === "app_secrets" &&
-                    settingsConfigured
-                      ? "Saved key configured"
-                      : `${envVar} configured`}
-                  </div>
-                ) : envVar ? (
-                  <div className="flex gap-1.5">
+                  {/* Catalog entries are suggestions; every provider also accepts
+                a model ID typed here so new releases need no UI update. */}
+                  <div className="space-y-1.5">
+                    <p className={fieldLabelClass(isPage)}>Model</p>
                     <input
-                      type="password"
-                      value={apiKey}
+                      type="text"
+                      list={
+                        isOllama
+                          ? undefined
+                          : `model-suggestions-${selectedEngine}`
+                      }
+                      value={selectedModel}
                       onChange={(e) => {
-                        const apiKey = e.target.value;
+                        const model = e.target.value;
                         setSelectionState((previous) => ({
                           ...previous,
-                          apiKey,
+                          selectedModel: model,
                         }));
+                        setApplyError(null);
+                        setApplyNote(false);
+                        setTestResult(null);
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void handleSave();
-                      }}
-                      placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
-                      className={cn(textInputClass(isPage), "flex-1")}
-                      style={isPage ? CONTROL_STYLE_PAGE : undefined}
+                      placeholder={
+                        selectedEngineInfo?.defaultModel ?? "e.g. model-id"
+                      }
+                      spellCheck={false}
+                      autoComplete="off"
+                      className={textInputClass(isPage)}
+                      style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
                     />
-                    <Button
-                      intent="primary"
-                      emphasis="solid"
-                      onClick={handleSave}
-                      disabled={!providerSettingsChanged || saving}
-                      className={pillButtonClass(isPage, "solid")}
-                    >
-                      {saving ? (
-                        <IconLoader2
-                          size={isPage ? 14 : 10}
-                          className="animate-spin"
-                        />
-                      ) : saved ? (
-                        <IconCheck size={isPage ? 14 : 10} />
-                      ) : (
-                        "Save"
-                      )}
-                    </Button>
+                    {!isOllama && modelOptions.length > 0 && (
+                      <datalist id={`model-suggestions-${selectedEngine}`}>
+                        {modelOptions.map((opt) => (
+                          <option
+                            key={opt.value}
+                            value={opt.value}
+                            label={opt.label}
+                          />
+                        ))}
+                      </datalist>
+                    )}
+                    {isOllama ? (
+                      <div className="space-y-1.5">
+                        {ollamaModels && ollamaModels.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {ollamaModels.map((modelOption) => (
+                              <Button
+                                key={modelOption}
+                                type="button"
+                                disabled={saving}
+                                onClick={() => {
+                                  setSelectionState((previous) => ({
+                                    ...previous,
+                                    selectedModel: modelOption,
+                                  }));
+                                  setApplyError(null);
+                                  setApplyNote(false);
+                                  setTestResult(null);
+                                }}
+                                aria-pressed={selectedModel === modelOption}
+                                className={cn(
+                                  "rounded-md border px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                                  selectedModel === modelOption
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border bg-background text-foreground hover:bg-accent/40",
+                                )}
+                              >
+                                {modelOption}
+                              </Button>
+                            ))}
+                          </div>
+                        ) : null}
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">
+                          {ollamaModelsLoading
+                            ? "Checking installed models…"
+                            : ollamaModels && ollamaModels.length > 0
+                              ? `Found ${ollamaModels.length} installed model${ollamaModels.length === 1 ? "" : "s"}.`
+                              : ollamaModels
+                                ? "Connected, but no models are pulled yet — run `ollama pull llama3.1`."
+                                : ollamaModelsError
+                                  ? `${ollamaModelsError} Showing example model names below.`
+                                  : 'Click "Find models" above to list what your Ollama server actually has installed.'}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    intent="neutral"
-                    emphasis="outline"
-                    onClick={handleTest}
-                    disabled={
-                      testing ||
-                      !selectedConfigurationKnown ||
-                      !anyKeyConfigured
-                    }
-                    className={pillButtonClass(isPage, "outline")}
-                  >
-                    {testing ? (
-                      <span className="flex items-center gap-1">
-                        <IconLoader2
-                          size={isPage ? 14 : 10}
-                          className="animate-spin"
-                        />
-                        Testing…
-                      </span>
-                    ) : (
-                      "Test"
-                    )}
-                  </Button>
-                  {PROVIDER_DOCS[selectedEngine] ? (
-                    <a
-                      href={PROVIDER_DOCS[selectedEngine]}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {!isOllama && isEndpointProvider && (
+                    <div className="border-t border-border/70 pt-2">
+                      <Button
+                        type="button"
+                        onClick={() => setAdvancedOpen((v) => !v)}
+                        className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
+                      >
+                        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
+                          {advancedOpen ? (
+                            <IconChevronDown size={12} />
+                          ) : (
+                            <IconChevronRight
+                              size={12}
+                              className="rtl:-scale-x-100"
+                            />
+                          )}
+                          Advanced
+                        </span>
+                        <span className="truncate text-[10px] text-muted-foreground">
+                          OpenAI-compatible endpoint
+                        </span>
+                      </Button>
+
+                      {advancedOpen && (
+                        <div className="mt-1.5 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[12px] font-medium text-foreground">
+                              Endpoint URL
+                            </p>
+                            <span className="text-[10px] text-muted-foreground">
+                              {baseUrlConfigured ? "Configured" : "Optional"}
+                            </span>
+                          </div>
+                          <input
+                            type="url"
+                            value={baseUrl}
+                            onChange={(e) => {
+                              const baseUrl = e.target.value;
+                              setSelectionState((previous) => ({
+                                ...previous,
+                                baseUrl,
+                                clearBaseUrl: baseUrl.trim()
+                                  ? false
+                                  : previous.clearBaseUrl,
+                              }));
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleSave();
+                            }}
+                            placeholder={
+                              baseUrlConfigured
+                                ? "Leave blank to keep current endpoint"
+                                : "https://gateway.example/v1"
+                            }
+                            disabled={clearBaseUrl}
+                            spellCheck={false}
+                            autoComplete="off"
+                            className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
+                            style={CONTROL_STYLE}
+                          />
+                          {baseUrlConfigured && (
+                            <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <Checkbox
+                                checked={clearBaseUrl}
+                                onChange={(checked) => {
+                                  setSelectionState((previous) => ({
+                                    ...previous,
+                                    clearBaseUrl: checked,
+                                    baseUrl: checked ? "" : previous.baseUrl,
+                                  }));
+                                }}
+                                aria-label="Clear saved endpoint override"
+                                className="shrink-0"
+                              />
+                              Clear saved endpoint override
+                            </label>
+                          )}
+                          {endpointChanged && (
+                            <Button
+                              type="button"
+                              intent="neutral"
+                              emphasis="solid"
+                              onClick={handleSave}
+                              disabled={saving || !keySaveScope}
+                              className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                            >
+                              {saving ? (
+                                <IconLoader2
+                                  size={10}
+                                  className="animate-spin"
+                                />
+                              ) : saved ? (
+                                <IconCheck size={10} />
+                              ) : (
+                                "Save endpoint"
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {envVar && (envConfigured || settingsConfigured) ? (
+                    <div
                       className={cn(
-                        pillButtonClass(isPage, "outline"),
-                        "no-underline",
+                        "flex items-center gap-1.5 text-primary",
+                        isPage ? "text-xs" : "text-[10px]",
                       )}
                     >
-                      Get an API key
-                      <IconExternalLink size={isPage ? 14 : 10} />
-                    </a>
+                      <IconCheck size={isPage ? 14 : 10} />
+                      {settingsStatus?.source === "app_secrets" &&
+                      settingsConfigured
+                        ? "Saved key configured"
+                        : `${envVar} configured`}
+                    </div>
+                  ) : envVar ? (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => {
+                          const apiKey = e.target.value;
+                          setSelectionState((previous) => ({
+                            ...previous,
+                            apiKey,
+                          }));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void handleSave();
+                        }}
+                        placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
+                        className={cn(textInputClass(isPage), "flex-1")}
+                        style={isPage ? CONTROL_STYLE_PAGE : undefined}
+                      />
+                      <Button
+                        intent="primary"
+                        emphasis="solid"
+                        onClick={
+                          providerSettingsChanged
+                            ? handleSave
+                            : handleSaveSelection
+                        }
+                        disabled={
+                          (!providerSettingsChanged && !canSelectDefault) ||
+                          (providerSettingsChanged && !keySaveScope) ||
+                          saving
+                        }
+                        className={pillButtonClass(isPage, "solid")}
+                      >
+                        {saving ? (
+                          <IconLoader2
+                            size={isPage ? 14 : 10}
+                            className="animate-spin"
+                          />
+                        ) : saved ? (
+                          <IconCheck size={isPage ? 14 : 10} />
+                        ) : (
+                          "Save"
+                        )}
+                      </Button>
+                    </div>
                   ) : null}
-                  {engineChanged && (
+
+                  <div className="flex items-center gap-2">
                     <Button
-                      intent="primary"
-                      emphasis="solid"
-                      onClick={handleApply}
-                      className={pillButtonClass(isPage, "solid")}
+                      intent="neutral"
+                      emphasis="outline"
+                      onClick={handleTest}
+                      disabled={
+                        testing ||
+                        !selectedConfigurationKnown ||
+                        !anyKeyConfigured
+                      }
+                      className={pillButtonClass(isPage, "outline")}
                     >
-                      Apply
+                      {testing ? (
+                        <span className="flex items-center gap-1">
+                          <IconLoader2
+                            size={isPage ? 14 : 10}
+                            className="animate-spin"
+                          />
+                          Testing…
+                        </span>
+                      ) : (
+                        "Test"
+                      )}
                     </Button>
-                  )}
-                  {settingsStatus != null && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
+                    {PROVIDER_DOCS[selectedEngine] ? (
+                      <a
+                        href={PROVIDER_DOCS[selectedEngine]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={cn(
+                          pillButtonClass(isPage, "outline"),
+                          "no-underline",
+                        )}
+                      >
+                        Get an API key
+                        <IconExternalLink size={isPage ? 14 : 10} />
+                      </a>
+                    ) : null}
+                    {canSelectDefault &&
+                      !providerSettingsChanged &&
+                      !keyEntryVisible && (
                         <Button
-                          intent="danger"
-                          emphasis="outline"
-                          onClick={handleDisconnect}
-                          className={cn(
-                            pillButtonClass(isPage, "outline"),
-                            "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
-                          )}
+                          intent="primary"
+                          emphasis="solid"
+                          onClick={handleSaveSelection}
+                          className={pillButtonClass(isPage, "solid")}
                         >
-                          Disconnect
+                          Save
                         </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Clear the saved engine — the app will fall back to the
-                        default until you re-apply.
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-                {testResult && testResult.ok && (
-                  <p
-                    className={cn(
-                      "flex items-center gap-1 text-primary",
-                      isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    {settingsStatus != null && canUpdateDefault !== false && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            intent="danger"
+                            emphasis="outline"
+                            onClick={handleDisconnect}
+                            className={cn(
+                              pillButtonClass(isPage, "outline"),
+                              "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
+                            )}
+                          >
+                            Disconnect
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Clear the default model. Chats use the next available
+                          provider until you save one again.
+                        </TooltipContent>
+                      </Tooltip>
                     )}
-                  >
-                    <IconCheck size={isPage ? 14 : 10} />
-                    Test passed — {testResult.latencyMs}ms
-                  </p>
-                )}
-                {testResult && testResult.ok === false && (
-                  <p
-                    className={cn(
-                      "text-destructive",
-                      isPage ? "text-xs" : "text-[10px]",
-                    )}
-                  >
-                    Test failed: {testResult.error}
-                  </p>
-                )}
-                {disconnectError && (
-                  <p
-                    className={cn(
-                      "text-destructive",
-                      isPage ? "text-xs" : "text-[10px]",
-                    )}
-                  >
-                    Disconnect failed: {disconnectError}
-                  </p>
-                )}
-                {providerSettingsError && (
-                  <div
-                    role="alert"
-                    className={cn(
-                      "flex items-center gap-1.5 text-destructive",
-                      isPage ? "text-xs" : "text-[10px]",
-                    )}
-                  >
-                    <IconAlertCircle size={isPage ? 14 : 10} />
-                    {providerSettingsError}
                   </div>
-                )}
-                {applyError && (
-                  <p
-                    role="alert"
-                    className={cn(
-                      "text-destructive",
-                      isPage ? "text-xs" : "text-[10px]",
-                    )}
-                  >
-                    Apply failed: {applyError}
-                  </p>
-                )}
-                {applyNote && (
-                  <p
-                    className={cn(
-                      "text-muted-foreground",
-                      isPage ? "text-xs" : "text-[10px]",
-                    )}
-                  >
-                    Changes take effect on next conversation
-                  </p>
-                )}
-              </fieldset>
-            </ManualSetupCard>
+                  {testResult && testResult.ok && (
+                    <p
+                      className={cn(
+                        "flex items-center gap-1 text-primary",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      <IconCheck size={isPage ? 14 : 10} />
+                      Test passed — {testResult.latencyMs}ms
+                    </p>
+                  )}
+                  {testResult && testResult.ok === false && (
+                    <p
+                      className={cn(
+                        "text-destructive",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      Test failed: {testResult.error}
+                    </p>
+                  )}
+                  {disconnectError && (
+                    <p
+                      className={cn(
+                        "text-destructive",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      Disconnect failed: {disconnectError}
+                    </p>
+                  )}
+                  {keySaveRoleUnavailable && (
+                    <div
+                      role="alert"
+                      className={cn(
+                        "flex flex-wrap items-center gap-1.5 text-destructive",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      <IconAlertCircle size={isPage ? 14 : 10} />
+                      {t("agentPanel.saveScopeRoleUnavailable")}
+                      <Button
+                        intent="neutral"
+                        emphasis="ghost"
+                        onClick={retryKeySaveRole}
+                        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
+                      >
+                        {t("agentChat.common.retry")}
+                      </Button>
+                    </div>
+                  )}
+                  {providerSettingsError && (
+                    <div
+                      role="alert"
+                      className={cn(
+                        "flex items-center gap-1.5 text-destructive",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      <IconAlertCircle size={isPage ? 14 : 10} />
+                      {providerSettingsError}
+                    </div>
+                  )}
+                  {applyError && (
+                    <p
+                      role="alert"
+                      className={cn(
+                        "text-destructive",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      Save failed: {applyError}
+                    </p>
+                  )}
+                  {applyNote && (
+                    <p
+                      className={cn(
+                        "text-muted-foreground",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      Changes take effect on next conversation
+                    </p>
+                  )}
+                </fieldset>
+              </ManualSetupCard>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </SettingsSection>
   );
 }
-
-// ─── App Default Model Section ──────────────────────────────────────────────
 
 interface AppModelDefaultEngine extends EngineInfo {
   configured: boolean;
@@ -1704,9 +2232,26 @@ function AppDefaultModelPicker({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
   const visibleEngines = engines.filter(
     (engine) => engine.name !== "ai-sdk:anthropic",
   );
+
+  useEffect(() => {
+    if (!open) return;
+    if (!engines.some(usesLiveOllamaModels)) return;
+    let cancelled = false;
+    void fetchOllamaModels()
+      .then((models) => {
+        if (!cancelled && models.length > 0) setOllamaModels(models);
+      })
+      .catch(() => {
+        // No local Ollama server reachable — keep the static suggestions.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, engines]);
   const selectedModel = value.includes("::")
     ? value.slice(value.indexOf("::") + 2)
     : null;
@@ -1791,7 +2336,10 @@ function AppDefaultModelPicker({
                 engine.name === "builder"
                   ? "Builder.io"
                   : engine.label || engine.name;
-              const modelIds = latestModelsOnly(engine.supportedModels);
+              const modelIds =
+                usesLiveOllamaModels(engine) && ollamaModels?.length
+                  ? ollamaModels
+                  : latestModelsOnly(engine.supportedModels);
               const models = modelIds.length
                 ? modelIds
                 : engine.defaultModel
@@ -1866,6 +2414,7 @@ function AppModelDefaultsSectionInner({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -1895,10 +2444,31 @@ function AppModelDefaultsSectionInner({
 
   useEffect(() => load(), [load]);
 
+  useEffect(() => {
+    if (selectedEngine !== "ai-sdk:ollama") return;
+    let cancelled = false;
+    void fetchOllamaModels()
+      .then((models) => {
+        if (!cancelled && models.length > 0) setOllamaModels(models);
+      })
+      .catch(() => {
+        // No local Ollama server reachable — keep the static suggestions.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEngine]);
+
   if (!loading && !settings) return null;
 
   const selectedEngineInfo =
     settings?.engines.find((engine) => engine.name === selectedEngine) ?? null;
+  const selectedEngineModels =
+    selectedEngineInfo &&
+    usesLiveOllamaModels(selectedEngineInfo) &&
+    ollamaModels?.length
+      ? ollamaModels
+      : (selectedEngineInfo?.supportedModels ?? []);
   const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])
     .filter(
       (engine) =>
@@ -2121,7 +2691,7 @@ function AppModelDefaultsSectionInner({
 
                 <AppDefaultModelField
                   engine={selectedEngine}
-                  models={selectedEngineInfo?.supportedModels ?? []}
+                  models={selectedEngineModels}
                   value={selectedModel}
                   defaultModel={selectedEngineInfo?.defaultModel}
                   disabled={!settings.canUpdate || saving}
@@ -2213,8 +2783,6 @@ function AppModelDefaultsSectionInner({
     </SettingsSection>
   );
 }
-
-// ─── Email Section ──────────────────────────────────────────────────────────
 
 export function EmailSectionInner({
   open,
@@ -2506,8 +3074,6 @@ export function EmailSectionInner({
     </SettingsSection>
   );
 }
-
-// ─── Agent Limits Section ──────────────────────────────────────────────────
 
 interface AgentLoopSettingsResponse {
   maxIterations: number;
@@ -2877,8 +3443,6 @@ function AgentLimitsSectionInner({
   );
 }
 
-// ─── Main SettingsPanel ─────────────────────────────────────────────────────
-
 export interface SettingsPanelProps {
   isDevMode: boolean;
   onToggleDevMode: () => void;
@@ -2889,22 +3453,12 @@ export interface SettingsPanelProps {
 }
 
 export interface AgentSettingsTabsOptions {
-  /** Human-readable app name used in MCP connection instructions. */
   appName?: string;
-  /**
-   * Include the shared Extensions management tab. Extensions are an optional
-   * app capability and stay hidden unless the host opts in.
-   */
   extensionTools?: boolean;
-  /** Optional page-level settings to show in the Agent section. */
   agentAdditionalContent?: React.ReactNode;
-  /** Optional app-owned tabs that share the Agent settings scope. */
   agentAdditionalTabFactories?: AgentSettingsTabFactory[];
-  /** App identity used to scope the shared Usage tab. */
   usageAppId?: string | null;
-  /** Optional progressive-disclosure link to the app's full metrics view. */
   usageViewAllHref?: string;
-  /** Optional app-owned replacement for the shared Organization tab. */
   organizationContent?: React.ReactNode;
 }
 
@@ -3396,7 +3950,7 @@ function SettingsPanelContent({
                         ) : undefined
                       }
                     >
-                      <FileStorageSettingsForm />
+                      <StorageSettingsForm />
                     </ManualSetupCard>
                   </div>
                 }
@@ -3644,7 +4198,7 @@ function SettingsPanelContent({
                 })}
                 dim={connected}
               >
-                <FileStorageSettingsForm />
+                <StorageSettingsForm />
               </ManualSetupCard>
             </div>
           </SettingsSection>
@@ -4076,6 +4630,7 @@ export function useAgentSettingsTabs(
             }
           />
         ),
+        shellExtraContent: agentAdditionalContent,
       },
       {
         id: "agent:resources",
@@ -4088,6 +4643,26 @@ export function useAgentSettingsTabs(
         content: (
           <AgentWorkspaceContent activeTab="resources" overview={null} />
         ),
+      },
+      {
+        id: "agent:personalization",
+        label: t("agentChat.personalization.tab"),
+        icon: IconBrain,
+        group: "agent",
+        keywords:
+          "personalization custom instructions memory preferences remember",
+        searchEntries: [
+          {
+            id: "agent-personalization",
+            label: t("agentChat.personalization.tab"),
+            keywords:
+              "custom instructions personal memory remember preferences",
+            tabId: "agent:personalization",
+            hash: "agent:personalization",
+            icon: IconBrain,
+          },
+        ],
+        content: <AgentPersonalizationSettings />,
       },
       {
         id: "agent:automations",

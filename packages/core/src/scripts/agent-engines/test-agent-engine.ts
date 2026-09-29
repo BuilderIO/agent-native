@@ -1,23 +1,32 @@
-/**
- * test-agent-engine — sends a trivial prompt to verify the engine is working.
- */
-
+import { createProviderEndpointFetch } from "../../agent/engine/ai-sdk-engine.js";
 import {
   getAgentEngineEntry,
   registerBuiltinEngines,
   type AgentEngineEntry,
 } from "../../agent/engine/index.js";
 import {
+  OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "../../agent/engine/openai-compatible-endpoint.js";
-import { validateProviderBaseUrl } from "../../agent/engine/provider-endpoint-validation.js";
+import {
+  isLocalNetworkOllamaEndpoint,
+  validateProviderBaseUrl,
+} from "../../agent/engine/provider-endpoint-validation.js";
 import type { ActionTool } from "../../agent/types.js";
 import {
+  assertCredentialCanReachEndpoint,
+  type CredentialEndpointOwner,
+} from "../../credentials/index.js";
+import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
+import {
+  assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
+  isTrustedSelfHostedRuntime,
   readDeployCredentialEnv,
-  resolveSecret,
+  resolveSecretDetailed,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 export const tool: ActionTool = {
   description:
@@ -45,40 +54,61 @@ export const tool: ActionTool = {
   },
 };
 
+interface ResolvedEngineSecret {
+  value: string;
+  owner: CredentialEndpointOwner;
+}
+
+interface ResolvedEngineEndpoint {
+  baseUrl: string;
+  owner: CredentialEndpointOwner;
+}
+
+function secretOwner(
+  detail: Awaited<ReturnType<typeof resolveSecretDetailed>>,
+): CredentialEndpointOwner {
+  return {
+    scope:
+      detail.source === "env" ? "deployment" : (detail.source ?? "unknown"),
+    ...(detail.scopeId ? { scopeId: detail.scopeId } : {}),
+  };
+}
+
 async function resolveAgentEngineSecret(
   key: string,
-): Promise<string | undefined> {
-  try {
-    const value = await resolveSecret(key);
-    if (value) return value;
-  } catch (error) {
-    if (!canUseDeployCredentialFallbackForRequest(key)) throw error;
-    console.warn(
-      "[test-agent-engine] Saved provider secret unavailable; using deploy configuration.",
-      { key, error },
-    );
+): Promise<ResolvedEngineSecret | undefined> {
+  const resolved = await resolveSecretDetailed(key);
+  if (resolved.value) {
+    return { value: resolved.value, owner: secretOwner(resolved) };
   }
-  return canUseDeployCredentialFallbackForRequest(key)
-    ? readDeployCredentialEnv(key)
-    : undefined;
+  assertCredentialStoreReadable(resolved);
+  if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
+  const value = readDeployCredentialEnv(key);
+  return value ? { value, owner: { scope: "deployment" } } : undefined;
 }
 
 async function resolveAgentEngineEndpoint(
   key: string,
-): Promise<string | undefined> {
-  const value = await resolveSecret(key);
-  if (value) {
-    return validateProviderBaseUrl(value, {
-      allowLocalOllama:
-        key === OLLAMA_BASE_URL_ENV_VAR &&
-        process.env.NODE_ENV === "development",
-    });
+): Promise<ResolvedEngineEndpoint | undefined> {
+  const isOllama = key === OLLAMA_BASE_URL_ENV_VAR;
+  const resolved = await resolveSecretDetailed(key);
+  if (!resolved.value) {
+    assertCredentialStoreReadable(resolved);
+    if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
   }
-  if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
-  const deployValue = readDeployCredentialEnv(key);
-  return deployValue
-    ? validateProviderBaseUrl(deployValue, { allowPrivate: true })
-    : undefined;
+  const endpointValue = resolved.value ?? readDeployCredentialEnv(key);
+  if (!endpointValue) return undefined;
+  const owner = resolved.value
+    ? secretOwner(resolved)
+    : { scope: "deployment" };
+  return {
+    baseUrl: await validateProviderBaseUrl(endpointValue, {
+      allowPrivate: owner.scope === "deployment",
+      allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+      isOllama,
+    }),
+    owner,
+  };
 }
 
 function canUseDeployEnvForEntry(entry: AgentEngineEntry): boolean {
@@ -92,28 +122,65 @@ async function createEngineConfig(
   entry: AgentEngineEntry,
   args: Record<string, string>,
 ): Promise<Record<string, unknown>> {
+  const key = entry.requiredEnvVars[0];
+  const resolvedKey = key ? await resolveAgentEngineSecret(key) : undefined;
   const config: Record<string, unknown> = {
-    apiKey:
-      entry.requiredEnvVars.length > 0
-        ? await resolveAgentEngineSecret(entry.requiredEnvVars[0])
-        : undefined,
+    apiKey: resolvedKey?.value,
     allowEnvFallback: canUseDeployEnvForEntry(entry),
   };
 
   if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
-    const endpointKey =
-      entry.name === "ai-sdk:ollama"
-        ? OLLAMA_BASE_URL_ENV_VAR
-        : OPENAI_BASE_URL_ENV_VAR;
+    const isOllama = entry.name === "ai-sdk:ollama";
+    const endpointKey = isOllama
+      ? OLLAMA_BASE_URL_ENV_VAR
+      : OPENAI_BASE_URL_ENV_VAR;
     const explicitBaseUrl = args.baseUrl?.trim();
-    const baseUrl = explicitBaseUrl
-      ? await validateProviderBaseUrl(explicitBaseUrl, {
-          allowLocalOllama:
-            entry.name === "ai-sdk:ollama" &&
-            process.env.NODE_ENV === "development",
-        })
+    const email = getRequestUserEmail();
+    const endpoint: ResolvedEngineEndpoint | undefined = explicitBaseUrl
+      ? {
+          baseUrl: await validateProviderBaseUrl(explicitBaseUrl, {
+            allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+            isOllama,
+          }),
+          owner: { scope: "user", ...(email ? { scopeId: email } : {}) },
+        }
       : await resolveAgentEngineEndpoint(endpointKey);
-    if (baseUrl) config.baseUrl = baseUrl;
+    if (endpoint) {
+      if (key && resolvedKey) {
+        assertCredentialCanReachEndpoint(
+          endpoint.owner,
+          resolvedKey.owner,
+          key,
+        );
+      }
+      if (endpoint.owner.scope !== "deployment") {
+        config.allowEnvFallback = false;
+      }
+      config.baseUrl = endpoint.baseUrl;
+      const allowLocalOllama =
+        isOllama &&
+        isTrustedSelfHostedRuntime() &&
+        isLocalNetworkOllamaEndpoint(endpoint.baseUrl);
+      const allowedPrivateOrigin =
+        (endpoint.owner.scope === "deployment" || allowLocalOllama) &&
+        (await isBlockedExtensionUrlWithDns(endpoint.baseUrl))
+          ? new URL(endpoint.baseUrl).origin
+          : undefined;
+      config.requestFetch = createProviderEndpointFetch(
+        endpoint.baseUrl,
+        allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
+      );
+    } else if (isOllama) {
+      const allowedPrivateOrigins =
+        isTrustedSelfHostedRuntime() &&
+        isLocalNetworkOllamaEndpoint(OLLAMA_DEFAULT_BASE_URL)
+          ? [new URL(OLLAMA_DEFAULT_BASE_URL).origin]
+          : [];
+      config.requestFetch = createProviderEndpointFetch(
+        OLLAMA_DEFAULT_BASE_URL,
+        allowedPrivateOrigins,
+      );
+    }
   }
 
   return config;

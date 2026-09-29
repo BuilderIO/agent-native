@@ -12,12 +12,13 @@ import {
   AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
+  getActiveTabScrollContainer,
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
-  focusAgentChat,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
+  resolveAgentPanelIntegrationsHref,
   resolveAgentPanelChatSurface,
   shouldDefaultAgentChatSurfacePageHeader,
   shouldDefaultAgentChatSurfacePageNewChatButton,
@@ -30,8 +31,51 @@ import {
   shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
+  requestedSettingsSection,
   settingsRouteHashForSection,
+  AgentSidebar as LegacyAgentSidebar,
+  AgentToggleButton as LegacyAgentToggleButton,
+  focusAgentChat as legacyFocusAgentChat,
+  preloadAgentChatSurface as legacyPreloadAgentChatSurface,
 } from "./AgentPanel.js";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  preloadAgentChatSurface,
+} from "./AgentSidebar.js";
+
+describe("AgentPanel compatibility exports", () => {
+  it("preserves the legacy sidebar entry point", () => {
+    expect(LegacyAgentSidebar).toBe(AgentSidebar);
+    expect(LegacyAgentToggleButton).toBe(AgentToggleButton);
+    expect(legacyFocusAgentChat).toBe(focusAgentChat);
+    expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
+  });
+
+  it("uses a stable-ref link in the full-view menu item", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+
+    expect(source).toContain(
+      "<DropdownMenuItem asChild> <RouterSidebarLink to={fullViewAction.href}",
+    );
+  });
+});
+
+describe("AgentPanel suggestion placement", () => {
+  it("forwards explicit placement and defaults to context chips", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /suggestionPlacement=\{\s*assistantChatProps\.suggestionPlacement \?\? "context-chips"\s*\}/,
+    );
+  });
+});
 
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {
@@ -55,6 +99,18 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("finds the overflow viewport for a tab nested in its group", () => {
+    const viewport = document.createElement("div");
+    viewport.className = "agent-tabs-scroll";
+    const group = document.createElement("div");
+    group.className = "agent-tab-group";
+    const tab = document.createElement("div");
+    group.append(tab);
+    viewport.append(group);
+
+    expect(getActiveTabScrollContainer(tab)).toBe(viewport);
+  });
+
   it("keeps the active tab clear of the overflow edges", () => {
     expect(
       getActiveTabScrollDelta(
@@ -238,6 +294,21 @@ describe("AgentPanel header tab visibility", () => {
     }
     expect(settingsRouteHashForSection("a2a")).toBe("#agent:agents");
   });
+
+  it("reads the hash a caller set when it dispatched no section", () => {
+    // run-recovery.tsx sets #agent-limits and TiptapComposer sets #llm, then
+    // both dispatch without a section; they used to land on #agent.
+    expect(settingsRouteHashForSection(undefined, "#agent-limits")).toBe(
+      "#limits",
+    );
+    expect(settingsRouteHashForSection(undefined, "#llm")).toBe("#llm");
+    expect(settingsRouteHashForSection(undefined, "#comments")).toBe("#agent");
+    expect(settingsRouteHashForSection("loop-settings")).toBe("#limits");
+    expect(requestedSettingsSection(undefined, "#agent-limits")).toBe(
+      "agent-limits",
+    );
+    expect(requestedSettingsSection(undefined, "#comments")).toBe("");
+  });
 });
 
 describe("AgentPanel settings navigation", () => {
@@ -312,6 +383,50 @@ describe("AgentPanel settings navigation", () => {
 
       expect(pathname).toBe("/settings");
       expect(hash).toBe("#secrets:OPENAI_API_KEY");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("carries the requested section in history state for the redesigned Settings", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let hash = "";
+    let state: unknown = null;
+
+    function LocationProbe() {
+      const location = useLocation();
+      hash = location.hash;
+      state = location.state;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "secrets" },
+          }),
+        );
+      });
+
+      // Today's Settings still gets the hash it always did.
+      expect(hash).toBe("#integrations");
+      expect(state).toEqual({ agentNativeSettingsSection: "secrets" });
     } finally {
       act(() => root.unmount());
       container.remove();
@@ -446,6 +561,77 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
     expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
       false,
+    );
+  });
+});
+
+describe("AgentPanel Integrations link", () => {
+  it("links to Settings > Integrations from app pages", () => {
+    expect(
+      resolveAgentPanelIntegrationsHref("/settings/agent", "/decks/1"),
+    ).toBe("/settings/integrations");
+    expect(
+      resolveAgentPanelIntegrationsHref("/settings/agent", "/settings/agent"),
+    ).toBe("/settings/integrations");
+  });
+
+  it("hides the link on Integrations and its sub-pages", () => {
+    expect(
+      resolveAgentPanelIntegrationsHref(
+        "/settings/agent",
+        "/settings/integrations",
+      ),
+    ).toBeNull();
+    expect(
+      resolveAgentPanelIntegrationsHref(
+        "/settings/agent",
+        "/settings/integrations/builder",
+      ),
+    ).toBeNull();
+  });
+
+  it("hides the link when the host has no Settings route", () => {
+    expect(resolveAgentPanelIntegrationsHref(undefined, "/")).toBeNull();
+  });
+
+  it("returns a router-local href in a workspace mount", () => {
+    // The router strips its basename from location.pathname and <Link> adds
+    // it back, so both sides stay router-local.
+    window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
+    try {
+      expect(
+        resolveAgentPanelIntegrationsHref("/settings/agent", "/overview"),
+      ).toBe("/settings/integrations");
+      expect(
+        resolveAgentPanelIntegrationsHref(
+          "/settings/agent",
+          "/settings/integrations",
+        ),
+      ).toBeNull();
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("sits right after Open full view and shares its separator", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+    const fullView = overflowMenu.lastIndexOf('t("agentPanel.openFullView")');
+    const integrations = overflowMenu.indexOf('t("agentPanel.integrations")');
+    const separator = overflowMenu.indexOf(
+      "<DropdownMenuSeparator />",
+      fullView,
+    );
+
+    expect(integrations).toBeGreaterThan(fullView);
+    expect(integrations).toBeLessThan(separator);
+    expect(overflowMenu).toContain(
+      "fullViewAction ||\n            integrationsHref ? (",
     );
   });
 });
@@ -646,6 +832,9 @@ describe("AgentPanel header overflow actions", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
     });
+    const sidebarSource = readFileSync("src/client/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
     const headerActions = source.slice(
       source.indexOf("const renderHeaderActions"),
       source.indexOf(
@@ -675,7 +864,7 @@ describe("AgentPanel header overflow actions", () => {
     ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
-    expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
+    expect(sidebarSource).toContain("onFullViewRequest={onFullscreenRequest}");
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
   });
@@ -710,9 +899,6 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
-    // Regression: without the "timeout" timing, the animation-frame handoff
-    // races with the dropdown's own close/focus-restore cycle and the share
-    // popover never opens (same failure mode fixed for "All chats" in #4644).
     expect(overflowMenu).toContain(
       'setShareFromMenuOpen(true),\n                        "timeout"',
     );
@@ -729,7 +915,10 @@ describe("AgentPanel header overflow actions", () => {
   });
 
   it("supports a persistent two-state sidebar toggle", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
+    const panelSource = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
@@ -740,7 +929,7 @@ describe("AgentPanel header overflow actions", () => {
       "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
     );
     expect(source).not.toContain("IconLayoutSidebarRightExpand");
-    expect(source).toContain("{onCollapse && showCollapseButton && (");
+    expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });
 
@@ -770,7 +959,7 @@ describe("AgentPanel header overflow actions", () => {
 
 describe("AgentSidebar wide drawer layout", () => {
   it("can disable the panel without unmounting the app surface", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
       encoding: "utf8",
     });
 
@@ -782,7 +971,7 @@ describe("AgentSidebar wide drawer layout", () => {
   });
 
   it("does not reserve the drawer placeholder after the panel closes", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
       encoding: "utf8",
     });
     const placeholderStart = source.indexOf("const drawerPlaceholder");

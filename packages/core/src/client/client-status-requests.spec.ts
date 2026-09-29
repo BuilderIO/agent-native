@@ -2,10 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  expireClientStatusResult,
+  fetchAuthSessionStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
+  fetchFileUploadStatus,
   invalidateClientStatusRequest,
   invalidateClientStatusRequests,
+  SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 
 function jsonResponse(data: unknown): Response {
@@ -17,13 +21,16 @@ function jsonResponse(data: unknown): Response {
 describe("client status requests", () => {
   beforeEach(() => {
     invalidateClientStatusRequests();
+    delete window.__agentNativeSessionBootstrap;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   afterEach(() => {
+    delete window.__agentNativeSessionBootstrap;
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("coalesces concurrent reads", async () => {
@@ -42,6 +49,55 @@ describe("client status requests", () => {
       state: "available",
       value: { configured: true },
     });
+  });
+
+  it("keeps a failed file-storage status probe unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("storage check failed", { status: 503 })),
+    );
+
+    await expect(fetchFileUploadStatus()).resolves.toEqual({
+      state: "unavailable",
+      status: 503,
+    });
+  });
+
+  it("consumes the session request started by the static shell", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ error: "unexpected fetch" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(window.__agentNativeSessionBootstrap).toBeUndefined();
+  });
+
+  it("discards an unconsumed session bootstrap when session status is invalidated", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ userId: "current-user", email: "current@example.com" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "stale-user", email: "stale@example.com" },
+    });
+
+    invalidateClientStatusRequest("/_agent-native/auth/session");
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "current-user", email: "current@example.com" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("starts fresh after invalidation and ignores a late stale result", async () => {
@@ -127,6 +183,73 @@ describe("client status requests", () => {
       state: "available",
       value: { configured: true },
     });
+  });
+
+  it("keeps the session answer through focus for its lifetime while endpoint statuses expire", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes("/auth/session")
+        ? jsonResponse({ email: "person@example.com" })
+        : jsonResponse({ configured: true }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const sessionReads = () =>
+      fetch.mock.calls.filter(([input]) =>
+        String(input).includes("/auth/session"),
+      ).length;
+
+    await fetchAuthSessionStatus();
+    await fetchBuilderStatus();
+    now += 5_000;
+    window.dispatchEvent(new Event("focus"));
+    await fetchAuthSessionStatus();
+    await fetchBuilderStatus();
+
+    expect(sessionReads()).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    now += SESSION_RESULT_LIFETIME_MS;
+    await fetchAuthSessionStatus();
+    expect(sessionReads()).toBe(2);
+  });
+
+  it("keeps only the short status TTL for a signed-out session answer", async () => {
+    let now = 2_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetch = vi.fn(async () =>
+      jsonResponse({ error: "Not authenticated" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await fetchAuthSessionStatus();
+    now += 1_000;
+    await fetchAuthSessionStatus();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("expires a session answer without aborting the read already in flight", async () => {
+    let respond!: (response: Response) => void;
+    const fetch = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          respond = resolve;
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const first = fetchAuthSessionStatus();
+    expireClientStatusResult("/_agent-native/auth/session");
+    const second = fetchAuthSessionStatus();
+    respond(jsonResponse({ email: "person@example.com" }));
+
+    await expect(first).resolves.toMatchObject({ state: "available" });
+    await expect(second).resolves.toMatchObject({ state: "available" });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("releases a shared request when the transport hangs so a retry is fresh", async () => {

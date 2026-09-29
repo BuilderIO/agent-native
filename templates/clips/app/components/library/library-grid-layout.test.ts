@@ -53,6 +53,9 @@ describe("selected library actions layout", () => {
     expect(primaryActionsSource).toContain('triggerIcon="chevron"');
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
+    expect(gridSource).toContain("const isEmptyState =");
+    expect(gridSource).toContain("!isEmptyState && extraActions");
+    expect(gridSource).toContain("!isEmptyState && (\n              <SortMenu");
     expect(gridSource).toContain("organizationId: currentOrganizationId");
     expect(folderRouteSource).toContain("useOrganizations()");
     expect(folderRouteSource).toContain(
@@ -130,6 +133,7 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("searchButton");
     expect(layoutSource).not.toContain("IconSearch");
     expect(layoutSource).toContain('currentAppId="clips"');
+    expect(layoutSource).not.toContain("settingsPath=");
     expect(layoutSource).toContain("utilityLinks={workspaceUtilityLinks}");
     expect(layoutSource).toContain('id: "chrome-extension"');
     expect(layoutSource).toContain('id: "desktop-app"');
@@ -184,9 +188,8 @@ describe("selected library actions layout", () => {
     const dictateSource = readSource("../../routes/_app.dictate.tsx");
     const trashSource = readSource("../../routes/_app.trash.tsx");
 
-    expect(layoutSource).toContain(
-      "to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key)",
-    );
+    expect(layoutSource).toContain("...(meetingsLabEnabled");
+    expect(layoutSource).toContain('to: "/meetings"');
     expect(meetingsSource).toContain("<PageBreadcrumb");
     expect(dictateSource).toContain("<PageBreadcrumb");
     expect(trashSource).toContain("<PageBreadcrumb");
@@ -208,7 +211,7 @@ describe("selected library actions layout", () => {
   it("keeps library search before the primary recording action", () => {
     const gridSource = readSource("./library-grid.tsx");
     const searchIndex = gridSource.indexOf("<SearchBar");
-    const actionIndex = gridSource.indexOf("{extraActions}");
+    const actionIndex = gridSource.indexOf("!isEmptyState && extraActions");
 
     expect(searchIndex).toBeGreaterThan(-1);
     expect(actionIndex).toBeGreaterThan(searchIndex);
@@ -241,5 +244,21 @@ describe("selected library actions layout", () => {
     );
     expect(toolbarSource).toContain("onCreateFolder");
     expect(toolbarSource).toContain('t("navigation.newFolder")');
+  });
+
+  it("checks storage before retrying a local upload backup", () => {
+    const gridSource = readSource("./library-grid.tsx");
+    const retryHandler = gridSource
+      .split("const handleRetry = async (rec: RecordingSummary) => {")[1]
+      ?.split("const hasFilesDrag")[0];
+    const storageCheckIndex =
+      retryHandler?.indexOf("fetchVideoStorageStatus()") ?? -1;
+    const retryIndex =
+      retryHandler?.indexOf("retryRecordingUploadFromBackup(rec.id)") ?? -1;
+
+    expect(retryHandler).toBeDefined();
+    expect(storageCheckIndex).toBeGreaterThan(-1);
+    expect(storageCheckIndex).toBeLessThan(retryIndex);
+    expect(retryHandler).toContain('setStorageGateIssue("missing")');
   });
 });

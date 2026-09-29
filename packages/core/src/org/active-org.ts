@@ -1,3 +1,5 @@
+import type { H3Event } from "h3";
+
 import { warnAgent } from "../agent/action-warnings.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 
@@ -14,6 +16,10 @@ type ActiveOrgSetting = { orgId: string | null } | null;
  * no notice anywhere in their path, so the warnings below go to `warnAgent` and
  * surface in the conversation that ordered the repoint.
  *
+ * Pass the request's `event` when the account is the caller's own: its next
+ * requests then read the new selection on every instance instead of a cached
+ * one (see `ORG_SELECTION_COOKIE`).
+ *
  * Lives in its own module because `auto-join-domain` and `accept-pending` are
  * imported by `context`, so hosting this in `context` would make the cycle.
  */
@@ -21,9 +27,14 @@ export async function setActiveOrgId(
   email: string,
   orgId: string | null,
   reason: string,
+  event?: H3Event,
 ): Promise<void> {
   await warnOnCrossOrgRepoint(email, orgId, reason);
   await putUserSetting(email, "active-org-id", { orgId });
+  if (event) {
+    const { markActiveOrgSelectionChanged } = await import("./context.js");
+    markActiveOrgSelectionChanged(event);
+  }
 }
 
 async function warnOnCrossOrgRepoint(
@@ -41,8 +52,6 @@ async function warnOnCrossOrgRepoint(
     )) as ActiveOrgSetting;
     previousOrgId = typeof setting?.orgId === "string" ? setting.orgId : null;
   } catch {
-    // "Unreadable" is not "had no previous org" — report which one happened, so
-    // a silent repoint can never read as a first-time assignment in the log.
     warnAgent({
       severity: "critical",
       code: "org-active-org-previous-unreadable",

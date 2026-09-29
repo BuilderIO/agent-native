@@ -5,48 +5,26 @@ import { notifyWithDelivery } from "../notifications/registry.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
-/**
- * Sends one Slack alert when an app's chat stops answering.
- *
- * The detector for this already existed as `scripts/chat-health.mjs --strict`,
- * correctly calibrated and exiting 1 on a partial outage — but nothing ever ran
- * it and nothing ever paged, so an app answering 11% of its turns was found by
- * a user posting in Slack. This is the missing half: the same measurement, on
- * the durable sweep that already drives stale reaping, scoped to the one app it
- * runs in so no cross-app credential has to exist anywhere.
- */
-
-/** Turns are scored over this window on every sweep. */
 const WINDOW_MS = 60 * 60_000;
-/**
- * Below this, a rate is noise: one failed turn out of two is 50% and means
- * nothing. Chat-health's own fleet view showed apps sitting at 100% on a single
- * turn all day.
- */
+const A2A_STALE_TASK_LOOKBACK_MS = 24 * 60 * 60_000;
 const MIN_TURNS = 5;
-/**
- * Deliberately far above `chat-health`'s 0.1 review budget. That threshold
- * answers "is this app degraded", which is a question for a dashboard. This one
- * answers "is chat down", which is the only question worth waking someone for.
- */
 const BAD_RATE_THRESHOLD = 0.5;
-/** One page per outage, not one per sweep. */
 const COOLDOWN_MS = 60 * 60_000;
-/** Slack sends time out well inside this lease; failed sends release it early. */
 const CLAIM_LEASE_MS = 5 * 60_000;
 
 const LAST_ALERT_SETTING_KEY = "chat-health-alert:last-slack-alert-at";
 
-/**
- * Every outcome is distinguishable. "Not enough turns to judge" and "healthy"
- * are different answers, and a check that could not run is neither — collapsing
- * them is how a monitor reports all-clear through an outage.
- */
 export type ChatHealthAlertOutcome =
   | { status: "healthy"; turns: number; badRate: number }
   | { status: "insufficient-data"; turns: number }
   | { status: "cooldown"; retryAfterMs: number }
-  | { status: "alerted"; turns: number; badRate: number; recipients: number }
+  | {
+      status: "alerted";
+      turns: number;
+      badRate: number;
+      staleA2ATasks: number;
+      recipients: number;
+    }
   | { status: "delivery-failed"; reason: string }
   | { status: "persistence-failed"; reason: string }
   | { status: "check-failed"; reason: string };
@@ -61,11 +39,6 @@ interface AlertRecipient {
   orgId: string;
 }
 
-/**
- * Scores the LAST run of each turn in the window, matching how
- * `scripts/chat-health.mjs` reports so a page and the CLI never disagree.
- * User-stopped turns are excluded: someone hitting Stop is not an outage.
- */
 async function countRecentTurns(since: number): Promise<TurnCounts> {
   const { rows } = await getDbExec().execute({
     sql: `WITH ranked AS (
@@ -89,6 +62,59 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
     turns: Number(row?.turns ?? 0),
     bad: Number(row?.bad ?? 0),
   };
+}
+
+async function countStaleA2ATasks(now: number): Promise<number> {
+  const client = getDbExec();
+  const { rows: tableRows } = await client.execute({
+    sql: `SELECT to_regclass('a2a_tasks') AS relation`,
+    args: [],
+  });
+  if (!tableRows[0]) {
+    throw new Error("The A2A task table check returned no row.");
+  }
+  if (!(tableRows[0] as Record<string, unknown>).relation) return 0;
+
+  const { ensureTable } = await import("../a2a/task-store.js");
+  await ensureTable();
+  const { getA2ATaskRecoveryLimits } = await import("../a2a/handlers.js");
+  const {
+    queuedLifetimeMaxMs,
+    processingStuckAfterMs,
+    processingLifetimeMaxMs,
+  } = getA2ATaskRecoveryLimits();
+  // Inline handlers move to working before execution and may stream for a long time.
+  const { rows } = await client.execute({
+    sql: `SELECT COUNT(*)::int AS stale_tasks
+          FROM a2a_tasks
+          WHERE status_state IN ('submitted', 'working', 'processing')
+            AND created_at > ?
+            AND (
+              (status_state IN ('submitted', 'working')
+                AND created_at <= ?
+                AND (status_state = 'submitted' OR
+                  strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0))
+              OR
+              (status_state = 'processing' AND
+                strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0 AND
+                (updated_at <= ? OR created_at <= ?))
+            )`,
+    args: [
+      now - A2A_STALE_TASK_LOOKBACK_MS,
+      now - queuedLifetimeMaxMs,
+      now - processingStuckAfterMs,
+      now - processingLifetimeMaxMs,
+    ],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (row?.stale_tasks === null || row?.stale_tasks === undefined) {
+    throw new Error("The A2A task count query returned no count.");
+  }
+  const count = Number(row.stale_tasks);
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error("The A2A task count query returned an invalid count.");
+  }
+  return count;
 }
 
 /** Use one owner/admin only when the app has an unambiguous org scope. */
@@ -136,25 +162,27 @@ export async function checkChatHealthAndAlert(
   now: number = Date.now(),
 ): Promise<ChatHealthAlertOutcome> {
   let counts: TurnCounts;
+  let staleA2ATasks: number;
   try {
-    counts = await countRecentTurns(now - WINDOW_MS);
+    [counts, staleA2ATasks] = await Promise.all([
+      countRecentTurns(now - WINDOW_MS),
+      countStaleA2ATasks(now),
+    ]);
   } catch (error) {
-    // A check that could not read the ledger has not found the app healthy.
     return { status: "check-failed", reason: String(error) };
   }
 
-  if (counts.turns < MIN_TURNS) {
+  if (counts.turns < MIN_TURNS && staleA2ATasks === 0) {
     return { status: "insufficient-data", turns: counts.turns };
   }
 
-  const badRate = counts.bad / counts.turns;
-  if (badRate < BAD_RATE_THRESHOLD) {
+  const badRate = counts.turns > 0 ? counts.bad / counts.turns : 0;
+  const badTurnRate =
+    counts.turns >= MIN_TURNS && badRate >= BAD_RATE_THRESHOLD;
+  if (!badTurnRate && staleA2ATasks === 0) {
     return { status: "healthy", turns: counts.turns, badRate };
   }
 
-  // Claim the page before awaiting the external send. The short lease keeps
-  // overlapping sweeps from both sending; failed sends release it below,
-  // while a crashed send becomes retryable after the lease.
   const claimId = randomUUID();
   const claimExpiresAt = now + CLAIM_LEASE_MS;
   let claim: Record<string, unknown>;
@@ -210,6 +238,18 @@ export async function checkChatHealthAndAlert(
   }
 
   const pct = Math.round(badRate * 100);
+  const title =
+    staleA2ATasks > 0
+      ? `${staleA2ATasks} stale delegated A2A task${staleA2ATasks === 1 ? "" : "s"}`
+      : `Chat is failing: ${pct}% of turns ended without an answer`;
+  const details = [
+    badTurnRate
+      ? `${counts.bad} of ${counts.turns} turns in the last hour ended without an answer.`
+      : "",
+    staleA2ATasks > 0
+      ? `${staleA2ATasks} delegated A2A task${staleA2ATasks === 1 ? " is" : "s are"} past the recovery window.`
+      : "",
+  ].filter(Boolean);
   let delivery: Awaited<ReturnType<typeof notifyWithDelivery>>;
   try {
     delivery = await runWithRequestContext(
@@ -218,16 +258,16 @@ export async function checkChatHealthAndAlert(
         notifyWithDelivery(
           {
             severity: "critical",
-            title: `Chat is failing: ${pct}% of turns ended without an answer`,
+            title,
             body:
-              `${counts.bad} of ${counts.turns} turns in the last hour ended without ` +
-              `an answer. Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
+              `${details.join(" ")} Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
               `per-reason breakdown.`,
             channels: ["slack"],
             metadata: {
               turns: counts.turns,
               bad: counts.bad,
               badRate,
+              staleA2ATasks,
               windowMs: WINDOW_MS,
             },
           },
@@ -255,8 +295,6 @@ export async function checkChatHealthAndAlert(
     };
   }
 
-  // Finalize only after Slack confirms delivery. The claim id keeps a slow or
-  // expired sender from overwriting a newer claim's cooldown.
   try {
     const finalized = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) =>
       String(current?.claimId ?? "") === claimId
@@ -280,6 +318,7 @@ export async function checkChatHealthAndAlert(
     status: "alerted",
     turns: counts.turns,
     badRate,
+    staleA2ATasks,
     recipients: 1,
   };
 }

@@ -40,6 +40,7 @@ enabled: true
 triggerType: schedule
 mode: agentic
 createdBy: alice@example.com
+reasoningEffort: high
 ---
 
 Send me a daily digest.
@@ -101,6 +102,48 @@ describe("automation actions", () => {
       triggerType: "schedule",
       scheduleDescription: `Every day at 9 AM (${serverTimezone()})`,
       scope: "personal",
+      reasoningEffort: "high",
+    });
+  });
+
+  it("uses the latest run history when an automation has no status metadata", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/digest.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "automation-1",
+      owner: "alice@example.com",
+      path: "jobs/digest.md",
+      content: automationContent,
+    });
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "run-1",
+          owner: "alice@example.com",
+          automation: "digest",
+          path: "jobs/digest.md",
+          scope: "personal",
+          org_id: null,
+          app_id: "calendar",
+          run_id: "agent-run-1",
+          thread_id: "thread-1",
+          status: "error",
+          started_at: Date.now(),
+          finished_at: Date.now(),
+          error: "Configured MCP tools are unavailable.",
+          error_code: "background_automation_mcp_tools_unavailable",
+        },
+      ],
+    });
+
+    const [automation] = await listAutomations.run(
+      { scope: "personal" },
+      { ...ctx, appId: "calendar" },
+    );
+
+    expect(automation).toMatchObject({
+      lastStatus: "error",
+      lastError: "Configured MCP tools are unavailable.",
+      lastRun: expect.any(String),
     });
   });
 

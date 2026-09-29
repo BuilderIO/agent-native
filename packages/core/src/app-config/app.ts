@@ -125,23 +125,6 @@ export const appConfig = z.object({
       env: ["AGENT_NATIVE_HEALTH_STRICT_SCHEMA"],
       doc: "Return HTTP 503 when the framework health schema probe is not ready.",
     }),
-  /**
-   * The app's canonical public URL — what a user sees in a share link, an
-   * email, or a JWT issuer claim.
-   *
-   * This is NOT "where does this running deployment answer". On a deploy
-   * preview those differ, and conflating them is what sent background work to
-   * production from a preview twice. Self-address is derived by
-   * `resolveSelfDispatchBaseUrl()`, which consults the platform's own deploy
-   * URLs first and falls back to this; it is deliberately not settable here.
-   *
-   * Not `.url()`-validated on purpose. This value is read by self-dispatch,
-   * SSR, and OAuth, so a malformed one would make every `getAppConfig()` call
-   * in the process throw rather than fail in the one place that cares.
-   * Consumers that need a parseable URL validate it themselves and say what
-   * broke — `onboarding-html.ts` already reports "invalid app URL" with the
-   * feature named, which is a better error than a zod path.
-   */
   url: z
     .string()
     .min(1)
@@ -175,14 +158,6 @@ export const appConfig = z.object({
     doc: "Source template recorded by scaffolding for first-party identity checks.",
   }),
 
-  // ── package.json-derived branding ───────────────────────────────────────
-  //
-  // Filled by the `package` layer (the lowest one), which matches this app's
-  // package.json against the first-party template table. Deliberately no `env`
-  // alias on either: `slug` selects the per-app mailbox on agent-native.com, so
-  // it must not be settable by an ambient string on the host. The layer is the
-  // only writer, and it only ever emits a name the template table already
-  // contains.
   slug: z.string().min(1).optional().meta({
     doc: "First-party template slug, matched from package.json. Selects the per-app transactional email sender.",
   }),

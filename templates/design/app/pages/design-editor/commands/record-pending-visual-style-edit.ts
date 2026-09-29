@@ -19,12 +19,14 @@ import type { ContentHistoryChange } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
+  PendingRelativeStyleOperation,
   PendingVisualStyleEdit,
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
   appendPendingVisualStyleUndoEntry,
   mergePendingVisualStyleEdit,
+  nextPendingLiveEditTimestamp,
   originalStylesForPendingVisualEdit,
   pendingVisualStyleUndoRevertStyles,
   reactSourceAnchorForPendingEdit,
@@ -56,7 +58,12 @@ export interface RecordPendingVisualStyleEditArgs {
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   selectedElement: ElementInfo | null;
+  onNoRenderedBox?: () => void;
   setPatchProof: Dispatch<SetStateAction<PatchProofState | null>>;
   setPendingVisualStyleEdits: Dispatch<
     SetStateAction<PendingVisualStyleEdit[]>
@@ -85,8 +92,10 @@ export function runRecordPendingVisualStyleEdit(
     pendingVisualStyleRedoStackRef,
     pendingVisualStyleUndoStackRef,
     responsiveEditScopeRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     selectedElement,
+    onNoRenderedBox,
     setPatchProof,
     setPendingVisualStyleEdits,
     setSelectedElement,
@@ -102,6 +111,7 @@ export function runRecordPendingVisualStyleEdit(
     pendingUndoGestureId?: string;
     preserveSelection?: boolean;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -115,16 +125,38 @@ export function runRecordPendingVisualStyleEdit(
   const sourceId =
     elementInfo?.sourceId ??
     (screenId === activeFile?.id ? selectedElement?.sourceId : null);
-  // A localhost screen's live document and its source projection use
-  // different node-id namespaces, so the projection pair above cannot
-  // address the running DOM. Carry the runtime pair too or every undo
-  // replay silently resolves nothing (see runtimeStyleTarget).
   const runtimeInfo =
     elementInfo ?? (screenId === activeFile?.id ? selectedElement : null);
   const proofId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const measuredTarget =
+    elementInfo ?? (screenId === activeFile?.id ? selectedElement : null);
+  if (
+    measuredTarget &&
+    (measuredTarget.boundingRect.width <= 0 ||
+      measuredTarget.boundingRect.height <= 0)
+  ) {
+    onNoRenderedBox?.();
+    setPatchProof({
+      id: proofId,
+      fileId: screenId,
+      filename: fallbackName,
+      selector,
+      sourceId: sourceId ?? undefined,
+      property: entries.map(([property]) => property).join(", "),
+      nextValue: entries
+        .map(([property, value]) => `${property}: ${value}`)
+        .join("; "),
+      capability: "deterministic-style-edit",
+      confidence: 0,
+      status: "failed",
+      error: "designEditor.patchProof.noRenderedBox",
+      createdAt: Date.now(),
+    });
+    return;
+  }
   const [firstProperty, firstValue] = entries[0];
   const baseStyles = metadata?.interactionState
     ? originalStylesForPendingVisualEdit(
@@ -177,14 +209,15 @@ export function runRecordPendingVisualStyleEdit(
     tagName: elementInfo?.tagName ?? null,
     classes: elementInfo?.classes ?? [],
     styles: stylePatch,
+    ...(metadata?.relativeOperations
+      ? { relativeOperations: metadata.relativeOperations }
+      : {}),
     originalStyles,
     ...(metadata?.routePath ? { routePath: metadata.routePath } : {}),
     ...(metadata?.interactionState
       ? { interactionState: metadata.interactionState, baseStyles }
       : {}),
-    updatedAt: Date.now(),
-    // §6.4 — stamp the active breakpoint scope so the agent applies
-    // these as width-scoped overrides, not base writes.
+    updatedAt: nextPendingLiveEditTimestamp(),
     ...(activeBreakpointWidthState != null
       ? {
           breakpoint: {
@@ -199,9 +232,7 @@ export function runRecordPendingVisualStyleEdit(
     pendingVisualStyleEditsRef.current,
     nextEdit,
   );
-  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
-  // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload. Consecutive ticks on the same target coalesce.
+  const previousUndoLength = pendingVisualStyleUndoStackRef.current.length;
   appendPendingVisualStyleUndoEntry(pendingVisualStyleUndoStackRef.current, {
     edit: nextEdit,
     revertStyles,
@@ -209,6 +240,9 @@ export function runRecordPendingVisualStyleEdit(
       ? { gestureId: metadata.pendingUndoGestureId }
       : {}),
   });
+  if (pendingVisualStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-style");
+  }
   const nextPending = mergePendingVisualStyleEdit(
     pendingVisualStyleEditsRef.current,
     nextEdit,

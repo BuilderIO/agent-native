@@ -788,3 +788,45 @@ describe("withBetterAuthActionSession", () => {
     }
   });
 });
+
+describe("buildDatabaseConfig hosted-runtime local database guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+  });
+
+  it("rejects instead of opening PGlite on a hosted function invocation with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("../db/client.js");
+
+    await expect(buildDatabaseConfig()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("rejects on a Cloudflare Worker/Pages invocation with no database URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("../db/client.js");
+
+    await expect(buildDatabaseConfig()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+});

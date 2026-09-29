@@ -1,7 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown, IconLink, IconUpload } from "@tabler/icons-react";
-import { Link } from "react-router";
+import {
+  IconCamera,
+  IconChevronDown,
+  IconLink,
+  IconUpload,
+} from "@tabler/icons-react";
+import { useState } from "react";
 
+import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,7 +29,16 @@ type MenuAlign = "start" | "center" | "end";
 export interface ImportMenuProps {
   uploadHref?: string;
   onUpload?: () => void;
+  /**
+   * Take a screenshot. A handler rather than an href because the browser's
+   * screen picker has to open from the click, not after a navigation.
+   */
+  onScreenshot?: () => void;
+  screenshotPending?: boolean;
   importLoomHref?: string;
+  spaceId?: string | null;
+  folderId?: string | null;
+  recordHref?: string;
   className?: string;
   disabled?: boolean;
   iconOnly?: boolean;
@@ -37,7 +52,12 @@ export interface ImportMenuProps {
 export function ImportMenu({
   uploadHref,
   onUpload,
+  onScreenshot,
+  screenshotPending = false,
   importLoomHref,
+  spaceId,
+  folderId,
+  recordHref,
   className,
   disabled,
   iconOnly = false,
@@ -49,8 +69,9 @@ export function ImportMenu({
 }: ImportMenuProps) {
   const t = useT();
   const { input, openUploadPicker } = useUploadVideoPicker();
+  const [loomDialogOpen, setLoomDialogOpen] = useState(false);
 
-  if (!uploadHref && !onUpload && !importLoomHref) return null;
+  if (!uploadHref && !onUpload && !onScreenshot && !importLoomHref) return null;
 
   const trigger = (
     <Button
@@ -72,46 +93,74 @@ export function ImportMenu({
   );
 
   return (
-    <DropdownMenu>
-      {iconOnly ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side={menuSide ?? "right"}>
-            {t("preRecord.import")}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      )}
-      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
-        {uploadHref ? (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              openUploadPicker(uploadHref);
-            }}
-          >
-            <IconUpload />
-            {t("preRecord.uploadVideo")}
-          </DropdownMenuItem>
-        ) : onUpload ? (
-          <DropdownMenuItem onSelect={onUpload}>
-            <IconUpload />
-            {t("preRecord.uploadVideo")}
-          </DropdownMenuItem>
+    <>
+      <DropdownMenu>
+        {iconOnly ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side={menuSide ?? "right"}>
+              {t("preRecord.import")}
+            </TooltipContent>
+          </Tooltip>
         ) : null}
-        {importLoomHref ? (
-          <DropdownMenuItem asChild>
-            <Link to={importLoomHref}>
+        {!iconOnly ? (
+          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        ) : null}
+        <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
+          {uploadHref ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                openUploadPicker(uploadHref);
+              }}
+            >
+              <IconUpload />
+              {t("preRecord.uploadVideo")}
+            </DropdownMenuItem>
+          ) : onUpload ? (
+            <DropdownMenuItem onSelect={onUpload}>
+              <IconUpload />
+              {t("preRecord.uploadVideo")}
+            </DropdownMenuItem>
+          ) : null}
+          {onScreenshot ? (
+            <DropdownMenuItem
+              disabled={screenshotPending}
+              onSelect={(event) => {
+                // Keep the click's transient activation: closing the menu first
+                // would cost the screen picker its user gesture.
+                event.preventDefault();
+                onScreenshot();
+              }}
+            >
+              <IconCamera />
+              {t("preRecord.takeScreenshot")}
+            </DropdownMenuItem>
+          ) : null}
+          {importLoomHref ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                setTimeout(() => setLoomDialogOpen(true), 0);
+              }}
+            >
               <IconLink />
               {t("preRecord.importLoom")}
-            </Link>
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-      {input}
-    </DropdownMenu>
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+        {input}
+      </DropdownMenu>
+      {importLoomHref ? (
+        <ImportLoomDialog
+          open={loomDialogOpen}
+          onOpenChange={setLoomDialogOpen}
+          spaceId={spaceId}
+          folderId={folderId}
+          recordHref={recordHref}
+        />
+      ) : null}
+    </>
   );
 }

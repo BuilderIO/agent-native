@@ -23,8 +23,6 @@ describe("upload-image action SSRF guard", () => {
         headers: { location: "http://169.254.169.254/" },
       }),
     );
-    // 93.184.216.34 is a public IP literal — passes the pre-flight check, so
-    // the only way it fails is the redirect re-validation inside ssrfSafeFetch.
     await expect(
       action.run({ url: "http://93.184.216.34/logo.png" }),
     ).rejects.toThrow(/SSRF blocked/i);

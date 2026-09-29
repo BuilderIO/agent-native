@@ -70,10 +70,10 @@ routes are:
 | `POST /_agent-native/org/invitations`            | Invite one or more people                                       |
 | `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                            |
 | `POST /_agent-native/org/join-by-domain`         | Join an organization matched by email domain                    |
-| `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain                           |
-| `GET /_agent-native/org/a2a-secret`              | Reveal the active org's A2A secret (owner/admin, on demand)     |
-| `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret                   |
-| `POST /_agent-native/org/a2a-secret/sync`        | Push the org's A2A secret to every connected app (owner/admin)  |
+| `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain (owner/admin)             |
+| `GET /_agent-native/org/a2a-secret`              | Reveal the active org's A2A secret (owner only, on demand)      |
+| `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret (owner only)      |
+| `POST /_agent-native/org/a2a-secret/sync`        | Push the org's A2A secret to every connected app (owner only)   |
 | `POST /_agent-native/org/a2a-secret/receive`     | Accept a peer app's secret push (JWT-authenticated, no session) |
 
 Use the shared UI and hooks instead of recreating this flow in each app:
@@ -139,11 +139,11 @@ must require an explicit invite or organization-creation step.
 
 Organization roles answer: **what may this person do to the team itself?**
 
-| Role     | Meaning                          | Typical capabilities                                                                                                                                                                                |
-| -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `owner`  | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings                                                                                                                 |
-| `admin`  | Team administrator               | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, only the owner manages admin-to-admin transitions, and the shared client domain helper is owner-only |
-| `member` | Regular team member              | Use resources that the app shares with the organization; cannot manage membership                                                                                                                   |
+| Role     | Meaning                          | Typical capabilities                                                                                                                                                                              |
+| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner`  | Full control of the organization | Manage the organization, members, admins, domain policy, and the cross-app A2A secret                                                                                                             |
+| `admin`  | Team administrator               | Invite/remove members, manage ordinary member roles, and set email domain auto-join; admins cannot change the owner's role or manage the A2A secret, and only the owner manages admin transitions |
+| `member` | Regular team member              | Use resources that the app shares with the organization; cannot manage membership                                                                                                                 |
 
 The shared role helpers are deliberately small and composable:
 
@@ -322,6 +322,22 @@ For the `ownableColumns()` schema helper, the `accessFilter` / `resolveAccess` /
 `assertAccess` helper API, and the CI guard that enforces scoped queries, see
 [Security → Data Scoping](/docs/security#data-scoping) — the single source of
 truth for the scoping pipeline every resource role above rides on.
+
+## User groups {#user-groups}
+
+Organizations can have reusable user groups made up of current organization
+members. Owners and admins manage group membership, and one person can belong
+to multiple groups. Apps can use a group to share a resource that opts into
+group sharing or to limit access to a workspace connection.
+
+A group is an access list, not a child team. It has no separate organization or
+app roles, data boundary, or team-specific settings, instructions, context,
+skills, memory, or work view. A group share applies its resource role to every
+current group member. Access still requires membership in the resource's
+organization.
+
+See [Sharing & Privacy → Group grants](/docs/sharing#group-grants) and
+[Workspace Connections](/docs/workspace-connections) for details.
 
 ## Environment variables: what belongs where
 

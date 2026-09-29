@@ -1,7 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   accessFilter,
   assertAccess,
@@ -12,6 +11,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import type {
   ContentDatabaseView,
   DocumentPropertySystemRole,
@@ -578,7 +578,8 @@ export default defineAction({
         propertyId !== primaryBlocks?.id
       );
     });
-    const createdBy = getRequestUserEmail() ?? database.ownerEmail;
+    const actor = documentAttributionActor();
+    const shareCreatedBy = actor ?? database.ownerEmail;
 
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
@@ -693,6 +694,8 @@ export default defineAction({
         isFavorite: 0,
         hideFromSearch: databaseDocument.hideFromSearch ?? 0,
         visibility: databaseDocument.visibility ?? "private",
+        createdBy: actor,
+        updatedBy: actor,
         createdAt: now,
         updatedAt: now,
       });
@@ -714,7 +717,7 @@ export default defineAction({
             principalType: share.principalType,
             principalId: share.principalId,
             role: share.role,
-            createdBy,
+            createdBy: shareCreatedBy,
             createdAt: now,
           })),
         );

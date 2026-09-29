@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
     skills: {},
   })),
   generateSkillsPromptBlock: vi.fn(() => ""),
+  getRuntimeSkillsForUser: vi.fn(),
+  getEnabledSkillLabsForUser: vi.fn(),
   getSession: vi.fn(),
 }));
 
@@ -23,7 +25,6 @@ const routeHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
 }));
 
-// Mirror the real `getRuntimeSkills`: drop `scope: dev` skills, keep the rest.
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
   return Object.values(bundle.skills ?? {}).filter(
     (skill: any) => skill?.meta?.scope !== "dev",
@@ -65,6 +66,10 @@ vi.mock("./agents-bundle.js", () => ({
   loadAgentsBundle: (...args: any[]) => mocks.loadAgentsBundle(...args),
   generateSkillsPromptBlock: (...args: any[]) =>
     mocks.generateSkillsPromptBlock(...args),
+  getRuntimeSkillsForUser: (...args: any[]) =>
+    mocks.getRuntimeSkillsForUser(...args),
+  getEnabledSkillLabsForUser: (...args: any[]) =>
+    mocks.getEnabledSkillLabsForUser(...args),
   getRuntimeSkills: (bundle: any) => runtimeSkillsFromBundle(bundle),
 }));
 
@@ -194,6 +199,17 @@ const resourcesById = new Map([
         "---\nname: company-voice\ndescription: Personal voice override.\n---\n\n# Company Voice",
     },
   ],
+  [
+    "lab_required_skill",
+    {
+      id: "lab_required_skill",
+      path: "skills/lab-required/SKILL.md",
+      owner: "__shared__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: lab-required\ndescription: Requires an enabled Lab.\nrequires-lab: reports.preview\n---\n\n# Lab Required",
+    },
+  ],
 ]);
 
 function meta(id: string) {
@@ -213,6 +229,14 @@ beforeEach(() => {
     skills: {},
   });
   mocks.generateSkillsPromptBlock.mockReturnValue("");
+  mocks.getRuntimeSkillsForUser.mockImplementation(
+    (bundle: { skills?: Record<string, any> }, userEmail?: string) =>
+      runtimeSkillsFromBundle(bundle).filter(
+        (skill: any) =>
+          !skill.meta.requiresLab || userEmail === "enabled@example.test",
+      ),
+  );
+  mocks.getEnabledSkillLabsForUser.mockResolvedValue(new Set());
   mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
     if (owner === "__workspace__" && path === "AGENTS.md") {
       return { content: "# Workspace Instructions\n\nUse global context." };
@@ -326,6 +350,96 @@ async function fetchWithRequestContext(
 }
 
 describe("agent chat resource route organization scopes", () => {
+  it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {
+    const h3App = await mountResourceRoutes();
+    const creativeSkill = {
+      meta: {
+        name: "creative-context",
+        description: "Use Creative Context packs.",
+        scope: "both",
+        requiresLab: "content.creative-context",
+      },
+      content: "# Creative Context",
+      dir: ".agents/skills/creative-context",
+      extraFiles: [],
+      files: {},
+    };
+    mocks.loadAgentsBundle.mockResolvedValue({
+      workspaceAgentsMd: "",
+      agentsMd: "",
+      skills: { "creative-context": creativeSkill },
+    });
+    mocks.resourceList.mockResolvedValue([]);
+    mocks.resourceListAccessible.mockResolvedValue([]);
+
+    const disabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+    const enabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "enabled@example.test" },
+    );
+    const disabled = (await disabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+    const enabled = (await enabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+
+    expect(disabled.skills.map((skill) => skill.name)).not.toContain(
+      "creative-context",
+    );
+    expect(enabled.skills.map((skill) => skill.name)).toContain(
+      "creative-context",
+    );
+  });
+
+  it("fails closed when Lab state for a resource skill cannot be read", async () => {
+    const h3App = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({
+      email: "disabled@example.test",
+    } as any);
+    mocks.resourceList.mockResolvedValue([meta("lab_required_skill")]);
+    mocks.resourceListAccessible.mockResolvedValue([
+      meta("lab_required_skill"),
+    ]);
+
+    const disabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+    const disabled = (await disabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+    expect(disabled.skills.map((skill) => skill.name)).not.toContain(
+      "lab-required",
+    );
+
+    mocks.getEnabledSkillLabsForUser.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
+    const unavailableResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+
+    expect(unavailableResponse.status).toBe(500);
+    expect(await unavailableResponse.text()).not.toContain("Lab Required");
+    expect(mocks.resourceGet).toHaveBeenCalledWith("lab_required_skill", {
+      userEmail: "disabled@example.test",
+      orgId: undefined,
+    });
+    expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledWith(
+      ["reports.preview"],
+      "disabled@example.test",
+    );
+  });
+
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
     expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
@@ -637,6 +751,68 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
+    const failure = new Error("Labs settings unavailable");
+    mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);
+
+    await expect(loadResourcesForPrompt("user@example.test")).rejects.toBe(
+      failure,
+    );
+  });
+
+  it.each([false, true])(
+    "keeps Lab-gated skills per-user in %s compact prompt mode",
+    async (compact) => {
+      const creativeSkill = {
+        meta: {
+          name: "creative-context",
+          description: "Use Creative Context packs.",
+          scope: "both",
+          requiresLab: "content.creative-context",
+        },
+        content: "CREATIVE_CONTEXT_SKILL_MARKER",
+        dir: ".agents/skills/creative-context",
+        extraFiles: [],
+        files: {},
+      };
+      const bundle = {
+        workspaceAgentsMd: "",
+        agentsMd: "",
+        skills: { "creative-context": creativeSkill },
+      };
+      mocks.loadAgentsBundle.mockResolvedValue(bundle);
+      mocks.generateSkillsPromptBlock.mockImplementation(
+        (_bundle: unknown, skills: (typeof creativeSkill)[]) =>
+          skills.map((skill) => skill.content).join("\n"),
+      );
+
+      const disabled = await loadResourcesForPrompt(
+        "disabled@example.test",
+        compact,
+      );
+      const enabled = await loadResourcesForPrompt(
+        "enabled@example.test",
+        compact,
+      );
+
+      expect(disabled).not.toContain("CREATIVE_CONTEXT_SKILL_MARKER");
+      expect(disabled).not.toContain("creative-context");
+      expect(enabled).toContain(
+        compact ? "creative-context" : "CREATIVE_CONTEXT_SKILL_MARKER",
+      );
+      expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+        1,
+        bundle,
+        "disabled@example.test",
+      );
+      expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+        2,
+        bundle,
+        "enabled@example.test",
+      );
+    },
+  );
+
   it("uses runtime-scoped instructions and excludes development instructions", async () => {
     mocks.loadAgentsBundle.mockResolvedValueOnce({
       workspaceAgentsMd: "",
@@ -912,6 +1088,27 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).not.toContain("Use `resource-read --path <path>");
   });
 
+  it("fails prompt construction when Labs state for a resource skill is unreadable", async () => {
+    resourcesById.set("skills_lab_required", {
+      id: "skills_lab_required",
+      path: "skills/lab-required/SKILL.md",
+      owner: "__workspace__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: lab-required\ndescription: Requires an enabled Lab.\nrequires-lab: reports.preview\n---\n\n# Lab Required",
+    });
+    mocks.resourceListAccessible.mockResolvedValue([
+      meta("skills_lab_required"),
+    ]);
+    mocks.getEnabledSkillLabsForUser.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
+
+    await expect(loadResourcesForPrompt("user@example.test")).rejects.toThrow(
+      "Labs settings unavailable",
+    );
+  });
+
   it("points compact bundled skills at their docs-search skill slugs", async () => {
     mocks.loadAgentsBundle.mockResolvedValueOnce({
       workspaceAgentsMd: "",
@@ -1032,8 +1229,6 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("keeps cross-app discovery and names what it dropped when compact context overflows", async () => {
-    // 30 peers with real descriptions is a ~14,000-character block: large
-    // enough that the old greedy fitter had no room left for it.
     mocks.discoverAgents.mockResolvedValueOnce(
       Array.from({ length: 30 }, (_, index) => ({
         id: index === 0 ? "analytics" : `app-${index}`,
@@ -1074,6 +1269,21 @@ describe("loadResourcesForPrompt", () => {
       expect(prompt).toContain("<available-apps>");
       expect(prompt).toContain("Analytics (analytics)");
       expect(prompt).toContain("describe-workspace-apps");
+      expect(prompt).toContain(
+        "This list is a directory, not a request to involve another app.",
+      );
+      expect(prompt).toContain(
+        "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
+      );
+      expect(prompt).toContain(
+        "Use `describe-workspace-apps` only when that relevant cross-app need exists",
+      );
+      expect(prompt).toContain(
+        "you cannot tell which peer owns it or whether a known peer can provide it",
+      );
+      expect(prompt).not.toContain(
+        "Before building a capability another app may already own",
+      );
       expect(prompt).toContain("<context-note>");
       expect(prompt).toMatch(/section\(s\) did not fit the 48,000-character/);
       expect(prompt).toContain("Treat them as unread, not as absent");
@@ -1158,7 +1368,6 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain('<resource name="LEARNINGS.md" scope="shared"');
     expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt).toContain('Use the `resources` tool with `action: "read"`');
-    // The full oversized content must not have been inlined verbatim.
     expect(prompt.length).toBeLessThan(hugeLearnings.length);
   });
 

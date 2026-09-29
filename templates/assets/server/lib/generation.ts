@@ -2,9 +2,13 @@ import { createHash } from "node:crypto";
 
 import {
   FeatureNotConfiguredError,
+  GEMINI_API_KEY,
   getBuilderImageGenerationBaseUrl,
   resolveBuilderGatewayAuth,
+  readServiceProviderChoice,
+  resolveGeminiApiKey,
   resolveSecret,
+  type ServiceProviderId,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
@@ -45,8 +49,6 @@ export interface ReferenceForGeneration {
     | `preset-ref:${string}`;
 }
 
-// Keep automatic reference context compact for Gemini. Explicit
-// referenceAssetIds bypass this cap because the caller made a deliberate set.
 export const DEFAULT_GENERATION_REFERENCE_LIMIT = 6;
 const STYLE_ANALYSIS_REFERENCE_LIMIT = 8;
 const STYLE_ANALYSIS_MODEL =
@@ -85,30 +87,13 @@ export interface GenerateProviderOutput {
 const MANAGED_PROVIDER_MAX_ATTEMPTS = 3;
 const MANAGED_PROVIDER_RETRY_DELAY_MS =
   process.env.NODE_ENV === "test" ? 0 : 2500;
-// A single managed image generation can legitimately run longer than one
-// request's abort window (pro models routinely exceed 90s). The request always
-// carries the run id as an idempotency key, so re-POSTing the same key replays
-// the finished result (or answers 409 "request in progress") instead of
-// starting a second, double-charged generation. When a request aborts client
-// side, hits an upstream gateway timeout, or reports in-progress, we poll the
-// same key until it resolves rather than failing. ~40 polls * 6s ≈ 4 min.
 const MANAGED_PROVIDER_INFLIGHT_MAX_POLLS =
   process.env.NODE_ENV === "test" ? 6 : 40;
 const MANAGED_PROVIDER_INFLIGHT_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 6000;
-// Slow image models (e.g. gpt-image-*) return the finished image synchronously
-// but can take several minutes end-to-end (generate + encode the large PNG +
-// transfer). The old 90s window was tuned for Gemini and aborted these mid-
-// response, so the request just needs a longer budget rather than the poll-and-
-// replay fallback. Override per deployment with ASSETS_IMAGE_GENERATION_TIMEOUT_MS.
 const IMAGE_GENERATION_REQUEST_TIMEOUT_MS =
   Number(process.env.ASSETS_IMAGE_GENERATION_TIMEOUT_MS) || 300_000;
 
-// Lightweight structured logging for the image-generation providers. Slow
-// models (e.g. gpt-image-*) can exceed the 90s per-request abort window and get
-// converted into an in-flight poll, so these logs make the provider, model,
-// elapsed time, and abort/poll outcome visible when a generation "completes on
-// the provider but times out in the app". Silenced under NODE_ENV=test.
 function logGeneration(
   event: string,
   fields: Record<string, unknown> = {},
@@ -134,10 +119,10 @@ function formatLogValue(value: unknown): string {
 }
 
 export async function getGeminiApiKey(): Promise<string> {
-  const key = await resolveSecret("GEMINI_API_KEY");
+  const key = await resolveGeminiApiKey();
   if (!key) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -148,7 +133,8 @@ export async function getGeminiApiKey(): Promise<string> {
 }
 
 export async function isGeminiImageGenerationConfigured(): Promise<boolean> {
-  return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
+  // coercion-ok: unchanged from the resolveSecret("GEMINI_API_KEY") read it replaces; an unreadable store still lets generation try the next provider, matching the OpenAI check below.
+  return !!(await resolveGeminiApiKey().catch(() => null));
 }
 
 async function getOpenAIImageApiKey(): Promise<string> {
@@ -225,10 +211,6 @@ function isRetryableBuilderImageGenerationError(err: unknown): boolean {
   );
 }
 
-// A client-side abort, an upstream gateway timeout, or the service's explicit
-// 409 "request_in_progress" all mean the generation is still running under this
-// idempotency key. Re-POSTing the same key replays the finished result once the
-// service completes, so these are polled rather than surfaced as failures.
 function isInFlightImageGenerationError(err: unknown): boolean {
   if (!(err instanceof BuilderImageGenerationError)) return false;
   return (
@@ -271,10 +253,6 @@ interface BuilderImageGenerationResponse {
 export async function generateWithBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
-  // Gateway lane: a published site paying with Builder credits carries the
-  // injected gateway pair and no identity credential at all, and image
-  // generation is metered rather than identity-bearing. The resolver still
-  // prefers a connected Builder account, so a site that has one is unaffected.
   const builderAuth = await resolveBuilderGatewayAuth();
   if (!builderAuth) {
     throw new BuilderImageGenerationError(
@@ -344,17 +322,14 @@ export async function generateWithBuilderImageApi(
       ...(builderAuth.spaceId
         ? { "x-builder-api-key": builderAuth.spaceId }
         : {}),
+      ...(builderAuth.userId
+        ? { "x-builder-user-id": builderAuth.userId }
+        : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
   }).catch((err) => {
-    // `AbortSignal.timeout()` rejects with a `TimeoutError` DOMException, while a
-    // manual `AbortController.abort()` rejects with `AbortError` — treat both as
-    // "socket gave up, but the service keeps generating under this idempotency
-    // key". Flag it so the retry loop polls the key instead of starting a fresh
-    // (double-charged) generation. Matching only "AbortError" silently let the
-    // per-request timeout escape as a hard failure for slow models.
     const name = (err as Error)?.name;
     if (name === "AbortError" || name === "TimeoutError") {
       logGeneration("builder.abort", {
@@ -392,10 +367,6 @@ export async function generateWithBuilderImageApi(
     const text = await response.text().catch(() => "");
     const detail = builderErrorDetailForUser(text, input.model);
     const code = extractBuilderErrorCode(text);
-    // Shape, not values: the rest of this file already logs `promptChars` and
-    // hashed reference data rather than the payloads themselves, and a
-    // provider error can echo prompt-derived content back to us. `detail` is
-    // the string the user is about to see anyway.
     logGeneration("builder.error", {
       model: requestModel,
       requestedModel: input.model,
@@ -584,10 +555,6 @@ async function generateWithRetryingBuilderImageApi(
     try {
       return await generateWithBuilderImageApi(input);
     } catch (err) {
-      // The generation is still running under this idempotency key. Poll the
-      // same key — a pending request returns 409 immediately and the final
-      // poll returns the stored image as an idempotent replay (no re-charge) —
-      // until it resolves or we exhaust the polling budget.
       if (isInFlightImageGenerationError(err)) {
         if (inFlightPolls >= MANAGED_PROVIDER_INFLIGHT_MAX_POLLS) {
           logGeneration("builder.poll_exhausted", {
@@ -618,7 +585,6 @@ async function generateWithRetryingBuilderImageApi(
         await generationPollDelay();
         continue;
       }
-      // Fresh transient server errors get a few quick retries with backoff.
       if (
         isRetryableBuilderImageGenerationError(err) &&
         transientAttempts < MANAGED_PROVIDER_MAX_ATTEMPTS - 1
@@ -639,23 +605,59 @@ async function generateWithRetryingBuilderImageApi(
   }
 }
 
+/**
+ * The organization's Image generation provider (Settings › Infrastructure)
+ * when it is Gemini or OpenAI, has a key, and can serve this run. Otherwise
+ * null, and generation keeps the Builder-first path with its fallbacks: mask
+ * edits need Builder, Gemini can't run gpt-* models, and OpenAI can't attach
+ * reference boards or source images.
+ */
+async function chosenImageProvider(
+  choice: ServiceProviderId<"images"> | null,
+  input: GenerateProviderInput,
+): Promise<
+  ((input: GenerateProviderInput) => Promise<GenerateProviderOutput>) | null
+> {
+  if (!choice || choice === "builder" || input.mode === "edit") return null;
+  if (choice === "gemini") {
+    if (input.model.startsWith("gpt-")) return null;
+    return (await isGeminiImageGenerationConfigured())
+      ? generateWithGemini
+      : null;
+  }
+  if (
+    input.hasBoardReferences ||
+    input.intent === "restyle" ||
+    input.intent === "edit"
+  ) {
+    return null;
+  }
+  return (await isOpenAIImageGenerationConfigured())
+    ? generateWithOpenAI
+    : null;
+}
+
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  const orgProvider = await readServiceProviderChoice("images");
   logGeneration("dispatch", {
     model: input.model,
     mode: input.mode,
     intent: input.intent,
     background: input.background,
     builderEnabled: isBuilderImageGenerationEnabled(),
+    orgProvider,
     runId: input.runId,
   });
+  const chosen = await chosenImageProvider(orgProvider, input);
+  if (chosen) return chosen(input);
   if (!isBuilderImageGenerationEnabled()) {
     if (await isManualImageGenerationConfigured()) {
       return generateWithManualImageProvider(input);
     }
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY or OPENAI_API_KEY",
+      requiredCredential: `${GEMINI_API_KEY} or OPENAI_API_KEY`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -700,7 +702,7 @@ function createBuilderImageGenerationFallbackError(
       requiredCredential:
         input?.mode === "edit" || err.status === 401
           ? "BUILDER_PRIVATE_KEY"
-          : "GEMINI_API_KEY",
+          : GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message,
@@ -748,10 +750,6 @@ function builderImageGenerationFallbackMessage(
   }
 }
 
-// This string is rendered verbatim in the candidate tray, so it must never
-// carry the upstream payload. The managed service wraps the provider failure
-// in a JSON string, which wraps the Vertex failure in another JSON string;
-// returning the first value found put an escaped 404 body in front of users.
 function builderErrorDetailForUser(text: string, model: ImageModel): string {
   const detail = readableProviderErrorDetail(text);
   if (!detail) return "";
@@ -761,8 +759,6 @@ function builderErrorDetailForUser(text: string, model: ImageModel): string {
   return detail;
 }
 
-// The managed service tags errors with a stable machine code (e.g.
-// "request_in_progress") in the JSON body. It drives retry vs. poll decisions.
 function extractBuilderErrorCode(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
@@ -954,16 +950,13 @@ async function generateWithManualImageProvider(
         "Mask inpainting runs need Builder-managed image generation because the manual fallback cannot pass the image-edit mask.",
     });
   }
-  // Board-reference runs on gpt-* models must not reroute into the Gemini
-  // fallback: Gemini rejects GPT model ids, which would surface a cryptic
-  // provider error instead of this setup guidance.
   if (input.hasBoardReferences && input.model.startsWith("gpt-")) {
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   if (await isGeminiImageGenerationConfigured()) {
@@ -971,16 +964,16 @@ async function generateWithManualImageProvider(
   }
   if (input.hasBoardReferences) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      requiredCredential: `BUILDER_PRIVATE_KEY or ${GEMINI_API_KEY}`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   if (input.intent === "restyle" || input.intent === "edit") {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -995,11 +988,11 @@ export async function generateWithOpenAI(
 ): Promise<GenerateProviderOutput> {
   if (input.hasBoardReferences) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      requiredCredential: `BUILDER_PRIVATE_KEY or ${GEMINI_API_KEY}`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   const startedAt = Date.now();
@@ -1179,12 +1172,6 @@ export function resolveImageModelForRequest(input: {
 }): ImageModel {
   if (input.explicitModel) return input.explicitModel;
 
-  // Exact embedded text is materially better on Gemini Pro, so upgrade to it by
-  // default for text requests — but never override a model or tier the caller
-  // or a tagged preset already chose (presets "own" model/tier per the action
-  // docs). Only auto-upgrade when there is no tier (explicit or preset-derived)
-  // and no preset model in play; this still upgrades a bare text request over
-  // the composer default.
   const textAccurateModel: ImageModel | undefined =
     input.embeddedText?.trim() &&
     !input.explicitTier &&
@@ -1193,19 +1180,6 @@ export function resolveImageModelForRequest(input: {
       ? "gemini-3-pro-image"
       : undefined;
 
-  // Precedence: explicit per-request model (handled above) > embedded-text
-  // upgrade > an EXPLICIT per-request tier > the preset's saved model > the
-  // preset-DERIVED tier mapping > the sticky composer default > the floor.
-  //
-  // Two subtleties:
-  //   - An explicit per-request tier outranks the preset's saved model (the
-  //     caller is deliberately overriding the preset this turn).
-  //   - The preset's explicit saved model outranks its OWN derived tier: a
-  //     preset's `model` column and `settings.tier` can drift out of sync
-  //     (update-generation-preset can change one without the other), and the
-  //     explicitly saved model is the authoritative choice.
-  //   - The composer default ranks LAST of the real signals: it is a global
-  //     stored preference and must not defeat a tagged preset or a tier request.
   return (
     textAccurateModel ??
     resolveModelForTier(input.explicitTier, input.category) ??
@@ -1481,9 +1455,6 @@ function formatRenderedDesignEvidence(style: StyleBrief): string {
   ].join("\n");
 }
 
-// A content-only reference is an image the user attached as subject/content for
-// a single request (not a reusable brand/style reference). It should never count
-// as a brand-kit style reference.
 function isContentOnlyReferenceAsset(asset: {
   role: string;
   metadata: string;
@@ -1503,12 +1474,6 @@ export async function selectReferences(input: {
   subjectAssetId?: string;
   intent?: GenerationIntent;
   limit?: number;
-  /**
-   * Drafts are private to their author, and the pool below scores every asset
-   * in the kit — including unsaved candidates. Without this scope an automatic
-   * selection would quietly send another drafter's candidate to the provider.
-   * Required: pass `unrestrictedDraftReadScope()` for an approver.
-   */
   draftScope: DraftReadScope;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
@@ -1556,12 +1521,6 @@ export async function selectReferences(input: {
           : undefined,
       () => "explicit",
     );
-    // When every caller-requested reference is a content-only attachment (a
-    // subject/content image dropped in for this one request), it should ADD to —
-    // not replace — the library's curated brand style. Otherwise attaching a
-    // content image silently strips every style/anchor reference and the
-    // generation ignores the brand kit entirely. `edit` keeps exact control
-    // because the edit target must stand alone.
     const requestedContentAssets = explicitAssets.filter((asset) =>
       requestedExplicitIds.has(asset.id),
     );

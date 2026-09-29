@@ -370,6 +370,62 @@ test("retries transient provider responses before classifying the result", async
   }
 });
 
+test("retries a freshly published health route before classifying it absent", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(null, {
+        status: 404,
+        headers: { "retry-after": "0" },
+      });
+    }
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const response = await fetchWithRetry(
+      "https://beta.mail.agent-native.com/_agent-native/health/google",
+      { redirect: "manual" },
+      Date.now() + 1_000,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("returns the last response when a retry delay exhausts the probe budget", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return new Response('{"status":"invalid"}', {
+      status: 503,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": "60",
+      },
+    });
+  };
+  try {
+    const response = await fetchWithRetry(
+      "https://beta.mail.agent-native.com/_agent-native/health/google",
+      { redirect: "manual" },
+      Date.now() + 5,
+    );
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), '{"status":"invalid"}');
+    assert.equal(attempts, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("does not fetch after the probe deadline", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;

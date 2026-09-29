@@ -122,7 +122,6 @@ function setupFetch() {
       serverDecks = decks;
     },
     resolveCreate: (response: Response) => resolveCreate(response),
-    /** Make the next list-decks request hang until `releaseList` is called. */
     holdNextList: () => {
       heldListRequestBudget += 1;
     },
@@ -140,17 +139,25 @@ function listCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   ).length;
 }
 
+function listCallUrls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
+  return fetchMock.mock.calls
+    .map(([url]) => requestString(url))
+    .filter((href) => href.includes("/_agent-native/actions/list-decks"));
+}
+
 function deckCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
     requestString(url).includes("/_agent-native/actions/get-deck"),
   ).length;
 }
 
-/**
- * happy-dom reports a `visible` document and offers no way to background it.
- * Backgrounded is the state an external agent always drives the editor in, so
- * the poll's behavior there has to be assertable.
- */
+function deckCallIds(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
+  return fetchMock.mock.calls
+    .map(([url]) => requestString(url))
+    .filter((href) => href.includes("/_agent-native/actions/get-deck"))
+    .map((href) => new URL(href, "http://localhost").searchParams.get("id"));
+}
+
 let restoreVisibility: (() => void) | null = null;
 function hideDocument() {
   const original = Object.getOwnPropertyDescriptor(
@@ -205,8 +212,6 @@ describe("DeckContext optimistic create", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.decks).toEqual([]);
 
-    // A list refresh starts while the user still has zero decks (here via the
-    // SSE reconnect resync; the fallback poll issues the same request).
     api.holdNextList();
     const source = await lastEventSource();
     act(() => {
@@ -215,8 +220,6 @@ describe("DeckContext optimistic create", () => {
     });
     await waitFor(() => expect(api.listRequestPending()).toBe(true));
 
-    // User creates a deck while that request is still in flight, and the
-    // create succeeds server-side.
     let deckId = "";
     act(() => {
       deckId = result.current.createDeck("Fresh Deck").id;
@@ -227,8 +230,6 @@ describe("DeckContext optimistic create", () => {
       await Promise.resolve();
     });
 
-    // The in-flight snapshot predates the create, so it cannot prove the deck
-    // is absent. Resolving it must not wipe the deck back to the empty state.
     await act(async () => {
       api.releaseList([]);
       await Promise.resolve();
@@ -244,8 +245,6 @@ describe("DeckContext optimistic create", () => {
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Baseline reloads replace `decks` wholesale, so they need the same
-    // protection as the poll path when the active organization is unchanged.
     api.holdNextList();
     let reload: Promise<void> = Promise.resolve();
     act(() => {
@@ -339,9 +338,6 @@ describe("DeckContext optimistic create", () => {
 describe("DeckContext fallback polling", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
-    // Fake timers must be installed BEFORE the provider mounts, otherwise the
-    // poll's first setTimeout is a real timer that advanceTimersByTime cannot
-    // move. `shouldAdvanceTime` keeps `waitFor` usable.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal("EventSource", MockEventSource);
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -349,8 +345,6 @@ describe("DeckContext fallback polling", () => {
   });
 
   afterEach(() => {
-    // Unmount before restoring timers: a provider left mounted keeps its poll
-    // loop running and inflates the request counts a later test asserts on.
     cleanup();
     restoreVisibility?.();
     restoreVisibility = null;
@@ -389,10 +383,180 @@ describe("DeckContext fallback polling", () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
 
-    // One idle minute on a healthy SSE connection used to cost ~12 get-deck
-    // fetches from the unconditional 5s "fallback" poll.
     expect(deckCallCount(api.fetchMock) - deckBefore).toBeLessThanOrEqual(2);
     expect(listCallCount(api.fetchMock) - listBefore).toBeLessThanOrEqual(2);
+  });
+
+  it("keeps the idle poll cadence when SSE reports poll-live instead of connected, without extra churn", async () => {
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    const deckBeforeNotify = deckCallCount(api.fetchMock);
+    const listBeforeNotify = listCallCount(api.fetchMock);
+    await act(async () => {
+      source.simulateFatalError();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(listCallCount(api.fetchMock)).toBe(listBeforeNotify);
+    expect(deckCallCount(api.fetchMock)).toBe(deckBeforeNotify);
+
+    const listBefore = listCallCount(api.fetchMock);
+    const deckBefore = deckCallCount(api.fetchMock);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(deckCallCount(api.fetchMock) - deckBefore).toBeLessThanOrEqual(2);
+    expect(listCallCount(api.fetchMock) - listBefore).toBeLessThanOrEqual(2);
+  });
+
+  it("does not re-fetch unchanged decks on repeated list-decks polls", async () => {
+    const decks: Deck[] = Array.from({ length: 24 }, (_, i) => ({
+      id: `deck-${i}`,
+      title: `Deck ${i}`,
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    }));
+    window.history.pushState({}, "", `/deck/${decks[0].id}`);
+    const api = setupFetch();
+    api.setServerDecks(decks);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+
+    const listBefore = listCallCount(api.fetchMock);
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(130_000);
+    });
+
+    expect(listCallCount(api.fetchMock) - listBefore).toBeGreaterThanOrEqual(2);
+    const idsFetched = deckCallIds(api.fetchMock).slice(deckBefore);
+    expect(idsFetched.filter((id) => id !== decks[0].id)).toEqual([]);
+  });
+
+  it("coalesces a sync-event batch into one get-deck for the open deck, not one per changed deck", async () => {
+    const openDeck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", `/deck/${openDeck.id}`);
+    const api = setupFetch();
+    api.setServerDecks([openDeck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+
+    const listBefore = listCallCount(api.fetchMock);
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    const batch = [
+      ...Array.from({ length: 3 }, () => ({
+        source: "deck",
+        type: "deck-changed",
+        deckId: openDeck.id,
+      })),
+      ...Array.from({ length: 20 }, (_, i) => ({
+        source: "deck",
+        type: "deck-changed",
+        deckId: `other-deck-${i}`,
+      })),
+    ];
+
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ events: batch }),
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallCount(api.fetchMock) - deckBefore).toBe(1);
+    expect(deckCallIds(api.fetchMock).at(-1)).toBe(openDeck.id);
+    expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("coalesces a sync-event batch into one list refresh when no deck is open, and updates a known deck's title", async () => {
+    const knownDeck: Deck = {
+      id: "known-deck",
+      title: "Original Title",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([knownDeck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.decks).toHaveLength(1));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+
+    const listBefore = listCallCount(api.fetchMock);
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    api.setServerDecks([
+      {
+        ...knownDeck,
+        title: "Renamed Elsewhere",
+        updatedAt: "2026-07-25T00:01:00.000Z",
+      },
+    ]);
+    const batch = [
+      { source: "deck", type: "deck-changed", deckId: knownDeck.id },
+      ...Array.from({ length: 9 }, (_, i) => ({
+        source: "deck",
+        type: "deck-changed",
+        deckId: `other-deck-${i}`,
+      })),
+    ];
+
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ events: batch }),
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(listCallCount(api.fetchMock) - listBefore).toBe(1);
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore);
+    await waitFor(() =>
+      expect(result.current.getDeck(knownDeck.id)?.title).toBe(
+        "Renamed Elsewhere",
+      ),
+    );
   });
 
   it("takes over at the fast interval when the live channel drops", async () => {
@@ -422,8 +586,6 @@ describe("DeckContext fallback polling", () => {
     act(() => {
       source.simulateFatalError();
     });
-    // Losing the live channel must resume fast polling immediately rather than
-    // waiting out the idle interval.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6_000);
     });
@@ -432,9 +594,6 @@ describe("DeckContext fallback polling", () => {
   });
 
   it("keeps reconciling the open deck while the tab is hidden", async () => {
-    // An external agent (MCP / WebMCP / CDP) writes into a tab nobody is
-    // looking at. Skipping the poll while hidden left an agent's add-slide
-    // unseen for 33s on beta — the write had landed, the editor never asked.
     const deck: Deck = {
       id: "open-deck",
       title: "Open Deck",
@@ -462,11 +621,6 @@ describe("DeckContext fallback polling", () => {
   });
 
   it("reads the deck back when a page-local WebMCP write announces itself", async () => {
-    // The WebMCP bridge dispatches `agentNative:refresh-data` after every
-    // mutating page-local call. On beta an add-slide called through
-    // `window.__agentNativeWebMcp` in a hidden tab returned ok and the new
-    // slide was still missing 152s later: the writing tab was waiting out the
-    // 60s SSE fallback interval and nothing here listened for the write.
     const deck: Deck = {
       id: "open-deck",
       title: "Open Deck",
@@ -499,10 +653,6 @@ describe("DeckContext fallback polling", () => {
   });
 
   it("adopts the agent-added slide's own content, not a sibling's", async () => {
-    // beta.slides: an external agent called add-slide through
-    // `window.__agentNativeWebMcp` in a hidden tab. The refetch fired and the
-    // sidebar gained a second thumbnail, but slide 2 rendered slide 1's body
-    // — a wrong slide, not a slow one.
     const deck: Deck = {
       id: "open-deck",
       title: "Open Deck",
@@ -602,11 +752,160 @@ describe("DeckContext fallback polling", () => {
     const listAfterWrite = listCallCount(api.fetchMock);
     expect(listAfterWrite).toBeGreaterThan(listBefore);
 
-    // One read, not a resumed poll loop: the idle gate is skipped for the
-    // announced write only.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(listCallCount(api.fetchMock)).toBe(listAfterWrite);
+  });
+
+  it("requests the preview projection only on the grid, and the id-only listing while a deck is open", async () => {
+    const openDeck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", `/deck/${openDeck.id}`);
+    const api = setupFetch();
+    api.setServerDecks([openDeck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    const listBefore = listCallUrls(api.fetchMock).length;
+    await act(async () => {
+      source.simulateOpen();
+      source.simulateOpen();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const openDeckListCalls = listCallUrls(api.fetchMock).slice(listBefore);
+    expect(openDeckListCalls.length).toBeGreaterThan(0);
+    expect(
+      openDeckListCalls.every((url) => !url.includes("includePreview")),
+    ).toBe(true);
+
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            events: [
+              { source: "deck", type: "deck-changed", deckId: "other-deck" },
+            ],
+          }),
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const listBeforeGrid = listCallUrls(api.fetchMock).length;
+    act(() => {
+      window.history.pushState({}, "", "/");
+      result.current.catchUpStaleDeckList();
+    });
+    await waitFor(() =>
+      expect(listCallUrls(api.fetchMock).length).toBeGreaterThan(
+        listBeforeGrid,
+      ),
+    );
+    const gridListCalls = listCallUrls(api.fetchMock).slice(listBeforeGrid);
+    expect(gridListCalls.some((url) => url.includes("includePreview"))).toBe(
+      true,
+    );
+  });
+
+  it("does not let a stale list snapshot clobber a rename that finished saving while the poll was in flight", async () => {
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Original",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [{ id: "s1", content: "<p>hi</p>" }],
+    } as unknown as Deck;
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    api.holdNextList();
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+      source.simulateOpen();
+    });
+    await waitFor(() => expect(api.listRequestPending()).toBe(true));
+
+    act(() => {
+      result.current.updateDeck("open-deck", { title: "Renamed locally" });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const savedDeck = result.current.getDeck("open-deck");
+    expect(savedDeck?.title).toBe("Renamed locally");
+    api.setServerDecks([savedDeck!]);
+
+    await act(async () => {
+      api.releaseList([deck]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.getDeck("open-deck")?.title).toBe("Renamed locally");
+  });
+
+  it("catches up the deck list once the grid reports a batch of decks changed while another deck was open", async () => {
+    const openDeck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    const otherDeck: Deck = {
+      id: "other-deck",
+      title: "Other Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", `/deck/${openDeck.id}`);
+    const api = setupFetch();
+    api.setServerDecks([openDeck, otherDeck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            events: [
+              { source: "deck", type: "deck-changed", deckId: otherDeck.id },
+            ],
+          }),
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(listCallCount(api.fetchMock)).toBe(listBefore);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => {
+      window.history.pushState({}, "", "/");
+      result.current.catchUpStaleDeckList();
+    });
+    await waitFor(() =>
+      expect(listCallCount(api.fetchMock)).toBe(listBefore + 1),
+    );
   });
 });

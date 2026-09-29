@@ -1,6 +1,11 @@
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 
 import { readBrainSettings } from "./lib/brain.js";
+import { probeJevCredential } from "./lib/jev-classifier.js";
 import { brainPrivacyReadiness } from "./lib/privacy-readiness.js";
 
 registerOnboardingStep({
@@ -9,7 +14,7 @@ registerOnboardingStep({
   required: false,
   title: "Configure Brain privacy classification",
   description:
-    "Choose the approved model and engine that review captures before storage. Until configured, deterministic-clean content can be stored but uncertain content is quarantined and unavailable to search or agents.",
+    "Choose how captures are reviewed before storage: Jev, an approved model and engine, or deterministic screening alone. Until a classifier is reachable, deterministic-clean content can be stored but uncertain content is quarantined and unavailable to search or agents.",
   methods: [
     {
       id: "settings",
@@ -21,7 +26,14 @@ registerOnboardingStep({
   ],
   isComplete: async () => {
     try {
-      return brainPrivacyReadiness(await readBrainSettings()).configured;
+      const settings = await readBrainSettings();
+      return brainPrivacyReadiness(
+        settings,
+        await probeJevCredential({
+          ownerEmail: getRequestUserEmail() ?? "",
+          orgId: getRequestOrgId(),
+        }),
+      ).configured;
     } catch {
       return false;
     }

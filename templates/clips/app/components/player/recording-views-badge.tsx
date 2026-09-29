@@ -1,9 +1,10 @@
 import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconAlertTriangle, IconBotId, IconUser } from "@tabler/icons-react";
-import { useState } from "react";
+import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
+import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
+import { IconAlertTriangle, IconUser } from "@tabler/icons-react";
+import { lazy, Suspense, useState } from "react";
 
-import { ClaudeLogo, CodexLogo } from "@/components/agent-destination-logos";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,8 +24,29 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import { InsightsChart } from "./insights-chart";
+import { AgentViewerAvatar } from "./agent-view-count";
 import { ViewerTabsList, ViewerTabsTrigger } from "./viewer-controls";
+
+let insightsChartModule: Promise<typeof import("./insights-chart")> | undefined;
+
+function loadInsightsChart() {
+  insightsChartModule ??= import("./insights-chart").catch((error) => {
+    insightsChartModule = undefined;
+    throw error;
+  });
+  return insightsChartModule;
+}
+
+const LazyInsightsChart = lazy(async () => {
+  const module = await loadInsightsChart();
+  return { default: module.InsightsChart };
+});
+
+function preloadInsightsChart() {
+  void loadInsightsChart().catch(() => {});
+}
+
+export { AgentViewCount, AgentViewerAvatar } from "./agent-view-count";
 
 interface ViewerRow {
   id: string;
@@ -49,7 +71,6 @@ interface AgentViewersResponse {
   views?: number;
   agentViews?: number;
   uniqueViewers?: number;
-  /** Null when no human viewer has been counted — render it as unknown, not 0%. */
   completionRate?: number | null;
   ctaConversionRate?: number | null;
   agentViewers: AgentViewerRow[];
@@ -57,25 +78,14 @@ interface AgentViewersResponse {
 
 export interface RecordingViewsBadgeProps {
   recordingId: string;
-  /** Public counted human-view total. Combined with agentViewCount for display. */
   viewCount: number;
-  /** Outside-agent read total. Broken out in the Views tab. */
   agentViewCount?: number;
-  /** Total recorded emoji reactions for the engagement funnel. */
   reactionCount?: number;
-  /** Opens the unified surface when arriving from the legacy insights route. */
   defaultOpen?: boolean;
-  /** True only for owner/editor — gates avatars and all viewer identities. */
   canViewDetails: boolean;
   className?: string;
 }
 
-/**
- * Header-sized human-view trigger. Viewer identities are owner/editor-only,
- * so a visitor gets plain text and fires no viewer queries at all —
- * `canViewDetails` is the client half of the server-side access check on
- * `list-viewers`.
- */
 export function RecordingViewsBadge({
   recordingId,
   viewCount,
@@ -144,7 +154,7 @@ export function RecordingViewsBadge({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            "cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             className,
           )}
           aria-label={countLabel}
@@ -177,7 +187,11 @@ export function RecordingViewsBadge({
             <ViewerTabsTrigger value="views">
               {t("recordingInsights.viewsTab")}
             </ViewerTabsTrigger>
-            <ViewerTabsTrigger value="insights">
+            <ViewerTabsTrigger
+              value="insights"
+              onPointerEnter={preloadInsightsChart}
+              onFocus={preloadInsightsChart}
+            >
               {t("recordingInsights.insightsTab")}
             </ViewerTabsTrigger>
           </ViewerTabsList>
@@ -275,17 +289,31 @@ export function RecordingViewsBadge({
               ) : agentViewersQuery.isLoading ? (
                 <Skeleton className="h-[220px] w-full rounded-lg" />
               ) : (
-                <InsightsChart
-                  views={insightViews}
-                  uniqueViewers={uniqueViewers}
-                  reactions={reactionCount}
-                  completionRate={
-                    agentViewersQuery.data?.completionRate ?? null
+                <LazyChunkErrorBoundary
+                  fallback={
+                    <div className="flex h-[220px] items-center justify-center">
+                      <LazyChunkRetryFallback />
+                    </div>
                   }
-                  ctaConversionRate={
-                    agentViewersQuery.data?.ctaConversionRate ?? null
-                  }
-                />
+                >
+                  <Suspense
+                    fallback={
+                      <Skeleton className="h-[220px] w-full rounded-lg" />
+                    }
+                  >
+                    <LazyInsightsChart
+                      views={insightViews}
+                      uniqueViewers={uniqueViewers}
+                      reactions={reactionCount}
+                      completionRate={
+                        agentViewersQuery.data?.completionRate ?? null
+                      }
+                      ctaConversionRate={
+                        agentViewersQuery.data?.ctaConversionRate ?? null
+                      }
+                    />
+                  </Suspense>
+                </LazyChunkErrorBoundary>
               )}
             </TabsContent>
           </div>
@@ -351,65 +379,6 @@ function InsightsErrorState({
   );
 }
 
-/** Compact agent-view indicator retained for library cards and other dense lists. */
-export function AgentViewCount({
-  count,
-  label,
-  className,
-}: {
-  count: number;
-  label: string;
-  className?: string;
-}) {
-  return (
-    <span
-      title={label}
-      aria-label={label}
-      className={cn(
-        "inline-flex items-center gap-1 border-s border-border ps-2 tabular-nums",
-        className,
-      )}
-    >
-      <AgentViewerAvatar className="size-5" />
-      {count}
-    </span>
-  );
-}
-
-/** Agents use provider logos when the public API identifies the provider. */
-export function AgentViewerAvatar({
-  agentLabel,
-  className,
-}: {
-  agentLabel?: string | null;
-  className?: string;
-}) {
-  const normalizedLabel = agentLabel?.toLowerCase() ?? "";
-  const logo = normalizedLabel.includes("claude") ? (
-    <ClaudeLogo className="size-3.5" />
-  ) : normalizedLabel.includes("openai") ||
-    normalizedLabel.includes("chatgpt") ||
-    normalizedLabel.includes("codex") ? (
-    <CodexLogo className="size-3.5" />
-  ) : (
-    <IconBotId className="size-3.5" />
-  );
-
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground",
-        className,
-      )}
-    >
-      {logo}
-    </span>
-  );
-}
-
-/** Identity fields every viewer surface shares — `list-viewers` rows and the
- * leaner `topViewers` rows from `get-recording-insights` alike. */
 export interface ViewerIdentity {
   viewerEmail: string | null;
   viewerName: string | null;

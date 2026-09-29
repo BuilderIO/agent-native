@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { applyVisualEdit, buildCodeLayerProjection } from "./code-layer";
 
-/**
- * Three siblings stacked in DOM order back->front: red (bottom), green
- * (middle), blue (top) — later source position paints on top for plain
- * siblings with no z-index. Matches e2e/parity-group-frame.spec.ts's
- * "non-adjacent selection" fixture.
- */
 const THREE_SIBLINGS = `<body>
   <div data-agent-native-node-id="red" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
   <div data-agent-native-node-id="green" style="position:absolute;left:60px;top:60px;width:100px;height:80px"></div>
@@ -15,10 +9,47 @@ const THREE_SIBLINGS = `<body>
 </body>`;
 
 describe("applyWrapNodes (Cmd+G group)", () => {
+  it("ungroup rebases measured in-flow children back to world coordinates", () => {
+    const content = `<body style="display:flex;flex-direction:column;gap:20px">
+  <div data-agent-native-node-id="first" style="width:100px;height:40px">First</div>
+  <div data-agent-native-node-id="second" style="width:100px;height:40px">Second</div>
+</body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["first", "second"],
+      sizeHints: {
+        first: { width: 100, height: 40, left: 12, top: 80 },
+        second: { width: 100, height: 40, left: 12, top: 140 },
+      },
+    });
+
+    expect(grouped.result.status).toBe("applied");
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+    expect(ungrouped.result.status).toBe("applied");
+    expect(ungrouped.content).toContain("left: 12px");
+    expect(ungrouped.content).toContain("top: 80px");
+    expect(ungrouped.content).toContain("top: 140px");
+  });
+
+  it("ungroup rebases absolute children from the group origin", () => {
+    const content = `<body><div data-agent-native-node-id="red" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div><div data-agent-native-node-id="green" style="position:absolute;left:60px;top:60px;width:100px;height:80px"></div></body>`;
+    const grouped = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["red", "green"],
+    });
+    const ungrouped = applyVisualEdit(grouped.content, {
+      kind: "unwrap",
+      targetId: grouped.result.wrapperNodeId ?? "",
+    });
+    expect(ungrouped.content).toContain("left: 20px");
+    expect(ungrouped.content).toContain("top: 20px");
+    expect(ungrouped.content).toContain("left: 60px");
+  });
+
   it("places the group at the TOPMOST selected child's z-position, not the bottommost, for a non-adjacent selection", () => {
-    // Select red (bottom) + blue (top), skipping green (middle). Figma
-    // places the resulting group at blue's stacking position, so green
-    // ends up BELOW the group, not above it.
     const patch = applyVisualEdit(THREE_SIBLINGS, {
       kind: "wrapNodes",
       targetIds: ["red", "blue"],
@@ -336,9 +367,6 @@ describe("applyWrapNodes (Shift+A selection background promotion)", () => {
 });
 
 describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
-  // A named leaf so the fixture's own fallback layer-naming (a plain,
-  // childless <div> defaults to "Frame") can't coincidentally satisfy this
-  // assertion regardless of what the wrap itself names its wrapper.
   const NAMED_LEAF = `<body>
   <div data-agent-native-node-id="label" data-agent-native-layer-name="Label" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
 </body>`;
@@ -367,12 +395,6 @@ describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
 });
 
 describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () => {
-  // A Text-tool-created node has position/left/top but no explicit
-  // width/height (it's sized by its content, not an authored box) — the
-  // real shape that made computeAbsoluteUnionBounds return null and left the
-  // Frame with no geometry at all (a zero-area position:static div that
-  // doesn't enclose its own content, and whose selection chrome then can't
-  // be dragged — see the item-2 cross-screen investigation).
   const AUTO_SIZED_TEXT = `<body>
   <div data-agent-native-node-id="label" style="position:absolute;left:20px;top:40px;color:#fff">Save</div>
 </body>`;
@@ -392,7 +414,6 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
       0,
       patch.content.indexOf(`data-agent-native-node-id="${wrapperId}"`) + 1,
     );
-    // No style attribute at all — the degenerate case this fix targets.
     expect(wrapperOpenTag).not.toContain("position: absolute");
   });
 
@@ -417,6 +438,33 @@ describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () =>
     expect(wrapperOpenTag).toContain("top: 40px");
     expect(wrapperOpenTag).toContain("width: 35px");
     expect(wrapperOpenTag).toContain("height: 19px");
+  });
+
+  it("persists the measured origin for an in-flow Frame Selection wrapper", () => {
+    const content = `<body><div data-agent-native-node-id="label">Save</div></body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["label"],
+      wrapperKind: "frame",
+      sizeHints: {
+        label: { width: 35, height: 19, left: 24, top: 48 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperId = (patch.result as { wrapperNodeId?: string })
+      .wrapperNodeId;
+    const wrapperStart = patch.content.indexOf(
+      `data-agent-native-node-id="${wrapperId}"`,
+    );
+    const wrapperOpenTagEnd = patch.content.indexOf(">", wrapperStart);
+    const wrapperOpenTag = patch.content.slice(wrapperStart, wrapperOpenTagEnd);
+    expect(wrapperOpenTag).toContain(
+      'data-agent-native-group-origin-left="24px"',
+    );
+    expect(wrapperOpenTag).toContain(
+      'data-agent-native-group-origin-top="48px"',
+    );
   });
 
   it("never overrides an explicit width/height with a hint", () => {

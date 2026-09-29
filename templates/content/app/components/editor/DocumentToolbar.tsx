@@ -3,13 +3,26 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { type CollabUser } from "@agent-native/core/client/collab";
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
-import type { Document, DocumentSourceInfo } from "@shared/api";
+import {
+  AgentDestinationActions,
+  buildAgentShareDeepLink,
+  ClaudeCodeLogo,
+  ClaudeLogo,
+  CodexLogo,
+  JoinedShareControl,
+  ShareTrigger,
+  type AgentShareDestination,
+} from "@agent-native/toolkit/sharing";
+import type {
+  ContentDatabaseNavigationPageResponse,
+  Document,
+  DocumentSourceInfo,
+} from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
@@ -34,12 +47,12 @@ import {
   IconPlus,
   IconHistory,
   IconInfoCircle,
-  IconLink,
   IconMessageCircle,
   IconRefresh,
   IconPin,
   IconPencil,
   IconTrash,
+  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -52,12 +65,32 @@ import {
   useState,
   type Ref,
   type ReactNode,
+  type SVGProps,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-// The share controller + dialog surface stays out of the editor's first-load
-// bundle; it loads the first time the Share flow opens.
+import { ContentIcon } from "../icons/ContentIcon";
+
+function IconSuggestEdits(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.5"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path d="M21.9165 10.5001C21.9351 10.6557 21.9495 10.8127 21.9598 10.9708C22.0134 11.801 22.0134 12.6608 21.9598 13.491C21.6856 17.7333 18.3536 21.1126 14.1706 21.3906C12.7435 21.4855 11.2536 21.4853 9.8294 21.3906C9.33896 21.358 8.8044 21.241 8.34401 21.0514C7.83177 20.8404 7.5756 20.7349 7.44544 20.7509C7.31527 20.7669 7.1264 20.9062 6.74868 21.1847C6.08268 21.6758 5.24367 22.0286 3.99943 21.9983C3.37026 21.983 3.05568 21.9753 2.91484 21.7352C2.77401 21.4951 2.94941 21.1627 3.30021 20.4979C3.78674 19.5759 4.09501 18.5204 3.62791 17.6747C2.82343 16.4667 2.1401 15.0361 2.04024 13.491C1.98659 12.6608 1.98659 11.801 2.04024 10.9708C2.31441 6.7285 5.64639 3.34925 9.8294 3.07119C11.0318 2.99126 12.2812 2.97868 13.5 3.0338" />
+      <path d="M8.5 15.0001H15.5M8.5 10.0001H11" />
+      <path d="M20.8684 2.43946L21.5607 3.13183C22.1465 3.71761 22.1465 4.66736 21.5607 5.25315L17.9333 8.94881C17.648 9.23416 17.283 9.42652 16.8863 9.50061L14.6381 9.98865C14.2832 10.0657 13.9671 9.75054 14.0431 9.39537L14.5217 7.16005C14.5958 6.76336 14.7881 6.39836 15.0735 6.11301L18.747 2.43946C19.3328 1.85368 20.2826 1.85368 20.8684 2.43946Z" />
+    </svg>
+  );
+}
+
 const ShareButton = lazy(() =>
   import("@agent-native/core/client/sharing").then((m) => ({
     default: m.ShareButton,
@@ -98,6 +131,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  contentNavigationBranchFilter,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
+import { useContentDatabasePersonalView } from "@/hooks/use-content-database";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -111,7 +149,12 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
+import { contentAgentPromptValues } from "@/lib/content-agent-prompt";
 import { documentQueryFilter } from "@/lib/document-query";
+import {
+  filesNavigationOrder,
+  filesNavigationPageParams,
+} from "@/lib/files-navigation";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
@@ -242,7 +285,7 @@ export function ToolbarBreadcrumb({
   currentDocumentId: string;
   ariaLabel: string;
   untitledLabel: string;
-  onOpen: (id: string) => void;
+  onOpen: ToolbarBreadcrumbOpen;
 }) {
   const visibleItems = compactToolbarBreadcrumbItems(items);
   return (
@@ -250,87 +293,150 @@ export function ToolbarBreadcrumb({
       aria-label={ariaLabel}
       className="flex min-w-0 flex-1 items-center gap-1 text-sm text-foreground"
     >
-      {visibleItems.map((item, index) => {
-        const isLast = index === visibleItems.length - 1;
-        const label = item.title.trim() || untitledLabel;
-        const content = (
-          <>
-            {item.icon ? (
-              <span className="shrink-0 text-sm leading-none">{item.icon}</span>
-            ) : item.iconKind === "folder" ? (
-              <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
-            ) : null}
-            <span className="truncate">{label}</span>
-          </>
-        );
-
-        const canNavigate = item.id && item.id !== currentDocumentId;
-        const pageButton = canNavigate ? (
-          <button
-            type="button"
-            className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => onOpen(item.id!)}
-          >
-            {content}
-          </button>
-        ) : null;
-
-        return (
-          <div
-            key={`${item.id ?? label}-${index}`}
-            className="flex min-w-0 items-center gap-1"
-          >
-            {item.menuItems?.length ? (
-              <>
-                {pageButton}
-                <ToolbarBreadcrumbMenu
-                  item={item}
-                  label={label}
-                  currentDocumentId={currentDocumentId}
-                  current={isLast}
-                  untitledLabel={untitledLabel}
-                  onOpen={onOpen}
-                >
-                  {canNavigate ? (
-                    <IconChevronDown className="size-3.5 shrink-0" />
-                  ) : (
-                    content
-                  )}
-                </ToolbarBreadcrumbMenu>
-              </>
-            ) : canNavigate ? (
-              pageButton
-            ) : (
-              <span
-                className={cn(
-                  "flex min-w-0 max-w-56 items-center gap-1 truncate px-1.5 py-1",
-                  isLast ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {content}
-              </span>
-            )}
-            {!isLast ? (
-              <span className="shrink-0 text-muted-foreground/70">/</span>
-            ) : null}
-          </div>
-        );
-      })}
+      {visibleItems.map((item, index) => (
+        <ToolbarBreadcrumbSegment
+          key={`${item.id ?? item.title}-${index}`}
+          item={item}
+          isLast={index === visibleItems.length - 1}
+          currentDocumentId={currentDocumentId}
+          untitledLabel={untitledLabel}
+          onOpen={onOpen}
+        />
+      ))}
     </nav>
   );
+}
+
+type ToolbarBreadcrumbSegmentProps = {
+  item: ToolbarBreadcrumbItem;
+  isLast: boolean;
+  currentDocumentId: string;
+  untitledLabel: string;
+  onOpen: ToolbarBreadcrumbOpen;
+};
+
+function ToolbarBreadcrumbSegment(props: ToolbarBreadcrumbSegmentProps) {
+  return props.item.siblings ? (
+    <ToolbarBreadcrumbPeerSegment {...props} siblings={props.item.siblings} />
+  ) : (
+    <ToolbarBreadcrumbSegmentView
+      {...props}
+      hasMenu={Boolean(props.item.menuItems?.length)}
+    />
+  );
+}
+
+function ToolbarBreadcrumbPeerSegment({
+  siblings,
+  ...props
+}: ToolbarBreadcrumbSegmentProps & { siblings: ToolbarBreadcrumbSiblings }) {
+  const cachedPeerCount = useCachedBreadcrumbPeerCount(siblings, props.item.id);
+  return (
+    <ToolbarBreadcrumbSegmentView
+      {...props}
+      hasMenu={cachedPeerCount === null || cachedPeerCount >= 2}
+    />
+  );
+}
+
+function ToolbarBreadcrumbSegmentView({
+  item,
+  isLast,
+  currentDocumentId,
+  untitledLabel,
+  onOpen,
+  hasMenu,
+}: ToolbarBreadcrumbSegmentProps & { hasMenu: boolean }) {
+  const label = item.title.trim() || untitledLabel;
+  const content = (
+    <>
+      {item.icon ? (
+        <ContentIcon value={item.icon} size={14} className="shrink-0" />
+      ) : item.iconKind === "folder" ? (
+        <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : null}
+      <span className="truncate">{label}</span>
+    </>
+  );
+
+  const canNavigate = item.id && item.id !== currentDocumentId;
+  const pageButton = canNavigate ? (
+    <button
+      type="button"
+      className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={() => onOpen(item.id!, item.filesDatabaseId)}
+    >
+      {content}
+    </button>
+  ) : null;
+
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      {hasMenu ? (
+        <>
+          {pageButton}
+          <ToolbarBreadcrumbMenu
+            item={item}
+            label={label}
+            currentDocumentId={currentDocumentId}
+            current={isLast}
+            untitledLabel={untitledLabel}
+            onOpen={onOpen}
+          >
+            {canNavigate ? (
+              <IconChevronDown className="size-3.5 shrink-0" />
+            ) : (
+              content
+            )}
+          </ToolbarBreadcrumbMenu>
+        </>
+      ) : canNavigate ? (
+        pageButton
+      ) : (
+        <span
+          className={cn(
+            "flex min-w-0 max-w-56 items-center gap-1 truncate px-1.5 py-1",
+            isLast ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {content}
+        </span>
+      )}
+      {!isLast ? (
+        <span className="shrink-0 text-muted-foreground/70">/</span>
+      ) : null}
+    </div>
+  );
+}
+
+export type ToolbarBreadcrumbOpen = (
+  id: string,
+  filesDatabaseId?: string | null,
+) => void;
+
+/** The Files branch whose pages list a breadcrumb item's peers. */
+export interface ToolbarBreadcrumbSiblings {
+  filesDatabaseId: string;
+  parentId: string | null;
 }
 
 export interface ToolbarBreadcrumbItem {
   id?: string;
   title: string;
-  icon?: string | null;
+  icon?: Document["icon"];
   iconKind?: "folder";
-  menuItems?: Array<{
-    id: string;
-    title: string;
-    icon?: string | null;
-    iconKind?: "folder";
-  }>;
+  filesDatabaseId?: string | null;
+  menuItems?: ToolbarBreadcrumbMenuItem[];
+  /** Peers load when the menu opens instead of arriving with the item. */
+  siblings?: ToolbarBreadcrumbSiblings;
+}
+
+interface ToolbarBreadcrumbMenuItem {
+  id: string;
+  title: string;
+  icon?: Document["icon"];
+  iconKind?: "folder";
+  filesDatabaseId?: string | null;
 }
 
 export function compactToolbarBreadcrumbItems(
@@ -350,6 +456,7 @@ export function compactToolbarBreadcrumbItems(
                 title: item.title,
                 icon: item.icon,
                 iconKind: item.iconKind,
+                filesDatabaseId: item.filesDatabaseId,
               },
             ]
           : [],
@@ -382,7 +489,7 @@ function ToolbarBreadcrumbMenu({
   currentDocumentId: string;
   current: boolean;
   untitledLabel: string;
-  onOpen: (id: string) => void;
+  onOpen: ToolbarBreadcrumbOpen;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -440,7 +547,6 @@ function ToolbarBreadcrumbMenu({
             setOpen(true);
           }}
           onPointerDown={(event) => {
-            // Hover already opened the menu; don't toggle it closed on click.
             if (
               event.pointerType === "mouse" &&
               open &&
@@ -469,7 +575,7 @@ function ToolbarBreadcrumbMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="w-64"
+        className="max-h-80 w-64 overflow-auto"
         onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
@@ -479,37 +585,211 @@ function ToolbarBreadcrumbMenu({
           }
         }}
       >
-        {item.menuItems?.map((menuItem) => {
-          const menuLabel = menuItem.title.trim() || untitledLabel;
-          return (
-            <DropdownMenuItem
+        {item.siblings ? (
+          <ToolbarBreadcrumbSiblingPage
+            siblings={item.siblings}
+            currentDocumentId={currentDocumentId}
+            untitledLabel={untitledLabel}
+            onOpen={onOpen}
+            firstItemRef={firstSelectableItemRef}
+          />
+        ) : (
+          item.menuItems?.map((menuItem) => (
+            <ToolbarBreadcrumbMenuEntry
               key={menuItem.id}
-              ref={
+              menuItem={menuItem}
+              itemRef={
                 menuItem.id === firstSelectableItemId
                   ? firstSelectableItemRef
                   : undefined
               }
-              className="gap-2"
-              disabled={menuItem.id === currentDocumentId}
-              onSelect={() => onOpen(menuItem.id)}
-            >
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                {menuItem.id === currentDocumentId ? (
-                  <IconCheck className="size-3.5" />
-                ) : menuItem.icon ? (
-                  <span className="text-sm leading-none">{menuItem.icon}</span>
-                ) : menuItem.iconKind === "folder" ? (
-                  <IconFolder className="size-3.5 text-muted-foreground" />
-                ) : (
-                  <IconFileText className="size-3.5 text-muted-foreground" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{menuLabel}</span>
-            </DropdownMenuItem>
-          );
-        })}
+              currentDocumentId={currentDocumentId}
+              untitledLabel={untitledLabel}
+              onOpen={onOpen}
+            />
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function ToolbarBreadcrumbMenuEntry({
+  menuItem,
+  itemRef,
+  currentDocumentId,
+  untitledLabel,
+  onOpen,
+}: {
+  menuItem: ToolbarBreadcrumbMenuItem;
+  itemRef?: Ref<HTMLDivElement>;
+  currentDocumentId: string;
+  untitledLabel: string;
+  onOpen: ToolbarBreadcrumbOpen;
+}) {
+  const menuLabel = menuItem.title.trim() || untitledLabel;
+  return (
+    <DropdownMenuItem
+      ref={itemRef}
+      className="gap-2"
+      disabled={menuItem.id === currentDocumentId}
+      onSelect={() => onOpen(menuItem.id, menuItem.filesDatabaseId)}
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {menuItem.id === currentDocumentId ? (
+          <IconCheck className="size-3.5" />
+        ) : menuItem.icon ? (
+          <ContentIcon value={menuItem.icon} size={14} />
+        ) : menuItem.iconKind === "folder" ? (
+          <IconFolder className="size-3.5 text-muted-foreground" />
+        ) : (
+          <IconFileText className="size-3.5 text-muted-foreground" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{menuLabel}</span>
+    </DropdownMenuItem>
+  );
+}
+
+function useBreadcrumbSiblingPage(
+  siblings: ToolbarBreadcrumbSiblings,
+  options: { enabled: boolean; cursor?: string },
+) {
+  const personalView = useContentDatabasePersonalView(
+    siblings.filesDatabaseId,
+    { enabled: options.enabled },
+  );
+  const order = personalView.data
+    ? filesNavigationOrder(personalView.data.overrides)
+    : null;
+  const page = useActionQuery<ContentDatabaseNavigationPageResponse>(
+    "query-content-database-items",
+    order
+      ? filesNavigationPageParams({
+          databaseId: siblings.filesDatabaseId,
+          parentId: siblings.parentId,
+          sort: order.order.mode,
+          viewId: order.activeViewId,
+          cursor: options.cursor,
+        })
+      : undefined,
+    { enabled: options.enabled && order !== null },
+  );
+  return { personalView, page };
+}
+
+// Reads the sidebar's cached page for the branch without fetching, so an item
+// with no peers drops its menu once the tree has loaded.
+function useCachedBreadcrumbPeerCount(
+  siblings: ToolbarBreadcrumbSiblings,
+  documentId: string | undefined,
+) {
+  const { page } = useBreadcrumbSiblingPage(siblings, { enabled: false });
+  if (!page.data) return null;
+  if (page.data.pagination.hasMore) return Number.POSITIVE_INFINITY;
+  const peers = page.data.items.filter((peer) => peer.sourceKind !== "folder");
+  const listed = page.data.items.some((peer) => peer.documentId === documentId);
+  return peers.length + (listed ? 0 : 1);
+}
+
+function ToolbarBreadcrumbSiblingPage({
+  siblings,
+  cursor,
+  precedingIds = new Set(),
+  currentDocumentId,
+  untitledLabel,
+  onOpen,
+  firstItemRef,
+}: {
+  siblings: ToolbarBreadcrumbSiblings;
+  cursor?: string;
+  precedingIds?: ReadonlySet<string>;
+  currentDocumentId: string;
+  untitledLabel: string;
+  onOpen: ToolbarBreadcrumbOpen;
+  firstItemRef?: Ref<HTMLDivElement>;
+}) {
+  const t = useT();
+  const [nextPageVisible, setNextPageVisible] = useState(false);
+  const { personalView, page } = useBreadcrumbSiblingPage(siblings, {
+    enabled: true,
+    cursor,
+  });
+  if (personalView.isError || page.isError) {
+    return (
+      <DropdownMenuItem
+        onSelect={(event) => {
+          event.preventDefault();
+          void (personalView.isError ? personalView.refetch() : page.refetch());
+        }}
+      >
+        {t("database.retry")}
+      </DropdownMenuItem>
+    );
+  }
+  if (!page.data) {
+    return (
+      <DropdownMenuItem disabled>{t("sidebar.loadingFiles")}</DropdownMenuItem>
+    );
+  }
+  const peers = page.data.items.filter(
+    (peer) =>
+      peer.sourceKind !== "folder" && !precedingIds.has(peer.documentId),
+  );
+  const firstSelectableId = peers.find(
+    (peer) => peer.documentId !== currentDocumentId,
+  )?.documentId;
+  const nextCursor = page.data.pagination.hasMore
+    ? page.data.pagination.nextCursor
+    : null;
+  return (
+    <>
+      {peers.map((peer) => (
+        <ToolbarBreadcrumbMenuEntry
+          key={peer.documentId}
+          menuItem={{
+            id: peer.documentId,
+            title: peer.title,
+            icon: peer.icon,
+            filesDatabaseId: siblings.filesDatabaseId,
+          }}
+          itemRef={
+            peer.documentId === firstSelectableId ? firstItemRef : undefined
+          }
+          currentDocumentId={currentDocumentId}
+          untitledLabel={untitledLabel}
+          onOpen={onOpen}
+        />
+      ))}
+      {nextCursor ? (
+        nextPageVisible ? (
+          <ToolbarBreadcrumbSiblingPage
+            siblings={siblings}
+            cursor={nextCursor}
+            precedingIds={
+              new Set([
+                ...precedingIds,
+                ...peers.map((peer) => peer.documentId),
+              ])
+            }
+            currentDocumentId={currentDocumentId}
+            untitledLabel={untitledLabel}
+            onOpen={onOpen}
+          />
+        ) : (
+          <DropdownMenuItem
+            className="text-muted-foreground"
+            onSelect={(event) => {
+              event.preventDefault();
+              setNextPageVisible(true);
+            }}
+          >
+            <IconChevronDown className="size-3.5" />
+            {t("sidebar.showMore")}
+          </DropdownMenuItem>
+        )
+      ) : null}
+    </>
   );
 }
 
@@ -542,14 +822,18 @@ interface DocumentToolbarProps {
   commentsHistoryOpen?: boolean;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
+  commentsTriggerRef?: Ref<HTMLButtonElement>;
   databaseExportContext?: DatabaseExportContext | null;
-  onOpenBreadcrumbItem?: (id: string) => void;
+  onOpenBreadcrumbItem?: ToolbarBreadcrumbOpen;
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
   canSuggest?: boolean;
   suggesting?: boolean;
+  onCaptureEditorSelection?: (includeRemembered?: boolean) => void;
+  onPreserveEditorSelection?: () => void;
+  onRestoreEditorSelection?: () => void;
   onSuggestingChange?: (suggesting: boolean) => void;
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
@@ -581,6 +865,7 @@ export function DocumentToolbar({
   commentsHistoryOpen = false,
   onUtilityPanelChange,
   showCommentsControl = true,
+  commentsTriggerRef,
   databaseExportContext,
   onOpenBreadcrumbItem,
   canUndo = false,
@@ -589,6 +874,9 @@ export function DocumentToolbar({
   onRedo,
   canSuggest = false,
   suggesting = false,
+  onCaptureEditorSelection,
+  onPreserveEditorSelection,
+  onRestoreEditorSelection,
   onSuggestingChange,
   editorEscapeTargetRef,
 }: DocumentToolbarProps) {
@@ -616,12 +904,24 @@ export function DocumentToolbar({
   const pullDocument = usePullDocumentFromNotion(documentId);
   const pushDocument = usePushDocumentToNotion(documentId);
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
-  const setDocumentDiscoverability = useActionMutation(
+  const setDocumentDiscoverability = useContentActionMutation(
     "set-document-discoverability",
+    { invalidates: [["action", "search-documents"]] },
   );
-  const exportDocument = useActionMutation("export-document");
-  const revealLocalSource = useActionMutation("reveal-local-source-file");
-  const shareLocalFile = useActionMutation("share-local-file-document");
+  const exportDocument = useContentActionMutation("export-document", {
+    invalidates: [],
+  });
+  const revealLocalSource = useContentActionMutation(
+    "reveal-local-source-file",
+    { invalidates: [] },
+  );
+  const shareLocalFile = useContentActionMutation("share-local-file-document", {
+    invalidates: [
+      contentNavigationBranchFilter({ parentIds: [null] }),
+      ["action", "list-documents"],
+      ["action", "get-content-database"],
+    ],
+  });
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
@@ -640,6 +940,22 @@ export function DocumentToolbar({
   >(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pageActionsPreservationFrameRef = useRef<number | null>(null);
+  const pageActionsRestoreFrameRef = useRef<number | null>(null);
+  const pageActionsTriggerClosingRef = useRef(false);
+  const pageActionsOpenRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      if (pageActionsPreservationFrameRef.current != null) {
+        cancelAnimationFrame(pageActionsPreservationFrameRef.current);
+      }
+      if (pageActionsRestoreFrameRef.current != null) {
+        cancelAnimationFrame(pageActionsRestoreFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
@@ -750,7 +1066,7 @@ export function DocumentToolbar({
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
         description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
-      return;
+      return false;
     }
 
     if (!isLocalFileDocument) {
@@ -761,7 +1077,51 @@ export function DocumentToolbar({
       });
     }
     toast.success(t("editor.toolbar.copiedPageLink"));
+    return true;
   }, [copyPageUrl, documentId, isLocalFileDocument, t]);
+
+  const agentPrompt = useCallback(
+    () =>
+      t(
+        "editor.toolbar.agentPrompt",
+        contentAgentPromptValues({
+          documentId,
+          origin: window.location.origin,
+          basePath: appPath("/"),
+        }),
+      ),
+    [documentId, t],
+  );
+
+  const handleCopyAgentPrompt = useCallback(async () => {
+    if (!(await writeClipboardText(agentPrompt()))) {
+      toast.error(t("editor.toolbar.couldNotCopyAgentPrompt"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return false;
+    }
+    trackEvent("share_link_copied", {
+      resource_type: "document",
+      resource_id: documentId,
+      link_type: "agent_prompt",
+    });
+    toast.success(t("editor.toolbar.copiedAgentPrompt"));
+    return true;
+  }, [agentPrompt, documentId, t]);
+
+  const handleOpenAgentDestination = useCallback(
+    (destination: AgentShareDestination) => {
+      trackEvent("agent_share_opened", {
+        resource_type: "document",
+        resource_id: documentId,
+        destination,
+      });
+      window.location.assign(
+        buildAgentShareDeepLink(destination, agentPrompt()),
+      );
+    },
+    [agentPrompt, documentId],
+  );
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
@@ -794,7 +1154,6 @@ export function DocumentToolbar({
       if (!result?.id) {
         throw new Error(t("editor.toolbar.shareableCopyWasNotCreated"));
       }
-      await queryClient.invalidateQueries({ queryKey: ["action"] });
       toast.success(t("editor.toolbar.shareableCopyReady"), {
         description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
@@ -805,7 +1164,7 @@ export function DocumentToolbar({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [documentId, navigate, queryClient, shareLocalFile, t]);
+  }, [documentId, navigate, shareLocalFile, t]);
 
   const handleDbShareOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -823,7 +1182,6 @@ export function DocumentToolbar({
     [location.pathname, location.search, navigate, openShareOnLoad],
   );
 
-  // Debounce search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedQuery(searchQuery), 300);
@@ -832,7 +1190,6 @@ export function DocumentToolbar({
     };
   }, [searchQuery]);
 
-  // Auto-focus search on open
   useEffect(() => {
     if (open && !isLinked) {
       setTimeout(() => searchInputRef.current?.focus(), 100);
@@ -884,10 +1241,6 @@ export function DocumentToolbar({
   const handleUnlink = useCallback(async () => {
     try {
       await unlinkDocument.mutateAsync({ documentId });
-      // Unlinking removes the toggle UI, but the per-document localStorage
-      // flag would otherwise keep saying auto-sync is on — leaving the 2s
-      // poll armed forever (see useDocumentSyncStatus) every time this
-      // document is reopened, even though there's nothing left to sync.
       setAutoSync(false);
       toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
@@ -964,9 +1317,41 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
+  const unopenedShareControl = (
+    <JoinedShareControl
+      trigger={
+        <ShareTrigger
+          aria-expanded={false}
+          aria-label={t("editor.toolbar.share")}
+          label={
+            <span className="flex items-center gap-2">
+              <IconUserPlus aria-hidden="true" />
+              <span>{t("editor.toolbar.share")}</span>
+            </span>
+          }
+          intent="primary"
+          emphasis="solid"
+          onPress={() => setShareRequested(true)}
+        />
+      }
+      copyLabel={t("editor.toolbar.copyPageLink")}
+      copiedLabel={t("editor.toolbar.copiedPageLink")}
+      onCopy={handleCopyPageLink}
+    />
+  );
+  const flushPendingPageActionsRestore = () => {
+    if (pageActionsRestoreFrameRef.current == null) return;
+    cancelAnimationFrame(pageActionsRestoreFrameRef.current);
+    pageActionsRestoreFrameRef.current = null;
+    onRestoreEditorSelection?.();
+  };
+
   return (
     <>
-      <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
+      <div
+        className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4"
+        data-editor-selection-continuation=""
+      >
         {sidebarTrigger}
         {!compact ? (
           <ToolbarBreadcrumb
@@ -978,9 +1363,9 @@ export function DocumentToolbar({
             currentDocumentId={documentId}
             ariaLabel={t("editor.toolbar.pageBreadcrumb")}
             untitledLabel={t("sidebar.untitled")}
-            onOpen={(id) => {
+            onOpen={(id, filesDatabaseId) => {
               if (onOpenBreadcrumbItem) {
-                onOpenBreadcrumbItem(id);
+                onOpenBreadcrumbItem(id, filesDatabaseId);
                 return;
               }
               void navigate(`/page/${id}`, { flushSync: true });
@@ -1003,36 +1388,81 @@ export function DocumentToolbar({
             className="mr-1"
           />
           {isLocalFileDocument ? (
-            <ShareTrigger
-              className="h-9 rounded-lg px-3"
-              pending={shareLocalFile.isPending}
-              disabled={shareLocalFile.isPending}
-              label={t("editor.toolbar.share")}
-              onPress={() => void handleShareLocalFile()}
-            />
-          ) : (
-            <Suspense
-              fallback={
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
                 <ShareTrigger
-                  aria-expanded={false}
+                  className="h-9 rounded-lg px-3"
+                  pending={shareLocalFile.isPending}
+                  disabled={shareLocalFile.isPending}
                   label={t("editor.toolbar.share")}
-                  onPress={() => setShareRequested(true)}
                 />
-              }
-            >
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                data-database-preview-portal={compact ? "" : undefined}
+              >
+                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
+                  {t("editor.toolbar.copyPageLink")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleShareLocalFile()}>
+                  {t("editor.toolbar.createShareableCopy")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Suspense fallback={unopenedShareControl}>
               {shareRequested || openShareOnLoad ? (
                 <ShareButton
                   resourceType="document"
                   resourceId={documentId}
                   resourceTitle={documentTitle}
                   shareUrl={shareUrl}
+                  mobileSheet
+                  agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
+                  showShareLinks={false}
+                  quickCopy={{
+                    label: t("editor.toolbar.copyPageLink"),
+                    copiedLabel: t("editor.toolbar.copiedPageLink"),
+                    onCopy: handleCopyPageLink,
+                  }}
+                  peopleTabLabel={t("editor.toolbar.sharePeople")}
+                  agentsTabLabel={t("editor.toolbar.shareAgents")}
+                  peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
+                  agentTabContent={
+                    <div className="space-y-3">
+                      <AgentDestinationActions
+                        labels={{
+                          copy: t("editor.toolbar.copyAgentPrompt"),
+                          claude: t("editor.toolbar.openInClaude"),
+                          claudeCode: t("editor.toolbar.openInClaudeCode"),
+                          codex: t("editor.toolbar.openInCodex"),
+                        }}
+                        icons={{
+                          claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
+                          "claude-code": <ClaudeCodeLogo className="size-4" />, // i18n-ignore: destination identifier
+                          codex: <CodexLogo className="size-4" />,
+                        }}
+                        onCopy={handleCopyAgentPrompt}
+                        onOpen={handleOpenAgentDestination}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t("editor.toolbar.agentCopyAccessNote")}
+                      </p>
+                    </div>
+                  }
                   defaultOpen={shareRequested || openShareOnLoad}
                   onOpenChange={handleDbShareOpenChange}
                   visibilityCopy={{
+                    private: {
+                      description: t("editor.toolbar.privateLinkCanView"),
+                    },
                     org: {
                       description: effectiveHideFromSearch
                         ? t("editor.toolbar.orgLinkCanView")
                         : t("editor.toolbar.orgCanFindAndView"),
+                    },
+                    public: {
+                      description: t("editor.toolbar.publicLinkCanView"),
                     },
                   }}
                   hideInSearchControl={{
@@ -1072,11 +1502,7 @@ export function DocumentToolbar({
                   }
                 />
               ) : (
-                <ShareTrigger
-                  aria-expanded={false}
-                  label={t("editor.toolbar.share")}
-                  onPress={() => setShareRequested(true)}
-                />
+                unopenedShareControl
               )}
 
               <VersionHistoryPanel
@@ -1120,6 +1546,8 @@ export function DocumentToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  ref={commentsTriggerRef}
+                  data-comments-history-trigger
                   type="button"
                   className={cn(
                     "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -1146,7 +1574,37 @@ export function DocumentToolbar({
             </Tooltip>
           ) : null}
 
-          <DropdownMenu modal={false}>
+          <DropdownMenu
+            modal={false}
+            onOpenChange={(nextOpen) => {
+              pageActionsOpenRef.current = nextOpen;
+              if (nextOpen) {
+                flushPendingPageActionsRestore();
+                pageActionsPreservationFrameRef.current = requestAnimationFrame(
+                  () => {
+                    pageActionsPreservationFrameRef.current = null;
+                    onPreserveEditorSelection?.();
+                  },
+                );
+                return;
+              }
+              if (pageActionsPreservationFrameRef.current != null) {
+                cancelAnimationFrame(pageActionsPreservationFrameRef.current);
+                pageActionsPreservationFrameRef.current = null;
+              }
+              if (pageActionsTriggerClosingRef.current) {
+                pageActionsTriggerClosingRef.current = false;
+                pageActionsRestoreFrameRef.current = requestAnimationFrame(
+                  () => {
+                    pageActionsRestoreFrameRef.current = null;
+                    onRestoreEditorSelection?.();
+                  },
+                );
+                return;
+              }
+              onRestoreEditorSelection?.();
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -1157,6 +1615,25 @@ export function DocumentToolbar({
                       utilityPanel === "info" && "bg-accent text-foreground",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
+                    onPointerDownCapture={() => {
+                      if (pageActionsOpenRef.current) {
+                        pageActionsTriggerClosingRef.current = true;
+                        return;
+                      }
+                      flushPendingPageActionsRestore();
+                      onCaptureEditorSelection?.(false);
+                    }}
+                    onKeyDownCapture={(event) => {
+                      if (pageActionsOpenRef.current) return;
+                      if (
+                        event.key === "Enter" ||
+                        event.key === " " ||
+                        event.key === "ArrowDown"
+                      ) {
+                        flushPendingPageActionsRestore();
+                        onCaptureEditorSelection?.(true);
+                      }
+                    }}
                   >
                     <IconDotsVertical size={16} />
                   </button>
@@ -1170,6 +1647,7 @@ export function DocumentToolbar({
               align="end"
               className="w-60"
               data-database-preview-portal={compact ? "" : undefined}
+              onCloseAutoFocus={(event) => event.preventDefault()}
             >
               {canSuggest ? (
                 <>
@@ -1185,7 +1663,12 @@ export function DocumentToolbar({
                       }, 50);
                     }}
                   >
-                    <IconPencil className="me-2 h-4 w-4" />
+                    <IconSuggestEdits
+                      aria-hidden="true"
+                      className="me-2 shrink-0"
+                      height={16}
+                      width={16}
+                    />
                     {t(
                       suggesting
                         ? "editor.toolbar.stopSuggesting"
@@ -1207,10 +1690,6 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
-                  <IconLink className="me-2 h-4 w-4" />
-                  {t("editor.toolbar.copyPageLink")}
-                </DropdownMenuItem>
                 {onToggleFavorite ? (
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
@@ -1384,7 +1863,6 @@ export function DocumentToolbar({
                       onOpenAutoFocus={(e) => e.preventDefault()}
                     >
                       {!isConnected ? (
-                        /* ─── Not connected ─── */
                         <div className="p-4">
                           <div className="flex items-center gap-2 mb-2">
                             <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1404,7 +1882,6 @@ export function DocumentToolbar({
                           </Button>
                         </div>
                       ) : isLinked ? (
-                        /* ─── Linked — show sync actions ─── */
                         <div>
                           <div className="px-4 py-3 border-b border-border">
                             <div className="flex items-center gap-2">
@@ -1540,7 +2017,6 @@ export function DocumentToolbar({
                           </div>
                         </div>
                       ) : (
-                        /* ─── Not linked — show search ─── */
                         <div>
                           <div className="p-3 pb-2">
                             <div className="flex items-center gap-2 mb-2">
@@ -1620,12 +2096,16 @@ export function DocumentToolbar({
                                             className="animate-spin text-muted-foreground"
                                           />
                                         ) : (
-                                          page.icon || (
-                                            <IconFileText
-                                              size={14}
-                                              className="text-muted-foreground"
-                                            />
-                                          )
+                                          <ContentIcon
+                                            value={page.icon}
+                                            size={14}
+                                            fallback={
+                                              <IconFileText
+                                                size={14}
+                                                className="text-muted-foreground"
+                                              />
+                                            }
+                                          />
                                         )}
                                       </span>
                                       <div className="min-w-0 flex-1">

@@ -1,9 +1,18 @@
 export const CONTENT_LAST_LOCATION_STATE_KEY = "content-last-location-v1";
 export const CONTENT_WELCOME_PAGE_STATE_KEY = "content-welcome-page-v1";
 
+export function contentSpaceLastLocationStateKey(spaceId: string) {
+  return `content-last-location-v2:${spaceId}`;
+}
+
+export function contentSpaceWelcomePageStateKey(spaceId: string) {
+  return `content-welcome-page-v2:${spaceId}`;
+}
+
 export type ContentLastLocationState = {
   documentId: string;
-  /** Title of the page when it last loaded; absent on older writes. */
+  databaseId?: string;
+  viewId?: string;
   title?: string;
 };
 
@@ -21,4 +30,19 @@ export type ContentLandingResult = {
   documentId: string;
   resolution: ContentLandingResolution;
   fallbackReason?: "saved-document-unavailable";
+  /** Set whenever this landing created the Welcome page, even on fallback. */
+  welcomeCreated?: true;
 };
+
+export type ContentSpaceLandingResult =
+  | {
+      target: ContentLastLocationState;
+      resolution: ContentLandingResolution;
+      fallbackReason?: "saved-document-unavailable";
+      welcomeCreated?: true;
+    }
+  | {
+      target: null;
+      resolution: "welcome-unavailable";
+      fallbackReason: "welcome-create-forbidden";
+    };

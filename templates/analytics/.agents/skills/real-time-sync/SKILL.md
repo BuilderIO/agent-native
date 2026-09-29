@@ -13,15 +13,19 @@ metadata:
 
 ## Rule
 
-The UI stays in sync with agent/script changes through `useDbSync()`. In-process writes stream over `/_agent-native/events` first; `/_agent-native/poll` remains the cross-process/serverless fallback. When the agent writes to the database, the UI detects the change and updates automatically — no manual refresh needed.
+The UI stays in sync with agent/script changes through `useDbSync()`. On a long-lived host, in-process writes stream over `/_agent-native/events` first and `/_agent-native/poll` is the cross-process fallback. On a production serverless host (Netlify, Lambda, Vercel functions), the app's own `/_agent-native/events` is not the fast path — the server answers a poll-live-aware client with an immediate 204 instead of holding the connection, and `/_agent-native/poll` carries all sync there at the SAME cadence sync would otherwise use, unless the app has opted in to the Hosted Realtime Sync Gateway (see `real-time-collaboration.mdx#hosted-gateway`), which streams from its own long-lived process instead. When the agent writes to the database, the UI detects the change and updates automatically — no manual refresh needed.
 
 ## Why
 
 The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same-process writes immediately; polling bridges anything SSE cannot see, such as another serverless invocation, cron job, or external script. Every visible write increments a version counter, `useDbSync()` receives the change, and React Query invalidates the relevant caches. This is what makes database writes feel real-time without relying on aggressive polling.
 
+On serverless, the app's own SSE stream cannot deliver this at all: one function instance serves one request at a time, so the instance holding the stream can never observe a write made by a different invocation's in-process emitter — and holding the connection open just occupies that instance until the platform kills it, which resets the execution environment and makes `EventSource` reconnect into a fresh cold container. The server detects a production serverless invocation (`isProductionServerlessFunctionRuntime()` — excludes `netlify dev`'s long-lived `NETLIFY_LOCAL` server) from a client that opted in (the `poll_live=1` query param a current bundle appends to its own `/_agent-native/events` connect URL) and answers with an immediate 204 instead — `EventSource` treats any non-200 status as terminal and does not auto-reconnect, so 204 is the conventional way to say "stop". A request without that param (an older, already-open tab) keeps streaming until it reloads, so this never yanks the live channel out from under a bundle that doesn't know to fall back.
+
+The client transport treats that 204 as a refusal that happened before the stream ever opened, distinct from a network blip on an open stream: it reports the `poll-live` capability to every subscriber (`DeckContext`, `collab/client.ts`, and anything else on `subscribeSyncEvents`'s `onSseStateChange`) so they keep their normal push-connected cadence instead of racing `/poll` under a "live channel down" fallback that would never get fresher — a Lambda SSE stream never carried cross-instance writes either, so there is no freshness to trade the extra load for. It then retries on a long backoff (5 minutes, doubling to a 60-minute cap, reset on a successful open) instead of a tight reconnect loop or a permanent latch — a long-lived host that refused a first connect for an unrelated reason (session not ready yet, a proxy restarting) still recovers, just slower than an ordinary network blip. This is expected, not a bug — don't try to force SSE on there.
+
 ## How It Works
 
-1. **Server** increments a version counter on every database write. In-process events stream through the authenticated `/_agent-native/events` endpoint.
+1. **Server** increments a version counter on every database write. On a long-lived host, in-process events stream through the authenticated `/_agent-native/events` endpoint; on a production serverless host, that endpoint answers 204 without holding the invocation for a request whose client opted in via `poll_live=1`, and otherwise streams as before.
 
 2. **Client** listens for sync events and updates per-source change counters:
 
@@ -67,8 +71,11 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
     onEvents: (events) => {
       // filter by event.source and handle push-style updates
     },
-    // Optional: relax your own fallback cadence while push is healthy.
-    onSseStateChange: (connected) => {},
+    // Optional: relax your own fallback cadence while push is healthy, or
+    // while `capabilities` reports `poll-live` (production serverless: SSE
+    // is refused but /poll carries the same load at the normal cadence —
+    // see REALTIME_CAP_POLL_LIVE in realtime-protocol.ts).
+    onSseStateChange: (connected, capabilities) => {},
   });
   ```
 
@@ -116,7 +123,7 @@ useQuery({
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | UI not updating after agent writes | Is `useDbSync` called with the correct `queryClient`? Does the affected query have an active observer?         |
 | Poll endpoint not responding       | Is `/_agent-native/poll` accessible? Is the server running?                                                    |
-| SSE not connecting                 | Is `/_agent-native/events` accessible and authenticated? Polling should still keep the UI fresh as fallback.   |
+| SSE not connecting                 | On a production serverless deploy this is expected — the server refuses the stream on purpose (see Why) and the client reports `poll-live` so cadence stays normal. Otherwise: is `/_agent-native/events` accessible and authenticated? Polling should still keep the UI fresh as fallback.   |
 | High CPU / event storms            | Use targeted source keys, settle bursty list counters, and avoid broad action invalidation.                   |
 
 ## Jitter Prevention

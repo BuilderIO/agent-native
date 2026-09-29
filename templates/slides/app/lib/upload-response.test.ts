@@ -31,10 +31,6 @@ describe("parseUploadResponse", () => {
   });
 
   it("degrades a plaintext non-JSON failure body to a clean error message instead of throwing", async () => {
-    // R83 repro: an upstream proxy/platform crash page returns plaintext
-    // ("Internal E..." truncated), not a JSON envelope. response.json() on
-    // this body throws `SyntaxError: Unexpected token 'I', "Internal
-    // E"... is not valid JSON`.
     const result = await parseUploadResponse(
       fakeResponse(500, "Internal Error"),
       "Upload failed",

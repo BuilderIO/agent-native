@@ -28,9 +28,6 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Mail",
-    screenshotPath: "/auth-marketing/mail.webp",
-    screenshotWidth: 927,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
@@ -48,6 +45,7 @@ export default createAuthPlugin({
   // bearer credential because a local MCP caller cannot attach the browser's
   // session cookie to the subsequent raw-byte PUT.
   publicPaths: [
+    "/api/_agent-native-background/mail-ai-filter-backfill-worker",
     "/api/gmail/push",
     "/api/gmail/watch/renew",
     "/api/tracking",

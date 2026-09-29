@@ -6,7 +6,9 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -40,6 +42,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
   const isAskRoute = location.pathname === "/home";
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  // The redesigned Settings brings its own navigation and agent toggle, so
+  // Brain's sidebar and mobile bar would double them. While the flag loads,
+  // Settings shows the shell's skeleton, which is full-width too.
+  const isFullWidthSettings =
+    (location.pathname === "/settings" ||
+      location.pathname.startsWith("/settings/")) &&
+    (settingsRedesign.status === "loading" || settingsRedesign.enabled);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "brain",
     activePath: location.pathname,
@@ -91,18 +101,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const contentFrame = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-3 md:hidden">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => setMobileSidebarOpen(true)}
-          aria-label={t("navigation.openNavigation")}
-        >
-          <IconMenu2 className="size-4" />
-        </Button>
-        <span className="text-sm font-semibold">{t("navigation.brand")}</span>
-      </div>
+      {isFullWidthSettings ? null : (
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-3 md:hidden">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label={t("navigation.openNavigation")}
+          >
+            <IconMenu2 className="size-4" />
+          </Button>
+          <span className="text-sm font-semibold">{t("navigation.brand")}</span>
+        </div>
+      )}
       <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {children}
       </main>
@@ -127,7 +139,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-      {sidebarFrame}
+      {isFullWidthSettings ? null : sidebarFrame}
       <AgentSidebar
         position="right"
         chatViewTransition

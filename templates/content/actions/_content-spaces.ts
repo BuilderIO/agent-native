@@ -512,8 +512,6 @@ export async function provisionContentSpaces(
     }
   });
 
-  // The established seeder uses its own lock/atomic claim, so call it after
-  // the provisioning transaction rather than nesting transaction machinery.
   const records = await db
     .select({
       id: schema.contentDatabases.id,

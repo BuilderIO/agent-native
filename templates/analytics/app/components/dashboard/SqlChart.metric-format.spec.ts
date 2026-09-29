@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+
 import {
   detectMetricValueColumn,
+  formatSqlChartTooltipLabel,
   formatMetricValue,
   safeDashboardLinkHref,
   sessionReplayHref,
@@ -12,13 +15,8 @@ import {
   toSqlChartDateKey,
 } from "./SqlChart";
 
-// Postgres/Neon returns numeric and bigint columns as strings. The metric
-// renderer used to only format `typeof raw === "number"`,
-// so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
-// of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
   it("formats a Postgres numeric-string rate as a percent (the reported bug)", () => {
-    // 21-decimal string exactly like the live "Viral Signup Share" panel showed
     expect(formatMetricValue("0.000000000000000000000", "percent")).toBe(
       "0.00%",
     );
@@ -50,7 +48,7 @@ describe("formatMetricValue", () => {
 
   it("leaves genuinely non-numeric strings untouched", () => {
     expect(formatMetricValue("n/a", "number")).toBe("n/a");
-    expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
+    expect(formatMetricValue("", "number")).toBe("");
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
   });
@@ -230,5 +228,21 @@ describe("partial-day time-series helpers", () => {
     expect(result.series).toEqual([
       { key: "signups", solidKey: "signups", partialKey: null },
     ]);
+  });
+});
+
+describe("chart tooltip date labels", () => {
+  const panel = { source: "first-party" } as SqlPanel;
+
+  it("includes the weekday for daily chart keys", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "date")).toBe(
+      "Monday, Jun 22",
+    );
+  });
+
+  it("leaves non-daily chart keys in the compact date format", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "week")).toBe(
+      "Jun 22",
+    );
   });
 });

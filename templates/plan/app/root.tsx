@@ -63,8 +63,6 @@ const PUBLIC_SHELL_ROUTE_PREFIXES = [
   ...Object.values(PLAN_KIND_ROUTE_SEGMENT),
   "local-plans",
 ].map((segment) => `/${segment}`);
-// Keep standard pageviews, explicit analytics, and Sentry on local-plan routes,
-// but disable DOM/session capture so rendered plan contents stay on-device.
 configureTracking({
   contentCaptureForPath: shouldCapturePlanContent,
   getDefaultProps: (_name, properties) => ({
@@ -175,6 +173,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="plan"
+        chatStorageKey="plans"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
           <CommandMenu.Item onSelect={() => go("/chat")}>
@@ -235,7 +234,6 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
-  const isMarketingPath = pathname === "/";
   const sessionBypass =
     pathname === "/chat" ||
     PUBLIC_SHELL_ROUTE_PREFIXES.some(
@@ -243,29 +241,22 @@ export default function Root() {
     );
   const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
   return (
-    // Pass the plan-specific styled Toaster via `toaster` so only one sonner
-    // instance renders (avoids the duplicate that would appear if AppProviders'
-    // built-in Toaster AND a children-rendered Toaster both mounted).
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
+        skeletonLayout="list"
         sessionBypass={sessionBypass}
         documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <div
-            data-an-mask={localPlanPrivacyRoute ? "" : undefined}
-            style={{ display: "contents" }}
-          >
-            <DbSyncSetup />
-            <AppContent />
-          </div>
-        )}
+        <div
+          data-an-mask={localPlanPrivacyRoute ? "" : undefined}
+          style={{ display: "contents" }}
+        >
+          <DbSyncSetup />
+          <AppContent />
+        </div>
       </AppProviders>
     </AppToolkitProvider>
   );

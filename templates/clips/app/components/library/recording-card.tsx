@@ -1,12 +1,15 @@
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { isImageRecording } from "@shared/recording-kind";
+import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
   IconLock,
   IconWorld,
   IconUsersGroup,
+  IconPhoto,
   IconPlayerPlay,
   IconShare,
   IconFolder,
@@ -22,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
-import { AgentViewCount } from "@/components/player/recording-views-badge";
+import { AgentViewCount } from "@/components/player/agent-view-count";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,7 +50,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
@@ -124,6 +126,7 @@ export function RecordingCard({
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -150,7 +153,10 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
-  const showPlaybackChrome = !displayFailed && !waitingForStorage;
+  // A screenshot has nothing to play and no length to show, so the card drops
+  // the play overlay and the duration badge rather than claiming "0:00".
+  const isImage = isImageRecording(recording);
+  const showPlaybackChrome = !displayFailed && !waitingForStorage && !isImage;
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
@@ -220,6 +226,10 @@ export function RecordingCard({
       return recording.animatedThumbnailUrl;
     return recording.thumbnailUrl;
   }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
+
+  useEffect(() => {
+    setThumbnailFailed(false);
+  }, [displayThumbnail]);
 
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
@@ -299,18 +309,22 @@ export function RecordingCard({
 
           {/* Thumbnail */}
           <div className="relative z-10 aspect-video overflow-hidden bg-muted pointer-events-none">
-            {displayThumbnail ? (
+            {displayThumbnail && !thumbnailFailed ? (
               // eslint-disable-next-line jsx-a11y/alt-text
               <img
                 src={displayThumbnail}
                 className="h-full w-full object-cover"
                 draggable={false}
+                onError={() => setThumbnailFailed(true)}
+                loading="lazy"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-                {showPlaybackChrome && (
+                {isImage ? (
+                  <IconPhoto className="h-10 w-10 text-primary/40" />
+                ) : showPlaybackChrome ? (
                   <IconPlayerPlay className="h-10 w-10 text-primary/40" />
-                )}
+                ) : null}
               </div>
             )}
 

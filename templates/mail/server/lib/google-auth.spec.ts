@@ -15,11 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createOAuth2Client,
+  gmailBatchGetMessages,
   gmailBatchGetThreads,
   gmailGetProfile,
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
+  gmailListHistory,
   gmailListThreads,
+  gmailWatch,
   googleFetch,
 } from "./google-api.js";
 import {
@@ -32,9 +35,12 @@ import {
   getConnectedAccounts,
   getConnectedAccountsWithErrors,
   getClientsWithErrors,
+  invalidateHistoryCacheForAccount,
+  invalidateListCacheForOwner,
   isConnected,
   listGmailMessages,
   markAllUnreadReadForAccount,
+  startWatch,
 } from "./google-auth.js";
 import { getMailProviderApiRuntime } from "./provider-api.js";
 
@@ -76,10 +82,6 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: vi.fn(async (_context, fn) => fn()),
 }));
 
-// listGmailMessages persists its thread candidate window through user
-// settings. Without a mocked store these tests reach the real settings table,
-// where an unreachable or busy database aborts the thread path mid-hydrate and
-// fails the ranking and refill assertions for reasons unrelated to them.
 const threadCandidatePages = vi.hoisted(
   () => new Map<string, Record<string, unknown>>(),
 );
@@ -98,9 +100,6 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
-  // Real class, not vi.fn(): production code does `instanceof
-  // GmailQuotaCooldownError` to classify cooldown errors, which only works
-  // against the actual constructor.
   GmailQuotaCooldownError: class GmailQuotaCooldownError extends Error {
     retryAfterMs: number;
     constructor(message: string, retryAfterMs: number) {
@@ -131,8 +130,6 @@ vi.mock("./provider-api.js", () => ({
   getMailProviderApiRuntime: vi.fn(),
 }));
 
-// Makes `resolveManagedGmailClient()` resolve as if the owner is connected
-// only through the workspace's shared Gmail grant (no per-user OAuth row).
 function mockManagedGrant(email: string, accessToken = "managed-token") {
   vi.mocked(getCredentialContext).mockReturnValue({ userEmail: email } as any);
   vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
@@ -634,6 +631,130 @@ describe("listGmailMessages", () => {
       pageToken: undefined,
     });
   });
+
+  it("does not reuse or cache an in-flight response invalidated by a mutation", async () => {
+    let releaseFirst!: (value: unknown) => void;
+    const firstProviderResponse = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    vi.mocked(gmailListThreads)
+      .mockImplementationOnce(() => firstProviderResponse as any)
+      .mockResolvedValueOnce({ threads: [{ id: "new-thread" }] } as any);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: { messages: [{ id: `${id}-message`, threadId: id }] },
+        })) as any,
+    );
+
+    const first = listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    await vi.waitFor(() => expect(gmailListThreads).toHaveBeenCalledTimes(1));
+
+    invalidateListCacheForOwner("inflight-owner@example.com");
+    const second = listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    await vi.waitFor(() => expect(gmailListThreads).toHaveBeenCalledTimes(2));
+
+    await expect(second).resolves.toMatchObject({
+      messages: [{ threadId: "new-thread" }],
+    });
+    releaseFirst({ threads: [{ id: "old-thread" }] });
+    await expect(first).resolves.toMatchObject({
+      messages: [{ threadId: "old-thread" }],
+    });
+
+    const third = await listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    expect(third.messages).toEqual([
+      expect.objectContaining({ threadId: "new-thread" }),
+    ]);
+    expect(gmailListThreads).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a stale history window and its in-flight completion after a mutation", async () => {
+    const owner = "history-owner@example.com";
+    const account = "connected@example.com";
+    const makeMessage = (id: string) => ({
+      id,
+      threadId: id,
+      internalDate: id === "old-message" ? "1" : "2",
+      labelIds: ["INBOX"],
+    });
+    invalidateHistoryCacheForAccount(account);
+    vi.mocked(gmailGetProfile).mockResolvedValue({ historyId: "10" } as any);
+    vi.mocked(gmailBatchGetMessages).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({ id, data: makeMessage(id) })) as any,
+    );
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({ messages: [{ id: "old-message" }] } as any)
+      .mockResolvedValueOnce({ messages: [{ id: "new-message" }] } as any);
+
+    await listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+
+    let releaseHistory!: (value: unknown) => void;
+    vi.mocked(gmailListHistory)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseHistory = resolve;
+          }) as any,
+      )
+      .mockResolvedValue({ history: [], historyId: "11" } as any);
+    invalidateListCacheForOwner(owner);
+    const stale = listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+    await vi.waitFor(() => expect(gmailListHistory).toHaveBeenCalledTimes(1));
+
+    invalidateHistoryCacheForAccount(account);
+    invalidateListCacheForOwner(owner);
+    const fresh = listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+    await expect(fresh).resolves.toMatchObject({
+      messages: [{ id: "new-message" }],
+    });
+
+    releaseHistory({
+      history: [],
+      historyId: "11",
+      nextPageToken: "too-many-changes",
+    });
+    await expect(stale).resolves.toMatchObject({ messages: [] });
+
+    invalidateListCacheForOwner(owner);
+    const afterLateCompletion = await listGmailMessages(
+      undefined,
+      3,
+      owner,
+      undefined,
+      { mode: "messages" },
+    );
+    expect(afterLateCompletion.messages).toEqual([
+      expect.objectContaining({ id: "new-message" }),
+    ]);
+    expect(gmailListMessagesApi).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("gmailToEmailMessage", () => {
@@ -703,11 +824,6 @@ describe("getClientsWithErrors with unusable token records", () => {
   });
 
   it("surfaces a reconnect error without deleting the row when a record parses to an empty object", async () => {
-    // A stored oauth_tokens row that fails to decrypt (key rotation / wrong
-    // key) parses to `{}` in core's parseStoredTokens. The account must fail
-    // with a reconnect-style error — but the row must NOT be deleted, because
-    // this process may simply hold the wrong key while the row is still
-    // decryptable by a correctly configured deployment.
     vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
       {
         accountId: "connected@example.com",
@@ -777,7 +893,6 @@ describe("getValidAccessToken single-flight refresh", () => {
         tokens: {
           access_token: "stale-access-token",
           refresh_token: "refresh-token",
-          // Already expired — every caller takes the refresh path.
           expiry_date: Date.now() - 1000,
         },
       },
@@ -806,7 +921,7 @@ describe("getValidAccessToken single-flight refresh", () => {
     mockExpiredAccount();
     const refreshToken = vi
       .fn()
-      .mockRejectedValueOnce(new Error("network error"))
+      .mockRejectedValueOnce(new TypeError("network error"))
       .mockResolvedValueOnce({
         access_token: "refreshed-token",
         expires_in: 3600,
@@ -824,9 +939,6 @@ describe("getValidAccessToken single-flight refresh", () => {
     }
     expect(refreshToken).toHaveBeenCalledTimes(1);
 
-    // The failed shared promise is cleared from the in-flight map, so the
-    // next call retries with a fresh refresh rather than replaying the
-    // rejection.
     const retried = await getClient("connected@example.com");
     expect(retried?.accessToken).toBe("refreshed-token");
     expect(refreshToken).toHaveBeenCalledTimes(2);
@@ -1166,7 +1278,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
     ] as any);
     const refreshToken = vi
       .fn()
-      .mockRejectedValue(new Error("temporary refresh failure"));
+      .mockRejectedValue(new TypeError("temporary refresh failure"));
     vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
 
     await expect(
@@ -1177,6 +1289,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
         {
           email: "oauth@example.com",
           error: "temporary refresh failure",
+          retryable: true,
         },
       ],
     });
@@ -1200,7 +1313,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
     ] as any);
     const refreshToken = vi
       .fn()
-      .mockRejectedValue(new Error("temporary refresh failure"));
+      .mockRejectedValue(new TypeError("temporary refresh failure"));
     vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
     vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
       available: true,
@@ -1220,10 +1333,74 @@ describe("mixed OAuth and managed Gmail accounts", () => {
         {
           email: "oauth@example.com",
           error: "temporary refresh failure",
+          retryable: true,
         },
       ],
     });
   });
+
+  it("does not retry or use an unexpired token after a permanent HTTP refresh failure", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "still-valid-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 2 * 60 * 1000,
+        },
+      },
+    ] as any);
+    const refreshError = Object.assign(new Error("invalid_scope"), {
+      response: { status: 400 },
+      status: 400,
+    });
+    const refreshToken = vi.fn().mockRejectedValue(refreshError);
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [{ email: "oauth@example.com", error: "invalid_scope" }],
+    });
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it.each([408, 429, 503])(
+    "marks HTTP %i Google refresh failures retryable",
+    async (status) => {
+      vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+        {
+          accountId: "connected@example.com",
+          owner: "connected@example.com",
+          tokens: {
+            access_token: "stale-access-token",
+            refresh_token: "refresh-token",
+            expiry_date: Date.now() - 1000,
+          },
+        },
+      ] as any);
+      const refreshError = Object.assign(
+        new Error("temporary refresh failure"),
+        {
+          response: { status },
+          status,
+        },
+      );
+      vi.mocked(createOAuth2Client).mockReturnValue({
+        refreshToken: vi.fn().mockRejectedValue(refreshError),
+      } as any);
+
+      await expect(
+        getClientsWithErrors("connected@example.com"),
+      ).resolves.toMatchObject({
+        clients: [],
+        errors: [{ email: "connected@example.com", retryable: true }],
+      });
+    },
+  );
 });
 
 describe("managed Gmail request context", () => {
@@ -1285,6 +1462,37 @@ describe("managed Gmail request context", () => {
     for (const [context] of vi.mocked(runWithRequestContext).mock.calls) {
       expect(context).toEqual(expectedContext);
     }
+  });
+
+  it.each([
+    [
+      "provider hint",
+      Object.assign(new Error("temporary refresh failure"), {
+        retryable: true,
+      }),
+    ],
+    ["network failure", new TypeError("fetch failed")],
+    [
+      "aborted refresh",
+      Object.assign(new Error("The operation was aborted"), {
+        name: "AbortError",
+      }),
+    ],
+  ])("preserves retryability on managed Gmail %s", async (_kind, failure) => {
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockRejectedValue(failure),
+    } as any);
+
+    await expect(getClientsWithErrors(ownerEmail)).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "workspace",
+          error: failure.message,
+          retryable: true,
+        },
+      ],
+    });
   });
 });
 
@@ -1696,9 +1904,6 @@ describe("gmailBatchModifyByAccount — managed workspace grant", () => {
   });
 
   afterEach(() => {
-    // getCredentialContext's mockReturnValue from mockManagedGrant() would
-    // otherwise leak into later tests in this file (vi.clearAllMocks clears
-    // call history, not implementations set via mockReturnValue).
     vi.mocked(getCredentialContext).mockReturnValue(null);
   });
 
@@ -1886,5 +2091,32 @@ describe("Google OAuth URL construction", () => {
       }),
       "owner@example.com",
     );
+  });
+});
+
+describe("Gmail watch cancellation", () => {
+  it("passes the sweep signal through and preserves provider aborts", async () => {
+    const previousTopic = process.env.GMAIL_WATCH_TOPIC;
+    process.env.GMAIL_WATCH_TOPIC = "projects/example/topics/mail";
+    const controller = new AbortController();
+    const abortError = new DOMException(
+      "The operation was aborted.",
+      "AbortError",
+    );
+    vi.mocked(gmailWatch).mockRejectedValueOnce(abortError);
+
+    try {
+      await expect(startWatch("access-token", controller.signal)).rejects.toBe(
+        abortError,
+      );
+      expect(gmailWatch).toHaveBeenCalledWith(
+        "access-token",
+        "projects/example/topics/mail",
+        expect.objectContaining({ signal: controller.signal }),
+      );
+    } finally {
+      if (previousTopic === undefined) delete process.env.GMAIL_WATCH_TOPIC;
+      else process.env.GMAIL_WATCH_TOPIC = previousTopic;
+    }
   });
 });

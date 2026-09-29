@@ -1,6 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +8,7 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 80;
@@ -119,13 +120,14 @@ export default defineAction({
       userEmail: ctx?.userEmail,
     };
 
-    // Title/description matches on the recordings table
     const recMatches = await db
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -141,13 +143,12 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
+          isNull(schema.recordings.trashedAt),
           sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
       .limit(args.limit);
 
-    // Transcript matches — join recordings so accessFilter is applied upfront,
-    // preventing cross-user transcript ID leakage via timing side-channels.
     const transcriptRows = await db
       .select({
         recordingId: schema.recordingTranscripts.recordingId,
@@ -157,6 +158,8 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -176,6 +179,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
+          isNull(schema.recordings.trashedAt),
           sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -190,6 +194,8 @@ export default defineAction({
         title: schema.recordings.title,
         description: schema.recordings.description,
         thumbnailUrl: schema.recordings.thumbnailUrl,
+        kind: schema.recordings.kind,
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -209,6 +215,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
+          isNull(schema.recordings.trashedAt),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -222,7 +229,7 @@ export default defineAction({
       id: r.id,
       title: r.title,
       description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
+      thumbnailUrl: listingThumbnailUrl(r),
       durationMs: r.durationMs,
       ownerEmail: r.ownerEmail,
       visibility: r.visibility,
@@ -233,7 +240,7 @@ export default defineAction({
       id: r.id,
       title: r.title,
       description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
+      thumbnailUrl: listingThumbnailUrl(r),
       durationMs: r.durationMs,
       ownerEmail: r.ownerEmail,
       visibility: r.visibility,
@@ -243,7 +250,6 @@ export default defineAction({
       matchMs: Math.max(0, Math.floor(r.videoTimestampMs ?? 0)),
     }));
 
-    // Merge matches by id. Prefer transcript snippet if present.
     const transcriptById = new Map<
       string,
       { snippet: string | null; matchMs: number | null }
@@ -261,6 +267,7 @@ export default defineAction({
     for (const r of recMatches) {
       merged.set(r.id, {
         ...r,
+        thumbnailUrl: listingThumbnailUrl(r),
         matchType: "title-description",
         snippet: buildSnippet(r.description, args.query),
         matchMs: null,
@@ -308,7 +315,6 @@ export default defineAction({
     }
 
     const results = Array.from(merged.values()).sort((a, b) => {
-      // Metadata matches first, then timed transcript/comment content.
       const order = {
         "title-description": 0,
         "title-transcript": 1,

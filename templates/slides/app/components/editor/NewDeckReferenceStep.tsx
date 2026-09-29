@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import {
   IconArrowLeft,
   IconBrandFigma,
@@ -7,7 +8,6 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconLoader2,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -38,24 +39,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import {
-  isDesignSystemSelectable,
-  resolveSelectableDesignSystemId,
-} from "@/lib/design-system-selection";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
-import type { DesignSystemIndexingStatus } from "../../../shared/design-system-validation";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
+  composerContext?: SlidesComposerContext;
+  contextItems?: readonly AgentChatContextItem[];
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
-  /**
-   * The one uploaded document that became `referenceDeckId`. The import
-   * controls accept multiple files but only import one, so the rest of
-   * `referenceFilePaths` still needs hydrating.
-   */
   importedReferenceFilePath?: string;
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
@@ -72,17 +69,58 @@ export interface ImportedReference {
   title: string;
   source: "pptx" | "pdf" | "docx" | "google-slides";
   referenceFilePaths?: string[];
-  /** The uploaded document this reference deck was built from, when any. */
   importedFilePath?: string;
 }
 
 type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
 
+// Mirrors extractGoogleSlidesPresentationId in
+// actions/import-google-slides-reference.ts: a bare Picker file ID, or a
+// docs.google.com presentation URL. Keep both patterns in sync with that
+// function if its accepted shapes ever change.
+const GOOGLE_PICKER_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const GOOGLE_SLIDES_PRESENTATION_PATH_PATTERN =
+  /^\/presentation\/(?:u\/\d+\/)?d\/[a-zA-Z0-9_-]+(?:\/|$)/;
+
+function parseHttpUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    // coercion-ok: an unparseable string is a syntactically invalid URL, the
+    // exact "null" this parse exists to report.
+    return null;
+  }
+}
+
+function isGoogleSlidesPresentationUrl(value: string): boolean {
+  const url = parseHttpUrl(value);
+  return Boolean(
+    url &&
+    url.hostname === "docs.google.com" &&
+    GOOGLE_SLIDES_PRESENTATION_PATH_PATTERN.test(url.pathname),
+  );
+}
+
+function isValidReferenceSourceValue(
+  kind: NewDeckReferenceSource["kind"],
+  value: string,
+): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (kind === "google-docs") {
+    return (
+      isGoogleSlidesPresentationUrl(trimmed) ||
+      GOOGLE_PICKER_ID_PATTERN.test(trimmed)
+    );
+  }
+  return Boolean(parseHttpUrl(trimmed));
+}
+
 interface DesignSystemOption {
   id: string;
   title: string;
   isDefault?: boolean;
-  indexingStatus?: DesignSystemIndexingStatus;
 }
 
 interface NewDeckReferenceStepProps {
@@ -98,8 +136,6 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
-  /** Called after the inline "create a design system" dialog completes, so
-   * the caller can refetch the list and surface the new option. */
   onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
@@ -135,11 +171,14 @@ export function NewDeckReferenceStep({
   promptSummary,
 }: NewDeckReferenceStepProps) {
   const t = useT();
-  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const systemsEnabled = useDesignSystemWorkflows();
+  const [chosenDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
-  >(() =>
-    resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
-  );
+  >(resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
+  const selectedDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -148,6 +187,7 @@ export function NewDeckReferenceStep({
   );
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [selectedSource, setSelectedSource] =
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
@@ -165,25 +205,21 @@ export function NewDeckReferenceStep({
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
-  const selectedDesignSystem = selectedDesignSystemId
-    ? designSystems.find((ds) => ds.id === selectedDesignSystemId)
-    : undefined;
-  // Selecting one from the list below already disables non-ready rows; this
-  // also covers a system that starts re-indexing after it was selected.
-  const selectedDesignSystemUnavailable = Boolean(
-    selectedDesignSystem && !isDesignSystemSelectable(selectedDesignSystem),
+  const selectedSourceValid = Boolean(
+    selectedSource &&
+    isValidReferenceSourceValue(selectedSource.kind, selectedSource.value),
   );
   const hasSelection = Boolean(
-    selectedDesignSystemId ||
-    selectedReferenceDeckId ||
-    selectedSource?.value.trim(),
+    selectedDesignSystemId || selectedReferenceDeckId || selectedSourceValid,
   );
 
   useEffect(() => {
     if (!open) return;
     designSystemAutoRef.current = true;
     referenceDeckAutoRef.current = true;
-    setSelectedDesignSystemId(null);
+    setSelectedDesignSystemId(
+      resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
+    );
     setSelectedReferenceDeckId(defaultReferenceDeckId);
     setReferenceDeckTouched(defaultReferenceDeckId !== null);
     setImportedReference(null);
@@ -215,6 +251,10 @@ export function NewDeckReferenceStep({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
+    if (!fileStorageConfigured) {
+      setStoragePromptOpen(true);
+      return;
+    }
     setImportingSource(source);
     try {
       const imported = await onImport(files);
@@ -235,7 +275,7 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
-    if (busy || selectedDesignSystemUnavailable || !hasSelection) return;
+    if (busy || !hasSelection) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
@@ -284,8 +324,6 @@ export function NewDeckReferenceStep({
     if (isAlreadySelected) {
       setSelectedSource(null);
       if (importedReference) {
-        // The import also set the reference deck. Leaving that id behind would
-        // submit a deck the UI no longer shows as selected.
         setSelectedReferenceDeckId((current) =>
           current === importedReference.id ? null : current,
         );
@@ -345,70 +383,47 @@ export function NewDeckReferenceStep({
             </p>
           )}
           <div className="mt-10 space-y-6">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {designSystemLabel}
-                </span>
-                {designSystems.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDesignSystemSetup(true)}
-                    className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
-                  >
-                    {t("home.addDesignSystem")}
-                  </button>
-                )}
-              </div>
-              <Select
-                value={selectedDesignSystemId ?? "none"}
-                onValueChange={(value) => {
-                  designSystemAutoRef.current = false;
-                  setSelectedDesignSystemId(value === "none" ? null : value);
-                  setSelectedSource(null);
-                }}
-              >
-                <SelectTrigger
-                  className="w-full"
-                  disabled={designSystems.length === 0 || busy}
+            {systemsEnabled && (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {designSystemLabel}
+                  </span>
+                  {designSystems.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDesignSystemSetup(true)}
+                      className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
+                    >
+                      {t("home.addDesignSystem")}
+                    </button>
+                  )}
+                </div>
+                <Select
+                  value={selectedDesignSystemId ?? "none"}
+                  onValueChange={(value) => {
+                    designSystemAutoRef.current = false;
+                    setSelectedDesignSystemId(value === "none" ? null : value);
+                    setSelectedSource(null);
+                  }}
                 >
-                  <SelectValue placeholder={designSystemLabel} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("home.none")}</SelectItem>
-                  {designSystems.map((designSystem) => {
-                    const selectable = isDesignSystemSelectable(designSystem);
-                    return (
-                      <SelectItem
-                        key={designSystem.id}
-                        value={designSystem.id}
-                        disabled={!selectable}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          {designSystem.title}
-                          {designSystem.indexingStatus === "indexing" && (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <IconLoader2 className="size-3 animate-spin" />
-                              {t("home.designSystemIndexing")}
-                            </span>
-                          )}
-                          {designSystem.indexingStatus === "unavailable" && (
-                            <span className="text-xs text-muted-foreground">
-                              ({t("home.designSystemUnavailable")})
-                            </span>
-                          )}
-                        </span>
+                  <SelectTrigger
+                    className="w-full"
+                    disabled={designSystems.length === 0 || busy}
+                  >
+                    <SelectValue placeholder={designSystemLabel} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("home.none")}</SelectItem>
+                    {designSystems.map((designSystem) => (
+                      <SelectItem key={designSystem.id} value={designSystem.id}>
+                        {designSystem.title}
                       </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              {selectedDesignSystemUnavailable && (
-                <p className="text-xs text-amber-500">
-                  {t("home.designSystemIndexingNotice")}
-                </p>
-              )}
-            </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="grid gap-2">
               <span className="text-xs font-medium text-muted-foreground">
@@ -523,7 +538,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
+                  storageConfigured={fileStorageConfigured}
                   disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
@@ -534,7 +551,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
+                  storageConfigured={fileStorageConfigured}
                   disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
@@ -545,7 +564,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
+                  storageConfigured={fileStorageConfigured}
                   disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
@@ -577,6 +598,14 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
+              <UploadStorageGate
+                configured={fileStorageConfigured}
+                unavailable={!storageQuery.isSuccess}
+                open={storagePromptOpen}
+                onOpenChange={setStoragePromptOpen}
+                onRetry={() => void storageQuery.refetch()}
+                onConnected={() => void storageQuery.refetch()}
+              />
               {selectedSource && (
                 <Input
                   autoFocus
@@ -644,9 +673,8 @@ export function NewDeckReferenceStep({
           aria-busy={busy}
           disabled={
             busy ||
-            selectedDesignSystemUnavailable ||
             !hasSelection ||
-            Boolean(selectedSource && !selectedSource.value.trim())
+            Boolean(selectedSource && !selectedSourceValid)
           }
         >
           {importing || continuing
@@ -663,11 +691,6 @@ export function NewDeckReferenceStep({
         onClose={() => setShowDesignSystemSetup(false)}
         onComplete={() => {
           setShowDesignSystemSetup(false);
-          // Most sources hand off to the agent and complete before the row
-          // exists, so this can be a no-op; it only helps the synchronous
-          // edit/GitHub-only paths. The dropdown still catches up once the
-          // agent-created row lands, via the shared action-query sync in
-          // useDbSync (see root.tsx), not through this call.
           onDesignSystemsChanged();
         }}
       />
@@ -684,6 +707,8 @@ function FileImportOption({
   importing,
   importingLabel,
   disabled = false,
+  storageConfigured,
+  onStorageRequired,
   onChange,
 }: {
   accept: string;
@@ -694,33 +719,45 @@ function FileImportOption({
   importing: boolean;
   importingLabel: string;
   disabled?: boolean;
+  storageConfigured: boolean;
+  onStorageRequired: () => void;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
-        (importing || disabled) && "pointer-events-none opacity-60",
-      )}
-      aria-label={
-        importing
-          ? `${label} - ${importingLabel}`
-          : imported
-            ? `${label} - ${importedLabel}`
-            : label
-      }
-    >
-      {imported ? <IconCheck className="size-4 text-primary" /> : icon}
-      <span>{importing ? importingLabel : label}</span>
+    <>
+      <button
+        type="button"
+        className={cn(
+          "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
+          (importing || disabled) && "pointer-events-none opacity-60",
+        )}
+        disabled={importing || disabled}
+        aria-label={
+          importing
+            ? `${label} - ${importingLabel}`
+            : imported
+              ? `${label} - ${importedLabel}`
+              : label
+        }
+        onClick={() => {
+          if (storageConfigured) inputRef.current?.click();
+          else onStorageRequired();
+        }}
+      >
+        {imported ? <IconCheck className="size-4 text-primary" /> : icon}
+        <span>{importing ? importingLabel : label}</span>
+      </button>
       <input
+        ref={inputRef}
         type="file"
         className="sr-only"
         accept={accept}
         multiple
-        disabled={importing || disabled}
+        disabled={importing || disabled || !storageConfigured}
         onChange={onChange}
       />
-    </label>
+    </>
   );
 }
 

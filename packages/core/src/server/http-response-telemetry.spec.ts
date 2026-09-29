@@ -12,6 +12,7 @@ import {
   type TrackingEvent,
 } from "../tracking/index.js";
 import {
+  getHttpRequestTelemetryId,
   installHttpResponseTelemetryHooks,
   normalizeHttpTelemetryPath,
   recordFrameworkReadyWait,
@@ -19,9 +20,6 @@ import {
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 
-// The module keeps its cold-start bookkeeping on globalThis under this symbol.
-// Reaching for it lets a test pin whether a request is process request #1
-// instead of depending on which spec ran first.
 const processState = (globalThis as any)[
   Symbol.for("@agent-native/core/http-response-telemetry.process-state")
 ] as { requestSequence: number; moduleEvalUptimeMs: number };
@@ -59,7 +57,7 @@ function eventFor(path: string) {
     url,
     context: {},
     req: new Request(url, { method: "GET" }),
-    res: { status: 200, headers: new Headers() },
+    res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
   };
 }
 
@@ -153,6 +151,10 @@ describe("http response telemetry", () => {
     expect(response.headers.get("server-timing")).toContain("app;dur=");
     expect(response.headers.get("server-timing")).toContain("startup;dur=12");
     expect(response.headers.get("server-timing")).toContain("db;dur=");
+    expect(response.headers.get("server-timing")).toContain("db-queries;dur=1");
+    expect(response.headers.get("server-timing")).toContain(
+      "db-connects;dur=1",
+    );
     expect(response.headers.get("server-timing")).toContain("startup-db;dur=");
     expect(response.headers.get("x-agent-native-request-id")).toBe(
       telemetry?.properties?.request_id,
@@ -496,11 +498,8 @@ describe("http response telemetry", () => {
 
     const timing = response.headers.get("server-timing") ?? "";
     expect(timing).toContain("origin;dur=");
-    // A replayed header must not name a phase a later visitor would read as
-    // the cost of their own request.
     expect(timing).not.toContain("app;dur=");
     expect(timing).not.toContain("db;dur=");
-    // The render's wall-clock time is what makes the replay visible.
     const desc = /desc="([^"]+)"/.exec(timing)?.[1] ?? "";
     expect(Date.parse(desc.split(" ")[0] ?? "")).not.toBeNaN();
   });
@@ -546,5 +545,75 @@ describe("http response telemetry", () => {
       duration_ms: 2_400,
       path: "/reports/:id",
     });
+  });
+
+  it("attributes http.response app/template from the deploy URL instead of the unset display name", async () => {
+    vi.stubEnv("APP_URL", "https://slides.agent-native.com");
+    const { requestHooks, responseHooks } = createHooks();
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/get-deck");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(
+      tracked.find((entry) => entry.name === "http.response")?.properties,
+    ).toMatchObject({ app: "slides", template: "slides" });
+  });
+
+  it("attributes a beta host to the production app slug", async () => {
+    vi.stubEnv("APP_URL", "https://beta.slides.agent-native.com");
+    const { requestHooks, responseHooks } = createHooks();
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/get-deck");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+
+    expect(
+      tracked.find((entry) => entry.name === "http.response")?.properties,
+    ).toMatchObject({ app: "slides", template: "slides" });
+  });
+
+  it("writes the request-id header to both h3 response header buckets before the handler runs, so a guard's thrown error still carries it", async () => {
+    const { requestHooks } = createHooks();
+    const event = eventFor("/_agent-native/actions/get-labs");
+
+    await requestHooks[0](event);
+
+    const requestId = getHttpRequestTelemetryId(event as any);
+    expect(requestId).toEqual(expect.any(String));
+    expect(event.res.headers.get("x-agent-native-request-id")).toBe(requestId);
+    expect(event.res.errHeaders.get("x-agent-native-request-id")).toBe(
+      requestId,
+    );
+  });
+
+  it("carries app attribution into the slow-request log line too", async () => {
+    vi.stubEnv("APP_URL", "https://slides.agent-native.com");
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+
+    const startedAt = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    const event = eventFor("/reports/42");
+    await requestHooks[0](event);
+    nowSpy.mockReturnValue(startedAt + 2_400);
+    await responseHooks[0](new Response("ok"), event);
+    nowSpy.mockRestore();
+
+    expect(loggedLines()[0]).toMatchObject({ app: "slides" });
   });
 });

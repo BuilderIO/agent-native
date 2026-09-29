@@ -127,7 +127,6 @@ describe("automation domain service", () => {
     });
 
     expect(definition.meta.timezone).toBe("America/New_York");
-    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
     expect(definition.meta.nextRun).toBeTruthy();
     expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
       8,
@@ -369,6 +368,7 @@ Send the digest.`);
         scope: "organization",
         enabled: false,
         model: "claude-opus",
+        reasoningEffort: "high",
         mcpTools: ["mcp__mail__read", "mcp__mail__send"],
       },
     );
@@ -378,6 +378,7 @@ Send the digest.`);
       runAs: "creator",
       enabled: false,
       model: "claude-opus",
+      reasoningEffort: "high",
       mcpTools: ["mcp__mail__read", "mcp__mail__send"],
     });
     expect(resourcePutMock).toHaveBeenCalledWith(
@@ -400,6 +401,22 @@ Send the digest.`);
       "notify",
     );
     expect(resourceDeleteMock).toHaveBeenCalledWith("automation-1");
+  });
+
+  it("rejects an unrecognized reasoningEffort value", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          reasoningEffort: "extreme" as never,
+        },
+      ),
+    ).rejects.toThrow(/Invalid reasoning effort/);
   });
 
   it("patches Factory extras in place instead of rebuilding the job document", async () => {

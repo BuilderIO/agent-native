@@ -14,7 +14,6 @@ interface TagInputProps {
   placeholder?: string;
   onChange: (next: string[]) => void;
   className?: string;
-  /** Names the text field: its placeholder is cleared once a tag is present. */
   "aria-label"?: string;
 }
 

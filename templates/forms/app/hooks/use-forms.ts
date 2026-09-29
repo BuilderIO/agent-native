@@ -17,10 +17,6 @@ type FormListMutationContext = {
   }>;
 };
 
-// ---------------------------------------------------------------------------
-// Admin hooks (authenticated)
-// ---------------------------------------------------------------------------
-
 export function useForms(opts: { archived?: boolean } = {}) {
   const archived = !!opts.archived;
   return useActionQuery("list-forms", archived ? { archived: true } : {});
@@ -50,11 +46,6 @@ export function useUpdateForm() {
       void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
-      // Surface the server's actual error message (e.g. publish validation
-      // failures like "Cannot publish: form has no fields") instead of a
-      // generic toast that hides the real problem. Callers can pass an
-      // inline `onError` to mutate() to suppress this toast if they want
-      // to show their own UI.
       const message =
         err instanceof Error && err.message
           ? err.message.replace(/^Action update-form failed:\s*/, "")
@@ -64,11 +55,6 @@ export function useUpdateForm() {
   });
 }
 
-/**
- * Granular field-level patch — uses server-side merge so concurrent edits
- * to different fields both survive. The UI builder uses this for all
- * incremental field mutations.
- */
 export function usePatchFormFields() {
   const qc = useQueryClient();
   return useActionMutation("patch-form-fields", {
@@ -153,11 +139,6 @@ export function useRestoreForm() {
     },
   });
 }
-
-// ---------------------------------------------------------------------------
-// Public hooks (unauthenticated) — stay as raw fetch since they hit
-// public API routes that don't require auth
-// ---------------------------------------------------------------------------
 
 export function usePublicForm(formId: string) {
   return useQuery({

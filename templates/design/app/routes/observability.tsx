@@ -1,9 +1,9 @@
 import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.agentObservability }];
+  return [{ title: enUSMessages.routeTitles.agentObservability }];
 }
 
 export default function ObservabilityPage() {

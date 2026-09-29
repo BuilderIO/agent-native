@@ -590,9 +590,9 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
   ).toHaveCSS("height", sourceAppearance.height);
 });
 
-test("URL-backed Option-drag refuses the drop when Typed OM is unavailable", async ({
+test("URL-backed Option-drag preserves appearance without CSS Typed OM", async ({
   page,
-}) => {
+}, testInfo) => {
   persistedCopyHtml = "";
   await page.addInitScript(() => {
     Object.defineProperty(Element.prototype, "computedStyleMap", {
@@ -659,9 +659,22 @@ test("URL-backed Option-drag refuses the drop when Typed OM is unavailable", asy
   await page.mouse.up();
   await page.keyboard.up("Alt");
 
-  await expect(destinationNodes).toHaveCount(destinationIdsBefore.length, {
+  await expect(destinationNodes).toHaveCount(destinationIdsBefore.length + 1, {
     timeout: 20_000,
   });
+  const destinationIdsAfter = await destinationNodes.evaluateAll((elements) =>
+    elements.map((element) =>
+      element.getAttribute("data-agent-native-node-id"),
+    ),
+  );
+  const copyId = destinationIdsAfter.find(
+    (id): id is string => Boolean(id) && !destinationIdsBefore.includes(id),
+  );
+  expect(copyId).toMatch(/^(?:an-copy-|copy-)/);
+  const copy = inactiveFrame.locator(`[data-agent-native-node-id="${copyId}"]`);
+  await expect(copy).toHaveCSS("background-color", "rgb(37, 99, 235)");
+  await expect(copy).toHaveCSS("width", "80px");
+  await expect(copy).toHaveCSS("height", "40px");
   await expect(source).toHaveCount(1);
   await expect
     .poll(() => fileContent(page.request, activeScreenFilename))
@@ -669,6 +682,31 @@ test("URL-backed Option-drag refuses the drop when Typed OM is unavailable", asy
   await expect
     .poll(() => fileContent(page.request, inactiveScreenFilename))
     .toBe(inactiveRouteBefore);
+
+  persistedCopyHtml = `    ${await copy.evaluate((element) => element.outerHTML)}\n`;
+  expect(persistedCopyHtml).toContain(`data-agent-native-node-id="${copyId}"`);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(screenFrame(page, activeScreenId)).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(screenFrame(page, inactiveScreenId)).toBeVisible({
+    timeout: 30_000,
+  });
+  const reloadedInactive = await screenContentFrame(page, inactiveScreenId);
+  const reloadedCopy = reloadedInactive.locator(
+    `[data-agent-native-node-id="${copyId}"]`,
+  );
+  await expect(reloadedCopy).toHaveCount(1);
+  await expect(reloadedCopy).toHaveCSS("background-color", "rgb(37, 99, 235)");
+  await expect(reloadedCopy).toHaveCSS("width", "80px");
+  await expect(reloadedCopy).toHaveCSS("height", "40px");
+
+  const screenshotPath = testInfo.outputPath("url-drop-without-typed-om.png");
+  await cdpScreenshot(page, screenshotPath);
+  await test.info().attach("url-drop-without-typed-om.png", {
+    path: screenshotPath,
+    contentType: "image/png",
+  });
 });
 
 async function physicalRootDrag(page: Page, start: { x: number; y: number }) {

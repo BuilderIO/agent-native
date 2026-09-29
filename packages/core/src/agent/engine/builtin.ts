@@ -1,12 +1,9 @@
-/**
- * Registers built-in agent engines (anthropic, ai-sdk:*) into the global registry.
- *
- * This module is imported once at server startup via the agent-chat plugin.
- * Additional engines can be registered by calling registerAgentEngine() from
- * any server plugin after startup.
- */
-
 import { AppConfigurationError, getAppConfig } from "../../app-config/index.js";
+import {
+  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  CHATGPT_SUBSCRIPTION_MODELS,
+} from "../chatgpt-subscription-contract.js";
 import {
   createAISDKEngine,
   PROVIDER_CAPABILITIES,
@@ -28,6 +25,7 @@ import {
   BUILDER_DEFAULT_MODEL,
   BUILDER_SUPPORTED_MODELS,
 } from "./builder-engine.js";
+import { createChatGPTSubscriptionEngine } from "./chatgpt-subscription-engine.js";
 import {
   registerAgentEngine,
   unregisterAgentEngine,
@@ -71,24 +69,8 @@ const providerDescriptions: Record<AISDKProvider, string> = {
   ollama: "Local Ollama models via the Vercel AI SDK. No API key required.",
 };
 
-/**
- * Every built-in engine, in registration order.
- *
- * Order is behavior, not presentation: `detectEngineFromEnv()` walks the
- * registry in insertion order, so Builder has to stay first for a customer who
- * configured Builder to keep getting it. A selection that reorders the names
- * therefore does not reorder registration.
- */
 function builtinEngineEntries(): AgentEngineEntry[] {
   return [
-    // ── Builder.io managed gateway ───────────────────────────────────────────
-    // Registered first, so it wins whenever a customer configured Builder — the
-    // legacy key pair included. Two credential shapes select it: a user's own
-    // connection via that pair, or the deployment's Builder-credits token plus
-    // space id, which is the only lane an anonymous visitor on a hosted site has.
-    // Only the injected Builder-credits set is marked deployInjected, so it alone
-    // steps aside for a provider key the customer set (see selectDetectedEngine);
-    // users who prefer BYO everywhere can still set AGENT_ENGINE_PREFER_BYO_KEY.
     {
       name: "builder",
       label: "Builder.io Gateway",
@@ -107,7 +89,6 @@ function builtinEngineEntries(): AgentEngineEntry[] {
       create: (config) => createBuilderEngine(config),
     },
 
-    // ── Anthropic ────────────────────────────────────────────────────────────
     {
       name: "anthropic",
       label: "Claude",
@@ -121,7 +102,6 @@ function builtinEngineEntries(): AgentEngineEntry[] {
       create: (config) => createAnthropicEngine(config),
     },
 
-    // ── Vercel AI SDK providers ──────────────────────────────────────────────
     ...aiSdkProviders.map((provider) => ({
       name: `ai-sdk:${provider}`,
       label: providerLabels[provider],
@@ -135,25 +115,29 @@ function builtinEngineEntries(): AgentEngineEntry[] {
       create: (config: Record<string, unknown>) =>
         createAISDKEngine(provider, config),
     })),
+    {
+      name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      label: "ChatGPT subscription",
+      description:
+        "Experimental Codex access through a user's ChatGPT subscription. Enable the matching lab first.",
+      capabilities: PROVIDER_CAPABILITIES.openai,
+      defaultModel: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
+      supportedModels: CHATGPT_SUBSCRIPTION_MODELS,
+      acceptsCustomModels: false,
+      requiredEnvVars: [],
+      create: (config: Record<string, unknown>) =>
+        createChatGPTSubscriptionEngine(config),
+    },
   ];
 }
 
-/** Names of every built-in engine, in registration order. */
 export const BUILT_IN_ENGINE_NAMES: readonly string[] = [
   "builder",
   "anthropic",
   ...aiSdkProviders.map((provider) => `ai-sdk:${provider}`),
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
 ];
 
-/**
- * The built-ins this deployment asked for, as a set.
- *
- * An unset `agent.builtInEngines` means every built-in, which is what every
- * deployment before this field had. A name that is not a built-in is a
- * configuration error rather than a silently ignored entry: the whole point of
- * the field is to narrow what the agent can reach, and a typo that quietly
- * widened it back would be invisible.
- */
 export function resolveBuiltInEngineSelection(): Set<string> {
   const configured = getAppConfig().agent.builtInEngines;
   if (!configured) return new Set(BUILT_IN_ENGINE_NAMES);
@@ -170,19 +154,8 @@ export function resolveBuiltInEngineSelection(): Set<string> {
   return new Set(configured);
 }
 
-/**
- * The selection the registry currently reflects, so the common repeat call
- * costs one comparison. It is a signature rather than a boolean because
- * `defineAppConfig()` can land after a module-level `registerBuiltinEngines()`
- * has already run — see `unregisterAgentEngine`.
- */
 let _appliedSelection: string | undefined;
 
-/**
- * Register the built-in engines this deployment selected. Safe to call multiple
- * times, and re-reconciles if `agent.builtInEngines` resolves differently than
- * it did on the previous call.
- */
 export function registerBuiltinEngines(): void {
   const selected = resolveBuiltInEngineSelection();
   const signature = BUILT_IN_ENGINE_NAMES.filter((name) =>
@@ -190,9 +163,6 @@ export function registerBuiltinEngines(): void {
   ).join(",");
   if (_appliedSelection === signature) return;
 
-  // Rebuild rather than patch: registration order is `detectEngineFromEnv()`'s
-  // priority order, and adding a previously-deselected engine back would
-  // otherwise put it at the end of the Map instead of its declared position.
   for (const name of BUILT_IN_ENGINE_NAMES) unregisterAgentEngine(name);
   for (const entry of builtinEngineEntries()) {
     if (selected.has(entry.name)) registerAgentEngine(entry);

@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import DataDictionary from "@/pages/DataDictionary";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.dataDictionary }];
+  return [{ title: enUSMessages.routeTitles.dataDictionary }];
 }
 
 export default function DataDictionaryRoute() {

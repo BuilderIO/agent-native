@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { McpAccessSettings } from "./McpAccessSettings.js";
 
+// Radix tabs activate on mousedown, not click.
+function selectTab(tab: HTMLButtonElement | null) {
+  tab?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+}
+
 describe("McpAccessSettings localization", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -39,6 +44,11 @@ describe("McpAccessSettings localization", () => {
         </AgentNativeI18nProvider>,
       );
     });
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "Conecta esta app con Claude, ChatGPT, Cursor, Codex u otro host MCP.",
+      ),
+    );
 
     expect(container.textContent).toContain(
       "Conecta esta app con Claude, ChatGPT, Cursor, Codex u otro host MCP.",
@@ -83,7 +93,7 @@ describe("McpAccessSettings localization", () => {
         "#mcp-guide-tab-claude",
       );
       expect(claudeTab).not.toBeNull();
-      await act(async () => claudeTab?.click());
+      await act(async () => selectTab(claudeTab));
       expect(container.textContent).toContain("name it Mail");
     } finally {
       meta.remove();
@@ -160,9 +170,9 @@ describe("McpAccessSettings localization", () => {
     });
 
     await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("#mcp-guide-tab-cursor")
-        ?.click();
+      selectTab(
+        container.querySelector<HTMLButtonElement>("#mcp-guide-tab-cursor"),
+      );
     });
     expect(new URLSearchParams(window.location.search).get("guide")).toBe(
       "cursor",

@@ -16,6 +16,7 @@ import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
+import { accessibleDocumentIds } from "./_document-access.js";
 import {
   DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
   DOCUMENT_DISCOVERY_MAX_LIMIT,
@@ -26,6 +27,7 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 import {
   canSuggestDocument,
+  hasSuggestionBodyTarget,
   INLINE_DATABASE_SUGGESTION_EXCLUSION,
 } from "./_suggestion-eligibility.js";
 
@@ -118,12 +120,6 @@ export default defineAction({
       .from(schema.documents)
       .where(where);
     const totalItems = Number(countRow?.count ?? 0);
-    // Projection that deliberately avoids pulling the full `content` blob:
-    // document bodies can be multi-MB, and the list/tree path only needs a
-    // short preview plus the true length. `substr` truncates the transferred
-    // text to the first 400 chars (well above the ~180-char preview, leaving
-    // headroom for whitespace collapse), while `length` reports the real size.
-    // Both `substr` and `length` work in PostgreSQL and PGlite.
     const documents = await db
       .select({
         id: schema.documents.id,
@@ -157,7 +153,9 @@ export default defineAction({
     const shareRoleByDocumentId = new Map<string, ShareRole>();
     const notionPageIdByDocumentId = new Map<string, string>();
     const externallyLinkedDocumentIds = new Set<string>();
-    const ordinaryDatabaseItemDocumentIds = new Set<string>();
+    const documentsWithMembership = new Set<string>();
+    const documentsWithPrimaryBlocks = new Set<string>();
+    const accessibleDatabaseDocumentIds = new Set<string>();
     const databaseByDocumentId = new Map<
       string,
       typeof schema.contentDatabases.$inferSelect
@@ -167,8 +165,12 @@ export default defineAction({
       {
         item: typeof schema.contentDatabaseItems.$inferSelect;
         database: typeof schema.contentDatabases.$inferSelect;
+        primaryId: string | null;
       }
     >();
+    // A parent on another page keeps its id; only a parent the caller cannot
+    // list stays hidden.
+    const visibleParentIds = new Set(documents.map((document) => document.id));
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(
           db,
@@ -198,10 +200,17 @@ export default defineAction({
         );
       }
 
-      // These queries all depend only on the initial `documents` id list
-      // (already fetched above), not on each other's results, so they run
-      // concurrently instead of as sequential round-trips.
-      const [notionLinks, shareRows, databases, databaseMemberships] =
+      const outsideParentIds = [
+        ...new Set(
+          documents.flatMap((document) =>
+            document.parentId && !visibleParentIds.has(document.parentId)
+              ? [document.parentId]
+              : [],
+          ),
+        ),
+      ];
+
+      const [notionLinks, shareRows, databases, databaseMemberships, parents] =
         await Promise.all([
           db
             .select({
@@ -248,6 +257,7 @@ export default defineAction({
             .select({
               item: schema.contentDatabaseItems,
               database: schema.contentDatabases,
+              primaryId: schema.documentPropertyDefinitions.id,
             })
             .from(schema.contentDatabaseItems)
             .innerJoin(
@@ -255,6 +265,20 @@ export default defineAction({
               eq(
                 schema.contentDatabases.id,
                 schema.contentDatabaseItems.databaseId,
+              ),
+            )
+            .leftJoin(
+              schema.documentPropertyDefinitions,
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.id,
+                  schema.contentDatabases.primaryBlocksPropertyId,
+                ),
+                eq(
+                  schema.documentPropertyDefinitions.databaseId,
+                  schema.contentDatabases.id,
+                ),
+                eq(schema.documentPropertyDefinitions.type, "blocks"),
               ),
             )
             .where(
@@ -270,7 +294,20 @@ export default defineAction({
               sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
               asc(schema.contentDatabases.id),
             ),
+          outsideParentIds.length > 0
+            ? db
+                .select({ id: schema.documents.id })
+                .from(schema.documents)
+                .where(
+                  and(
+                    inArray(schema.documents.id, outsideParentIds),
+                    documentDiscoveryWhere({ userEmail, authorizedOrgIds }),
+                  ),
+                )
+            : Promise.resolve([] as { id: string }[]),
         ]);
+
+      for (const parent of parents) visibleParentIds.add(parent.id);
 
       for (const link of notionLinks) {
         notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
@@ -293,19 +330,50 @@ export default defineAction({
         databaseByDocumentId.set(database.documentId, database);
       }
 
+      const accessibleDatabases = await accessibleDocumentIds(
+        databaseMemberships.map((row) => row.database.documentId),
+        authorizedOrgIds,
+      );
+      for (const id of accessibleDatabases) {
+        accessibleDatabaseDocumentIds.add(id);
+      }
+      const documentsWithOrdinaryMembership = new Set(
+        databaseMemberships
+          .filter((row) => row.database.systemRole === null)
+          .map((row) => row.item.documentId),
+      );
+      const eligibleMembership = (row: (typeof databaseMemberships)[number]) =>
+        row.primaryId !== null &&
+        (row.database.systemRole === null
+          ? accessibleDatabases.has(row.database.documentId)
+          : row.database.systemRole === "files" &&
+            !documentsWithOrdinaryMembership.has(row.item.documentId));
       for (const row of databaseMemberships) {
-        if (row.database.systemRole == null) {
-          ordinaryDatabaseItemDocumentIds.add(row.item.documentId);
+        documentsWithMembership.add(row.item.documentId);
+        if (eligibleMembership(row)) {
+          documentsWithPrimaryBlocks.add(row.item.documentId);
         }
-        if (!databaseMembershipByDocumentId.has(row.item.documentId)) {
+        const selected = databaseMembershipByDocumentId.get(
+          row.item.documentId,
+        );
+        if (
+          !selected ||
+          (eligibleMembership(row) &&
+            !(
+              selected.primaryId &&
+              (selected.database.systemRole === null
+                ? accessibleDatabases.has(selected.database.documentId)
+                : selected.database.systemRole === "files" &&
+                  !documentsWithOrdinaryMembership.has(
+                    selected.item.documentId,
+                  ))
+            ))
+        ) {
           databaseMembershipByDocumentId.set(row.item.documentId, row);
         }
       }
     }
 
-    const visibleDocumentIds = new Set(
-      documents.map((document) => document.id),
-    );
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
@@ -328,7 +396,7 @@ export default defineAction({
       return {
         id: d.id,
         parentId:
-          d.parentId && visibleDocumentIds.has(d.parentId) ? d.parentId : null,
+          d.parentId && visibleParentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
         contentPreview: contentPreview(d.contentSnippet),
@@ -356,7 +424,9 @@ export default defineAction({
             }
           : undefined,
         databaseMembership: databaseMembership
-          ? visibleDocumentIds.has(databaseMembership.database.documentId)
+          ? accessibleDatabaseDocumentIds.has(
+              databaseMembership.database.documentId,
+            )
             ? serializeDatabaseMembership(databaseMembership)
             : {
                 databaseId: null,
@@ -370,7 +440,10 @@ export default defineAction({
         canSuggest: canSuggestDocument({
           canComment: canCommentRole(accessRole),
           isDatabase: Boolean(database),
-          isOrdinaryDatabaseItem: ordinaryDatabaseItemDocumentIds.has(d.id),
+          hasBodyTarget: hasSuggestionBodyTarget({
+            hasDatabaseMembership: documentsWithMembership.has(d.id),
+            hasPrimaryBlocksField: documentsWithPrimaryBlocks.has(d.id),
+          }),
           isExternallyLinked: externallyLinkedDocumentIds.has(d.id),
           isSourceOwned: Boolean(d.sourceMode || d.sourceKind || d.sourcePath),
           hasInlineDatabase: d.hasInlineDatabase,

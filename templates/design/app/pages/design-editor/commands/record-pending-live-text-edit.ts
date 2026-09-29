@@ -13,11 +13,13 @@ import type {
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
   PendingLiveTextEdit,
+  PendingRelativeStyleOperation,
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  nextPendingLiveEditTimestamp,
   pendingLiveTextUndoRevertValue,
   reactSourceAnchorForPendingEdit,
 } from "@/pages/design-editor/pending-edits";
@@ -41,6 +43,11 @@ export interface RecordPendingLiveTextEditArgs {
   >;
   pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
+  canCoalescePendingLiveEdit?: () => boolean;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
   setPendingLiveNonStyleEdits: Dispatch<
@@ -63,6 +70,8 @@ export function runRecordPendingLiveTextEdit(
     pendingStructureRedoReplayRef,
     pendingStructureRedoReplayTimerRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
+    canCoalescePendingLiveEdit,
     runtimeLayerSnapshotsById,
     selectedElement,
     setPendingLiveNonStyleEdits,
@@ -76,6 +85,7 @@ export function runRecordPendingLiveTextEdit(
     originalValue?: string;
     originalHtml?: string;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -129,23 +139,31 @@ export function runRecordPendingLiveTextEdit(
     classes: elementInfo?.classes ?? [],
     value,
     html: details?.html,
+    ...(details?.relativeOperations
+      ? { relativeOperations: details.relativeOperations }
+      : {}),
     originalValue,
     originalHtml,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   const revert = pendingLiveTextUndoRevertValue(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,
   );
-  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
-  // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload. Consecutive keystrokes on the same node coalesce.
-  appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
-    kind: "text",
-    edit: nextEdit,
-    revertValue: revert.value,
-    revertHtml: revert.html,
-  });
+  const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
+  appendPendingLiveNonStyleUndoEntry(
+    pendingLiveNonStyleUndoStackRef.current,
+    {
+      kind: "text",
+      edit: nextEdit,
+      revertValue: revert.value,
+      revertHtml: revert.html,
+    },
+    canCoalescePendingLiveEdit?.() ?? true,
+  );
+  if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-live");
+  }
   const nextPending = mergePendingLiveNonStyleEdit(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,

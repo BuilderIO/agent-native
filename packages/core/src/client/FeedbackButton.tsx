@@ -303,35 +303,18 @@ export async function submitFeedbackForm(
 }
 
 export interface FeedbackButtonProps {
-  /**
-   * "sidebar" renders a full-width row with icon + label (for app left sidebars).
-   * "icon" renders a small icon-only button (for dense toolbars, e.g. the agent panel header).
-   * "outlined" renders an outlined pill button with icon + label (for top-nav bars, e.g. docs).
-   */
   variant?: "sidebar" | "icon" | "outlined";
   label?: string;
-  /**
-   * Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. First-party agent-native.com
-   * apps fall back to the Agent-Native feedback form; other apps stay hidden.
-   * Pass null to explicitly hide the control.
-   */
   url?: string | null;
   className?: string;
-  /** Which side the popover opens on. Defaults match the variant. */
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
-  /** Placeholder text for the textarea. */
   placeholder?: string;
-  /** Optional text to prefill when the popover opens. */
   initialValue?: string;
-  /** Current chat session/thread id, when the host already knows it. */
   chatSessionId?: string | null;
-  /** Chat localStorage namespace, when the host uses per-app chat storage. */
   chatStorageKey?: string | null;
-  /** Controlled popover open state for hosts that trigger feedback from a menu. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /** Optional custom trigger element. */
   trigger?: ReactNode;
 }
 
@@ -421,8 +404,6 @@ export function resolveFeedbackUrl(
     return parseTarget(normalized) ? normalized : null;
   }
   if (url !== undefined) return null;
-  // Local template/dev hosts are first-party too — otherwise the sidebar
-  // feedback row vanishes on 127.0.0.1 even though every app wires it.
   return isFirstPartyHostname(hostname) || isLocalDevHostname(hostname)
     ? FIRST_PARTY_FEEDBACK_URL
     : null;
@@ -477,7 +458,6 @@ function FeedbackPopoverButton({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Reset transient state and kick off schema load on each open.
   useEffect(() => {
     if (!open) return;
     openedAtRef.current = Date.now();
@@ -605,7 +585,6 @@ function FeedbackPopoverButton({
       </PopoverPrimitive.Trigger>
     );
   } else {
-    // Sidebar variant matches Clips footer feedback row spacing/density.
     trigger = (
       <PopoverPrimitive.Trigger asChild>
         <button

@@ -133,9 +133,6 @@ export default defineAction({
       height: 900,
     }),
   },
-  // Render the answer's diagram/wireframe/api-spec/data-model blocks INLINE in
-  // Agent-Native chat (registry-driven, so custom registered blocks render too),
-  // distinct from the MCP App iframe used by external hosts.
   chatUI: {
     renderer: "plan.visual-answer",
     title: "Visual Answer",

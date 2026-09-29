@@ -12,8 +12,10 @@ const mocks = vi.hoisted(() => ({
   getQueryData: vi.fn(),
   invalidateQueries: vi.fn(),
   navigate: vi.fn(),
+  removeCreatedDocumentNavigation: vi.fn(),
   removeQueries: vi.fn(),
   rollbackOptimisticCreatedDocument: vi.fn(),
+  seedCreatedDocumentNavigation: vi.fn(),
   setQueryData: vi.fn(),
 }));
 
@@ -44,7 +46,9 @@ vi.mock("@/hooks/use-content-spaces", () => ({
 }));
 
 vi.mock("@/hooks/use-documents", () => ({
+  removeCreatedDocumentNavigation: mocks.removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument: mocks.rollbackOptimisticCreatedDocument,
+  seedCreatedDocumentNavigation: mocks.seedCreatedDocumentNavigation,
   useCreateDocument: () => ({ mutateAsync: mocks.createDocument }),
 }));
 
@@ -157,7 +161,10 @@ describe("useCreatePage", () => {
     mocks.getQueryData.mockReturnValue(previous);
     mocks.createDocument.mockRejectedValue(new Error("create failed"));
 
-    let createPage!: () => Promise<string>;
+    let createPage!: (
+      parentId?: string,
+      requestedId?: string,
+    ) => Promise<string>;
     function Probe() {
       createPage = useCreatePage();
       return null;
@@ -168,7 +175,9 @@ describe("useCreatePage", () => {
     });
 
     await act(async () => {
-      await expect(createPage()).rejects.toThrow("create failed");
+      await expect(createPage("parent-page", "slash-page-id")).rejects.toThrow(
+        "create failed",
+      );
     });
 
     const optimisticUpdater = mocks.setQueryData.mock.calls[0]?.[1] as (
@@ -177,6 +186,13 @@ describe("useCreatePage", () => {
     const optimistic = optimisticUpdater(previous);
     expect(optimistic.pagination).toBe(previous.pagination);
     expect(optimistic.documents).toHaveLength(2);
+    expect(optimistic.documents[1]?.id).toBe("slash-page-id");
+    expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "slash-page-id",
+        parentId: "parent-page",
+      }),
+    );
     expect(mocks.rollbackOptimisticCreatedDocument).toHaveBeenCalledWith(
       expect.anything(),
       optimistic.documents[1]?.id,
@@ -186,6 +202,15 @@ describe("useCreatePage", () => {
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),
     });
+    expect(mocks.seedCreatedDocumentNavigation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "slash-page-id", parentId: "parent-page" }),
+      null,
+    );
+    expect(mocks.removeCreatedDocumentNavigation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "slash-page-id", parentId: "parent-page" }),
+    );
     expect(mocks.navigate).toHaveBeenLastCalledWith(
       "/page/existing-page?view=table#details",
       {

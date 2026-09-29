@@ -20,36 +20,24 @@ Read the relevant skill before deeper work:
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Use actions for documents, blocks, comments, media, sharing, navigation, and
-  Notion integration. Do not mutate document rows directly unless a skill says to
-  and access checks are preserved. Never use `curl`, raw HTTP requests, or
-  `db-exec` with raw SQL for document operations.
+- Use actions for Content operations. Never use raw HTTP or SQL for document
+  mutations unless a skill explicitly requires it and preserves access checks.
 - Call these actions directly; `ask_app` only delegates to Content's agent.
 - The live Yjs editor requires actions for body writes. External agents use
   revisioned `edit-document`, with `initializeContent` only for an empty body.
   Browser full rewrites use `update-document`.
 - Preserve user-authored content. Prefer targeted edits over wholesale rewrites
   unless requested.
-- `create-document`, `update-document`, and `delete-document` already signal
-  a UI refresh; only call `refresh-list` directly if you mutate documents
-  another way and the UI doesn't update.
-- Screen context is auto-included as a `<current-screen>` block on every
-  message — check it before acting instead of calling `view-screen` by default.
-  IDs for edits always come from `<current-screen>` or a prior action result,
-  never guessed.
-- Documents are **private by default**; use `share-resource` /
-  `set-resource-visibility` (`resourceType document`) to change access. Keep
-  public/exported content server-renderable where relevant.
-- Notion workspace access is per-user OAuth only: never read `NOTION_API_KEY`
-  from `process.env`, never save a user-entered token, and require editor access
-  to pull or push. Notion actions are shortcuts, not capability limits — see
-  `notion-integration` for the `provider-api-*` path when an exact endpoint,
-  filter, pagination mode, or API version matters.
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Document mutations signal UI refresh; use `refresh-list` only after an
+  out-of-band mutation leaves the UI stale.
+- Check the auto-included `<current-screen>` before acting. Read stale context
+  with `view-screen`; use only IDs from context or action results.
+- Documents are private by default. Change access through sharing actions.
+- Notion uses per-user OAuth and requires editor access to write. See
+  `notion-integration` for exact provider API requests.
+- Store large files and blobs outside SQL; persist only URLs, IDs, or handles.
+- Never hardcode credentials or private/customer data. Use scoped connections,
+  OAuth, runtime configuration, and obvious placeholders.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application State
@@ -63,41 +51,50 @@ Read the relevant skill before deeper work:
   and respect `contextMode: "off"` without silently restoring a pack.
 - `content-last-location-v1` — the last successfully loaded Page. The UI and
   landing resolver own this state; do not write it from agent workflows.
+- `content-trash` — Trash filters, selected/preview Page IDs, and purge operation
+  ID. This is UI context, not deletion authority.
 - Use actions for full document content and comment context.
 
 ## Actions
 
 | Action | Purpose |
-| --- | --- |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `view-screen` | Re-read the current screen when `<current-screen>` is stale |
 | `navigate` | Move the UI to a document, comments, media, or settings |
 | `refresh-list` | Repaint the sidebar after an out-of-band mutation |
 | `list-documents` | Document metadata tree, without bodies |
-| `search-documents` | Title and content search with snippets |
+| `search-documents` | Title-first search with snippets |
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
-| `resolve-content-landing` | Restore the caller's last authorized page |
+| `resolve-content-landing` | Restore the caller's last authorized page in a requested Content space |
+| `get-content-recent` | List personal recent destinations with current access, optionally scoped to a Content space's Files membership |
 | `edit-document` | Revisioned find/replace, or initialize an empty body |
 | `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
+| `list-content-trash` | Search authorized root or nested Trash metadata |
+| `get-trashed-document` | Read one authorized trashed Page body without restoring it |
+| `plan-content-trash-purge` | Freeze exact selected/matching Pages and their trashed descendants, or a whole scope |
+| `get-content-trash-purge-plan` | Read every authorized item and effect in a frozen purge plan |
+| `execute-content-trash-purge` | Confirm a reviewed purge and start its persisted operation |
+| `get-content-trash-operation` | Read persisted purge progress and bounded outcomes |
 | `list-content-database-blocks` | List stable blocks and revisions in one exact collection row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
 | `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
-Every action carries its own schema, and the rest of the app-specific surface
-(comments, sharing, collections, Notion, local file sources such as
-`remove-local-file-source`) is registered too — use `tool-search` instead of
-scanning a table here.
+Every action carries its schema. Use `tool-search` for comments, sharing,
+Collections, Notion, local sources such as `remove-local-file-source`, and the
+rest of the registered surface.
 
-Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
-the exact `databaseId` + `itemId` membership, never the document. Files Custom
-order is a per-user view preference written with
-`update-content-database-personal-view`; shared row ordering still uses
-`move-database-item`.
+Permanent deletion requires a frozen plan. Read `document-editing` and report
+blockers or conflicts instead of claiming Trash is empty.
+
+Sidebar order and active Views use the personal view `navigation` patch, never
+parentage. Recent means foreground visits; paging, active-path lookup, and visit
+recording are UI-owned.
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`;
+read `customizing-agent-native` before adapting shared UI.

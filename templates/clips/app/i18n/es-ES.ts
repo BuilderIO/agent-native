@@ -1,4 +1,75 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
+  timelineTrack: {
+    helpOtherSide:
+      "Haz clic primero en esa sección y arrastra la línea roja hacia la derecha.",
+    helpOtherSideTerm: "Quitar metraje de la sección de la derecha en su lugar",
+    helpRemove: "Haz clic en ella y pulsa Supr.",
+    helpRemoveTerm: "Quitar una sección entera",
+    helpRestore: "Haz clic en ella y pulsa Supr otra vez, o usa su flecha.",
+    helpRestoreTerm: "Recuperar un tramo eliminado",
+    helpShorten:
+      "Arrastra la línea roja hacia la izquierda. Todo lo que dejes atrás se quita del final de la sección de su izquierda.",
+    helpShortenTerm: "Acortar una sección",
+    helpSplit: "Pulsa S. Corta en el cabezal de reproducción.",
+    helpSplitTerm: "Dividir el clip donde estás",
+    helpTitle: "Usar la línea de tiempo",
+    putBack: "Recuperar esta sección",
+    removedSection: "Sección eliminada, {{duration}}",
+    section: "Sección de {{start}} a {{end}}",
+    sectionEndsAt: "Fin de la sección en {{at}}: arrastra para moverlo",
+    sectionStartsAt: "Inicio de la sección en {{at}}: arrastra para moverlo",
+  },
+  redaction: {
+    box: "Cuadro de difuminación",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "La difuminación termina en {{at}}",
+    goTo: "Ir a esta difuminación",
+    helpDraw: "Arrastra sobre la imagen.",
+    helpDrawTerm: "Cubrir algo",
+    helpFollow:
+      "Avanza en el vídeo y arrastra el cuadro hasta donde esté ahora el elemento. El cuadro se desplaza entre los puntos que marques. Dibújalo un poco más grande que lo que cubre.",
+    helpFollowTerm: "Seguir algo que se mueve",
+    helpLead:
+      "Nada queda oculto hasta que pulses Aplicar. Hasta entonces, el cuadro solo está dibujado encima y el vídeo de debajo sigue mostrándolo todo.",
+    helpMove: "Arrastra el cuadro o una de sus esquinas.",
+    helpMoveTerm: "Mover o redimensionar un cuadro",
+    helpRemove: "Haz clic en él y pulsa Supr. Cmd+Z lo devuelve.",
+    helpRemoveTerm: "Quitar un cuadro",
+    helpStylesTerm: "Desenfoque o Sólido",
+    helpTiming:
+      "Arrastra cualquiera de los extremos de su barra, en la pista bajo la línea de tiempo.",
+    helpTimingTerm: "Cambiar cuándo aparece un cuadro",
+    helpTitle: "Usar la difuminación",
+    helpWaypoint:
+      "Cada uno es un punto que has marcado. Arrastra uno para cambiar cuándo ocurre, o púlsalo dos veces para quitarlo.",
+    helpWaypointTerm: "Los rombos de esa barra",
+    helpWhenInDoubt: "Ambos estilos ocultan la zona por completo.",
+    notYetBurned:
+      "Hay {{count}} difuminación(es) dibujadas pero sin aplicar: el vídeo sigue mostrando todo lo que hay debajo hasta que las apliques.",
+    range: "Difuminación de {{start}} a {{end}}",
+    remove: "Eliminar la difuminación {{number}}",
+    resize: "Redimensionar esta difuminación",
+    resizeTopLeft:
+      "Redimensionar esta difuminación desde la esquina superior izquierda",
+    startsAt: "La difuminación empieza en {{at}}",
+    styleBlur: "Desenfoque",
+    styleBlurHint:
+      "Desenfoque: una mancha de color generada sobre la zona. No se usa nada de lo que había debajo para crearla, así que no hay nada que recuperar en ella.",
+    styleSolid: "Sólido",
+    styleSolidHint:
+      "Sólido: rellena la zona con un color. Tan seguro como el desenfoque —ninguno se construye a partir de lo que cubre—, así que elige el que quede mejor en el clip.",
+    waypoint: "Punto de referencia en {{at}}",
+  },
   common: {
     cancel: "Cancelar",
     create: "Crear",
@@ -49,6 +120,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Biblioteca",
+    screenshots: "Capturas de pantalla",
     sharedWithMe: "Compartido conmigo",
     spaces: "Espacios",
     meetings: "Reuniones",
@@ -66,7 +138,7 @@ const messages = {
     folders: "Carpetas",
     recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
-    noSpaces: "Aún no hay espacios",
+    noSpaces: "Reúne los Clips de tu equipo en un solo lugar",
     noSpacesAdminCta:
       "Pide a un administrador de la organización que cree el primer espacio.",
     desktopCta: "Obtener la app de escritorio",
@@ -82,39 +154,38 @@ const messages = {
     createFolderError: "Error al crear",
     folderCreated: "Carpeta creada",
     folderNamePlaceholder: "Nombre de la carpeta",
-    breadcrumbBack: "Volver a {{label}}",
   },
   empty: {
     library: {
-      title: "Tu biblioteca está vacía",
-      body: "Captura tu primera grabación de pantalla y aparecerá aquí, lista para compartir.",
-      cta: "Grabar tu primer Clip",
+      title: "Tus Clips empiezan aquí",
+      body: "Graba tu pantalla, cámara o ambas. Tu Clip estará aquí listo para revisar y compartir.",
+      cta: "Grabar un Clip",
     },
     shared: {
-      title: "Aún no han compartido clips contigo",
-      body: "Los clips que tus compañeros compartan contigo aparecerán aquí.",
+      title: "Explora las grabaciones compartidas contigo",
+      body: "Mira Clips de tus compañeros y participa en la conversación con comentarios.",
     },
     folder: {
-      title: "Esta carpeta está vacía",
-      body: "Arrastra grabaciones aquí o pulsa grabar para empezar algo nuevo en esta carpeta.",
-      cta: "Grabar aquí",
+      title: "Mantén este trabajo unido",
+      body: "Mueve las grabaciones relacionadas a esta carpeta o graba un nuevo Clip para este proyecto.",
+      cta: "Grabar un Clip",
     },
     space: {
-      title: "Aún no hay grabaciones en este espacio",
-      body: "Comparte una grabación con el espacio o graba algo nuevo; tu equipo lo verá aquí.",
-      cta: "Grabar para este espacio",
+      title: "Dale a este espacio su primer Clip",
+      body: "Graba o mueve un Clip aquí para que tu equipo lo encuentre en un solo lugar.",
+      cta: "Grabar un Clip",
     },
     archive: {
-      title: "No hay nada archivado",
-      body: "Las grabaciones archivadas se ocultan de la biblioteca, pero se conservan. Siempre puedes restaurarlas más tarde.",
+      title: "No hay grabaciones archivadas",
+      body: "Los Clips archivados se quedan aquí hasta que quieras recuperarlos.",
     },
     trash: {
       title: "La papelera está vacía",
-      body: "Las grabaciones eliminadas aparecen aquí durante 30 días antes de eliminarse permanentemente.",
+      body: "Los Clips eliminados se quedan aquí durante 30 días antes de eliminarse permanentemente.",
     },
     search: {
-      title: "Sin coincidencias",
-      body: "Prueba con otro término de búsqueda o revisa los filtros.",
+      title: "Nada coincide con esta búsqueda",
+      body: "Prueba otro término o borra los filtros para encontrar el Clip que buscas.",
     },
   },
   trashRoute: {
@@ -373,11 +444,18 @@ const messages = {
     agentEmptyTitle: "Únete a la conversación",
     agentEmptyDescription:
       "Crea una cuenta gratuita de Clips para comentar, reaccionar y preguntar sobre este clip.",
+    commentSignupTitle:
+      "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
+    commentSignupDescription:
+      "Clips es una grabadora de pantalla gratuita y de código abierto para compartir errores, comentarios y demostraciones paso a paso con agentes de IA.",
     agentEmptySignInPrompt: "¿Ya tienes una cuenta?",
     signUp: "Registrarse",
     ownerInsights: "Estadísticas del propietario",
     ownerInsightsDescription:
       "Las vistas, la finalización y los detalles de espectadores son visibles para los editores de este clip.",
+    beingEdited: "En edición",
+    beingEditedMessage:
+      "El propietario está haciendo cambios en este clip. El enlace volverá a funcionar cuando termine.",
   },
   meetingDetail: {
     untitledMeeting: "Reunión sin título",
@@ -510,6 +588,9 @@ const messages = {
     saveThumbnail: "Guardar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Termina las ocultaciones antes de compartir",
+    redactionsPendingBody:
+      "Ocultaciones pendientes: {{count}}. Aplícalas en el editor antes de compartir; el video aún contiene el contenido original.",
     publicDescription:
       "Cualquiera que tenga el enlace puede verlo: inicie sesión para comentar o reaccionar.",
     shareRecording: "Compartir grabación",
@@ -769,6 +850,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
+    changelogCommentSignup:
+      "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
+    changelogCommentsEmptyState:
+      "El estado vacío de comentarios ahora explica cómo las grabaciones de pantalla ayudan a los agentes de IA.",
+    changelogShareLink:
+      "Quienes hayan iniciado sesión y abran un enlace compartido no disponible, vencido o privado llegarán a su biblioteca al elegir «Ir al inicio», en lugar de a la página pública de marketing.",
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",
@@ -881,6 +968,52 @@ const messages = {
       "Clips eliminará el token de bot almacenado para {{team}} y dejará de enviar vistas previas reproducibles de Slack.",
     thisWorkspace: "este espacio",
     slackConnected: "Slack conectado",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+    recordingsTab: "Grabaciones",
+    meetingsTab: "Reuniones",
+    yourDefaults: "Tus valores predeterminados",
+    orgDefault: "Valor predeterminado de {{org}}",
+    playbackSpeed: "Velocidad de reproducción",
+    playbackSpeedDescription: "Se aplica al abrir una grabación.",
+    visibility: "Visibilidad",
+    visibilityDescription:
+      "Se aplica a las grabaciones que creas. Puedes cambiarla en cualquier grabación.",
+    useOrgDefault: "Usar el valor predeterminado de {{org}} ({{visibility}})",
+    useDefault: "Usar el valor predeterminado ({{visibility}})",
+    transcriptExport: "Exportación de transcripciones",
+    logoDescription:
+      "Se muestra en los correos para compartir y en las páginas públicas de los clips.",
+    change: "Cambiar",
+    adminsOnly: "Solo los propietarios y administradores pueden cambiar esto.",
+    brandColorInvalid: "Introduce un código de color hexadecimal.",
+    loadFailed: "No se pudieron cargar estos ajustes.",
+    emailGroup: "Correo electrónico",
+    calendarGroup: "Calendario",
+    googleCalendar: "Google Calendar",
+    connect: "Conectar",
+    reconnect: "Volver a conectar",
+    connectedAs: "Conectado como {{account}}",
+    needsReconnect: "Hay que volver a conectar {{account}}.",
+    disconnectFailed: "No se pudo desconectar el calendario.",
+    disconnectCalendarDescription:
+      "Clips deja de sincronizar las próximas reuniones de {{account}}.",
+    calendarApp: "App de Google Calendar",
+    desktopGroup: "Escritorio",
+    meetingCapture: "Captura de reuniones",
+    meetingCaptureDescription:
+      "Las notas, el inicio automático y las notificaciones se configuran en cada dispositivo en Clips Desktop.",
+    openClipsDesktop: "Abrir Clips Desktop",
+    keySaved: "Guardada",
+    keyNotSaved: "Sin guardar",
+    manage: "Gestionar",
+    add: "Añadir",
+    linkPreviews: "Vistas previas de enlaces",
+    addWorkspace: "Añadir espacio de trabajo",
+    storageAskAdmin:
+      "Pide a un propietario o administrador que configure el almacenamiento.",
   },
   insightsHub: {
     title: "Estadísticas",
@@ -1175,6 +1308,7 @@ const messages = {
     transcript: "Transcripción",
     comment: "Comentario",
     titleOrDescription: "Título o descripción",
+    matchAt: "Coincidencia en {{time}} del video",
   },
   organizationSwitcher: {
     noOrganization: "Sin organización",
@@ -1256,6 +1390,16 @@ const messages = {
     loadingRecording: "Cargando grabación…",
     recordingNotFound: "Grabación no encontrada",
     noVideoYet: "Aún no hay video disponible.",
+    burnFailed: "No se han podido aplicar las difuminaciones",
+    burnProgressUnreadable:
+      "No se puede saber cómo va la difuminación. Lo más probable es que siga procesándose: actualiza la página en un momento.",
+    burnedRedactionsDone:
+      "Difuminado. Esas zonas ya no están en el archivo y el original se ha eliminado.",
+    burningRedactions: "Aplicando las difuminaciones al vídeo…",
+    burningRedactionsPercent:
+      "Aplicando las difuminaciones al vídeo… {{percent}} %",
+    editFailed: "No se ha podido guardar ese cambio",
+    nothingToRedo: "Nada que rehacer",
   },
   transcriptEditor: {
     transcript: "Transcripción",
@@ -1267,7 +1411,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "Nuevo espacio",
     description:
-      "Los espacios son lugares compartidos para organizar las grabaciones de tu organización.",
+      "Organiza las grabaciones por proyecto o equipo para que todos encuentren el trabajo que importa.",
     name: "Nombre",
     color: "Color",
     useColor: "Usar color {{color}}",
@@ -1370,11 +1514,22 @@ const messages = {
     disconnected: "Micrófono desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+    builderConnectError:
+      "No se pudo conectar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+    checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Crear cuenta de Builder.io",
+    signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
+    builderConsentPrefix: "Al crear una cuenta de Builder.io, aceptas nuestros",
+    builderTerms: "Términos de servicio",
+    builderConsentAnd: "y",
+    builderPrivacy: "Política de privacidad",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",
@@ -1464,6 +1619,27 @@ const messages = {
     exportedMp4: "Exported MP4",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
+    backToEditing: "Volver a la edición",
+    burnIn: "Aplicar {{count}}",
+    burnInConfirm: "Aplicar y eliminar el original",
+    burnInHint:
+      "Aplicar las difuminaciones al vídeo de forma permanente y eliminar el original",
+    burnInTitle: "¿Aplicar {{count}} difuminación(es) a este vídeo?",
+    burnInWarning:
+      "Las zonas cubiertas se destruirán en una copia nueva del vídeo y el archivo original se eliminará. Esto no se puede deshacer.",
+    burning: "Aplicando…",
+    burningPercent: "Aplicando… {{percent}} %",
+    deleteKey: "Supr",
+    exportUnredactedTitle: "Aplica antes las difuminaciones",
+    exportUnredactedWarning:
+      "Hay {{count}} ocultación(es) dibujada(s) en esta grabación que aún no se han aplicado, así que el archivo sigue mostrando todo lo que hay debajo, y esta copia también lo haría. Aplícalas y esto volverá a estar disponible.",
+    redact: "Difuminar",
+    redactHint:
+      "Cubre algo de la imagen. Nada queda oculto hasta que lo apliques.",
+    redactOn: "Difuminando",
+    redoTooltip: "Rehacer (Cmd/Ctrl+Mayús+Z)",
+    scrollBack: "Mostrar los controles de la izquierda",
+    scrollOn: "Mostrar los controles de la derecha",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam",
@@ -1517,10 +1693,98 @@ const messages = {
     startWithoutMic: "Grabar sin audio",
     unmuteMicrophone: "Activar micrófono",
     uploadVideo: "Upload video",
+    takeScreenshot: "Hacer captura de pantalla",
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
     recordNew: "Nueva grabación",
+  },
+  screenshot: {
+    capturing: "Capturando...",
+    saving: "Guardando captura...",
+    saved: "Captura guardada",
+    failed: "No se pudo hacer la captura",
+    dragToSelect: "Arrastra para seleccionar un área",
+    blur: "Ocultar",
+    box: "Recuadro",
+    arrow: "Flecha",
+    text: "Texto",
+    edit: "Editar",
+    deleteMark: "Eliminar",
+    textFont: "Fuente",
+    textSize: "Tamaño de fuente",
+    textSizeHint: "Tamaño de fuente, en los píxeles de la propia captura",
+    textSmaller: "Texto más pequeño",
+    textLarger: "Texto más grande",
+    alignLeft: "Alinear a la izquierda",
+    alignCenter: "Centrar",
+    alignRight: "Alinear a la derecha",
+    editSave: "Guardar",
+    editSaved: "Captura actualizada",
+    editConfirm:
+      "Al guardar se sustituye la imagen compartida, así que todos verán estas marcas. Podrás moverlas o quitarlas más adelante. ¿Guardar?",
+    textPlaceholder: "Escribe aquí. Haz clic fuera para terminar",
+    undo: "Deshacer",
+    redo: "Rehacer",
+    redactSaving: "Guardando...",
+    redactFailed: "No se pudo guardar la captura",
+    captureInsecure:
+      "La captura de pantalla requiere HTTPS o localhost. Abre Clips en una URL segura e inténtalo de nuevo.",
+    captureUnavailable:
+      "La captura de pantalla no está disponible en este navegador.",
+    captureUnsupported:
+      "Tu navegador no admite la captura de pantalla. Prueba con una versión reciente de Brave, Chrome, Edge, Safari o Firefox.",
+    captureNoScreen: "No se compartió ninguna pantalla.",
+    captureNoCanvas: "Este navegador no pudo preparar la imagen.",
+    captureNoPicture:
+      "La pantalla compartida nunca envió una imagen. Inténtalo de nuevo o comparte la pantalla completa.",
+    redactLoadFailed: "No se pudo abrir la captura para editarla",
+    saveSelection: "Guardar selección",
+    saveWholeScreen: "Guardar pantalla completa",
+    fullscreen: "Pantalla completa",
+    exitFullscreen: "Salir de pantalla completa",
+    resizeHandle: "Arrastra para cambiar el tamaño",
+    textWidthHandle: "Arrastra para fijar el ancho",
+    crop: "Recortar",
+    cropApply: "Aplicar recorte",
+    cropApplyHint:
+      "Muestra solo esta parte. El resto se conserva, así que podrás ampliar el recorte más adelante",
+    cropReset: "Mostrar la imagen completa",
+    kind: {
+      box: "recuadro",
+      arrow: "flecha",
+      text: "texto",
+      redact: "ocultación",
+    },
+    markToolbar: "Cambiar este elemento ({{kind}})",
+    duplicate: "Duplicar {{kind}}",
+    addText: "Añadir texto nuevo",
+    addArrow: "Añadir flecha nueva",
+    addBox: "Añadir recuadro nuevo",
+    addRedaction: "Añadir ocultación nueva",
+    colour: "Color",
+    fillBox: "Rellenar recuadro",
+    shadow: "Sombra",
+    thickness: "Grosor de línea",
+    thin: "Fino",
+    thick: "Grueso",
+    align: "Alineación",
+    redactionStyle: "Estilo de ocultación",
+    background: "Fondo",
+    backgroundTitle: "Añadir un fondo",
+    backgroundNone: "Ninguno",
+    notYetBurned:
+      "Hay {{count}} ocultación(es) colocada(s) pero sin aplicar. Todavía no se oculta nada, y nadie más puede ver esta captura hasta que las apliques.",
+    editsUnreadable:
+      "Clips no pudo leer las ediciones guardadas de la captura.",
+    burnInHint:
+      "Destruye para siempre lo que cubren las ocultaciones y elimina el original",
+    burnInTitle: "¿Aplicar {{count}} ocultación(es) a esta captura?",
+    burnInWarning:
+      "Las áreas cubiertas se destruirán en una copia nueva de la captura y se eliminará el archivo original. No se puede deshacer. Tus recuadros, flechas y textos seguirán siendo movibles. Lo que ya se haya descargado conserva lo que tiene.",
+    burning: "Aplicando…",
+    burned: "Ocultaciones aplicadas",
+    burnFailed: "No se pudieron aplicar las ocultaciones",
   },
   playerSettings: {
     title: "Settings",
@@ -1565,9 +1829,10 @@ const messages = {
     videoReadyToUpload: "Video is ready to upload",
     videoUploaded: "Video uploaded",
     videoTooLarge: "Video is too large",
-    storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
+    storageNeededToFinishLoomImport:
+      "Se necesita almacenamiento para completar la importación de Loom",
     loomImported: "Loom imported",
-    couldNotImportLoom: "Could not import that Loom.",
+    couldNotImportLoom: "No se pudo importar ese Loom.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Enlace copiado",
@@ -1634,7 +1899,7 @@ const messages = {
     howToUse: "How to use Dictate",
     browserDictation: "Browser dictation",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.",
+      "Captura tus ideas mientras hablas. Copia la transcripción o mejórala con IA.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.",
     quickNoteTitle: "Quick dictation note",
@@ -1643,18 +1908,45 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts",
     desktopShortcutsDescriptionSuffix: ", in the desktop app.",
     holdFn: "Hold Fn",
+    mobileDictation: "Dictado móvil",
+    fnShortcut: "Atajo de Fn",
+    customShortcut: "Atajo personalizado",
+    otherSource: "Otra fuente",
+    voiceSource: "Voz",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.",
     browserUnavailableShort: "Browser speech recognition is unavailable here",
     startSpeaking: "Start speaking...",
-    replacedOriginal: "Replaced original with cleaned text",
+    newDictation: "Nuevo dictado",
+    startDictation: "Iniciar dictado",
+    stop: "Detener",
+    saving: "Guardando",
+    listening: "Escuchando",
+    lastCapture: "Última captura",
+    copy: "Copiar",
+    copied: "Copiado",
+    copyFailed: "No se pudo copiar",
+    aiProcessed: "Procesado por IA",
+    aiCleaned: "Limpieza con IA",
+    original: "Original",
+    cleaned: "Limpio",
+    delete: "Eliminar",
+    deleteDictationTitle: "¿Eliminar este dictado?",
+    deleteDictationDescription:
+      "Esto elimina permanentemente el dictado de tu historial.",
+    deleted: "Dictado eliminado",
+    deleteFailed: "No se pudo eliminar el dictado",
+    showDetails: "Detalles",
+    info: "Información del dictado",
+    time: "Hora",
+    duration: "Duración",
+    hideDetails: "Ocultar detalles",
     noText: "No text",
-    emptyTranscript: "Empty transcript",
-    replaceOriginal: "Replace original with cleaned",
     cleanupWithAi: "Cleanup with AI",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words.',
-    startFirst: "Start your first dictation",
+    cleanupComplete: "Dictado limpiado",
+    cleanupFailed: "No se pudo limpiar el dictado",
+    startFirst: "Convierte tus ideas en texto",
+    recordOnDesktop: "Grabar en el escritorio",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here.",
     emptyWebDescription:
@@ -1683,17 +1975,17 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nagente nativo → Agent-Native",
     dictionaryTermsRequired: "Introduce al menos un término.",
     dictionarySearch: "Buscar en el diccionario",
-    dictionaryNoMatches: "No hay términos coincidentes.",
+    dictionaryNoMatches: "Ningún término coincide con esta búsqueda",
     dictionaryRemoveTitle: "¿Eliminar “{{term}}”?",
     dictionaryRemoveDescription:
       "Las próximas transcripciones ya no usarán esta corrección.",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
+      "Añade tus grafías preferidas para que Clips reconozca las palabras que usas.",
     dictionaryTermPlaceholder: "Term",
     dictionaryReplacementPlaceholder: "Replacement (optional)",
     dictionaryAdd: "Add",
     dictionaryLoading: "Loading dictionary...",
-    dictionaryEmpty: "No learned terms yet.",
+    dictionaryEmpty: "Enseña a Clips tu vocabulario",
     dictionaryUsesCount: "Usado {{count}} veces",
     dictionaryRemove: "Eliminar",
     vocabularyAddFailed: "Couldn't add term",
@@ -1805,9 +2097,9 @@ const messages = {
     pastRecordings: "Past recordings",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
-    connectGoogleCalendar: "Connect Google Calendar",
+    connectGoogleCalendar: "Haz que cada reunión sea más memorable",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
+      "Conecta Google Calendar para ver las próximas reuniones y tomar notas con Clips Desktop.",
     getDesktopApp: "Get desktop app",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription.",
@@ -1828,19 +2120,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
+      "Inicia las notas en Clips Desktop durante una reunión. La transcripción y las notas se guardarán aquí.",
     searchPlaceholder: "Buscar reuniones, asistentes y transcripciones...",
     agendaTab: "Agenda",
     pastTab: "Anteriores",
     now: "Ahora",
-    noPastMeetings: "Aún no hay reuniones anteriores",
+    noPastMeetings: "Tu historial de reuniones empieza aquí",
     loadOlder: "Cargar anteriores",
     searchFailed:
       "No se pudieron buscar las reuniones. Inténtalo de nuevo en un momento.",
     clearSearch: "Clear search",
-    noMeetingsYet: "No meetings yet",
+    noMeetingsYet: "Tu agenda está despejada",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.",
+      "Los próximos eventos de tus calendarios conectados aparecerán aquí cuando se programen.",
     noMeetingsMatch: 'No meetings match "{{query}}"',
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",

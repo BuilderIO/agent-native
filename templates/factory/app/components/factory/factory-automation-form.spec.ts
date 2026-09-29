@@ -229,8 +229,6 @@ describe("mergeListedAutomationDraft", () => {
   });
 
   it("adopts the saved row once the synced key is cleared", () => {
-    // Save clears the key because the server normalized the row. Without this
-    // the draft stays "unsaved" forever and stops accepting server updates.
     const normalized: AutomationEditorSnapshot = {
       ...listed,
       authorMode: "include",
@@ -277,6 +275,14 @@ describe("mergeListedAutomationDraft", () => {
     expect(
       automationEditorConfigKey({ ...daily, timezone: "America/New_York" }),
     ).not.toBe(automationEditorConfigKey({ ...daily, timezone: null }));
+  });
+
+  it("treats a changed reasoningEffort as a pending change", () => {
+    expect(
+      automationEditorConfigKey({ ...listed, reasoningEffort: "high" }),
+    ).not.toBe(
+      automationEditorConfigKey({ ...listed, reasoningEffort: "low" }),
+    );
   });
 
   it("takes the listed row after a matching save", () => {

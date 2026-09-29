@@ -19,7 +19,7 @@ description: "代理跟蹤、評估、意見回饋、A/B 實驗和內建儀表�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | “代理在此固定輸入上執行正確的操作嗎？” | 主動、確定性、CI/部署門          | 品質      |
 | **[Observational Memory](/docs/observational-memory)** | “這條長線是否便宜且位於窗戶內？”       | 長對話串上的背景壓縮             | 成本/環境 |
 
-可觀察性和 CI 評估門都對品質進行評分，但兩端不同——對實際流量進行被動事後評分，與對固定輸入進行主動透過/失敗檢查。觀察記憶與品質無關；這與代幣成本和脈絡視窗壓力有關。
+可觀察性和 CI 評估門都對品質進行評分，但兩端不同——對實際流量進行被動事後評分，與對固定輸入進行主動透過/失敗檢查。觀察記憶與品質無關；這與代幣成本和脈絡視窗壓力有關。 將已完成的生產 trace 提升為 `*.eval.ts` 案例（儀表板 **Promote to eval**、`promote-trace-eval` 或 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`）。見 [從生產 Trace 提升](/docs/evals#from-trace)。
 
 ## 自動捕獲的內容 {#captured}
 
@@ -106,7 +106,7 @@ export default function ObservabilityPage() {
 
 所有資料的範圍僅限於登入使用者；今天沒有跨使用者管理檢視。
 
-儀表板有 5 個分頁：
+儀表板有 6 個分頁：
 
 | 分頁         | 它顯示了什麼                                                 |
 | ------------ | ------------------------------------------------------------ |
@@ -115,6 +115,17 @@ export default function ObservabilityPage() {
 | **評估**     | 按標準自動評估分數、隨時間變化的趨勢                         |
 | **實驗**     | 帶有狀態徽章的 A/B 測試清單、帶有置信區間的變數結果          |
 | **意見回饋** | 讚成/反對、類別細分、挫敗感分數                              |
+| **人工審查** | 檢視請求與回答、記錄意見回饋並草擬指示更新                   |
+
+### 對話詳細資料 {#conversations}
+
+「對話」分頁會顯示已記錄的執行。選取一個執行即可檢視其範圍，展開任一範圍即可查看已擷取的工具輸入、輸出、錯誤和中繼資料。選取**開啟完整對話**可前往相關的聊天對話串。
+
+工具引數和結果預設不會擷取。若要儲存這些內容，請在 `observability` 設定中啟用 `captureToolArgs` 和 `captureToolResults`。敏感欄位和工具錯誤訊息會在儲存前遮蔽。
+
+### 人工審查 {#review}
+
+「人工審查」分頁會顯示每次執行的請求與回答，並可記錄意見回饋及草擬指示更新，交由人員審查。儲存草稿不會自動變更指示。
 
 ## 使用者意見回饋 {#feedback}
 
@@ -285,23 +296,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 全部自動安裝在`/_agent-native/observability/`：
 
-| 方法 | 路徑                       | 目的                      |
-| ---- | -------------------------- | ------------------------- |
-| GET  | `/`                        | 統計概覽                  |
-| GET  | `/traces`                  | 列出跟蹤摘要              |
-| GET  | `/traces/:runId`           | 跟蹤詳細資訊（摘要+跨度） |
-| GET  | `/traces/:runId/evals`     | 執行評估                  |
-| POST | `/feedback`                | 提交意見回饋              |
-| GET  | `/feedback`                | 列出意見回饋              |
-| GET  | `/feedback/stats`          | 意見回饋聚合              |
-| GET  | `/satisfaction`            | 滿意度分數                |
-| GET  | `/evals/stats`             | 評估統計                  |
-| POST | `/experiments`             | 建立實驗                  |
-| GET  | `/experiments`             | 列出實驗                  |
-| GET  | `/experiments/:id`         | 取得實驗詳細資訊          |
-| PUT  | `/experiments/:id`         | 更新實驗                  |
-| POST | `/experiments/:id/results` | 計算結果                  |
-| GET  | `/experiments/:id/results` | 取得結果                  |
+| 方法 | 路徑                       | 目的                       |
+| ---- | -------------------------- | -------------------------- |
+| GET  | `/`                        | 統計概覽                   |
+| GET  | `/traces`                  | 列出跟蹤摘要               |
+| GET  | `/traces/:runId`           | 跟蹤詳細資訊（摘要+跨度）  |
+| GET  | `/traces/:runId/evals`     | 執行評估                   |
+| POST | `/traces/:runId/promote`   | 將已完成執行提升為 CI eval |
+| POST | `/feedback`                | 提交意見回饋               |
+| GET  | `/feedback`                | 列出意見回饋               |
+| GET  | `/feedback/stats`          | 意見回饋聚合               |
+| GET  | `/satisfaction`            | 滿意度分數                 |
+| GET  | `/evals/stats`             | 評估統計                   |
+| POST | `/experiments`             | 建立實驗                   |
+| GET  | `/experiments`             | 列出實驗                   |
+| GET  | `/experiments/:id`         | 取得實驗詳細資訊           |
+| PUT  | `/experiments/:id`         | 更新實驗                   |
+| POST | `/experiments/:id/results` | 計算結果                   |
+| GET  | `/experiments/:id/results` | 取得結果                   |
 
 所有端點均支援`?since=N`（毫秒時間戳）和`?limit=N`查詢參數。
 

@@ -3,26 +3,22 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Figma parity: holding Cmd/Ctrl while hovering previews Cmd-click's
- * deep-select — the hover outline jumps to the innermost object under the
- * pointer while the key is down, and releasing it restores the normal
- * container-first hover. Modifier state is re-resolved on keydown/keyup too,
- * not just on the next pointermove, so pressing/releasing the key while the
- * pointer sits still still updates the outline.
- */
 function hydratedEditorChromeBridgeScript(): string {
-  return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "false")
-    .replace("__EDITOR_CHROME_SCALE_X__", "1")
-    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
-    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
+  return (
+    editorChromeBridgeScript
+      .replace("__READ_ONLY__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", "false")
+      .replace("__EDITOR_CHROME_SCALE_X__", "1")
+      .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
+      // This suite exercises the board's Figma hover policy. Screen content
+      // intentionally uses direct single-click selection instead.
+      .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+      .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+      .replace(/__INITIAL_SOURCE_HEAD__/g, '""')
+  );
 }
 
 const FIXTURE = `<!doctype html><html><body style="margin:0;position:relative;z-index:2147483647;width:100vw;height:100vh">
@@ -33,9 +29,6 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;position:relative;z-
   </div>
 </body></html>`;
 
-/** Identifies which tracked node the highlight overlay currently frames by
- * matching its rect against each candidate's own rect (avoids elementFromPoint,
- * which would just hit the shield/highlight overlays sitting on top). */
 async function highlightOutlinesId(
   page: import("@playwright/test").Page,
   candidateIds: string[],
@@ -88,8 +81,6 @@ describe("Cmd/Ctrl-held hover deep-selects", () => {
         "without a modifier, hovering the nested child must outline its container",
       ).toBe("card");
 
-      // No mouse movement between here and the next assertion — only the
-      // modifier key changes.
       await page.keyboard.down("Meta");
       await page.waitForTimeout(30);
       expect(

@@ -190,16 +190,35 @@ test("Cmd+R renames a Screen selected on canvas or in Layers without renaming th
   try {
     const fileId = await createScreen(request, designId, {
       content: FILL_HTML,
-      metadata: { sourceType: "inline", width: 390, height: 844 },
-      geometry: { x: 0, y: 0, width: 390, height: 844, z: 0 },
+      metadata: { sourceType: "inline", width: 320, height: 844 },
+      geometry: { x: 0, y: 0, width: 320, height: 844, z: 0 },
     });
     const original = await readDesign(request, designId);
     expect(original.title).toBeTruthy();
     await enterEditor(page, designId);
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomControl.click();
+    const zoomPercentage = page.getByRole("textbox", {
+      name: "Zoom percentage",
+    });
+    await zoomPercentage.fill("25%");
+    await zoomPercentage.press("Enter");
+    await expect(zoomControl).toHaveText("25%");
     const screenTitle = page
       .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
       .locator("[data-frame-title]")
       .first();
+    await screenTitle.hover();
+    const titleBounds = await screenTitle.boundingBox();
+    const interactBounds = await page
+      .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
+      .locator("[data-frame-full-view]")
+      .boundingBox();
+    expect(titleBounds).not.toBeNull();
+    expect(interactBounds).not.toBeNull();
+    expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(
+      interactBounds!.x,
+    );
     await screenTitle.click();
     const rename = page.getByRole("textbox", {
       name: "Rename layer",
@@ -263,7 +282,20 @@ test("preset screen dimensions and direct size edits survive reload", async ({
 
     await pickFrameMode(page, "Screen");
     await frameToolButton(page).click();
-    await page
+    await expect
+      .poll(() => page.getByRole("button", { name: /Desktop.*1440/ }).count())
+      .toBe(1);
+    const presetGroups = page.locator(".design-inspector-scroll > section");
+    const desktopGroup = presetGroups.nth(0);
+    const phoneGroup = presetGroups.nth(1);
+    await expect(desktopGroup.locator(":scope > button").first()).toContainText(
+      "Desktop",
+    );
+    await expect(desktopGroup.getByRole("button").nth(1)).toContainText(
+      "Desktop",
+    );
+    await phoneGroup.locator(":scope > button").click();
+    await phoneGroup
       .getByRole("button", { name: /iPhone 17/ })
       .first()
       .click();
@@ -1596,6 +1628,22 @@ test("K scales Screen contents and history as one root Frame edit", async ({
     await page.mouse.move(startX, startY);
     await page.mouse.down();
     await page.mouse.move(startX + 24, startY + 24, { steps: 4 });
+    await expect
+      .poll(async () => {
+        const diagnostics = await readScaleDiagnostics();
+        const fontSize = await layout.evaluate((element) =>
+          Number.parseFloat(
+            getComputedStyle(element.querySelector("#copy")!).fontSize,
+          ),
+        );
+        return Boolean(
+          diagnostics.cardBounds &&
+          beforeCardBounds &&
+          diagnostics.cardBounds.width > beforeCardBounds.width &&
+          fontSize > contentBefore.text.fontSize,
+        );
+      })
+      .toBe(true);
     await page.mouse.up();
     await expect
       .poll(async () => (await readScreenState()).frame?.width)

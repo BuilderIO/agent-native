@@ -61,7 +61,6 @@ export interface CreatePrimitiveArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
-  /** Effective canvas colour, stored or themed — the board's visible surface. */
   canvasBackground: string | null | undefined;
   canEditDesign: boolean;
   files: DesignFile[];
@@ -207,11 +206,6 @@ export function runCreatePrimitive(
           nodeId: uniqueLayerId(primitive.kind || "primitive"),
         }
       : primitive;
-  // A localhost screen's stored content is its route URL, not an editable
-  // document. Keep that URL intact and send one serialized primitive
-  // through the same live insert bridge used by board-to-screen drops.
-  // The bridge echo records the pending source handoff and owns the
-  // optimistic DOM/history lifecycle (selection, Layers, undo, and redo).
   if (isStandaloneHttpUrl(baseContent)) {
     if (reparentTargetIdentity) return false;
     const nodeId =
@@ -226,16 +220,16 @@ export function runCreatePrimitive(
       return false;
     }
     const enrichedDocument =
-      primitive.kind === "path" && primitive.pathData
+      primitive.kind === "path" && (primitive.penPath || primitive.pathData)
         ? (() => {
-            const reconstructed = parsePenPathFromSerializedD(
-              primitive.pathData!,
-            );
-            return reconstructed
+            const penPath =
+              primitive.penPath ??
+              parsePenPathFromSerializedD(primitive.pathData!);
+            return penPath
               ? setPenNodesAttributeOnElement(
                   temporaryDocument,
                   nodeId,
-                  reconstructed,
+                  penPath,
                 )
               : temporaryDocument;
           })()
@@ -284,27 +278,19 @@ export function runCreatePrimitive(
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
-  // Vector-edit foundations: stash the structured pen path (nodes +
-  // handles) alongside the flattened `d` so a later double-click/Enter
-  // can re-hydrate it into an editable path instead of only having the
-  // already-flattened curve. `primitive.pathData` is the only carrier of
-  // pen geometry that crosses the MultiScreenCanvas -> DesignEditor
-  // boundary for an OVERVIEW-drawn pen path (see
-  // parsePenPathFromSerializedD's doc comment for why this reconstructs
-  // rather than receives the structured path directly).
   const rawNextContent =
-    insertionPrimitive.kind === "path" &&
-    insertionPrimitive.pathData &&
-    insertionPrimitive.nodeId
+    insertionPrimitive.kind === "path" && insertionPrimitive.nodeId
       ? (() => {
-          const reconstructed = parsePenPathFromSerializedD(
-            insertionPrimitive.pathData!,
-          );
-          return reconstructed
+          const penPath =
+            insertionPrimitive.penPath ??
+            (insertionPrimitive.pathData
+              ? parsePenPathFromSerializedD(insertionPrimitive.pathData)
+              : null);
+          return penPath
             ? setPenNodesAttributeOnElement(
                 insertedContent,
                 insertionPrimitive.nodeId!,
-                reconstructed,
+                penPath,
               )
             : insertedContent;
         })()
@@ -419,10 +405,6 @@ export function runCreatePrimitive(
   );
   const result = acceptedNode?.id ?? false;
 
-  // Record the nodeId when a TEXT primitive is created so the next
-  // handlePrimitiveCreated (or handleBoardDrawPrimitive) can immediately
-  // enter text-edit mode — fixing the "click to add text should let me
-  // type immediately" bug. The ref is read once and cleared.
   if (insertionPrimitive.kind === "text") {
     pendingTextEditNodeIdRef.current = acceptedNode
       ? (acceptedNode.dataAttributes["data-agent-native-node-id"] ?? null)

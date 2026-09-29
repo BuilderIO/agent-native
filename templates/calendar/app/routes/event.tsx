@@ -20,12 +20,12 @@ import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 type EventPreviewResult = CalendarEvent | { error: string };
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.eventPreview }];
+  return [{ title: enUSMessages.routeTitles.eventPreview }];
 }
 
 function formatDuration(start: string, end: string): string {
@@ -141,7 +141,7 @@ function EventCard({ event }: { event: CalendarEvent }) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 px-2 text-muted-foreground hover:text-foreground text-xs gap-1.5"
+                className="px-2 text-muted-foreground hover:text-foreground text-xs gap-1.5"
                 onClick={() => postNavigate("/")}
               >
                 <IconCalendar className="h-3.5 w-3.5" />

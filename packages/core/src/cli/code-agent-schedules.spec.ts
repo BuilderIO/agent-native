@@ -48,8 +48,6 @@ describe("local code-agent schedules", () => {
     const intact = fs.readFileSync(filePath, "utf8");
     fs.writeFileSync(filePath, intact.slice(0, Math.floor(intact.length / 2)));
 
-    // A truncated file is unknown, never empty: mutating through it would
-    // rewrite the whole array and drop every stored schedule.
     expect(() => listCodeAgentSchedules()).toThrow(
       CodeAgentSchedulesUnreadableError,
     );
@@ -64,7 +62,6 @@ describe("local code-agent schedules", () => {
       CodeAgentSchedulesUnreadableError,
     );
 
-    // The corrupt file is left exactly as found rather than overwritten.
     expect(fs.readFileSync(filePath, "utf8")).toBe(
       intact.slice(0, Math.floor(intact.length / 2)),
     );

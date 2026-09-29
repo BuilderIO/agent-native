@@ -7,9 +7,12 @@ import React, {
   useState,
 } from "react";
 
-import { DefaultSpinner } from "../DefaultSpinner.js";
+import { AppShellSkeleton } from "../AppShellSkeleton.js";
 import { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
-import { fetchFirstRunOnboardingStatus } from "./first-run-status.js";
+import {
+  fetchFirstRunOnboardingStatus,
+  readFirstRunOnboardingCookieState,
+} from "./first-run-status.js";
 import { trackOnboardingEvent } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -29,11 +32,26 @@ export function useFirstRunOnboardingGateOwnsSurface(): boolean {
 
 export function FirstRunOnboardingStartupGate({
   children,
+  fallback = <AppShellSkeleton />,
+  suppressSurface = false,
 }: {
   children: React.ReactNode;
+  fallback?: React.ReactNode;
+  suppressSurface?: boolean;
 }) {
   const previewMode = useOnboardingPreviewMode();
-  const shouldResolve = isFirstRunOnboardingEnabled() && !previewMode;
+  const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
+  useEffect(() => {
+    if (firstRunCookieState === "unreadable") {
+      console.warn(
+        "[onboarding] first-run cookie is unreadable; skipping startup gate",
+      );
+    }
+  }, [firstRunCookieState]);
+  const shouldResolve =
+    isFirstRunOnboardingEnabled() &&
+    !previewMode &&
+    firstRunCookieState === "present";
   const [decision, setDecision] = useState<FirstRunDecision>(
     shouldResolve ? "pending" : "ineligible",
   );
@@ -72,11 +90,9 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [shouldResolve]);
 
-  const ownsSurface = decision === "eligible";
-  const hideApp = decision !== "ineligible";
-  // Keep the app at one React tree position while the async eligibility check
-  // settles. Switching between a wrapper and a bare child remounts stateful
-  // app chrome; a consumed one-shot URL preference then cannot be restored.
+  const ownsSurface = !suppressSurface && decision === "eligible";
+  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
+  const hideApp = gateOwnsSurface;
   const app = shouldResolve ? (
     <div
       aria-hidden={hideApp ? "true" : undefined}
@@ -93,11 +109,15 @@ export function FirstRunOnboardingStartupGate({
   );
 
   return (
-    <FirstRunOnboardingGateContext.Provider value={ownsSurface}>
+    <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       {app}
-      {decision === "pending" && <FirstRunOnboardingStartupLoading />}
+      {!suppressSurface && decision === "pending" && (
+        <FirstRunOnboardingStartupLoading fallback={fallback} />
+      )}
       {ownsSurface && (
-        <Suspense fallback={<FirstRunOnboardingStartupLoading />}>
+        <Suspense
+          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
+        >
           <FirstRunOnboarding initialFirstRun />
         </Suspense>
       )}
@@ -105,14 +125,19 @@ export function FirstRunOnboardingStartupGate({
   );
 }
 
-function FirstRunOnboardingStartupLoading() {
+function FirstRunOnboardingStartupLoading({
+  fallback,
+}: {
+  fallback: React.ReactNode;
+}) {
   return (
     <div
+      role="status"
+      aria-label="Loading application"
       data-first-run-startup-loading="true"
-      aria-busy="true"
       className="fixed inset-0 z-[110] bg-background"
     >
-      <DefaultSpinner />
+      <div inert>{fallback}</div>
     </div>
   );
 }

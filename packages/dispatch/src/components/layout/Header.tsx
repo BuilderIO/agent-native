@@ -73,8 +73,8 @@ export function Header({
       {onOpenMobile ? (
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 lg:hidden cursor-pointer"
+          size="icon-sm"
+          className="lg:hidden cursor-pointer"
           onClick={onOpenMobile}
           aria-label="Open navigation"
         >

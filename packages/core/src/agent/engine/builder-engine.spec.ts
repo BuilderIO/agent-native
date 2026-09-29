@@ -19,6 +19,8 @@ const credentialState = vi.hoisted(() => ({
   builderOrgName: null as string | null,
   lane: "identity" as "identity" | "gateway-deploy" | null,
   recordBuilderGatewayAuthFailure: vi.fn(async () => {}),
+  sendBuilderCreditLimitNotice: vi.fn(async () => {}),
+  clearBuilderCreditLimitNotice: vi.fn(async () => {}),
 }));
 
 const oauthState = vi.hoisted(() => ({
@@ -85,7 +87,13 @@ vi.mock("../../server/builder-oauth.js", () => ({
 vi.mock("../../server/request-context.js", () => ({
   getRequestContext: vi.fn(() => undefined),
   getRequestOrgId: vi.fn(() => oauthState.orgId),
+  getRequestRunContext: vi.fn(() => undefined),
   getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
+}));
+
+vi.mock("../../usage/builder-credit-notice.js", () => ({
+  clearBuilderCreditLimitNotice: credentialState.clearBuilderCreditLimitNotice,
+  sendBuilderCreditLimitNotice: credentialState.sendBuilderCreditLimitNotice,
 }));
 
 async function collectEvents(iterable: AsyncIterable<any>) {
@@ -144,6 +152,8 @@ describe("createBuilderEngine", () => {
     credentialState.builderOrgName = null;
     credentialState.lane = "identity";
     credentialState.recordBuilderGatewayAuthFailure.mockClear();
+    credentialState.sendBuilderCreditLimitNotice.mockClear();
+    credentialState.clearBuilderCreditLimitNotice.mockClear();
     oauthState.ownerEmail = undefined;
     oauthState.orgId = undefined;
     oauthState.accessToken = null;
@@ -167,8 +177,6 @@ describe("createBuilderEngine", () => {
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
-    // The 1h stable-prefix TTL is opt-in (`stablePrefixCacheControl`); the
-    // breakpoint assertions below check the opted-in shape.
     vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
   });
 
@@ -186,13 +194,17 @@ describe("createBuilderEngine", () => {
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
-    expect(engine.supportedModels).toContain("claude-opus-4-8");
-    expect(engine.supportedModels).toContain("gpt-5-6-sol");
+    expect(engine.supportedModels).toContain("claude-opus-5-5");
+    expect(engine.supportedModels).toContain("gpt-6-sol");
     expect(engine.supportedModels).toContain("gpt-5-6-terra");
-    expect(engine.supportedModels).toContain("gpt-5-6-luna");
+    expect(engine.supportedModels).toContain("gpt-6-luna");
+    expect(engine.supportedModels).toContain("gemini-3-8-flash");
     expect(engine.supportedModels).not.toContain("gpt-5-5");
     expect(engine.supportedModels).not.toContain("claude-opus-4-7");
-    expect(engine.supportedModels).not.toContain("z-ai-glm-4-5");
+    expect(engine.supportedModels).not.toContain("gpt-5-6-luna");
+    expect(engine.supportedModels).not.toContain("claude-opus-4-8");
+    expect(engine.supportedModels).not.toContain("gemini-3-1-flash-lite");
+    expect(engine.supportedModels).toContain("z-ai-glm-4-5");
   });
 
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
@@ -329,9 +341,6 @@ describe("createBuilderEngine", () => {
   });
 
   it("keeps the gateway requestId on an error stop that also carries a message", async () => {
-    // The gateway's opaque "ERROR ID: <hex>" sentence is not a diagnostic, so
-    // the requestId has to survive alongside it — an outage where every failure
-    // reads as its own one-off is exactly what dropping it produced.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -385,9 +394,6 @@ describe("createBuilderEngine", () => {
     const body = JSON.parse(init.body);
     expect(body.model).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
-    // With prompt caching enabled the system prompt is wrapped in an array
-    // with a cache_control block on the last element. The stable prefix takes
-    // the 1h TTL; the per-iteration message breakpoint stays on the default.
     expect(body.system).toEqual([
       {
         type: "text",
@@ -395,7 +401,6 @@ describe("createBuilderEngine", () => {
         cache_control: { type: "ephemeral", ttl: "1h" },
       },
     ]);
-    // Message should have a cache_control block on its last content element.
     expect(body.messages).toEqual([
       {
         role: "user",
@@ -495,6 +500,7 @@ describe("createBuilderEngine", () => {
             type: "usage",
             inputTokens: 5,
             outputTokens: 3,
+            creditsUsed: 0.237,
             cacheInputTokens: 2,
             cacheCreatedTokens: 1,
           },
@@ -518,6 +524,7 @@ describe("createBuilderEngine", () => {
       outputTokens: 3,
       cacheReadTokens: 2,
       cacheWriteTokens: 1,
+      builderCreditsUsed: 0.237,
     });
 
     const assistantContent = events.find((e) => e.type === "assistant-content");
@@ -527,6 +534,30 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("end_turn");
+  });
+
+  it("rejects malformed Builder credit usage instead of recording an estimate", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "usage",
+            inputTokens: 5,
+            outputTokens: 3,
+            creditsUsed: "1",
+          },
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(events.find((event) => event.type === "usage")).toBeUndefined();
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      reason: "error",
+      errorCode: "builder_gateway_error",
+    });
   });
 
   it("assembles interleaved text and tool-call into assistant-content in order", async () => {
@@ -786,6 +817,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("maps 402 credits-limit-monthly to stop-error with errorCode + upgradeUrl", async () => {
+    oauthState.ownerEmail = "owner@example.com";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -810,6 +842,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("credits-limit-monthly");
     expect(stop?.upgradeUrl).toContain("builder.io");
     expect(stop?.error).toContain("monthly AI credits");
+    expect(credentialState.sendBuilderCreditLimitNotice).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: undefined,
+    });
+    expect(
+      credentialState.clearBuilderCreditLimitNotice,
+    ).not.toHaveBeenCalled();
   });
 
   it("routes upgradeUrl to the org-agnostic subscription page with Agent-Native attribution", async () => {
@@ -858,6 +897,27 @@ describe("createBuilderEngine", () => {
       message: "Invalid key",
     });
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("clears a previous credits-limit notice after a successful Builder response", async () => {
+    oauthState.ownerEmail = "owner@example.com";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonlResponse([{ type: "stop", reason: "end_turn" }]),
+        ),
+    );
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(credentialState.clearBuilderCreditLimitNotice).toHaveBeenCalledWith(
+      "owner@example.com",
+      undefined,
+    );
+    expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
   it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
@@ -990,10 +1050,6 @@ describe("createBuilderEngine", () => {
   });
 
   it("treats a bare 403 on the legacy (non-OAuth) lane as a transient rejection, not a credential failure", async () => {
-    // Same bare "Forbidden" the OAuth lane maps to builder_auth_error above —
-    // on the legacy lane it is the gateway's load-shedding signature, not a
-    // revoked key, and must not send the reader to reconnect a working
-    // Builder connection.
     vi.stubGlobal(
       "fetch",
       vi
@@ -1081,9 +1137,6 @@ describe("createBuilderEngine", () => {
   });
 
   it("treats an in-stream bare 403 carrying the gateway's own http_403 code as a transient rejection", async () => {
-    // The gateway's fallback code for an uncoded 403 is the literal string
-    // "http_403" (same as the HTTP-error path's `code` variable) — it must
-    // classify identically to no code at all, not be treated as "structured".
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -1135,10 +1188,6 @@ describe("createBuilderEngine", () => {
     beforeEach(() => {
       credentialState.lane = "gateway-deploy";
       vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");
-      // `isBuilderCreditsLane()` also evaluates the real deploy-runtime
-      // predicate, which these flags turn off. Setting the lane alone is not
-      // enough: an inherited preview value makes the suite assert visitor copy
-      // against the owner path.
       vi.stubEnv("FUSION_ENVIRONMENT", undefined);
       vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
       vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
@@ -1320,10 +1369,6 @@ describe("createBuilderEngine", () => {
       expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
     });
 
-    // The dev-preview pod is injected with the published site's credits token
-    // and resolves the same `gateway-deploy` lane, but the person chatting there
-    // is the project owner in the Fusion editor — the only party who can act on
-    // a revoked token or a disabled gateway.
     it("keeps owner copy in the workspace preview runtime", async () => {
       vi.stubEnv("FUSION_ENVIRONMENT", "preview");
       vi.stubGlobal(
@@ -1433,10 +1478,6 @@ describe("createBuilderEngine", () => {
   });
 
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
-    // A reverse proxy returning a bare HTML 502/504 should not swallow the
-    // body silently. Before the fix, `.json()` would throw and the
-    // `.text()` fallback would fail because the body stream was already
-    // consumed — leaving only the generic "Builder gateway returned N" message.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -1475,6 +1516,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
+    expect(credentialState.sendBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
   it("maps 429 concurrency to a retryable stop event, message unchanged", async () => {
@@ -1749,10 +1791,6 @@ describe("createBuilderEngine", () => {
   });
 
   it("aborts at the 120s first-event deadline when nothing ever streams, even under the long local timeout cap", async () => {
-    // With no events at all, the two-stage deadline is
-    // min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) — here
-    // min(840_000, 120_000) — so a fully wedged request is cut off in 2
-    // minutes instead of riding the full 14-minute local cap.
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -1810,8 +1848,6 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
 
-    // The 120s first-event window passes uneventfully — a real event already
-    // streamed, so it must not abort here.
     let settledEarly = false;
     void eventsPromise.then(() => {
       settledEarly = true;
@@ -1819,8 +1855,6 @@ describe("createBuilderEngine", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(settledEarly).toBe(false);
 
-    // The original 840s total deadline (measured from request start) still
-    // governs the rest of the request.
     await vi.advanceTimersByTimeAsync(720_000);
     const events = await eventsPromise;
 
@@ -2087,7 +2121,6 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("tool_message_shape_invalid");
     expect(stop?.error).toContain("history_tc_80");
-    // No retry-trigger keywords (see production-agent's isRetryableError).
     expect(stop?.error?.toLowerCase()).not.toMatch(
       /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
     );
@@ -2150,9 +2183,6 @@ describe("createBuilderEngine", () => {
     );
   });
 
-  // A gateway 500 says nothing about the request behind it. Without these
-  // counts on the stop event, an oversized payload and an upstream outage are
-  // the same capture — which is exactly how one analytics turn burned a night.
   it("carries the request shape on a gateway 500", async () => {
     vi.stubGlobal(
       "fetch",
@@ -2190,9 +2220,6 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_internal_error");
-    // The raw envelope rides through untouched: `normalizeChatError` names the
-    // layer from the CODE and keeps this sentence as the `details` line, which
-    // is the only place the error id reaches the reader.
     expect(stop?.error).toBe(
       "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
     );
@@ -2201,7 +2228,6 @@ describe("createBuilderEngine", () => {
       toolCount: 1,
       messageCount: 2,
     });
-    // Measured against the string actually sent, not re-derived here.
     const sentBody = (globalThis.fetch as any).mock.calls[0][1].body as string;
     expect(stop?.requestShape?.payloadBytes).toBe(
       new TextEncoder().encode(sentBody).length,
@@ -2234,8 +2260,6 @@ describe("createBuilderEngine", () => {
     );
   });
 
-  // Nothing was sent, so there is no shape to report. A zero-byte payload here
-  // would read as "we sent an empty request", which is a different failure.
   it("omits the request shape when the run failed before the request", async () => {
     credentialState.builderPrivateKey = null;
     vi.unstubAllEnvs();
@@ -2270,21 +2294,14 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.error).toContain("upstream provider rejected the model");
-    // Errors with explicit detail are handled by the existing run-manager
-    // capture; no need to also capture from builder-engine.
     expect(captureSpy).not.toHaveBeenCalled();
   });
 
   it("processes a final event without a trailing newline", async () => {
-    // Some gateway proxies end the stream with a complete JSONL line that
-    // lacks a terminating `\n`. The parser must flush that tail through the
-    // same event-handling path, otherwise the stop event is silently
-    // dropped and the consumer gets the synthetic
-    // "stream ended without a stop event" error instead.
     const body =
       JSON.stringify({ type: "text-delta", text: "hi" }) +
       "\n" +
-      JSON.stringify({ type: "stop", reason: "end_turn" }); // no trailing \n
+      JSON.stringify({ type: "stop", reason: "end_turn" });
     const encoded = new TextEncoder().encode(body);
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -2304,7 +2321,6 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("end_turn");
     expect(stop?.error).toBeUndefined();
-    // Text-delta before the stop should still have been yielded.
     expect(events.some((e) => e.type === "text-delta" && e.text === "hi")).toBe(
       true,
     );
@@ -2452,10 +2468,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("high");
   });
 
-  // OpenAI rejects reasoning_effort + function tools on Chat Completions,
-  // where the gateway routes GPT models — every gpt-5.x chat WITH TOOLS (i.e.
-  // every real agent turn) failed deterministically until this sent "none".
-  it("sends reasoning_effort none for a GPT model when tools are present", async () => {
+  it("sends the real reasoning_effort for a GPT model when tools are present", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -2481,11 +2494,11 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("none");
+    expect(body.reasoning_effort).toBe("high");
     expect(body.tools).toHaveLength(1);
   });
 
-  it("preserves explicit none for a GPT model when tools are present", async () => {
+  it("omits reasoning_effort for a GPT model when explicit effort is none", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -2512,7 +2525,7 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("none");
+    expect(body.reasoning_effort).toBeUndefined();
   });
 
   it("keeps full reasoning_effort for a Claude model when tools are present", async () => {

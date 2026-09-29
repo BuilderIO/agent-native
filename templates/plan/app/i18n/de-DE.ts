@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     openAgentSettings: "Agent verwalten",
+    editorGroupTitle: "Editor",
     editorTitle: "VS-Code-Erweiterung",
     editorDescription:
       "Öffne und prüfe Pläne in einem Seitenbereich in VS Code statt in einem separaten Browser-Tab.",
@@ -394,6 +395,13 @@ const messages = {
       shareAria: "Teilen {{noun}}",
       share: "Teilen {{noun}}",
       shareThis: "Teilen Sie dies {{noun}}",
+      teammateSuggestion: {
+        message: "Holen Sie Ihr Team zu Plan.",
+        invite: "Team einladen",
+        enableDomain: "Allen bei @{{domain}} den Beitritt erlauben",
+        enableFailed:
+          "Domainbeitritt konnte nicht aktiviert werden. Bitte erneut versuchen.",
+      },
       hostedCopy:
         "Dieses lokale {{noun}} verfügt über eine gehostete Kopie zum Teilen. Öffnen Sie das gehostete {{noun}}, um den Zugriff zu verwalten.",
       publishDescription:
@@ -675,6 +683,8 @@ const messages = {
       createAccount: "Benutzerkonto erstellen",
       signIn: "Einloggen",
       haveAccount: "Ich habe bereits ein Konto",
+      storageStatusUnavailable:
+        "Der Dateispeicher konnte nicht überprüft werden.",
       retry: "Versuchen Sie es erneut",
       sendFeedback: "Feedback senden",
       feedbackPlaceholder:

@@ -10,12 +10,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-// A row carries the lock/hide icon button AND the row context menu's
-// Lock/Hide item, and the row itself sits inside a ContextMenuTrigger. Each
-// pointer path has to stay wired to exactly one invocation: the toggles take
-// an absolute next state, so a second invocation off the same click is
-// silently destructive rather than merely redundant once anything downstream
-// (source write, undo entry, agent handoff) is no longer idempotent.
 function renderPanel() {
   const onToggleLocked = vi.fn();
   const onToggleHidden = vi.fn();
@@ -44,12 +38,6 @@ function renderPanel() {
       (candidate) => candidate.getAttribute("aria-label") === label,
     );
     if (!button) throw new Error(`no button labelled ${label}`);
-    // A real pointer click fires mousedown before click — the toggle now
-    // lives on mousedown (see LayersPanel.tsx) so a click-drag onto a
-    // DIFFERENT row's icon, which never fires "click" on this one at all
-    // (mouseup lands elsewhere), still toggles it exactly once. click's own
-    // handler is a keyboard-only (detail===0) fallback, so it must stay
-    // silent here or this would count two invocations for one real click.
     await act(async () => {
       button.dispatchEvent(
         new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
@@ -84,9 +72,6 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
-  // Keyboard activation (Enter/Space on a focused button) fires "click"
-  // with no preceding mousedown — the icon's own toggle must still work
-  // through that path, not just through the mousedown a pointer click adds.
   it("invokes onToggleHidden exactly once for a keyboard (detail 0) activation", async () => {
     const panel = renderPanel();
     await panel.mount();
@@ -103,10 +88,6 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
-  // The click-drag-across-a-run gesture (see beginIconToggleDrag in
-  // LayersPanel.tsx) only self-clears on mouseup: if the pointer leaves the
-  // browser window before release, mouseup never fires on this window, so a
-  // later unrelated hover must not still apply the armed toggle.
   it("clears the click-drag toggle gesture on window blur instead of applying it to a later hover", async () => {
     const onToggleHidden = vi.fn();
     const host = document.createElement("div");
@@ -152,12 +133,77 @@ describe("LayersPanel lock/hide toggles", () => {
         new MouseEvent("mouseenter", { bubbles: true }),
       );
     });
-    // Only the first button's own mousedown toggle — the blur ended the
-    // gesture, so hovering the other row's icon never re-applied a stale
-    // "hidden: true" to it.
     expect(onToggleHidden.mock.calls).toEqual([[toggledId, true]]);
     root.unmount();
     host.remove();
+  });
+});
+
+describe("LayersPanel selection scrolling", () => {
+  it("scrolls a deeply nested selected layer name into view", async () => {
+    let scrollTarget: HTMLElement | null = null;
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrollTarget = this;
+    });
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            layers={[
+              {
+                id: "root",
+                name: "Root",
+                type: "frame",
+                children: [
+                  {
+                    id: "child",
+                    name: "Child",
+                    type: "group",
+                    children: [
+                      { id: "leaf", name: "Deep layer name", type: "text" },
+                    ],
+                  },
+                ],
+              },
+            ]}
+            selectedIds={["leaf"]}
+            expandedIds={["root", "child"]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+          />,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(scrollTarget).toBe(
+          host.querySelector(
+            '[data-layer-node-id="leaf"] [data-layer-row-name]',
+          ),
+        );
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
+    } finally {
+      root.unmount();
+      host.remove();
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
   });
 });
 
@@ -437,12 +483,12 @@ describe("LayersPanel row hierarchy", () => {
             {
               id: "root",
               name: "Root",
-              type: "frame",
+              type: "component",
               children: [
                 {
                   id: "child",
                   name: "Child",
-                  type: "group",
+                  type: "component",
                   children: [{ id: "leaf", name: "Leaf", type: "element" }],
                 },
               ],
@@ -497,6 +543,24 @@ describe("LayersPanel row hierarchy", () => {
       "descendant",
       "descendant",
     ]);
+    expect(
+      rows[0]?.classList.contains("bg-[var(--design-editor-selection-color)]"),
+    ).toBe(true);
+    expect(
+      rows[0]?.classList.contains(
+        "bg-[var(--design-editor-component-selection-color)]",
+      ),
+    ).toBe(false);
+    expect(
+      rows[1]?.classList.contains(
+        "bg-[var(--design-editor-selected-subtree-color)]",
+      ),
+    ).toBe(true);
+    expect(
+      rows[1]?.classList.contains(
+        "bg-[var(--design-editor-component-selected-subtree-color)]",
+      ),
+    ).toBe(false);
     expect(rows[0]?.classList.contains("rounded-t-[4px]")).toBe(true);
     expect(rows[1]?.classList.contains("rounded-t-[4px]")).toBe(false);
     expect(rows[1]?.classList.contains("rounded-b-[4px]")).toBe(false);
@@ -506,14 +570,9 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      nestedIndents[0]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(false);
-    expect(
-      nestedIndents[1]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(true);
-    expect(
-      nestedIndents[2]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(true);
+      Array.from(nestedIndents, (indent) => indent.classList.contains("w-3")),
+    ).toEqual([true, true, false]);
+    expect(nestedIndents[2]?.classList.contains("w-5")).toBe(true);
 
     expect(
       Array.from(
@@ -523,5 +582,56 @@ describe("LayersPanel row hierarchy", () => {
 
     root.unmount();
     host.remove();
+  });
+});
+
+describe("LayersPanel row selection", () => {
+  it("selects a layer when clicking the row background outside its name button", async () => {
+    const onSelectionChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            layers={[
+              { id: "first", name: "First", type: "element" },
+              { id: "second", name: "Second", type: "element" },
+            ]}
+            selectedIds={["first"]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={onSelectionChange}
+          />,
+        );
+      });
+
+      const secondRow = Array.from(
+        host.querySelectorAll<HTMLElement>("[data-layer-row-content]"),
+      ).find(
+        (row) =>
+          row
+            .querySelector("[data-layer-row-button]")
+            ?.getAttribute("data-layer-node-id") === "second",
+      );
+      expect(secondRow).toBeTruthy();
+      await act(async () => {
+        secondRow!.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 1 }),
+        );
+      });
+
+      expect(onSelectionChange).toHaveBeenCalledWith(
+        ["second"],
+        expect.objectContaining({ id: "second", source: "pointer" }),
+      );
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });

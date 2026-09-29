@@ -1,3 +1,5 @@
+import { alias } from "@agent-native/core/db/schema";
+import { parseIconValue } from "@agent-native/core/icons";
 import {
   accessFilter,
   assertAccess,
@@ -179,7 +181,9 @@ export async function resolvePropertyDatabaseForDocument(
     const database = await getDatabaseById(databaseId);
     if (!database) throw new Error(`Database "${databaseId}" not found`);
     if (options.requireDatabaseAccess !== false) {
-      await assertAccess("document", database.documentId, role);
+      await assertAccess("document", database.documentId, role, undefined, {
+        skipResourceBody: true,
+      });
     }
     if (database.documentId === document.id) return database;
 
@@ -337,6 +341,7 @@ function defaultDatabaseView(
                   ? "Form"
                   : "Table",
     type: type === "sidebar" ? "table" : type,
+    icon: values.icon ?? null,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -386,6 +391,10 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
           : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
+    icon:
+      view.icon === undefined || view.icon === null
+        ? null
+        : parseIconValue(view.icon),
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
     filters: Array.isArray(view.filters)
       ? view.filters.filter(isDatabaseFilter)
@@ -570,19 +579,22 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(
   document: DocumentRow,
   databaseId?: string,
-  options: { requireDatabaseAccess?: boolean } = {},
+  options: {
+    requireDatabaseAccess?: boolean;
+    /** The caller's own resolvePropertyDatabaseForDocument result. */
+    database?: ContentDatabaseRow | null;
+  } = {},
 ) {
-  const database = await resolvePropertyDatabaseForDocument(
-    document,
-    databaseId,
-    "viewer",
-    options,
-  );
+  const database =
+    options.database === undefined
+      ? await resolvePropertyDatabaseForDocument(
+          document,
+          databaseId,
+          "viewer",
+          options,
+        )
+      : options.database;
   if (!database) return [];
-  // Read path: PURE read. Seeding the primary Blocks field happens at create
-  // time and via the one-time startup repair (repairUnseededBlocksFields) —
-  // never here. A viewer opening a shared/legacy row must not trigger writes on
-  // another owner's database.
   return listPropertiesForDatabase(database.id, document, {
     includeContainerDerivedValues: options.requireDatabaseAccess !== false,
   });
@@ -647,34 +659,34 @@ export async function listPropertiesForDatabase(
     .orderBy(asc(schema.documentPropertyDefinitions.position));
 
   if (definitions.length === 0) return [];
-  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
-    db,
-    databaseId,
-  );
-
-  const values = valueDocument
-    ? await db
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.documentId, valueDocument.id))
-    : [];
+  const includeContainerDerivedValues =
+    options.includeContainerDerivedValues !== false;
+  const [
+    sourceManagedPropertyIds,
+    values,
+    databaseRowNumber,
+    blockContentByPropertyId,
+  ] = await Promise.all([
+    sourceManagedPropertyIdsForDatabase(db, databaseId),
+    valueDocument
+      ? db
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(eq(schema.documentPropertyValues.documentId, valueDocument.id))
+      : [],
+    valueDocument &&
+    includeContainerDerivedValues &&
+    definitions.some((definition) => definition.type === "id")
+      ? databaseRowNumberForDocument(databaseId, valueDocument.id)
+      : undefined,
+    valueDocument
+      ? blockFieldContentsForDocument(valueDocument.id)
+      : new Map<string, string>(),
+  ]);
 
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
   );
-  const includeContainerDerivedValues =
-    options.includeContainerDerivedValues !== false;
-  const rowNumberByDocumentId =
-    valueDocument && includeContainerDerivedValues
-      ? await databaseRowNumbersByDocumentId(databaseId)
-      : new Map<string, number>();
-
-  // Additional (non-primary) Blocks fields keep their content in their own
-  // store, keyed by (documentId, propertyId). Load this row's contents up front
-  // so each Blocks field resolves to its OWN independent content.
-  const blockContentByPropertyId = valueDocument
-    ? await blockFieldContentsForDocument(valueDocument.id)
-    : new Map<string, string>();
 
   const blocksFieldIdentityById = valueDocument
     ? await readBlocksFieldIdentities({
@@ -716,13 +728,9 @@ export async function listPropertiesForDatabase(
           : storedOptions;
     const value =
       valueDocument && isComputedPropertyType(type) && type !== "formula"
-        ? computedPropertyValue(type, valueDocument, {
-            databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
-          })
+        ? computedPropertyValue(type, valueDocument, { databaseRowNumber })
         : valueDocument && isBlocksPropertyType(type)
-          ? // Each Blocks field reads from exactly one place: the primary from
-            // the document body, additional fields from their own store.
-            resolveBlocksFieldValue({
+          ? resolveBlocksFieldValue({
               options,
               documentBody: valueDocument.content,
               blockFieldContent: blockContentByPropertyId.get(definition.id),
@@ -738,6 +746,7 @@ export async function listPropertiesForDatabase(
         name: definition.name,
         type,
         description: definition.description,
+        icon: definition.icon ? parseIconValue(definition.icon) : null,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,
@@ -881,8 +890,8 @@ export async function listPropertiesForDatabaseDocuments(
     ]),
   );
 
-  const rowNumberByDocumentId = definitions.some((definition) =>
-    isComputedPropertyType(definition.type as DocumentPropertyType),
+  const rowNumberByDocumentId = definitions.some(
+    (definition) => definition.type === "id",
   )
     ? await databaseRowNumbersByDocumentId(databaseId)
     : new Map<string, number>();
@@ -1091,9 +1100,10 @@ async function propertyValuesForLinkedDocuments(
   const accessibleDocumentIds = docs.map((doc) => doc.id);
 
   if (isComputedPropertyType(property.definition.type)) {
-    const rowNumberByDocumentId = property.definition.databaseId
-      ? await databaseRowNumbersByDocumentId(property.definition.databaseId)
-      : new Map<string, number>();
+    const rowNumberByDocumentId =
+      property.definition.type === "id" && property.definition.databaseId
+        ? await databaseRowNumbersByDocumentId(property.definition.databaseId)
+        : new Map<string, number>();
     return documentIds.map((documentId) => {
       const doc = docById.get(documentId);
       return doc
@@ -1185,6 +1195,32 @@ async function databaseRowNumbersByDocumentId(databaseId: string) {
   );
 }
 
+async function databaseRowNumberForDocument(
+  databaseId: string,
+  documentId: string,
+): Promise<number | undefined> {
+  const db = getDb();
+  const item = schema.contentDatabaseItems;
+  const earlierItems = alias(item, "row_number_earlier_items");
+  const [row] = await db
+    .select({
+      rowNumber: sql<number>`(${db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(earlierItems)
+        .where(
+          and(
+            eq(earlierItems.databaseId, item.databaseId),
+            sql`(${earlierItems.position}, ${earlierItems.createdAt}, ${earlierItems.id}) <= (${item.position}, ${item.createdAt}, ${item.id})`,
+          ),
+        )})`,
+    })
+    .from(item)
+    .where(
+      and(eq(item.databaseId, databaseId), eq(item.documentId, documentId)),
+    );
+  return row?.rowNumber;
+}
+
 export function optionsForNewProperty(
   type: DocumentPropertyType,
   options?: DocumentPropertyOptions,
@@ -1199,17 +1235,6 @@ export function normalizedValueJson(
   return serializePropertyValue(normalizePropertyValue(type, value));
 }
 
-// --- Blocks fields ---------------------------------------------------------
-//
-// Storage model: the default/primary "Content" Blocks field is backed by
-// `documents.content`. Every ADDITIONAL Blocks field stores its content in its
-// own row in `document_block_field_contents`, keyed by (documentId,
-// propertyId). This guarantees independence — no two Blocks fields ever share
-// content.
-
-// Load all additional-Blocks-field contents for a single document, keyed by
-// propertyId. The primary field is intentionally absent here (its content lives
-// on the document itself).
 export async function blockFieldContentsForDocument(
   documentId: string,
 ): Promise<Map<string, string>> {
@@ -1241,11 +1266,6 @@ export async function readBlockFieldContent(
   return row?.content ?? "";
 }
 
-// Upsert the content for an additional (non-primary) Blocks field.
-//
-// Atomic insert-or-update on the UNIQUE (document_id, property_id) index — no
-// read-then-write window. Two concurrent first-saves can no longer race into a
-// duplicate-key throw: the loser falls through to the conflict UPDATE branch.
 export async function writeBlockFieldContent(args: {
   documentId: string;
   propertyId: string;
@@ -1274,7 +1294,6 @@ export async function writeBlockFieldContent(args: {
     });
 }
 
-// Write the primary Blocks field's content — i.e. the document body.
 export async function writePrimaryBlocksContent(args: {
   documentId: string;
   content: string;
@@ -1292,7 +1311,6 @@ export async function writePrimaryBlocksContent(args: {
     .where(eq(schema.documents.id, args.documentId));
 }
 
-// Fetch a single property definition scoped to a database (and owner).
 export async function getPropertyDefinitionForDatabase(args: {
   propertyId: string;
   databaseId: string;
@@ -1312,9 +1330,6 @@ export async function getPropertyDefinitionForDatabase(args: {
   return definition ?? null;
 }
 
-// How many Blocks-type property definitions a database has. Used to drive the
-// solo (chromeless) vs. multi (headers + collapsible) rendering decision and
-// the "only Blocks field" delete warning.
 export async function countBlocksFieldsForDatabase(
   databaseId: string,
 ): Promise<number> {
@@ -1328,9 +1343,6 @@ export async function countBlocksFieldsForDatabase(
   ).length;
 }
 
-// The id of a database's existing primary Blocks definition, if any. Used to
-// adopt a legacy primary created by the old read-path seeder rather than
-// creating a duplicate.
 async function findExistingPrimaryBlocksDefinition(
   databaseId: string,
   db: DbClient = getDb(),
@@ -1351,16 +1363,6 @@ async function findExistingPrimaryBlocksDefinition(
   return primary?.id ?? null;
 }
 
-// Seed the primary "Content" Blocks field for a database exactly ONCE.
-//
-// `content_databases.primary_blocks_property_id` is the single source of truth
-// and the concurrency guard. The deterministic primary definition is inserted
-// before the database row is marked seeded, so we never publish blocks_seeded=1
-// before the definition row exists. Two concurrent calls converge on the same
-// property id and the loser returns the already-claimed id.
-//
-// Returns the primary property id (existing or newly created). Never reseeds a
-// database whose primary was intentionally deleted (blocks_seeded=1, id NULL).
 export async function seedDefaultBlocksField(args: {
   databaseId: string;
   ownerEmail: string;
@@ -1370,16 +1372,8 @@ export async function seedDefaultBlocksField(args: {
 }): Promise<string | null> {
   const db = args.db ?? getDb();
 
-  // Deterministic id keyed to the database so concurrent claimants converge on
-  // the same value; the UNIQUE primary-key on definitions also rejects a
-  // duplicate insert if two callers somehow both attempt it.
   const id = `blocks_primary_${args.databaseId}`;
 
-  // Legacy adoption: a database seeded by the OLD read-path safety net already
-  // has a primary "Content" definition but a NULL column (if the v52 backfill
-  // somehow didn't run for it). Adopt that existing definition instead of
-  // creating a second primary — guarantees the invariant even off the migration
-  // path. The atomic UPDATE (column still NULL) makes this race-safe.
   const existingPrimary = await findExistingPrimaryBlocksDefinition(
     args.databaseId,
     db,

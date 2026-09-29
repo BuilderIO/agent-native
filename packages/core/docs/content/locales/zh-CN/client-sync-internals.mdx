@@ -74,7 +74,7 @@ function DashboardView({ id }) {
 
 本地变更——即您自己的 `useActionMutation()` 调用刚刚发起的那次——一旦成功就会立即触发一个 `source: "action"` 事件。依赖该 action 的每个查询都会立即重新获取。这里没有往返延迟，因为发起写入的那个标签页已经知道这次写入了。
 
-远程变更——来自代理、webhook、另一个标签页，或另一个用户——则必须先到达这个标签页。`useDbSync()` 几乎会立即通过 SSE 捕获它，或者如果 SSE 不可用，则在大约两秒内通过轮询回退捕获它。只有当该事件到达之后，相关的版本计数器才会递增，查询才会在后台重新获取。
+远程变更——来自代理、webhook、另一个标签页，或另一个用户——则必须先到达这个标签页。在长期运行的宿主上，`useDbSync()` 几乎会立即通过 SSE 捕获它；否则就通过轮询回退捕获。只有当该事件到达之后，相关的版本计数器才会递增，查询才会在后台重新获取。在生产环境无服务器部署上，应用自身的 SSE 流不是一条可以回退的较慢路径——它按设计是关闭的（参见 [Live Sync](/docs/key-concepts#polling-sync)），因此那里的每一次远程变更都经由轮询传递，除非应用已接入[托管实时同步网关](/docs/real-time-collaboration#hosted-gateway)。
 
 <Diagram id="doc-block-client-sync-internals-3" title="重新获取的两条路径" summary="本地变更会立即使自己的缓存失效。远程写入通过 SSE 到达这个标签页，或作为回退经由轮询周期到达。">
 

@@ -1,13 +1,10 @@
-/**
- * Core script: db-query
- *
- * Run a read-only SQL query against the configured PostgreSQL database. Local
- * execution uses PGlite and hosted execution uses PostgreSQL.
- */
-
 import path from "node:path";
 
-import { getRuntimeDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import {
+  assertHostedRuntimeDatabase,
+  getRuntimeDatabaseUrl,
+  toPostgresParams,
+} from "../../db/client.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -85,12 +82,6 @@ export interface RunDbQueryResult {
   sql: string;
 }
 
-/**
- * Validate, scope, and execute a read-only query. Shared by the CLI's
- * in-process path and the dev-server forward route (`dev-action-bridge.ts`)
- * so a forwarded read goes through the exact same checks and row scoping as
- * running `pnpm action db-query` locally, not a separate, unscoped path.
- */
 export async function runDbQuery(
   options: RunDbQueryOptions,
 ): Promise<RunDbQueryResult> {
@@ -121,10 +112,8 @@ export async function runDbQuery(
     query = `${options.sql} LIMIT ${options.limit}`;
   }
 
-  // Must match the resolver `tryForwardDbQueryToDevServer` hashes for its
-  // forward-eligibility check (dev-query-proxy.ts) — otherwise the same
-  // command reads a different database depending on whether forwarding
-  // happened to succeed.
+  if (!options.databaseUrl) assertHostedRuntimeDatabase();
+
   const url =
     options.databaseUrl ?? getRuntimeDatabaseUrl("pglite:./data/pglite");
   const client = await createPostgresScriptClient(url);
@@ -176,14 +165,7 @@ Options:
     }
   }
 
-  // A custom --db points at a specific PGlite directory (e.g. a snapshot),
-  // which the running dev server almost never matches — never forward that
-  // case, or a query could silently run against the wrong database.
   if (!parsed.db) {
-    // Runner.ts's dispatch already wraps this call in `runWithRequestContext`
-    // before falling back to a core script, so the CLI's own resolved
-    // identity is available here — forward it so the server applies the
-    // same row scoping the local path would, instead of running unscoped.
     const forwarded = await tryForwardDbQueryToDevServer({
       sql,
       params: sqlArgs,

@@ -1,11 +1,3 @@
--- Builder.io production first-party Analytics warehouse.
--- Run this once with the authenticated Builder Google Cloud account:
---   bq query --use_legacy_sql=false < templates/analytics/scripts/first-party-analytics-bigquery.sql
---
--- The raw table is append-only. The query view removes retry duplicates by the
--- stable Postgres event id, and the two aggregate views preserve the existing
--- dashboard SQL names without writing rollups back to Neon.
-
 CREATE SCHEMA IF NOT EXISTS `builder-3b0a2.analytics`
 OPTIONS (location = "US");
 
@@ -102,3 +94,80 @@ SELECT
   user_key
 FROM tenant_user_days
 GROUP BY tenant_key, event_date, user_key;
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE OR REPLACE VIEW `builder-3b0a2.analytics.first_party_action_responses` AS
+SELECT
+  CASE
+    WHEN org_id IS NOT NULL AND org_id <> '' THEN CONCAT('org:', org_id)
+    ELSE CONCAT('user:', owner_email)
+  END AS tenant_key,
+  owner_email,
+  org_id,
+  event_date,
+  session_id,
+
+
+
+
+  COALESCE(
+    NULLIF(template, ''),
+    NULLIF(JSON_VALUE(properties, '$.templateId'), ''),
+    NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''),
+    NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''),
+    NULLIF(app, ''),
+    NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''),
+    NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''),
+    'unknown'
+  ) AS app,
+  COALESCE(NULLIF(JSON_VALUE(properties, '$.action'), ''), 'unknown') AS action,
+  CASE
+    WHEN UPPER(COALESCE(JSON_VALUE(properties, '$.method'), '')) = 'GET' THEN 'read'
+    ELSE 'mutation'
+  END AS call_type,
+  CASE
+    WHEN NULLIF(user_id, '') IS NOT NULL THEN 'signed_in'
+    ELSE 'anonymous'
+  END AS auth_state,
+  CASE
+    WHEN hostname LIKE 'beta.%' THEN 'beta'
+    WHEN NULLIF(hostname, '') IS NOT NULL THEN 'prod'
+    ELSE 'unknown'
+  END AS deployment_env,
+  CASE
+    WHEN COALESCE(JSON_VALUE(properties, '$.outcome'), '') = 'cancelled' THEN 'cancelled'
+    WHEN COALESCE(JSON_VALUE(properties, '$.outcome'), '') = 'timeout'
+      AND COALESCE(JSON_VALUE(properties, '$.page_hidden'), '') = 'true' THEN 'suspended'
+    WHEN COALESCE(JSON_VALUE(properties, '$.success'), '') = 'true' THEN 'success'
+    ELSE 'failure'
+  END AS outcome_class,
+  CASE
+    WHEN JSON_VALUE(properties, '$.sample_weight') IS NOT NULL
+      THEN SAFE_CAST(JSON_VALUE(properties, '$.sample_weight') AS FLOAT64)
+    WHEN JSON_VALUE(properties, '$.success') = 'true'
+      AND COALESCE(SAFE_CAST(JSON_VALUE(properties, '$.duration_ms') AS FLOAT64), 1000) < 1000
+      AND COALESCE(SAFE_CAST(JSON_VALUE(properties, '$.status_code') AS INT64), 200) < 400
+      AND JSON_VALUE(properties, '$.framework_ready_wait_ms') IS NULL
+      AND JSON_VALUE(properties, '$.startup_db_operation_wall_ms') IS NULL
+      THEN 10
+    ELSE 1
+  END AS weight,
+  SAFE_CAST(JSON_VALUE(properties, '$.duration_ms') AS FLOAT64) AS duration_ms,
+  SAFE_CAST(JSON_VALUE(properties, '$.status_code') AS INT64) AS status_code,
+
+
+
+  NULLIF(JSON_VALUE(properties, '$.page_hidden'), '') AS page_hidden
+FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`
+WHERE event_name = 'action.response' AND event_date IS NOT NULL;

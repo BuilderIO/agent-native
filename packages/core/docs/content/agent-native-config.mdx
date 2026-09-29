@@ -326,11 +326,10 @@ For a Vite app, the effective public configuration follows this order:
    These are the final public-config overrides. The legacy
    `AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT` variable remains a fallback for
    deployment inference only; it does not override an explicit config value.
-7. For onboarding only, the legacy public Vite variables
-   `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING` and
-   `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING_SKIP_INTEGRATIONS` can override the
-   resolved onboarding mode for backwards compatibility. Use the config file
-   or its canonical path alias for new work.
+7. For onboarding only, the legacy public Vite variable
+   `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING` can override the resolved onboarding
+   mode for backwards compatibility. Use the config file or its canonical path
+   alias for new work.
 
 Use only one of the four typed filenames. If more than one exists, the first
 candidate in the loader's order wins, with `agent-native.config.ts` preferred

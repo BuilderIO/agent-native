@@ -18,11 +18,6 @@ export interface ClipboardContentLineage extends ClipboardContentMutationPublica
   content: string;
 }
 
-/**
- * Allocate the next local mutation only when it starts from the currently
- * authoritative document. This prevents a delayed query/Yjs replay from
- * becoming the base of a later paste after undo has already advanced history.
- */
 export function publishClipboardContentMutation(args: {
   current: ClipboardContentLineage | undefined;
   baseContentHash: string;
@@ -30,11 +25,6 @@ export function publishClipboardContentMutation(args: {
   fileType?: string | null;
   nextContent: string;
   origin: ClipboardContentMutationOrigin;
-  /**
-   * "document" means the base was read from the live document. Ordinary edits
-   * never advance the lineage, so a lineage disagreeing with such a base is
-   * behind it and is superseded, not a competing generation to reject.
-   */
   baseSource?: "lineage" | "document";
 }): ClipboardContentLineage | null {
   let canonicalNextContent: string;
@@ -62,11 +52,6 @@ export function publishClipboardContentMutation(args: {
   };
 }
 
-/**
- * Passive save/query/collaboration echoes never create or advance authority.
- * They can only confirm the exact current hash, or acknowledge an explicitly
- * published mutation carrying the same/newer id and matching content hash.
- */
 export function acknowledgeClipboardContentMutation(args: {
   current: ClipboardContentLineage | undefined;
   nextContent: string;

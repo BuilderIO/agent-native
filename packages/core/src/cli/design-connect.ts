@@ -16,6 +16,10 @@ import { injectDocumentMarkup } from "../shared/html-document.js";
 const DEFAULT_BRIDGE_PORT = 7331;
 const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
 const BRIDGE_TOKEN_FILE = path.join(".agent-native", "design-bridge-token");
+const LIVE_EDIT_REVISION_FILE = path.join(
+  ".agent-native",
+  "live-edit-revisions.json",
+);
 const LOCALHOST_CONNECTION_ID = /^localhost_[A-Za-z0-9_-]{16}$/;
 const DEFAULT_DEV_SERVER_CANDIDATES = [
   "http://127.0.0.1:5173",
@@ -49,7 +53,6 @@ const SERVER_REGISTRATION_BRIDGE_OPERATIONS = new Set<BridgeOperation>([
   "captureState",
 ]);
 
-/** Additive manifest capability flags advertised alongside the operation list. */
 const MANIFEST_CAPABILITIES = {
   listFiles: true,
   readTextFiles: true,
@@ -61,19 +64,8 @@ export interface DesignConnectArgs {
   port: number;
   root: string;
   routeManifest?: string;
-  /** Optional deployed design app URL used to self-register the bridge on
-   *  startup.  When set (or when AGENT_NATIVE_URL / DESIGN_APP_URL env vars
-   *  are present) the CLI POSTs to `/_agent-native/actions/connect-localhost`
-   *  with the real bridge token so the server can store it for grant minting. */
   appUrl?: string;
-  /** Server-minted bridge token to adopt instead of minting one, so the bridge
-   *  matches the token already stored on the user's connection row (no
-   *  self-registration). Also read from AGENT_NATIVE_BRIDGE_TOKEN. */
   bridgeToken?: string;
-  /** Read-only token used by Design browser previews. This is deliberately
-   *  distinct from `bridgeToken`, which unlocks local filesystem reads/writes.
-   *  When omitted it is derived one-way from bridgeToken for compatibility
-   *  with existing /visual-edit launch commands. */
   previewToken?: string;
   json: boolean;
   once: boolean;
@@ -110,11 +102,6 @@ export interface DesignConnectManifest {
     status: "available" | "planned" | "disabled";
     reason?: string;
   }>;
-  /**
-   * Additive high-level capability flags beyond the low-level operation list.
-   * `connect-localhost` persists this so `list-design-source-capabilities` can
-   * reflect readFile/writeFile/listFiles availability for localhost sources.
-   */
   manifestCapabilities: typeof MANIFEST_CAPABILITIES;
 }
 
@@ -129,20 +116,13 @@ export interface DesignConnectBridge {
    *  bridge-registration endpoints. Safe to hand to the Design browser, but
    *  never accepted by filesystem endpoints. */
   previewToken: string;
-  /** Random id minted fresh each time this bridge process boots. Also
-   *  returned by `/health`, `/live-edit-bridge`, and the "unknown bridge key"
-   *  409 from `/live-edit` — a client can compare it across those responses
-   *  to tell a restarted bridge process apart from a genuine registration
-   *  bug. See the `bridgeInstanceId` doc comment in startDesignConnectBridge. */
   bridgeInstanceId: string;
 }
 
 export interface DesignConnectBridgeOptions {
   bridgeToken?: string;
   previewToken?: string;
-  /** Extra exact browser origins allowed to make CORS requests to the bridge.
-   *  The production Design origin and loopback development origins are always
-   *  recognized; custom deployments should pass their app origin here. */
+  persistBridgeToken?: boolean;
   allowedOrigins?: string[];
 }
 
@@ -185,6 +165,7 @@ async function persistBridgeToken(
 async function resolveBridgeToken(
   rootPath: string,
   configuredToken?: string,
+  persist = true,
 ): Promise<string> {
   const persistedToken = await readPersistedBridgeToken(rootPath);
   const bridgeToken =
@@ -200,23 +181,22 @@ async function resolveBridgeToken(
     );
   }
 
-  // Keep the durable daemon restart path paired with the connection row. An
-  // explicit token wins so the server-minted token from open-visual-edit can
-  // replace an older local credential before the first browser registration.
-  if (configuredToken || !persistedToken) {
+  // The daemon path persists only after it proves the running or newly-started
+  // bridge accepted this token. A rejected token must not replace recovery data.
+  if (persist && (configuredToken || !persistedToken)) {
     await persistBridgeToken(rootPath, bridgeToken);
   }
   return bridgeToken;
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
+const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
+  "agent-native-live-edit-registration-v1\0";
 const PREVIEW_ATTESTATION_DOMAIN =
   "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
 const BRIDGE_FRAME_HEADERS = {
-  // Design's COEP requires the cross-origin iframe document to opt in too.
-  // `credentialless` preserves public CDN resources that lack CORP/CORS while
-  // keeping the policy off JSON and proxied assets outside the frame document.
   "cross-origin-embedder-policy": "credentialless",
   "cross-origin-resource-policy": "cross-origin",
 } as const;
@@ -234,11 +214,28 @@ export function deriveDesignPreviewToken(bridgeToken: string): string {
     .digest("hex");
 }
 
-/**
- * Sign a page bootstrap challenge with the bridge's write secret. The browser
- * can fetch this proof from loopback, while the hosted Design action verifies
- * it without trusting the submitted manifest fields alone.
- */
+export function deriveDesignScopedLiveEditCapability(
+  bridgeToken: string,
+  designId: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(LIVE_EDIT_CAPABILITY_DOMAIN)
+    .update(designId)
+    .digest("hex");
+}
+
+export function deriveDesignScopedLiveEditRegistrationCapability(
+  bridgeToken: string,
+  designId: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN)
+    .update(designId)
+    .digest("hex");
+}
+
 export function deriveDesignPreviewAttestationSignature(
   bridgeToken: string,
   challenge: string,
@@ -364,11 +361,6 @@ function routeId(routePath: string): string {
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  // Slugs are intentionally readable but necessarily lossy: `/foo/bar`,
-  // `/foo-bar`, and `/foo_bar` all collapse to the same text, while `/` and
-  // `/*` can collide with literal `/root` and `/wildcard` paths. Suffix every
-  // route with a stable hash of its normalized path so URL/query states and
-  // router patterns can never silently replace one another in the manifest.
   const readable =
     normalized === "/"
       ? "root"
@@ -548,27 +540,49 @@ function isDesignConnectManifest(
 
 async function fetchRunningBridgeManifest(
   bridgeUrl: string,
-  previewToken?: string,
-): Promise<DesignConnectManifest | null> {
+  previewToken: string,
+): Promise<{
+  manifest: DesignConnectManifest | null;
+  status: number | null;
+}> {
   const manifestUrl = new URL("/manifest.json", bridgeUrl);
-  if (previewToken) {
-    manifestUrl.searchParams.set("previewToken", previewToken);
-  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 800);
   try {
     const response = await fetch(manifestUrl, {
       method: "GET",
+      headers: { "x-design-preview-token": previewToken },
       signal: controller.signal,
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { manifest: null, status: response.status };
     const body = (await response.json()) as unknown;
-    return isDesignConnectManifest(body) ? body : null;
+    return {
+      manifest: isDesignConnectManifest(body) ? body : null,
+      status: response.status,
+    };
   } catch {
-    return null;
+    return { manifest: null, status: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function inspectRunningBridge(
+  manifest: DesignConnectManifest,
+  bridgeToken: string,
+) {
+  const [manifestResult, runningFingerprint] = await Promise.all([
+    fetchRunningBridgeManifest(
+      manifest.bridgeUrl,
+      deriveDesignPreviewToken(bridgeToken),
+    ),
+    fetchRunningBridgeFingerprint(manifest.bridgeUrl),
+  ]);
+  return {
+    ...manifestResult,
+    fingerprintMatches:
+      runningFingerprint === designConnectAppFingerprint(manifest),
+  };
 }
 
 export function designConnectManifestsTargetSameApp(
@@ -589,9 +603,6 @@ export function designConnectManifestsTargetSameApp(
   );
 }
 
-/** Non-sensitive stable identifier used by /health so daemon reruns can detect
- * an already-running bridge for the same app without exposing its root path or
- * route manifest. */
 export function designConnectAppFingerprint(
   manifest: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
 ): string {
@@ -702,8 +713,6 @@ async function ensureRouteManifest(options: {
         return {
           path: manifestPath,
           created: false,
-          // Keep manual/custom route order and metadata while still surfacing
-          // newly discovered routes on subsequent bridge starts.
           routes: [
             ...savedRoutes,
             ...options.routes.filter((route) => !savedPaths.has(route.path)),
@@ -779,12 +788,7 @@ export async function prepareDesignConnectManifest(
       status: "available" as const,
       reason:
         operation === "resolveNodeToFile"
-          ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
-            // 'select' payload) to { file, line, component } provenance.
-            // React development builds expose jsxDEV call sites through the
-            // Fiber debug stack; other runtimes/builds can emit explicit DOM
-            // provenance attributes — see the help text below.
-            "React development builds resolve jsxDEV call sites automatically; other runtimes can emit data-source-file / data-source-line / data-component-name attributes."
+          ? "React development builds resolve jsxDEV call sites automatically; other runtimes can emit data-source-file / data-source-line / data-component-name attributes."
           : undefined,
     })),
   };
@@ -852,7 +856,7 @@ function configureBridgeCors(
         "access-control-allow-methods":
           "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
         "access-control-allow-headers":
-          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
+          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-live-edit-capability, x-agent-native-live-edit-registration-capability, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
         "access-control-allow-credentials": "true",
         "access-control-allow-private-network": "true",
         vary: "Origin",
@@ -973,10 +977,6 @@ function readRequestCookie(req: IncomingMessage, name: string): string {
 }
 
 function previewSessionSetCookie(previewToken: string): string {
-  // Partitioned SameSite=None keeps the read-only bridge credential available
-  // to nested Design frames without granting an unpartitioned third-party
-  // cookie. Loopback origins are potentially trustworthy in Chromium, which
-  // permits Secure cookies for local development.
   return `${PREVIEW_SESSION_COOKIE_NAME}=${previewToken}; HttpOnly; Path=/; SameSite=None; Secure; Partitioned`;
 }
 
@@ -1051,9 +1051,6 @@ function mergePreviewCookieHeaders(
     }
   };
   absorb(jarCookieHeader);
-  // A client-readable same-origin cookie is allowed to update the jar's stale
-  // value for this request. HttpOnly cookies arrive with the same value and
-  // remain effectively jar-owned.
   absorb(browserCookieHeader);
   return [...values].map(([name, value]) => `${name}=${value}`).join("; ");
 }
@@ -1218,22 +1215,10 @@ function resolvePreviewSnapshotUrl(
   if (!sameOrigin(parsed.toString(), base)) {
     throw new Error("Snapshot URL must stay on the connected dev server.");
   }
-  // The frame identity param is bridge-only; a rewritten route that comes
-  // back through /live-edit must not hand it to the app.
   const search = stripQueryPair(parsed.search, FRAME_BRIDGE_KEY_PARAM);
   return `${parsed.origin}${parsed.pathname}${search}`;
 }
 
-/**
- * Remove a literal `previewToken` query pair via raw string splitting instead
- * of `URLSearchParams`. `URLSearchParams` re-serializes the ENTIRE query
- * string on mutation, turning a valueless pair like `?url` into `?url=` even
- * when `previewToken` was never present — which silently changes which
- * codepath Vite's dev server routes the request to (e.g. `?url` vs `?url=`
- * resolve to different response bodies). Returns `search` untouched whenever
- * `previewToken` is absent, so every other proxied query string reaches the
- * dev server byte-for-byte.
- */
 function stripPreviewTokenQueryParam(search: string): string {
   if (!search.includes("previewToken")) return search;
   const raw = search.startsWith("?") ? search.slice(1) : search;
@@ -1245,16 +1230,11 @@ function stripPreviewTokenQueryParam(search: string): string {
   return kept.length > 0 ? `?${kept.join("&")}` : "";
 }
 
-/** Browser navigations of a top-level document or a frame. Sec-Fetch-Dest is a
- *  forbidden header, so page JS cannot forge it; Node's fetch never sends it. */
 function isFrameNavigationRequest(req: IncomingMessage): boolean {
   const dest = readHeader(req, "sec-fetch-dest");
   return dest === "document" || dest === "iframe" || dest === "frame";
 }
 
-/** Query param the pre-boot shim keeps on a keyed frame's rewritten URL so the
- *  key survives the app's own navigations. Root-relative links drop it, but the
- *  browser's same-origin Referer still carries the page it was on. */
 const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
 
 function bridgeKeyFromUrl(url: URL): string {
@@ -1264,10 +1244,6 @@ function bridgeKeyFromUrl(url: URL): string {
   return url.searchParams.get(FRAME_BRIDGE_KEY_PARAM)?.trim() ?? "";
 }
 
-/** The bridge identity a frame navigation belongs to: the key on the request
- *  URL itself (a reload of a shim-rewritten page), else the key on the
- *  same-origin page it came from — the keyed /live-edit page on the first hop,
- *  a shim-rewritten app route after that. */
 function keyedFrameNavigation(
   requestUrl: URL,
   referer: string | undefined,
@@ -1295,15 +1271,9 @@ function keyedFrameNavigation(
   return null;
 }
 
-/** Drop one query pair from a raw `?a=1&b` search string without touching the
- *  others. Never route this through `URLSearchParams`: re-serializing turns a
- *  valueless Vite flag like `?url` into `?url=`, which Vite treats differently
- *  (see stripPreviewTokenQueryParam). */
 function stripQueryPair(search: string, name: string): string {
   if (!search) return search;
   const raw = search.startsWith("?") ? search.slice(1) : search;
-  // Compare decoded names so a percent-encoded spelling of the same param
-  // cannot survive as a duplicate; every other pair stays byte-identical.
   const kept = raw.split("&").filter((pair) => {
     const rawName = pair.split("=", 1)[0] ?? pair;
     let decoded = rawName;
@@ -1318,8 +1288,6 @@ function stripQueryPair(search: string, name: string): string {
   return next ? `?${next}` : "";
 }
 
-/** Append one query pair to a raw search string, preserving existing pairs
- *  byte-for-byte for the same reason as stripQueryPair. */
 function appendQueryPair(search: string, name: string, value: string): string {
   const pair = `${name}=${encodeURIComponent(value)}`;
   if (!search || search === "?") return `?${pair}`;
@@ -1637,7 +1605,7 @@ function addOpaqueFrameJavaScriptResourceTokens(
     `${prefix}${quote}${addPreviewTokenToResourceUrl(resourceUrl, previewToken)}${quote}`;
   return source
     .replace(
-      /(\b(?:import|export)\s+[^;\n]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      /(\b(?:import|export)\s+[^;]*?\sfrom\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
@@ -1668,18 +1636,6 @@ function addOpaqueFrameJavaScriptResourceTokens(
     );
 }
 
-/**
- * Rewrite the iframe path to the real target route before the proxied app's
- * bundle runs. The bridge serves snapshots from its own `/live-edit` path, so a
- * client-side-routed SPA would otherwise boot at "/live-edit", match no route,
- * and render its 404. A synchronous inline script in `<head>` runs during parse
- * (before deferred module bundles), so `history.replaceState` lands the SPA on
- * the intended route. Assets still resolve via the injected `<base href>`.
- */
-/** Prefix of the `window.name` a keyed frame carries. `window.name` is per
- *  browsing context and survives every navigation inside the frame, so it
- *  recovers the frame's screen identity even when the app's Referrer-Policy
- *  hides the referer and a root-relative link dropped the query param. */
 const FRAME_IDENTITY_NAME_PREFIX = "agent-native-bridge:";
 
 function injectPreBootLocationShim(
@@ -1693,8 +1649,6 @@ function injectPreBootLocationShim(
   const remember = identity.bridgeKey
     ? `if(!window.name||window.name.indexOf(${prefix})===0){window.name=${prefix}+${JSON.stringify(identity.bridgeKey)};}`
     : "";
-  // An unkeyed navigation inside a frame that remembers a key goes back
-  // through /live-edit with that key instead of booting the unkeyed script.
   const recover = identity.recoverTargetUrl
     ? `if(window.name&&window.name.indexOf(${prefix})===0){var k=window.name.slice(${prefix}.length);if(k){location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(identity.recoverTargetUrl)})+"&bridgeKey="+encodeURIComponent(k));return;}}`
     : "";
@@ -1736,7 +1690,6 @@ function injectLiveEditBridge(
   return injectDocumentMarkup(withBase, script);
 }
 
-/** Read the full request body as a UTF-8 string. */
 async function readRequestBody(req: IncomingMessage): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -1746,9 +1699,186 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-const MAX_LIVE_EDIT_PENDING_BYTES = 512 * 1024;
+const MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH = 64 * 1024;
+const MAX_LIVE_EDIT_PENDING_BYTES =
+  MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH + 8 * 1024;
+const MAX_LIVE_EDIT_PENDING_DESIGNS = 32;
+const MAX_LIVE_EDIT_BRIDGE_KEYS = 128;
+const MAX_LIVE_EDIT_REVISION_DESIGNS = 256;
+const LIVE_EDIT_PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+type LiveEditPendingEntry = {
+  revision: number;
+  pending: Record<string, unknown> | null;
+  updatedAt: number;
+};
+
+function pruneLiveEditPendingEntries(
+  entries: Map<string, LiveEditPendingEntry>,
+  now: number,
+) {
+  for (const [designId, entry] of entries) {
+    if (now - entry.updatedAt >= LIVE_EDIT_PENDING_TTL_MS) {
+      entries.delete(designId);
+    }
+  }
+}
+
+function sameLiveEditPendingPayload(
+  current: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+): boolean {
+  if (current === null || next === null) return current === next;
+  return (
+    current.designId === next.designId &&
+    current.pendingEditCount === next.pendingEditCount &&
+    current.status === next.status &&
+    current.prompt === next.prompt
+  );
+}
+
+function storeLiveEditPendingEntry(
+  entries: Map<string, LiveEditPendingEntry>,
+  revisionHighWaterMarks: Map<string, number>,
+  designId: string,
+  revision: number,
+  pending: Record<string, unknown> | null,
+  now: number,
+): "stored" | "stale" | "conflict" | "capacity" {
+  pruneLiveEditPendingEntries(entries, now);
+  const existing = entries.get(designId);
+  const highWaterMark = revisionHighWaterMarks.get(designId);
+  if (
+    highWaterMark === undefined &&
+    revisionHighWaterMarks.size >= MAX_LIVE_EDIT_REVISION_DESIGNS
+  ) {
+    return "capacity";
+  }
+  if (highWaterMark !== undefined && revision < highWaterMark) return "stale";
+  if (highWaterMark === revision) {
+    if (!existing) return "stale";
+    if (!sameLiveEditPendingPayload(existing.pending, pending))
+      return "conflict";
+    entries.delete(designId);
+    entries.set(designId, { ...existing, updatedAt: now });
+    return "stored";
+  }
+  revisionHighWaterMarks.set(designId, revision);
+  entries.delete(designId);
+  entries.set(designId, { revision, pending, updatedAt: now });
+  while (entries.size > MAX_LIVE_EDIT_PENDING_DESIGNS) {
+    const oldest = entries.keys().next().value;
+    if (typeof oldest !== "string") break;
+    entries.delete(oldest);
+  }
+  return "stored";
+}
+
+async function readLiveEditRevisionHighWaterMarks(
+  rootPath: string,
+): Promise<Map<string, number>> {
+  const filePath = path.join(rootPath, LIVE_EDIT_REVISION_FILE);
+  let serialized: string;
+  try {
+    serialized = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Map();
+    throw error;
+  }
+  const parsed: unknown = JSON.parse(serialized);
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    !("revisions" in parsed) ||
+    !parsed.revisions ||
+    typeof parsed.revisions !== "object" ||
+    Array.isArray(parsed.revisions)
+  ) {
+    throw new Error("Invalid live-edit revision high-water file");
+  }
+  const revisions = Object.entries(parsed.revisions);
+  if (revisions.length > MAX_LIVE_EDIT_REVISION_DESIGNS) {
+    throw new Error(
+      "Live-edit revision high-water file exceeds its design cap",
+    );
+  }
+  const marks = new Map<string, number>();
+  for (const [designId, revision] of revisions) {
+    if (
+      !designId ||
+      !Number.isSafeInteger(revision) ||
+      (revision as number) < 1
+    ) {
+      throw new Error("Invalid live-edit revision high-water entry");
+    }
+    marks.set(designId, revision as number);
+  }
+  return marks;
+}
+
+async function writeLiveEditRevisionHighWaterMarks(
+  rootPath: string,
+  marks: Map<string, number>,
+): Promise<void> {
+  const filePath = path.join(rootPath, LIVE_EDIT_REVISION_FILE);
+  const directory = path.dirname(filePath);
+  await fs.mkdir(directory, { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.tmp`;
+  try {
+    const handle = await fs.open(temporaryPath, "wx", 0o600);
+    try {
+      await handle.writeFile(
+        JSON.stringify({ version: 1, revisions: Object.fromEntries(marks) }),
+        "utf8",
+      );
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporaryPath, filePath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true });
+  }
+}
+
+async function storePersistentLiveEditPendingEntry(
+  entries: Map<string, LiveEditPendingEntry>,
+  revisionHighWaterMarks: Map<string, number>,
+  rootPath: string,
+  designId: string,
+  revision: number,
+  pending: Record<string, unknown> | null,
+  now: number,
+): Promise<"stored" | "stale" | "conflict" | "capacity"> {
+  const nextEntries = new Map(entries);
+  const nextMarks = new Map(revisionHighWaterMarks);
+  const stored = storeLiveEditPendingEntry(
+    nextEntries,
+    nextMarks,
+    designId,
+    revision,
+    pending,
+    now,
+  );
+  if (stored !== "stored") return stored;
+  if (nextMarks.get(designId) !== revisionHighWaterMarks.get(designId)) {
+    try {
+      await writeLiveEditRevisionHighWaterMarks(rootPath, nextMarks);
+    } catch (error) {
+      throw new LiveEditRevisionPersistenceError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  entries.clear();
+  for (const [key, entry] of nextEntries) entries.set(key, entry);
+  revisionHighWaterMarks.clear();
+  for (const [key, mark] of nextMarks) revisionHighWaterMarks.set(key, mark);
+  return "stored";
+}
 
 class LiveEditPendingRequestTooLargeError extends Error {}
+class LiveEditRevisionPersistenceError extends Error {}
 
 async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
   const declaredLength = Number(readHeader(req, "content-length"));
@@ -1757,7 +1887,7 @@ async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
     declaredLength > MAX_LIVE_EDIT_PENDING_BYTES
   ) {
     throw new LiveEditPendingRequestTooLargeError(
-      "Pending visual edit payload exceeds the 512 KB limit.",
+      "Pending visual edit payload exceeds the 64 KB prompt limit.",
     );
   }
   return new Promise<string>((resolve, reject) => {
@@ -1777,7 +1907,7 @@ async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
       if (tooLarge) {
         reject(
           new LiveEditPendingRequestTooLargeError(
-            "Pending visual edit payload exceeds the 512 KB limit.",
+            "Pending visual edit payload exceeds the 64 KB prompt limit.",
           ),
         );
         return;
@@ -1832,18 +1962,6 @@ async function readPreviewProxyRequestBody(
   });
 }
 
-/**
- * Resolve `targetDir` under `rootPath` with realpath so that symlinks and
- * traversal sequences (../../etc) cannot escape the root.  Throws if the
- * resolved path does not start with the resolved root.
- *
- * This also guards against a symlink LEAF inside root (e.g.
- * `rootPath/link.css` -> `/Users/me/.ssh/id_rsa`): the parent-directory
- * realpath check alone would pass confinement because the parent is inside
- * root, letting reads/writes silently follow the symlink outside root. After
- * the parent check we additionally lstat the target itself — if it exists and
- * is a symlink, or if its realpath resolves outside `resolvedRoot`, we reject.
- */
 async function assertPathInside(
   rootPath: string,
   targetPath: string,
@@ -1852,10 +1970,8 @@ async function assertPathInside(
     throw new Error(`Bridge root path does not exist: ${rootPath}`);
   });
 
-  // Resolve the parent directory (the file itself may not exist yet for writes).
   const targetParent = path.dirname(path.resolve(rootPath, targetPath));
   const resolvedParent = await fs.realpath(targetParent).catch(async () => {
-    // Parent may not exist yet; walk up until we find a real ancestor.
     let candidate = targetParent;
     for (let i = 0; i < 32; i++) {
       const up = path.dirname(candidate);
@@ -1877,10 +1993,6 @@ async function assertPathInside(
     throw new Error(`Path traversal detected: resolved target is outside root`);
   }
 
-  // Reject a symlink LEAF, even though its parent directory is confined to
-  // root. A pre-existing symlink at the target path (file or directory) could
-  // otherwise be followed straight out of root by the caller's subsequent
-  // fs.readFile/fs.writeFile call.
   const targetAbsolute = path.resolve(rootPath, targetPath);
   const lstat = await fs.lstat(targetAbsolute).catch(() => null);
   if (lstat?.isSymbolicLink()) {
@@ -1907,12 +2019,6 @@ interface SafeBridgeFileTarget {
   canonicalPath: string;
 }
 
-/**
- * Resolve a bridge file to a stable lock key without following a leaf
- * symlink. Missing parent directories are represented beneath their nearest
- * existing real ancestor, so aliases through in-root directory symlinks share
- * one mutex while first-time file creation remains supported.
- */
 async function resolveSafeBridgeFileTarget(
   rootPath: string,
   targetPath: string,
@@ -1935,11 +2041,6 @@ async function resolveSafeBridgeFileTarget(
   if (!resolvedAncestor) {
     throw new Error(`Cannot resolve parent directory: ${absolutePath}`);
   }
-  // Existing regular files get their own realpath as the lock key. Besides
-  // resolving in-root directory aliases, this canonicalizes case on the
-  // default macOS filesystem so `Button.tsx` and `button.tsx` cannot acquire
-  // separate mutexes for the same inode. assertPathInside already rejected a
-  // symlink leaf before this point.
   const canonicalPath =
     (await fs.realpath(absolutePath).catch(() => null)) ??
     path.resolve(
@@ -1957,7 +2058,6 @@ async function resolveSafeBridgeFileTarget(
 
 const bridgeWriteLocks = new Map<string, Promise<void>>();
 
-/** Serialize read-check-write sequences for one canonical local file. */
 async function withBridgeWriteLock<T>(
   canonicalPath: string,
   work: () => Promise<T>,
@@ -1990,7 +2090,6 @@ function contentVersionHash(content: string | Buffer): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
-/** Read an existing regular file without ever following a leaf symlink. */
 async function readBridgeFileSnapshot(
   absolutePath: string,
 ): Promise<BridgeFileSnapshot | null> {
@@ -2037,9 +2136,6 @@ function assertExpectedBridgeVersion(
   currentVersionHash: string | undefined,
   requireExpectedVersionHash = false,
 ): void {
-  // Preserve compatibility: callers that omit a hash retain the existing
-  // last-write-wins behavior, including creation. Compiled-source callers opt
-  // into exact compare-and-swap by sending the hash returned by read-file.
   if (requireExpectedVersionHash && expectedVersionHash === undefined) {
     throw new BridgePreconditionRequiredError();
   }
@@ -2053,11 +2149,6 @@ function assertExpectedBridgeVersion(
   }
 }
 
-/**
- * Replace a file durably without exposing a partial write: create an
- * O_EXCL/O_NOFOLLOW temp sibling, fsync it, revalidate confinement and the
- * expected content hash, rename atomically, then fsync the parent directory.
- */
 async function atomicWriteBridgeFile(args: {
   rootPath: string;
   relPath: string;
@@ -2098,8 +2189,6 @@ async function atomicWriteBridgeFile(args: {
     await tempHandle.close();
     tempHandle = null;
 
-    // Re-check after the potentially slow temp write/fsync. This catches a
-    // parent/leaf symlink swap and an external content edit before rename.
     const beforeRenameTarget = await resolveSafeBridgeFileTarget(
       args.rootPath,
       args.relPath,
@@ -2132,12 +2221,6 @@ async function atomicWriteBridgeFile(args: {
   }
 }
 
-/**
- * Extensions that are safe for creating a brand-new text/code file through
- * the bridge. Existing files are classified by their bytes instead, so the
- * Code workbench can edit languages and extensionless config files without a
- * permanently incomplete allowlist.
- */
 const ALLOWED_NEW_TEXT_FILE_EXTENSIONS = new Set([
   ".html",
   ".htm",
@@ -2304,10 +2387,6 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-// ── /list-files: recursive walk with .gitignore + always-ignore + size/binary
-// filtering ───────────────────────────────────────────────────────────────
-
-/** Directories always excluded from /list-files, regardless of .gitignore. */
 const ALWAYS_IGNORED_DIR_NAMES = new Set([
   ".git",
   "node_modules",
@@ -2322,7 +2401,6 @@ const ALWAYS_IGNORED_DIR_NAMES = new Set([
 
 const ALWAYS_IGNORED_FILE_NAMES = new Set([".DS_Store"]);
 
-/** Binary-looking extensions skipped from /list-files results. */
 const BINARY_LOOKING_EXTENSIONS = new Set([
   ".png",
   ".jpg",
@@ -2352,27 +2430,17 @@ const LIST_FILES_MAX_ENTRIES = 20_000;
 const LIST_FILES_MAX_BYTES = 2 * 1024 * 1024;
 
 export interface GitignoreRule {
-  /** Raw pattern as read from .gitignore, already trimmed of comments/blank lines. */
   pattern: string;
-  /** True when the pattern is anchored to the root (leading "/"). */
   anchored: boolean;
-  /** True when the pattern only matches directories (trailing "/"). */
   dirOnly: boolean;
 }
 
-/**
- * Parse a simple subset of .gitignore syntax: exact names, `dir/`, `*.ext`,
- * and leading-slash root-anchored patterns. This intentionally does not
- * implement full gitignore glob semantics (double-star, negation, etc.) —
- * good enough to keep obviously-ignored build output and local files out of
- * the workbench file tree.
- */
 export function parseGitignore(contents: string): GitignoreRule[] {
   const rules: GitignoreRule[] = [];
   for (const rawLine of contents.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    if (line.startsWith("!")) continue; // negation unsupported in this subset
+    if (line.startsWith("!")) continue;
     const anchored = line.startsWith("/");
     const withoutAnchor = anchored ? line.slice(1) : line;
     const dirOnly = withoutAnchor.endsWith("/");
@@ -2393,10 +2461,6 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${out}$`);
 }
 
-/**
- * Test one path segment (or full relative path, for anchored patterns)
- * against a parsed gitignore rule.
- */
 function ruleMatches(
   rule: GitignoreRule,
   relPath: string,
@@ -2407,8 +2471,6 @@ function ruleMatches(
   if (rule.anchored) {
     return regex.test(relPath);
   }
-  // Unanchored: match against any path segment (basename) or the full path,
-  // mirroring gitignore's "matches at any depth" behavior for simple patterns.
   const segments = relPath.split("/");
   return segments.some((segment) => regex.test(segment)) || regex.test(relPath);
 }
@@ -2421,13 +2483,6 @@ export function isIgnoredByGitignore(
   return rules.some((rule) => ruleMatches(rule, relPath, isDir));
 }
 
-/**
- * Pure predicate: should this file be excluded from /list-files results?
- * Combines the always-ignored directory/file names, the parsed .gitignore
- * rules, the binary-looking extension list, the secret-path blocklist, and
- * the per-file size cap. `sizeBytes` may be omitted when unknown (the always/
- * gitignore/binary/secret checks still apply).
- */
 export function shouldExcludeFromListing(
   relPath: string,
   options: { gitignore: GitignoreRule[]; sizeBytes?: number },
@@ -2441,9 +2496,6 @@ export function shouldExcludeFromListing(
   if (ALWAYS_IGNORED_FILE_NAMES.has(basename)) return true;
   if (isBlockedSecretPath(normalized)) return true;
   if (isIgnoredByGitignore(options.gitignore, normalized, false)) return true;
-  // A `dir/` gitignore rule matches the file's ancestor directories too, not
-  // just the file itself (e.g. "build-output/" must ignore
-  // "build-output/index.html").
   for (let depth = 1; depth < segments.length; depth += 1) {
     const ancestorPath = segments.slice(0, depth).join("/");
     if (isIgnoredByGitignore(options.gitignore, ancestorPath, true)) {
@@ -2461,12 +2513,6 @@ export function shouldExcludeFromListing(
   return false;
 }
 
-/**
- * Should this directory be pruned entirely from the walk? Cheaper than
- * checking every descendant file individually once a directory itself is
- * ignored (always-ignored names, gitignore dir rules, or the .git/secret
- * blocklist).
- */
 function shouldPruneDirectory(
   relPath: string,
   gitignore: GitignoreRule[],
@@ -2518,7 +2564,6 @@ async function walkBridgeFiles(rootPath: string): Promise<ListFilesResult> {
     } catch {
       return;
     }
-    // Sort for deterministic output.
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       if (truncated) return;
@@ -2526,7 +2571,6 @@ async function walkBridgeFiles(rootPath: string): Promise<ListFilesResult> {
       const absolutePath = path.join(absoluteDir, entry.name);
 
       if (entry.isSymbolicLink()) {
-        // Never follow symlinks that escape root; resolve and re-check.
         let real: string;
         try {
           real = await fs.realpath(absolutePath);
@@ -2608,9 +2652,9 @@ export async function startDesignConnectBridge(
   const bridgeToken = await resolveBridgeToken(
     manifest.rootPath,
     configuredBridgeToken,
+    false,
   );
-  const configuredPreviewToken =
-    options.previewToken || process.env["AGENT_NATIVE_PREVIEW_TOKEN"];
+  const configuredPreviewToken = options.previewToken;
   const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
   if (
     configuredPreviewToken &&
@@ -2620,7 +2664,15 @@ export async function startDesignConnectBridge(
       "previewToken must match the deterministic token derived from bridgeToken",
     );
   }
-  const previewToken = configuredPreviewToken || derivedPreviewToken;
+  if (
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] &&
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] !== derivedPreviewToken
+  ) {
+    console.warn(
+      "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+    );
+  }
+  const previewToken = derivedPreviewToken;
   const configuredOrigins = new Set(
     (options.allowedOrigins ?? []).flatMap((raw): string[] => {
       try {
@@ -2631,25 +2683,53 @@ export async function startDesignConnectBridge(
     }),
   );
   let liveEditBridgeScript = "";
-  let pendingVisualEditPayload: Record<string, unknown> | null = null;
-  // One bridge process serves every URL-backed screen in an overview. The
-  // editor script carries screen-specific state (notably screenId), so a
-  // single global slot lets parallel iframe registrations overwrite each
-  // other and boot a frame with another frame's identity. Keep keyed scripts
-  // for modern clients while retaining the unkeyed slot for older clients.
+  const pendingVisualEditPayloads = new Map<string, LiveEditPendingEntry>();
+  const pendingVisualEditRevisionHighWaterMarks =
+    await readLiveEditRevisionHighWaterMarks(manifest.rootPath);
+  let pendingVisualEditWriteQueue = Promise.resolve();
+  const storePendingVisualEdit = async (
+    designId: string,
+    revision: number,
+    pending: Record<string, unknown> | null,
+    now: number,
+  ) => {
+    const previous = pendingVisualEditWriteQueue;
+    let release!: () => void;
+    pendingVisualEditWriteQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await storePersistentLiveEditPendingEntry(
+        pendingVisualEditPayloads,
+        pendingVisualEditRevisionHighWaterMarks,
+        manifest.rootPath,
+        designId,
+        revision,
+        pending,
+        now,
+      );
+    } finally {
+      release();
+    }
+  };
   const liveEditBridgeScripts = new Map<string, string>();
   const liveEditBridgeDesignIds = new Map<string, string>();
-  // Identifies THIS bridge process's in-memory registry, minted fresh every
-  // time the bridge boots. `liveEditBridgeScripts` above only lives in
-  // process memory, so a bridge restart (crash, machine sleep/wake, manual
-  // restart) silently empties it: any screen that registered a bridgeKey
-  // before the restart now gets a 409 "unknown bridge key" from `/live-edit`
-  // even though nothing about that screen actually changed. Echoing this id
-  // on both the registration response and the 409 lets a client tell the two
-  // cases apart — "this exact process never saw my key" (stale/typo, id
-  // matches what it already has cached) vs. "the process restarted since I
-  // registered" (id changed, safe to transparently re-POST `/live-edit-bridge`
-  // and retry) — instead of guessing from the error text or retrying forever.
+  const isRegisteredDesign = (designId: string) =>
+    Array.from(liveEditBridgeDesignIds.values()).includes(designId);
+  const isValidLiveEditCapability = (req: IncomingMessage, designId: string) =>
+    constantTimeTokenMatches(
+      readHeader(req, "x-agent-native-live-edit-capability"),
+      deriveDesignScopedLiveEditCapability(bridgeToken, designId),
+    );
+  const isValidLiveEditRegistrationCapability = (
+    req: IncomingMessage,
+    designId: string,
+  ) =>
+    constantTimeTokenMatches(
+      readHeader(req, "x-agent-native-live-edit-registration-capability"),
+      deriveDesignScopedLiveEditRegistrationCapability(bridgeToken, designId),
+    );
   const bridgeInstanceId = crypto.randomBytes(16).toString("hex");
   const previewSessionCookies = new PreviewSessionCookieJar(
     manifest.devServerUrl,
@@ -2718,11 +2798,6 @@ export async function startDesignConnectBridge(
         (req.method === "GET" || req.method === "HEAD") &&
         pathname === "/manifest.json" &&
         readHeader(req, "sec-fetch-dest") === "manifest";
-      // The bare root doubles as a manifest alias for control-plane callers,
-      // but a live frame that navigates to "/" (router redirect, home link)
-      // arrives as a document/iframe navigation and must reach the app's
-      // own root, not a JSON blob. Browsers tag navigations with
-      // Sec-Fetch-Dest; Node's fetch never does.
       const frameNavigationDest = readHeader(req, "sec-fetch-dest");
       const isFrameNavigation =
         frameNavigationDest === "document" ||
@@ -2819,6 +2894,19 @@ export async function startDesignConnectBridge(
               typeof body["designId"] === "string"
                 ? body["designId"].trim()
                 : "";
+            if (
+              !designId ||
+              !bridgeKey ||
+              (!isValidLiveEditCapability(req, designId) &&
+                !isValidLiveEditRegistrationCapability(req, designId))
+            ) {
+              sendJson(res, 403, {
+                ok: false,
+                error:
+                  "live-edit registration requires a design-scoped registration capability",
+              });
+              return;
+            }
             const installsSupportedDesignBridge =
               script.includes("agent-native:editor-chrome-ready") ||
               script.includes("embedded-canvas-pan");
@@ -2849,9 +2937,7 @@ export async function startDesignConnectBridge(
               } else {
                 liveEditBridgeDesignIds.delete(bridgeKey);
               }
-              // Bound the in-memory cache. Normal editor usage has one key per
-              // visible screen; 128 also leaves ample room for mode changes.
-              while (liveEditBridgeScripts.size > 128) {
+              while (liveEditBridgeScripts.size > MAX_LIVE_EDIT_BRIDGE_KEYS) {
                 const oldest = liveEditBridgeScripts.keys().next().value;
                 if (typeof oldest !== "string") break;
                 liveEditBridgeScripts.delete(oldest);
@@ -2876,7 +2962,33 @@ export async function startDesignConnectBridge(
       if (pathname === "/live-edit-pending") {
         if (req.method === "GET") {
           if (rejectInvalidPreviewToken()) return;
-          sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+          const designId = requestUrl.searchParams.get("designId")?.trim();
+          if (!designId) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "designId is required to read pending visual edits",
+            });
+            return;
+          }
+          if (!isValidLiveEditCapability(req, designId)) {
+            sendJson(res, 403, {
+              ok: false,
+              error: "pending read requires a design-scoped capability",
+            });
+            return;
+          }
+          if (!isRegisteredDesign(designId)) {
+            sendJson(res, 403, {
+              ok: false,
+              error: "pending read is not authorized for this design",
+            });
+            return;
+          }
+          pruneLiveEditPendingEntries(pendingVisualEditPayloads, Date.now());
+          sendJson(res, 200, {
+            ok: true,
+            pending: pendingVisualEditPayloads.get(designId)?.pending ?? null,
+          });
           return;
         }
         if (req.method !== "POST") {
@@ -2923,18 +3035,58 @@ export async function startDesignConnectBridge(
                 : body.designId;
             if (
               typeof pendingDesignId !== "string" ||
-              !Array.from(liveEditBridgeDesignIds.values()).includes(
-                pendingDesignId,
-              )
+              !isValidLiveEditCapability(req, pendingDesignId)
             ) {
+              sendJson(res, 403, {
+                ok: false,
+                error:
+                  "pending publication requires a design-scoped capability",
+              });
+              return;
+            }
+            if (!isRegisteredDesign(pendingDesignId)) {
               sendJson(res, 403, {
                 ok: false,
                 error: "pending publication is not authorized for this design",
               });
               return;
             }
+            const revision = body.revision;
+            const now = Date.now();
+            pruneLiveEditPendingEntries(pendingVisualEditPayloads, now);
+            const existing = pendingVisualEditPayloads.get(pendingDesignId);
             if (pending === null) {
-              pendingVisualEditPayload = null;
+              if (
+                typeof revision !== "number" ||
+                !Number.isSafeInteger(revision) ||
+                revision < 1
+              ) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error:
+                    "pending publication requires a positive safe revision",
+                });
+                return;
+              }
+              const stored = await storePendingVisualEdit(
+                pendingDesignId,
+                revision,
+                null,
+                now,
+              );
+              if (stored !== "stored") {
+                sendJson(res, stored === "capacity" ? 503 : 409, {
+                  ok: false,
+                  error:
+                    stored === "capacity"
+                      ? "The bridge has reached its retained design revision limit."
+                      : stored === "stale"
+                        ? "stale pending publication revision"
+                        : "conflicting pending publication revision",
+                  revision: existing?.revision,
+                });
+                return;
+              }
               sendJson(res, 200, { ok: true, pending: null });
               return;
             }
@@ -2961,25 +3113,66 @@ export async function startDesignConnectBridge(
               });
               return;
             }
-            if (candidate.prompt.length > 512_000) {
+            if (candidate.prompt.length > MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH) {
               sendJson(res, 413, {
                 ok: false,
-                error: "pending prompt exceeds the 512 KB limit",
+                error: "pending prompt exceeds the 64 KB limit",
               });
               return;
             }
-            pendingVisualEditPayload = {
+            if (body.designId !== pendingDesignId) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending designId must match its envelope",
+              });
+              return;
+            }
+            if (
+              typeof revision !== "number" ||
+              !Number.isSafeInteger(revision) ||
+              revision < 1
+            ) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending publication requires a positive safe revision",
+              });
+              return;
+            }
+            const publishedPending = {
               designId: candidate.designId,
               pendingEditCount: candidate.pendingEditCount,
               status: candidate.status,
               prompt: candidate.prompt,
               updatedAt: new Date().toISOString(),
             };
-            sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+            const stored = await storePendingVisualEdit(
+              candidate.designId,
+              revision,
+              publishedPending,
+              now,
+            );
+            if (stored !== "stored") {
+              sendJson(res, stored === "capacity" ? 503 : 409, {
+                ok: false,
+                error:
+                  stored === "capacity"
+                    ? "The bridge has reached its retained design revision limit."
+                    : stored === "stale"
+                      ? "stale pending publication revision"
+                      : "conflicting pending publication revision",
+                revision: existing?.revision,
+              });
+              return;
+            }
+            sendJson(res, 200, { ok: true, pending: publishedPending });
           } catch (error) {
             sendJson(
               res,
-              error instanceof LiveEditPendingRequestTooLargeError ? 413 : 400,
+              error instanceof LiveEditPendingRequestTooLargeError
+                ? 413
+                : error instanceof LiveEditRevisionPersistenceError
+                  ? 500
+                  : 400,
               {
                 ok: false,
                 error: error instanceof Error ? error.message : String(error),
@@ -3019,12 +3212,6 @@ export async function startDesignConnectBridge(
               requestedBridgeKey &&
               !editorBridgeScript
             ) {
-              // Machine-readable `code` + echoed `bridgeKey`/`bridgeInstanceId`
-              // let a client distinguish "this bridge process restarted since
-              // I last registered — safe to silently re-POST
-              // /live-edit-bridge and retry" from a genuine caller bug,
-              // instead of string-matching `error` (see bridgeInstanceId's
-              // doc comment above for the full rationale).
               sendJson(res, 409, {
                 ok: false,
                 code: "unknown-bridge-key",
@@ -3035,16 +3222,7 @@ export async function startDesignConnectBridge(
               });
               return;
             }
-            // The dev server route the SPA must boot on (e.g. "/todo"), taken
-            // from the resolved snapshot target rather than the bridge's own
-            // "/live-edit" request path.
             const targetParsed = new URL(targetUrl);
-            // A keyed frame keeps its key on the rewritten URL so a later
-            // navigation (whose Referer is that URL) can be sent back through
-            // /live-edit with the same identity.
-            // The requested key is authoritative: a stale copy already on the
-            // target (a rewritten route reloaded through /live-edit) must not
-            // remain as a duplicate the client would read first.
             const targetSearch = requestedBridgeKey
               ? appendQueryPair(
                   stripQueryPair(targetParsed.search, FRAME_BRIDGE_KEY_PARAM),
@@ -3120,8 +3298,6 @@ export async function startDesignConnectBridge(
         return;
       }
 
-      // ── Token-gated write endpoints (POST only) ───────────────────────────
-
       if (
         pathname === "/read-file" ||
         pathname === "/write-file" ||
@@ -3133,7 +3309,6 @@ export async function startDesignConnectBridge(
           return;
         }
 
-        // Authenticate with constant-time comparison to prevent timing attacks.
         const providedToken = readHeader(req, "x-bridge-token");
         const tokenValid = constantTimeTokenMatches(providedToken, bridgeToken);
         if (!tokenValid) {
@@ -3144,7 +3319,6 @@ export async function startDesignConnectBridge(
           return;
         }
 
-        // Handle asynchronously so we can use await.
         void (async () => {
           try {
             const raw = await readRequestBody(req);
@@ -3182,9 +3356,6 @@ export async function startDesignConnectBridge(
             );
 
             if (pathname === "/read-file") {
-              // Read-file: no extension restriction (agents need to read any
-              // non-secret file), but the secret-path blocklist above still
-              // applies to .env*, *.pem, *.key, id_rsa*, and anything under .git/.
               const snapshot = await readBridgeFileSnapshot(
                 initialTarget.absolutePath,
               );
@@ -3251,8 +3422,6 @@ export async function startDesignConnectBridge(
                 return;
               }
 
-              // /apply-edit supports either full replace ({content}) or one
-              // exact search-and-replace. Both stay within this file's lock.
               if (typeof body["content"] === "string") {
                 const versionHash = await atomicWriteBridgeFile({
                   rootPath: manifest.rootPath,
@@ -3381,7 +3550,6 @@ export async function startDesignConnectBridge(
         void (async () => {
           try {
             const proxyRequestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
-            // Both bridge-only query params stay off the dev server's URL.
             const targetUrl = resolvePreviewProxyUrl(
               manifest.devServerUrl,
               `${proxyRequestUrl.pathname}${stripQueryPair(
@@ -3390,11 +3558,6 @@ export async function startDesignConnectBridge(
               )}`,
             );
             const method = req.method ?? "GET";
-            // A keyed frame that navigates (router redirect, home link) lands
-            // here with no key of its own; injecting the unkeyed script would
-            // boot it with whichever screen registered last. Its referer is
-            // the /live-edit URL it came from, so send it back through
-            // /live-edit with that key and the frame keeps its identity.
             const keyed = isFrameNavigationRequest(req)
               ? keyedFrameNavigation(
                   proxyRequestUrl,
@@ -3419,15 +3582,10 @@ export async function startDesignConnectBridge(
                 return;
               }
             }
-            // A keyed navigation whose key this bridge no longer knows must
-            // not boot with whichever screen registered last; report it the
-            // same way GET /live-edit does so the client can re-register.
             const keyedScript = keyed
               ? liveEditBridgeScripts.get(keyed.bridgeKey)
               : undefined;
             if (keyed && !keyedScript) {
-              // Answer without consuming the body, but let the stream drain so
-              // a keep-alive connection is not left with an unread request.
               req.resume();
               sendJson(res, 409, {
                 ok: false,
@@ -3460,24 +3618,13 @@ export async function startDesignConnectBridge(
               previewSessionCookies,
             );
             const contentType = proxied.headers.get("content-type") ?? "";
-            // A frame navigating to the app's own routes is a document too:
-            // without the bridge injection here, a redirect or home link
-            // inside a visual-edit frame would silently drop live editing.
             const documentNavigation = isFrameNavigationRequest(req);
-            // A keyed navigation that could not be redirected (a form POST
-            // has a body the redirect would drop) still boots with its own
-            // screen's script and keeps the key on the shim path.
             const responseBody =
               documentNavigation && contentType.includes("html")
                 ? Buffer.from(
                     injectLiveEditBridge(
                       proxied.body.toString("utf8"),
                       new URL("/", manifest.bridgeUrl).toString(),
-                      // A body-bearing navigation with no recoverable key
-                      // must not boot as whichever screen registered last.
-                      // With keyed screens present it gets no bridge at all;
-                      // its next GET recovers the frame's identity. The
-                      // unkeyed slot still serves clients that never key.
                       keyedScript ??
                         (method !== "GET" && liveEditBridgeScripts.size > 0
                           ? ""
@@ -3500,9 +3647,6 @@ export async function startDesignConnectBridge(
                           }` || "/"
                         );
                       })(),
-                      // Recovery re-issues the navigation as a GET, so it is
-                      // only offered to GET navigations: a body-bearing POST
-                      // that already reached the app must keep its response.
                       keyed
                         ? { bridgeKey: keyed.bridgeKey, previewToken }
                         : method === "GET"
@@ -3589,11 +3733,6 @@ export async function startDesignConnectBridge(
   // is never caller-controlled, bridge credentials are stripped, and only a
   // same-origin iframe (or an explicit preview-token caller) can open it.
   server.on("upgrade", (req, clientSocket, clientHead) => {
-    // A raw upgraded socket has no default error listener. A browser dropping
-    // its HMR/WebSocket connection surfaces as ECONNRESET here, and an
-    // unhandled socket error is an uncaughtException that the CLI's global
-    // handler turns into a daemon exit — the bridge used to die within minutes
-    // of a frame reloading. Every socket the proxy touches gets a listener.
     clientSocket.on("error", () => clientSocket.destroy());
     const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
     const providedPreviewToken =
@@ -3628,6 +3767,7 @@ export async function startDesignConnectBridge(
     const upstreamHeaders = { ...req.headers };
     delete upstreamHeaders["x-bridge-token"];
     delete upstreamHeaders["x-design-preview-token"];
+    delete upstreamHeaders["x-agent-native-live-edit-capability"];
     delete upstreamHeaders["authorization"];
     delete upstreamHeaders["cookie"];
     upstreamHeaders.host = targetUrl.host;
@@ -3648,9 +3788,6 @@ export async function startDesignConnectBridge(
       method: "GET",
       headers: upstreamHeaders,
     });
-    // Before the upstream upgrade completes there is no peer socket to tear
-    // down, so a client that resets early would otherwise leave this request
-    // dangling against the dev server.
     clientSocket.once("close", () => {
       if (!upgraded) upstreamRequest.destroy();
     });
@@ -3704,13 +3841,18 @@ export async function startDesignConnectBridge(
     });
   });
 
+  if (options.persistBridgeToken !== false) {
+    try {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
+    } catch (error) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
+  }
+
   return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
 }
 
-/**
- * Resolve the design app URL from an explicit value or environment variables.
- * Returns undefined when no URL is configured (registration is optional).
- */
 export function resolveAppUrl(explicit?: string): string | undefined {
   const raw =
     explicit ||
@@ -3732,12 +3874,6 @@ export function resolveAppUrl(explicit?: string): string | undefined {
   }
 }
 
-/**
- * Resolve a bearer token from environment variables for authenticating the
- * self-registration POST.  The CLI does not perform a device-code flow — it
- * relies on a pre-minted token supplied via env var (e.g. the same token
- * already written into the agent's MCP config).
- */
 function resolveAuthToken(): string | undefined {
   return (
     process.env["AGENT_NATIVE_TOKEN"] ||
@@ -3779,9 +3915,6 @@ export async function registerConnectionWithServer(
       routes: manifest.routes,
       generatedAt: manifest.generatedAt,
     },
-    // Include the real bridge token so the server stores it on the connection
-    // row.  grant-localhost-write-consent then reads it from the row instead of
-    // minting its own unrelated token, which would always produce a 401.
     bridgeToken,
     previewToken,
     status: "connected" as const,
@@ -3808,8 +3941,6 @@ export async function registerConnectionWithServer(
       throw new Error(`${res.status} ${message || res.statusText}`);
     }
   } catch (error) {
-    // Best-effort: network errors or auth issues are non-fatal, but make the
-    // problem discoverable before the user tries "Apply to source".
     console.error(
       `[design connect] Could not register bridge with ${endpoint}: ${
         error instanceof Error ? error.message : String(error)
@@ -3841,7 +3972,7 @@ Options:
   --preview-token <token> Adopt the paired read-only browser preview token.
                           Optional when --bridge-token is present: compatible
                           clients derive the same one-way token automatically.
-                          (also reads AGENT_NATIVE_PREVIEW_TOKEN env)
+                          (stale AGENT_NATIVE_PREVIEW_TOKEN values are ignored)
   --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
@@ -3850,6 +3981,7 @@ Options:
 Pending visual edits:
   --bridge-url <url>      Paired local bridge URL (default http://127.0.0.1:${DEFAULT_BRIDGE_PORT})
   --root <path>           App/repo root containing .agent-native/design-bridge-token
+  --design-id <id>        Design ID whose pending visual edits to retrieve
   --preview-token <token> Read-only preview token when the root token is unavailable
 
 Element provenance (resolveNodeToFile):
@@ -3880,7 +4012,7 @@ function resolveCurrentCliInvocation(argv: string[]): {
   command: string;
   args: string[];
 } {
-  const suffixLength = argv.length + 1; // leading "design" command + runDesign argv
+  const suffixLength = argv.length + 1;
   const prefixEnd = Math.max(1, process.argv.length - suffixLength);
   const cliPrefix = process.argv.slice(1, prefixEnd);
   const entry = cliPrefix[0] ?? process.argv[1];
@@ -3902,25 +4034,41 @@ function resolveCurrentCliInvocation(argv: string[]): {
 async function startDetachedDesignBridge(
   argv: string[],
   manifest: DesignConnectManifest,
-  previewToken?: string,
+  bridgeToken: string,
 ): Promise<number> {
   if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
-    const [runningManifest, runningFingerprint] = await Promise.all([
-      fetchRunningBridgeManifest(manifest.bridgeUrl, previewToken),
-      fetchRunningBridgeFingerprint(manifest.bridgeUrl),
-    ]);
-    const fingerprintMatches =
-      runningFingerprint === designConnectAppFingerprint(manifest);
+    const manifestResult = await inspectRunningBridge(manifest, bridgeToken);
+    const runningManifest = manifestResult.manifest;
+    const { fingerprintMatches } = manifestResult;
     if (
-      (runningManifest &&
-        designConnectManifestsTargetSameApp(runningManifest, manifest)) ||
-      fingerprintMatches
+      runningManifest &&
+      designConnectManifestsTargetSameApp(runningManifest, manifest)
     ) {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
       console.error(
         `Design localhost bridge already running at ${manifest.bridgeUrl}`,
       );
-      console.log(JSON.stringify(runningManifest ?? manifest, null, 2));
+      console.log(JSON.stringify(runningManifest, null, 2));
       return 0;
+    }
+
+    if (fingerprintMatches && !runningManifest) {
+      const errorMessage =
+        manifestResult.status === 401
+          ? "A Design localhost bridge for this app is already running, but it rejected the current bridge token (HTTP 401)."
+          : "A Design localhost bridge for this app is already running, but its authenticated manifest could not be verified.";
+      console.error(
+        [
+          errorMessage,
+          ...(manifestResult.status === 401
+            ? [
+                "If the token changed, stop only the bridge process you started, then rerun design connect with the bridgeToken returned by open-visual-edit via --bridge-token (or AGENT_NATIVE_BRIDGE_TOKEN).",
+              ]
+            : ["Retry after confirming the bridge is healthy."]),
+          "The existing process was left running.",
+        ].join("\n"),
+      );
+      return 1;
     }
 
     console.error(
@@ -3937,27 +4085,47 @@ async function startDetachedDesignBridge(
   }
 
   const invocation = resolveCurrentCliInvocation(argv);
-  // A detached bridge that dies — port already taken, crash on boot, killed
-  // with its process group — used to do so with stdio "ignore", so the failure
-  // left no trace anywhere and Design silently fell back to non-editable
-  // iframes. Keep its output on disk so the death is diagnosable.
   const logPath = await createDaemonLogPath(manifest.rootPath);
   const logFd = await fs.open(logPath, "a");
   const child = spawn(invocation.command, invocation.args, {
     cwd: process.cwd(),
     detached: true,
-    env: process.env,
+    env: {
+      ...process.env,
+      AGENT_NATIVE_BRIDGE_TOKEN: bridgeToken,
+    },
     stdio: ["ignore", logFd.fd, logFd.fd],
     shell: process.platform === "win32",
   });
   child.unref();
 
   if (await waitForBridgeHealth(manifest.bridgeUrl)) {
+    const running = await inspectRunningBridge(manifest, bridgeToken);
+    if (
+      running.manifest &&
+      designConnectManifestsTargetSameApp(running.manifest, manifest)
+    ) {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
+      await logFd.close();
+      console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
+      console.error(`Bridge log: ${logPath}`);
+      console.log(JSON.stringify(running.manifest, null, 2));
+      return 0;
+    }
+
     await logFd.close();
-    console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
-    console.error(`Bridge log: ${logPath}`);
-    console.log(JSON.stringify(manifest, null, 2));
-    return 0;
+    const authenticationFailed =
+      running.fingerprintMatches && !running.manifest;
+    console.error(
+      [
+        authenticationFailed
+          ? `A Design localhost bridge for this app became available at ${manifest.bridgeUrl}, but it rejected this invocation's bridge token (HTTP ${running.status ?? "unknown"}).`
+          : `A Design localhost bridge became available at ${manifest.bridgeUrl} for a different app or could not be verified.`,
+        "No bridge token was persisted; the running process was left untouched.",
+        `Bridge log: ${logPath}`,
+      ].join("\n"),
+    );
+    return 1;
   }
 
   const tail = await readDaemonLogTail(logPath);
@@ -4003,20 +4171,32 @@ export async function runDesign(argv: string[]) {
     const bridgeUrl = (
       readFlag("--bridge-url") ?? `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
     ).replace(/\/$/, "");
-    const bridgeToken = readFlag("--preview-token");
-    const token =
-      bridgeToken ??
-      (await readPersistedBridgeToken(root).then((value) =>
-        value ? deriveDesignPreviewToken(value) : undefined,
-      ));
-    if (!token) {
+    const designId = readFlag("--design-id")?.trim();
+    if (!designId) {
       console.error(
-        "No preview token found. Pass --preview-token or run design connect from the app root.",
+        "Pass --design-id to select the visual-edit handoff to retrieve.",
       );
       return 1;
     }
-    const response = await fetch(`${bridgeUrl}/live-edit-pending`, {
-      headers: { "x-design-preview-token": token },
+    const bridgeToken = await readPersistedBridgeToken(root);
+    const previewTokenOverride = readFlag("--preview-token");
+    const token =
+      previewTokenOverride ??
+      (bridgeToken ? deriveDesignPreviewToken(bridgeToken) : undefined);
+    if (!token || !bridgeToken) {
+      console.error(
+        "The design-scoped live-edit credential is unavailable. Run design connect from the connected app root before reading pending edits.",
+      );
+      return 1;
+    }
+    const pendingUrl = new URL(`${bridgeUrl}/live-edit-pending`);
+    pendingUrl.searchParams.set("designId", designId);
+    const response = await fetch(pendingUrl, {
+      headers: {
+        "x-design-preview-token": token,
+        "x-agent-native-live-edit-capability":
+          deriveDesignScopedLiveEditCapability(bridgeToken, designId),
+      },
     });
     if (!response.ok) {
       console.error(`${response.status} ${await response.text()}`);
@@ -4052,11 +4232,29 @@ export async function runDesign(argv: string[]) {
     parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
   const seedPreviewToken =
     parsed.previewToken ||
-    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
     (seedBridgeToken ? deriveDesignPreviewToken(seedBridgeToken) : undefined);
   const appUrl = resolveAppUrl(parsed.appUrl);
   if (parsed.daemon) {
-    return startDetachedDesignBridge(argv, manifest, seedPreviewToken);
+    const bridgeToken = await resolveBridgeToken(
+      manifest.rootPath,
+      seedBridgeToken,
+      false,
+    );
+    const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
+    if (parsed.previewToken && parsed.previewToken !== derivedPreviewToken) {
+      throw new Error(
+        "previewToken must match the deterministic token derived from bridgeToken",
+      );
+    }
+    if (
+      process.env["AGENT_NATIVE_PREVIEW_TOKEN"] &&
+      process.env["AGENT_NATIVE_PREVIEW_TOKEN"] !== derivedPreviewToken
+    ) {
+      console.warn(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+      );
+    }
+    return startDetachedDesignBridge(argv, manifest, bridgeToken);
   }
   if (parsed.json || parsed.once || parsed.dryRun) {
     console.log(JSON.stringify(manifest, null, 2));
@@ -4075,12 +4273,8 @@ export async function runDesign(argv: string[]) {
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
 
   if (appUrl) {
-    // Always refresh the server row with the token actually serving requests.
-    // A persisted local token can outlive a row refresh, and skipping this
-    // POST leaves the browser with a deterministic but unusable credential.
     await registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
   } else if (!seedBridgeToken) {
-    // No token source at all — warn rather than 401 silently at edit time.
     console.error(
       "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — browser preview and live-edit will fail to authorize.",
     );

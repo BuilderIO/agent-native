@@ -38,7 +38,7 @@ const registeredSecrets = [
   },
   {
     key: "JEV_API_KEY",
-    label: "System one model (Jev)",
+    label: "Decision model (Jev)",
     description: "Semantic tool and skill selection",
     scope: "user",
     kind: "api-key",
@@ -149,7 +149,133 @@ describe("SecretsSection", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("fails a stalled secrets response and retries it", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let requestSignal: AbortSignal | null | undefined;
+    let secretRequests = 0;
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      if (String(input).endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      secretRequests += 1;
+      if (secretRequests === 1) {
+        requestSignal = init?.signal;
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            new Promise<never>((_resolve, reject) => {
+              requestSignal?.addEventListener(
+                "abort",
+                () => reject(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            }),
+        } as Response);
+      }
+      return Promise.resolve(Response.json(registeredSecrets));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Please try again",
+    );
+    expect(consoleError).toHaveBeenCalledOnce();
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    await click(retryButton);
+
+    expect(secretRequests).toBe(2);
+    expect(container.textContent).toContain("OpenAI API key");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("aborts the request on unmount without logging a load error", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let requestSignal: AbortSignal | null | undefined;
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      if (String(input).endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      requestSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await act(async () => {
+      root.render(null);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("keeps key cards and save feedback visible during their refresh", async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url.endsWith("/secrets/OPENAI_API_KEY") && init?.method === "POST") {
+        return Promise.resolve(Response.json({}));
+      }
+      return Promise.resolve(Response.json(registeredSecrets));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await openRow("OpenAI API key");
+    await click(findButton("Rotate"));
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="OpenAI API key"]',
+    );
+    expect(input).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "new-test-key");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(findButton("Save"));
+
+    expect(container.textContent).toContain("OpenAI API key");
+    expect(container.textContent).toContain("Saved");
   });
 
   it("shows configured keys while keeping unset providers behind New", async () => {
@@ -167,7 +293,7 @@ describe("SecretsSection", () => {
 
     await openNewMenu();
 
-    expect(document.body.textContent).toContain("System one model (Jev)");
+    expect(document.body.textContent).toContain("Decision model (Jev)");
     expect(document.body.textContent).toContain("Brave Search API Key");
     expect(document.body.textContent).toContain("Tavily API Key");
     expect(document.body.textContent).toContain("Custom key");
@@ -219,8 +345,6 @@ describe("SecretsSection", () => {
     expect(search).toBeTruthy();
 
     await act(async () => {
-      // React's value tracker ignores a plain assignment; go through the
-      // prototype setter so onChange actually fires.
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
@@ -280,6 +404,37 @@ describe("SecretsSection", () => {
     );
     expect(findButton("Rotate")).toBeUndefined();
     expect(findButton("Delete")).toBeUndefined();
+  });
+
+  it("shows a key its provider rejected as invalid, still with Rotate and Delete", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "invalid",
+        error: "The provider rejected this key",
+        rejectedAt: 1,
+        source: "personal",
+        managedHere: true,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).toContain("Invalid");
+    expect(container.textContent).toContain("••••1234");
+
+    await openRow("OpenAI API key");
+
+    expect(findButton("Rotate")).toBeTruthy();
+    expect(findButton("Delete")).toBeTruthy();
   });
 
   it("adds a custom key by typed name from the New search", async () => {
@@ -413,5 +568,139 @@ describe("SecretsSection", () => {
     expect(container.textContent).toContain(
       "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
     );
+  });
+
+  it("shows a key another page manages as read-only, naming its owner", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/secrets/adhoc")) {
+          return Response.json([
+            {
+              name: "S3_BUCKET",
+              scope: "workspace",
+              scopeId: "org-1",
+              source: "workspace",
+              description: null,
+              last4: "cket",
+              createdAt: 1,
+              updatedAt: 1,
+              usedFor: [],
+              managedBy: {
+                id: "storage",
+                owner: "File uploads and storage",
+                route: "infra",
+              },
+            },
+            {
+              name: "CUSTOM_TOKEN",
+              scope: "user",
+              scopeId: "user-1",
+              source: "personal",
+              description: null,
+              last4: "5678",
+              createdAt: 1,
+              updatedAt: 1,
+              usedFor: [],
+            },
+          ]);
+        }
+        return Response.json(registeredSecrets);
+      }),
+    );
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(
+      container.querySelector(
+        '[aria-label="Managed in File uploads and storage"]',
+      ),
+    ).toBeTruthy();
+    // Only the unmanaged custom key keeps its trash button.
+    expect(container.querySelectorAll(".tabler-icon-trash")).toHaveLength(1);
+  });
+
+  it("removes a same-named key at the scope of the row that was deleted", async () => {
+    const row = (scope: "user" | "workspace", last4: string) => ({
+      name: "GEMINI_API_KEY",
+      scope,
+      scopeId: scope === "user" ? "user-1" : "org-1",
+      source: scope === "user" ? "personal" : "workspace",
+      description: null,
+      last4,
+      createdAt: 1,
+      updatedAt: 1,
+      usedFor: [],
+    });
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "DELETE") return Response.json({ removed: true });
+        if (url.endsWith("/secrets/adhoc")) {
+          return Response.json([row("user", "1111"), row("workspace", "9999")]);
+        }
+        return Response.json(registeredSecrets);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    const trashButtons = Array.from(
+      container.querySelectorAll(".tabler-icon-trash"),
+    ).map((icon) => icon.closest("button"));
+    expect(trashButtons).toHaveLength(2);
+    await click(trashButtons[1]);
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent?.trim() === "Confirm",
+      ),
+    ).toHaveLength(1);
+    await click(findButton("Confirm"));
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "DELETE",
+    );
+    expect(deletes.map(([url]) => String(url))).toEqual([
+      "/_agent-native/secrets/adhoc/GEMINI_API_KEY?scope=workspace",
+    ]);
+  });
+
+  it("retains solid primary styling and excludes hover:text-inherit on solid actions", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "set",
+        source: "personal",
+        managedHere: true,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    await openRow("OpenAI API key");
+
+    const rotateBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((btn) => btn.textContent?.includes("Rotate"));
+
+    expect(rotateBtn).toBeDefined();
+
+    const classes = rotateBtn!.className.split(/\s+/);
+    expect(classes).not.toContain("hover:text-inherit");
+    expect(classes).not.toContain("hover:bg-transparent");
   });
 });

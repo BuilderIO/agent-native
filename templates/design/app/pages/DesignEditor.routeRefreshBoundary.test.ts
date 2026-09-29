@@ -12,7 +12,7 @@ describe("Design editor route Fast Refresh boundary", () => {
     expect(routeSource).not.toContain(
       'export { default } from "../pages/DesignEditor"',
     );
-    expect(routeSource).toContain("export function meta()");
+    expect(routeSource).toMatch(/export (?:function meta\(\)|const meta\b)/);
   });
 
   it("keeps DesignEditor component-only with no runtime named exports", () => {
@@ -111,6 +111,27 @@ describe("Design editor route Fast Refresh boundary", () => {
         "handleInScreenGradientEditChange",
         "statePreviewTarget",
       ]),
+    );
+  });
+
+  it("mirrors live selection chrome to the owning overview screen", () => {
+    const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const renderStart = editorSource.indexOf(
+      "const renderEditableScreenContent = useCallback",
+    );
+    const renderEnd = editorSource.indexOf(
+      "const renderScreenContent = useCallback",
+      renderStart,
+    );
+    const renderSource = editorSource.slice(renderStart, renderEnd);
+
+    expect(renderSource).toContain("screenSelectedLayerGroups");
+    expect(renderSource).toContain("selectedElementScreenId === screen.id");
+    expect(renderSource).toContain(
+      "selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}",
+    );
+    expect(renderSource).not.toContain(
+      "selectedSelector={screenIsActive ? selectedCanvasSelector : null}",
     );
   });
 });

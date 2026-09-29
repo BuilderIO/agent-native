@@ -37,13 +37,9 @@ const screenPaths = [
   "/settings/general?tab=language",
   "/settings/general?tab=notifications",
   "/home?onboarding=preview",
-  "/home?onboarding=preview&step=intro",
   "/home?onboarding=preview&step=choice",
-  "/home?onboarding=preview&step=manual",
-  "/home?onboarding=preview&step=tools",
   "/home?onboarding=preview&step=role",
   "/home?onboarding=preview&step=connecting",
-  "/home?onboarding=preview&step=ready",
   "/home?onboarding=preview&step=extension",
   "/home?onboarding=preview&step=references",
 ];

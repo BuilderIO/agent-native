@@ -9,9 +9,8 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 vi.mock("./use-action.js", () => actionMocks);
 
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
-import { useChatModels } from "./use-chat-models.js";
+import { useChatModels, type UseChatModelsOptions } from "./use-chat-models.js";
 
-/** Serve the three requests refreshEngines makes: engines, env keys, builder. */
 function stubCatalog(options: {
   engines: unknown[];
   configuredKeys?: string[];
@@ -45,12 +44,18 @@ function ChatModelsProbe({
   enabled,
   storageKey = null,
   id = "probe",
+  unavailableSelectionPolicy,
 }: {
   enabled: boolean;
   storageKey?: string | null;
   id?: string;
+  unavailableSelectionPolicy?: UseChatModelsOptions["unavailableSelectionPolicy"];
 }) {
-  const models = useChatModels({ enabled, storageKey });
+  const models = useChatModels({
+    enabled,
+    storageKey,
+    unavailableSelectionPolicy,
+  });
   return (
     <div>
       <button type="button" onClick={models.refreshEngines}>
@@ -70,6 +75,29 @@ function ChatModelsProbe({
           .map((group) => `${group.engine}:${group.configured}`)
           .join(",")}
       </span>
+      <span data-testid={`${id}-configured-catalog`}>
+        {models.configuredModels
+          .map(
+            (group) =>
+              `${group.label}:${group.engine}:${group.models.join("|")}`,
+          )
+          .join(",")}
+      </span>
+      <span data-testid={`${id}-selection-ready`}>
+        {String(models.selectionReady)}
+      </span>
+      <span data-testid={`${id}-unavailable-selection`}>
+        {models.unavailableSelection
+          ? `${models.unavailableSelection.engine}:${models.unavailableSelection.model}`
+          : ""}
+      </span>
+      <span data-testid={`${id}-ollama-models`}>
+        {(
+          models.availableModels.find(
+            (group) => group.engine === "ai-sdk:ollama",
+          )?.models ?? []
+        ).join(",")}
+      </span>
     </div>
   );
 }
@@ -80,6 +108,20 @@ describe("useChatModels", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const stored = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: () => stored.clear(),
+        getItem: (key: string) => stored.get(key) ?? null,
+        key: (index: number) => [...stored.keys()][index] ?? null,
+        get length() {
+          return stored.size;
+        },
+        removeItem: (key: string) => stored.delete(key),
+        setItem: (key: string, value: string) => stored.set(key, String(value)),
+      } satisfies Storage,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("{}")),
@@ -140,11 +182,6 @@ describe("useChatModels", () => {
     expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
-  // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden
-  // from the picker unless Builder is connected. Keeping it as the selection
-  // submitted a model no engine could serve, which the server then quietly
-  // replaced with its own default — the picker said one thing, every turn ran
-  // another.
   it("replaces an unroutable default with a model the catalog can serve", async () => {
     stubCatalog({
       engines: [
@@ -173,8 +210,6 @@ describe("useChatModels", () => {
   });
 
   it("clears the selection when the catalog can route nothing", async () => {
-    // Zero groups: an empty selection hides the picker and submits no model, so
-    // the server's own resolved default is used instead of an unroutable id.
     stubCatalog({ engines: [] });
 
     await act(async () => {
@@ -188,6 +223,189 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-selected-model"]')
         ?.textContent,
     ).toBe("");
+  });
+
+  it("requires an explicit replacement when a stored provider model is unavailable", async () => {
+    const storageKey = "comment-ai-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "builder",
+        model: "gpt-retired",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-5.6-sol"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(
+        <ChatModelsProbe
+          enabled
+          storageKey={storageKey}
+          unavailableSelectionPolicy="require-explicit"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("");
+    expect(
+      container.querySelector('[data-testid="probe-selection-ready"]')
+        ?.textContent,
+    ).toBe("false");
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+    expect(
+      container.querySelector('[data-testid="probe-configured-catalog"]')
+        ?.textContent,
+    ).toBe("Claude:anthropic:claude-sonnet-5");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "builder",
+        model: "gpt-retired",
+        effort: "high",
+      },
+    );
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="probe-change-model"]')
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selection-ready"]')
+        ?.textContent,
+    ).toBe("true");
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("");
+  });
+
+  it("replaces the static Ollama suggestion list with the server's installed models", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:ollama",
+          label: "Ollama",
+          supportedModels: ["llama3.1", "llama3.2", "mistral", "codestral"],
+          requiredEnvVars: [],
+        },
+      ],
+      current: { engine: "ai-sdk:ollama", model: "llama3.1" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) return Response.json([]);
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        if (url.includes("ollama-models")) {
+          return Response.json({
+            ok: true,
+            models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+          });
+        }
+        return new Response("{}");
+      }),
+    );
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="ollama-live-models" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-ollama-models"]')
+        ?.textContent,
+    ).toBe("qwen3.8-code-131k:latest,mistral:latest");
+  });
+
+  it("keeps checked Ollama models instead of probing installed ones", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:ollama",
+          label: "Ollama",
+          supportedModels: ["mistral:latest"],
+          modelSelection: { state: "selected", scope: "user" },
+          requiredEnvVars: [],
+        },
+      ],
+      current: { engine: "ai-sdk:ollama", model: "mistral:latest" },
+    });
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("env-status")) return Response.json([]);
+      if (url.includes("builder/status")) {
+        return Response.json({ configured: false });
+      }
+      if (url.includes("ollama-models")) {
+        return Response.json({
+          ok: true,
+          models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+        });
+      }
+      return new Response("{}");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="ollama-checked" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-ollama-models"]')
+        ?.textContent,
+    ).toBe("mistral:latest");
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("ollama-models"),
+      ),
+    ).toBe(false);
   });
 
   it("keeps the last model readiness when status refresh is unavailable", async () => {

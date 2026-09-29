@@ -2,10 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
 
-/**
- * Fetch profile photos for a list of attendee emails from the
- * Google Workspace directory. Cached for 10 minutes.
- */
 export function useAttendeePhotos(emails: string[]) {
   const key = emails.slice().sort().join(",");
 

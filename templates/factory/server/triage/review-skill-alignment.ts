@@ -1,4 +1,4 @@
-export const FACTORY_ALIGNMENT_REVISION = 1;
+export const FACTORY_ALIGNMENT_REVISION = 2;
 
 const ALIGNMENT_START = "<!-- factory-skill-alignment:start -->";
 const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
@@ -21,16 +21,19 @@ contract is evidence-first and reply-producing:
   task-scoped clarification ledger with a stable scheduler identity for
   recurring rechecks. Do not claim scheduled coverage without stable durable
   state.
-- Check the existing Slack reaction marker and owner before any write.
-  Preserve an existing marker; if reactions cannot be read, do not guess or
-  add one. If the parent already has eyes 👀, call \`dispatch-factory-item\`
-  with \`alreadyClaimed: true\` (\`clearBug\` may be omitted or \`false\`),
-  omit reaction, and do not start Builder work. Do not react to or dispatch
-  Design UX/interaction work (Sid) or any Content work (Alice); record the
-  owner instead.
-- For an actionable repo-owned Slack clear bug with no existing eyes 👀,
-  you MUST pass \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never
-  dispatch a clear bug without it. Every parent this run marks must later
+- Check the existing Slack reaction marker before any write. Preserve an
+  existing marker; if reactions cannot be read, do not guess or add one. If
+  the parent already has eyes 👀, call \`dispatch-factory-item\` with
+  \`alreadyClaimed: true\` (\`clearBug\` may be omitted or \`false\`), omit
+  reaction, and do not start Builder work.
+- Classify \`risk\` and \`confidence\` on every item, including skips.
+  \`dispatch-factory-item\` only tags Builder when \`clearBug\` is true,
+  \`risk\` is low, and \`confidence\` is high; everything else is a skip
+  regardless of how clear the bug looks.
+- For a dispatch-eligible repo-owned Slack item (\`clearBug\` true, \`risk\`
+  low, \`confidence\` high) with no existing eyes 👀, you MUST pass
+  \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never dispatch without
+  it. Every parent this run marks must later
   receive a verified @agent-native Fixed, In progress, or Clarification needed
   reply; a reaction, forward, generic acknowledgement, or another person's
   reply is not a disposition. Group only genuinely repeated symptoms and
@@ -46,8 +49,9 @@ contract is evidence-first and reply-producing:
 After classifying every processed item, call \`dispatch-factory-item\` so every
 skip or dispatch is recorded: \`alreadyClaimed: true\` (\`clearBug\` may be
 omitted or \`false\`) when the parent already has eyes 👀, otherwise
-\`clearBug: true\` or \`false\` with a concise evidence-grounded reason and
-\`reaction: eyes\` when \`clearBug\` is true.`;
+\`clearBug: true\` or \`false\`, \`risk\`, \`confidence\`, and a concise
+evidence-grounded reason. Pass \`reaction: eyes\` only when \`clearBug\` is
+true, \`risk\` is low, and \`confidence\` is high.`;
 
 const PR_ALIGNMENT = `## Current review-prs contract
 
@@ -68,9 +72,10 @@ allows ordinary failed, pending, skipped, or unknown checks and ordinary
 unresolved feedback for a verified BuilderIO member; record those exact states
 and never call them clean. The ultra-scary gate always remains manual for auth,
 permissions, tenant isolation, secrets, destructive data loss or migrations,
-remote code execution, SSRF, payments, deployment, or unexplained dependency
-and infrastructure risk. Active credible safety findings in fresh review
-evidence remain blocking for every author, including Liam.
+remote code execution, MCP iframe sandboxing, CSP, HTML sanitization, SSRF,
+payments, deployment, or unexplained dependency and infrastructure risk. Active
+credible safety findings in fresh review evidence remain blocking for every
+author, including Liam.
 
 For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, a
 current BuilderIO membership check is still required. When the current,
@@ -85,7 +90,14 @@ The verified owner exceptions are current and must be applied only after
 membership and the ultra-scary assessment: Alice (\`3mdistal\`) for Content,
 Nick (\`NKoech123\`) for Slides, Enzo (\`enzoames\`) for Factory-specific PRs,
 and Sid (\`sidmohanty11\`) for Design. Alice and Nick may include supporting
-shared framework/Desktop plumbing required by their app feature. The docs-only
+shared framework/Desktop plumbing required by their app feature. For
+BuilderIO/agent-native PRs, Shomix (shomix, GitHub user ID 100691266) may be
+auto-approved across app and framework areas, including UX changes, refactors,
+ordinary unresolved feedback, and failed or pending checks. Match both the login
+and immutable GitHub author ID; do not rely on login alone. This exception never
+applies to review/approval policy, agent-safety instructions, membership
+verification, or CI/deployment security changes;
+those require independent human review. The docs-only
 exception applies to \`kapunahelewong\` and Wes (\`bwreid\`) only when every
 changed file is documentation, localization, docs navigation/redirect, or a
 docs-specific test. These exceptions cover ordinary UX/refactor/check/review

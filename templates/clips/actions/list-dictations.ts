@@ -1,7 +1,3 @@
-/**
- * List press-and-hold dictations the current user has access to.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc } from "drizzle-orm";

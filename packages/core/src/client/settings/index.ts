@@ -14,10 +14,13 @@ export {
 } from "./agent-settings-search.js";
 export {
   SettingsTabsPage,
+  type SettingsAppArea,
   type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
+export * from "./shell/index.js";
+export { ReadOnlySettingValue } from "./app-group/ReadOnlySettingValue.js";
 export {
   AccountSettingsCard,
   AccountSettingsForm,
@@ -25,20 +28,23 @@ export {
   type AccountSettingsFormProps,
 } from "./AccountSettingsCard.js";
 export {
+  hasBuilderOAuthCredential,
   openBuilderConnectPopup,
   useBuilderConnectFlow,
   useBuilderStatus,
   withBuilderConnectTrackingParams,
   type BuilderConnectFlow,
   type BuilderConnectFlowOptions,
+  type BuilderConnectionScope,
   type BuilderConnectStartOptions,
+  type BuilderEffectiveConnection,
+  type BuilderGrantStatus,
+  type BuilderGrantsStatus,
   type BuilderStatus,
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
-export {
-  BuilderConnectPopover,
-  type BuilderConnectPopoverProps,
-} from "./BuilderConnectPopover.js";
+export { DeferredBuilderConnectPopover as BuilderConnectPopover } from "./deferred-builder-connect-popover.js";
+export type { BuilderConnectPopoverProps } from "./BuilderConnectPopover.js";
 export {
   NewKeyMenu,
   normalizeKeyName,
@@ -46,6 +52,20 @@ export {
   type NewKeyOption,
 } from "./NewKeyMenu.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
+export {
+  KeyValueDialog,
+  type KeyValueDialogMode,
+  type KeyValueDialogProps,
+} from "./api-keys/ApiKeyDialogs.js";
+export type { ApiKeyEntry, ApiKeysListing } from "./api-keys/api-keys-state.js";
+export {
+  StorageSettingsForm,
+  type StorageSettingsFormProps,
+} from "./StorageSettingsForm.js";
+export {
+  removeManagedSecrets,
+  type ManagedSecretRemoval,
+} from "./managed-secrets.js";
 export {
   SettingsGroup,
   SettingsRow,
@@ -80,7 +100,14 @@ export {
 } from "../agent-provider-catalog.js";
 export {
   AgentProviderPicker,
-  AgentProviderSetupForm,
   type AgentProviderPickerProps,
+} from "./AgentProviderPicker.js";
+export {
+  AgentProviderSetupForm,
   type AgentProviderSetupFormProps,
 } from "./ProviderSetupForm.js";
+export {
+  ProviderDialog,
+  type ProviderDialogMode,
+  type ProviderDialogProps,
+} from "./model/ProviderDialog.js";

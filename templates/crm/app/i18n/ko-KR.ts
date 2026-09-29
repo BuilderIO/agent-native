@@ -24,6 +24,11 @@ const messages = {
     retry: "다시 시도",
     search: "검색",
   },
+  chatHome: {
+    description:
+      "Native SQL과 연결된 레코드 전반에서 허용된 계정 정보, 후속 작업, 근거를 살펴보세요.",
+    placeholder: "CRM에 대해 질문하기",
+  },
   commandMenu: {
     placeholder: "레코드, 목록, 명령 검색…",
     groupRecords: "레코드",
@@ -66,6 +71,8 @@ const messages = {
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
     languageLabel: "인터페이스 언어",
+    mcpAbout:
+      "CRM을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 CRM에서 레코드를 찾고, 필드를 업데이트하고, 작업을 관리할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   connection: {
     tab: "연결",
@@ -607,6 +614,19 @@ const messages = {
     evaluatedThroughAsk: "Ask CRM을 통해 평가됩니다.",
   },
   recordActions: {
+    reviewDuplicates: "중복 검토",
+    duplicateReviewTitle: "중복 가능성이 있는 레코드",
+    duplicateReviewDescription:
+      "이 레코드를 접근 가능한 후보와 비교합니다. Jev 실행 시 레코드 이름, 유형 및 최대 5개 후보의 일치 신호가 TypeSafe로 전송됩니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
+    duplicateReviewRun: "중복 확인",
+    duplicateReviewLoading: "확인 중…",
+    duplicateReviewFailed: "중복 검토를 완료할 수 없습니다.",
+    duplicateReviewUnavailable:
+      "Jev가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
+    duplicateReviewEmpty: "중복 가능성이 있는 레코드가 없습니다.",
+    duplicateRuleConfidence: "규칙 기반 일치도: {{percent}}%",
+    duplicateJevProbability: "Jev 동일 엔터티 확률: {{percent}}%",
+    duplicateMatchedOn: "일치 근거: {{values}}",
     evidenceAttached: "통화 증거가 첨부되었습니다.",
     evidenceAttachFailed: "증거를 첨부하지 못했습니다.",
     addEvidence: "증거 추가",

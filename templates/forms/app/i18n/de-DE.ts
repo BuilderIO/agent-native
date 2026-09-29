@@ -44,6 +44,8 @@ const messages = {
     suggestionSurvey: "Erstelle eine Kundenfeedback-Umfrage",
     suggestionSubmissions: "Zeige Einreichungen nach Tag",
     suggestionExport: "Antworten als CSV exportieren",
+    topSignal: "Wichtigstes Signal",
+    draftFollowUp: "Rückfrage entwerfen",
   },
   sidebar: {
     collapseSidebar: "Seitenleiste einklappen",

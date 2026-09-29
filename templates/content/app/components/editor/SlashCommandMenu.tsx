@@ -1,6 +1,13 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabs } from "@agent-native/core/client/labs";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import {
+  CONTENT_SLASH_ADVANCED_CODE,
+  CONTENT_SLASH_DEVELOPER_DOCS,
+  CONTENT_SLASH_LAYOUTS,
+  CONTENT_SLASH_VISUALS,
+} from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
@@ -41,7 +48,6 @@ import React, {
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
-// The composer bundle is heavy; only load it when the generate prompt opens.
 const PromptComposer = React.lazy(() =>
   import("@agent-native/core/client/composer").then((m) => ({
     default: m.PromptComposer,
@@ -55,8 +61,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
+import {
+  contentDatabaseCreationRequest,
+  useCreateContentDatabase,
+  useCreateInlineContentDatabase,
+} from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
@@ -69,17 +80,10 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
-  /** Restrict the menu to block operations supported by suggestion capture. */
+  contentSpaceId?: string;
   suggesting?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
-  /**
-   * The open document's linked Notion page id, when it has one. When set, the
-   * registry-derived block slash items are filtered to specs that round-trip to
-   * Notion-Flavored Markdown (`spec.notionCompatible`), so authors can't add a
-   * structured block that would silently drop on the next Notion push. When
-   * unset (the common case), all registry blocks are offered.
-   */
   notionPageId?: string | null;
 }
 
@@ -126,10 +130,6 @@ export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
       left: coords.left - containerRect.left,
     };
   } catch {
-    // Collaborative reconciliation can briefly leave ProseMirror's DOM mapping
-    // behind the document selection. The slash transaction is still valid; use
-    // its nearest DOM node (or the editor origin) so the command menu remains
-    // available instead of turning the user's slash into inert text.
     try {
       const domAtSelection = editor.view.domAtPos(editor.state.selection.from);
       const element =
@@ -167,7 +167,6 @@ export interface CommandItem {
   searchText?: string;
   shortcut?: string;
   icon: React.ElementType;
-  /** The suggestion operation model can represent this command losslessly. */
   suggestionSafe?: boolean;
   preserveSlashRange?: boolean;
   action: (
@@ -360,9 +359,6 @@ export function parseSlashCommandQuery(textBeforeCursor: string) {
   );
   if (!match) return null;
   const rawQuery = match[1] ?? "";
-  // `/generate <prompt>` intentionally leaves the menu so Enter can submit the
-  // inline prompt. Other multi-word labels (for example `/heading 2`) remain
-  // searchable instead of turning into literal editor text at the first space.
   if (/^generate\s+/i.test(rawQuery)) return null;
   return rawQuery.trim();
 }
@@ -395,6 +391,55 @@ export function insertInlineDatabaseBlock(
   return position != null
     ? chain.insertContentAt(position, content).run()
     : chain.insertContent(content).run();
+}
+
+function removeCreatedPageReference(editor: Editor, pageId: string) {
+  let range: { from: number; to: number } | null = null;
+  const attrsJson = JSON.stringify({ id: pageId });
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "notionBlockAtom" &&
+      node.attrs.tagName === "page" &&
+      node.attrs.attrsJson === attrsJson
+    ) {
+      range = { from: pos, to: pos + node.nodeSize };
+      return false;
+    }
+  });
+  if (range) editor.commands.deleteRange(range);
+}
+
+function removeCreatedInlineCollection(editor: Editor, blockId: string) {
+  let range: { from: number; to: number } | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "registryBlock" &&
+      node.attrs.blockType === "inline-database" &&
+      node.attrs.blockId === blockId
+    ) {
+      range = { from: pos, to: pos + node.nodeSize };
+      return false;
+    }
+  });
+  if (range) editor.commands.deleteRange(range);
+}
+
+export async function cleanupFailedSlashCreation(
+  removeReference: () => void,
+  trashResource: () => Promise<unknown>,
+): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  try {
+    removeReference();
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await trashResource();
+  } catch (error) {
+    errors.push(error);
+  }
+  return errors;
 }
 
 export function equationNodeContent(latex: string, displayMode: boolean) {
@@ -553,7 +598,6 @@ const commands: CommandTemplate[] = [
   },
 ];
 
-// "Turn into" commands — convert existing block, use set instead of toggle for headings
 const turnIntoCommands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
@@ -593,11 +637,9 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
-      // Grab remaining text (slash already deleted by executeCommand)
       const { state } = editor;
       const { $from } = state.selection;
       const text = $from.parent.textContent;
-      // Select the entire current block, then replace with toggle
       const blockStart = $from.start();
       const blockEnd = $from.end();
       editor
@@ -659,18 +701,22 @@ const turnIntoCommands: CommandTemplate[] = [
 export function SlashCommandMenu({
   editor,
   documentId,
+  contentSpaceId,
   suggesting = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
+  const labs = useLabs();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
+  const rollbackCreatedSlashDocument = useRollbackCreatedSlashDocument();
   const createInlineDatabase = useCreateInlineContentDatabase(
     documentId ?? null,
   );
+  const createFullPageDatabase = useCreateContentDatabase(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -683,7 +729,6 @@ export function SlashCommandMenu({
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
 
-  // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
     null,
@@ -800,44 +845,58 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      let pageId: string;
+      const pageId = crypto.randomUUID();
       try {
-        pageId = await createPage(documentId);
-      } catch {
+        await createPage(documentId, pageId);
+      } catch (error) {
+        try {
+          await rollbackCreatedSlashDocument.mutateAsync({
+            id: pageId,
+            parentId: documentId,
+          });
+        } catch (cleanupError) {
+          toast.error(t("editor.failedToCreatePage"), {
+            description: [error, cleanupError]
+              .map((value) =>
+                value instanceof Error
+                  ? value.message
+                  : t("empty.genericError"),
+              )
+              .join("; "),
+          });
+        }
         return;
       }
-      const pageReference = {
-        type: "notionBlockAtom",
-        attrs: {
-          tagName: "page",
-          attrsJson: JSON.stringify({
-            id: pageId,
-          }),
-          label: "Untitled",
-        },
-      };
-      const insertContent = [pageReference, { type: "paragraph" }];
-      const range = slashRange
-        ? (() => {
-            const $from = editor.state.doc.resolve(slashRange.from);
-            return $from.parent.isTextblock
-              ? { from: $from.before(), to: $from.after() }
-              : slashRange;
-          })()
-        : null;
-
-      if (range) {
-        editor.chain().focus().insertContentAt(range, insertContent).run();
-      } else {
-        const { $from } = editor.state.selection;
-        editor
-          .chain()
-          .focus()
-          .insertContentAt($from.after(), insertContent)
-          .run();
-      }
-      await waitForEditorUpdateFrame();
+      let parentPersisted = false;
       try {
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: "Untitled",
+          },
+        };
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .insertContentAt($from.after(), insertContent)
+            .run();
+        }
+        await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
           docToNfm(editor.getJSON() as any),
           {
@@ -848,12 +907,27 @@ export function SlashCommandMenu({
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
         } else {
-          await onDraftCommitted?.();
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
         }
+        parentPersisted = true;
       } catch (error) {
+        const cleanupErrors = parentPersisted
+          ? []
+          : await cleanupFailedSlashCreation(
+              () => removeCreatedPageReference(editor, pageId),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: pageId,
+                  parentId: documentId,
+                }),
+            );
         toast.error(t("editor.failedToCreatePage"), {
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
         });
         return;
       }
@@ -861,9 +935,10 @@ export function SlashCommandMenu({
     },
   };
 
-  const databaseCommand: CommandItem = {
-    title: t("editor.slash.database"),
-    description: t("editor.slash.databaseDescription"),
+  const inlineCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionInline"),
+    description: t("editor.slash.collectionInlineDescription"),
+    searchText: "database collection inline",
     icon: IconDatabase,
     preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
@@ -871,16 +946,24 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      if (slashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
-      }
       const toastId = toast.loading(t("editor.creatingDatabase"));
+      const createdDocumentId = crypto.randomUUID();
+      const createdOwnerBlockId = `inline-database-${crypto.randomUUID()}`;
+      let createdBlock: CreateInlineDatabaseResponse["block"] | null = null;
+      let parentPersisted = false;
       try {
         const result = await createInlineDatabase.mutateAsync({
           hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
+          newDocumentId: createdDocumentId,
+          ownerBlockId: createdOwnerBlockId,
         });
-        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        createdBlock = result.block;
+        const inserted = insertInlineDatabaseBlock(
+          editor,
+          result.block,
+          slashRange,
+        );
         if (!inserted) throw new Error(t("empty.genericError"));
         await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
@@ -893,14 +976,132 @@ export function SlashCommandMenu({
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
         } else {
-          await onDraftCommitted?.();
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
         }
+        parentPersisted = true;
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
+        const blockToCleanup = createdBlock;
+        const cleanupErrors = !parentPersisted
+          ? await cleanupFailedSlashCreation(
+              () =>
+                removeCreatedInlineCollection(
+                  editor,
+                  blockToCleanup?.ownerBlockId ?? createdOwnerBlockId,
+                ),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: createdDocumentId,
+                  parentId: documentId,
+                }),
+            )
+          : [];
         toast.error(t("editor.failedToCreateDatabase"), {
           id: toastId,
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
+        });
+      }
+    },
+  };
+
+  const fullPageCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionFullPage"),
+    description: t("editor.slash.collectionFullPageDescription"),
+    searchText: "database collection full page",
+    icon: IconDatabase,
+    preserveSlashRange: true,
+    action: async (editor, { slashRange }) => {
+      if (!documentId) {
+        toast.error(t("editor.noDocumentSelected"));
+        return;
+      }
+      const toastId = toast.loading(t("editor.creatingDatabase"));
+      let createdPageId: string | null = null;
+      let parentPersisted = false;
+      try {
+        const newDocumentId = crypto.randomUUID();
+        const request = contentDatabaseCreationRequest({
+          newDocumentId,
+          parentId: documentId,
+          spaceId: contentSpaceId,
+          title: t("editor.untitledDatabase"),
+        });
+        createdPageId = newDocumentId;
+        const result = await createFullPageDatabase
+          .mutateAsync(request)
+          .catch(() => createFullPageDatabase.mutateAsync(request));
+        const pageId = result.database.documentId;
+        createdPageId = pageId;
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: t("editor.untitledDatabase"),
+          },
+        };
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .insertContentAt($from.after(), insertContent)
+            .run();
+        }
+        await waitForEditorUpdateFrame();
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          { requiredText: `id="${pageId}"` },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
+        }
+        parentPersisted = true;
+        toast.success(t("editor.databaseCreated"), { id: toastId });
+        navigate(`/page/${pageId}`, { flushSync: true });
+      } catch (error) {
+        const pageIdToCleanup = createdPageId;
+        const cleanupErrors =
+          pageIdToCleanup && !parentPersisted
+            ? await cleanupFailedSlashCreation(
+                () => {
+                  if (createdPageId)
+                    removeCreatedPageReference(editor, createdPageId);
+                },
+                () =>
+                  rollbackCreatedSlashDocument.mutateAsync({
+                    id: pageIdToCleanup,
+                    parentId: documentId,
+                  }),
+              )
+            : [];
+        toast.error(t("editor.failedToCreateDatabase"), {
+          id: toastId,
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
         });
       }
     },
@@ -980,18 +1181,20 @@ export function SlashCommandMenu({
         },
       ];
 
-  // Registry-derived block items (the shared dev-doc / OpenAPI / structured
-  // library). Filtered to Notion-compatible specs when the document is linked to
-  // a Notion page. "Turn into" only converts the current text block, so these
-  // insert-only blocks are omitted there.
   const registryCommands = useMemo<CommandItem[]>(
     () =>
       isTurnInto
         ? []
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
+            policy: {
+              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
+              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
+              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
+              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+            },
           }) as unknown as CommandItem[]),
-    [isTurnInto, notionPageId],
+    [isTurnInto, labs, notionPageId],
   );
   const localComponentCommands = useMemo<CommandItem[]>(
     () =>
@@ -1017,7 +1220,9 @@ export function SlashCommandMenu({
     blockCommands,
     registryCommands,
   );
-  const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
+  const pageCommands = isTurnInto
+    ? []
+    : [pageCommand, inlineCollectionCommand, fullPageCollectionCommand];
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
@@ -1076,9 +1281,6 @@ export function SlashCommandMenu({
     const globalIndex = filteredCommands.indexOf(cmd);
     return (
       <CommandButton
-        // Title can collide across groups (e.g. the basic "Table" block and the
-        // registry "Table" block), so key by the stable position in the combined
-        // list to keep React keys unique.
         key={globalIndex}
         cmd={cmd}
         isSelected={globalIndex === selectedIndex}
@@ -1092,9 +1294,6 @@ export function SlashCommandMenu({
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
       if (editor.isDestroyed) return;
-      // A mode transition can leave a pointer callback queued from the prior
-      // render. Recheck the command at execution time before deleting the slash
-      // or invoking any upload, navigation, action, or external callback.
       if (!slashCommandAllowedInMode(cmd, suggestingRef.current)) return;
       const beforeDoc = editor.state.doc;
       const slashRange =
@@ -1110,11 +1309,6 @@ export function SlashCommandMenu({
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
-      // Structural slash commands (especially an empty table) can be followed
-      // immediately by another modal command or navigation before the normal
-      // debounced onUpdate save settles. Persist the completed command now so
-      // the durable snapshot cannot omit the block. Media placeholders are
-      // still held by VisualEditor's pending-media guard until they have a src.
       if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
         const persisted = await onDraftCommitted?.();
         if (persisted === false) {
@@ -1277,7 +1471,6 @@ export function SlashCommandMenu({
         setQuery(slashQuery);
         setSelectedIndex(0);
 
-        // Detect "turn into" mode: "/" is at start of a non-empty block
         const resolved = state.doc.resolve(slashStart);
         const parentNode = resolved.parent;
         const offsetInParent = resolved.parentOffset;
@@ -1317,9 +1510,6 @@ export function SlashCommandMenu({
       });
     };
 
-    // ProseMirror can scroll any ancestor after the slash transaction to reveal
-    // the caret. Recalculate after layout and capture those non-bubbling scroll
-    // events so a menu near the viewport edge flips using current geometry.
     updatePosition();
     document.addEventListener("scroll", updatePosition, true);
     window.addEventListener("resize", updatePosition);
@@ -1586,10 +1776,6 @@ export function CommandButton({
   const executeOnce = () => {
     if (pendingExecutionRef.current) return;
     pendingExecutionRef.current = true;
-    // Pointer selection can close and unmount the menu before the browser
-    // dispatches `click`. Start the command during mouse down, while the
-    // editor selection and button are both still alive. Keep `onClick` as the
-    // keyboard-generated click fallback and dedupe the normal pointer click.
     onExecuteRef.current();
     queueMicrotask(() => {
       pendingExecutionRef.current = false;

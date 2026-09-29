@@ -25,13 +25,11 @@ import {
 async function resolveCustomer(event: H3Event) {
   const { email, customerId, query } = getQuery(event);
 
-  // Direct customer ID lookup (fastest)
   if (customerId) {
     const customer = await getCustomerById(customerId as string);
     return [customer];
   }
 
-  // Email search (existing behavior)
   if (email) {
     const customers = await getCustomersByEmail(email as string);
     if (customers.length === 0) {
@@ -40,12 +38,9 @@ async function resolveCustomer(event: H3Event) {
     return customers;
   }
 
-  // Smart query search: try name first, then root_id metadata
   if (query) {
-    // Try name search first
     let customers = await searchCustomersByName(query as string);
 
-    // If no name matches, try root_id metadata search
     if (customers.length === 0) {
       customers = await getCustomersByRootId(query as string);
     }
@@ -60,7 +55,6 @@ async function resolveCustomer(event: H3Event) {
   throw new Error("Must provide email, customerId, or query parameter");
 }
 
-// GET /api/stripe/billing?email=...&months=6
 export const handleStripeBilling = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(
@@ -100,7 +94,6 @@ export const handleStripeBilling = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/stripe/payment-status?email=...
 export const handleStripePaymentStatus = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(
@@ -144,7 +137,6 @@ export const handleStripePaymentStatus = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/stripe/refunds?email=...
 export const handleStripeRefunds = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(
@@ -182,7 +174,6 @@ export const handleStripeRefunds = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/stripe/subscriptions?email=...
 export const handleStripeSubscriptions = defineEventHandler(async (event) => {
   return runApiHandlerWithContext(event, async () => {
     const missing = await requireCredential(
@@ -220,7 +211,6 @@ export const handleStripeSubscriptions = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/stripe/billing-by-product?email=...&months=6
 export const handleStripeBillingByProduct = defineEventHandler(
   async (event) => {
     return runApiHandlerWithContext(event, async () => {
@@ -241,7 +231,6 @@ export const handleStripeBillingByProduct = defineEventHandler(
           )
         ).flat();
 
-        // Merge duplicates across multiple customers
         const productMap = new Map<string, (typeof allProducts)[0]>();
         for (const product of allProducts) {
           const existing = productMap.get(product.productId);

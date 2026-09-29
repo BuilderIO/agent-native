@@ -1,5 +1,5 @@
 import {
-  AgentChatSurface,
+  AgentChatHome,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
@@ -53,39 +53,33 @@ export default function ChatRoute() {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="h-full"
-        defaultMode="chat"
-        storageKey="chat"
-        threadUrlSync={threadUrlSync}
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[
-          t("chat.suggestionCapabilities"),
-          t("chat.suggestionCustomize"),
-          t("chat.suggestionActions"),
-        ]}
-        emptyStateText={t("chat.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("chat.composerPlaceholder")}
-        composerSlot={
-          <div className="mx-auto mb-5 max-w-xl px-4 text-center">
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              {t("chat.heroTitle")}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {t("chat.heroDescription")}
-            </p>
-          </div>
-        }
-      />
-    </div>
+    <AgentChatHome
+      className="h-full min-h-0"
+      chatViewTransition
+      defaultMode="chat"
+      storageKey="chat"
+      threadUrlSync={threadUrlSync}
+      browserTabId={TAB_ID}
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[
+        t("chat.suggestionCapabilities"),
+        t("chat.suggestionCustomize"),
+        t("chat.suggestionActions"),
+      ]}
+      emptyStateText={t("chat.emptyState")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("chat.composerPlaceholder")}
+      homeIntroSlot={
+        <div className="mx-auto max-w-xl px-4 text-center">
+          <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
+            {t("chat.heroTitle")}
+          </h1>
+        </div>
+      }
+    />
   );
 }

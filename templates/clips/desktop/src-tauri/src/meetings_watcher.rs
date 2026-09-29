@@ -14,17 +14,24 @@
 //!      backend origin (read from `localStorage["clips:server-url"]`).
 //!   2. `meetings_watcher_set_session(cookieString)` — passes
 //!      `document.cookie` plus the desktop bearer token so the Rust-side
-//!      fetch can authenticate. **Without this, the watcher hits 401 in
-//!      production and silently never alerts on any meeting.** The renderer
-//!      should re-push the session whenever it refreshes (e.g. after sign-in,
-//!      after switching orgs, or on reconnect).
+//!      fetch can authenticate. **Without this, the watcher has no
+//!      credentials to send, skips its poll entirely, and silently never
+//!      alerts on any meeting.** The renderer should re-push the session
+//!      whenever it refreshes (e.g. after sign-in, after switching orgs, or
+//!      on reconnect).
 //!
 //! On every successful poll the watcher emits `meetings:updated` with the
 //! latest snapshot — `tray.rs` listens for this and rebuilds the tray menu
 //! so the "Upcoming Meetings" submenu stays live.
 //!
 //! On 401 the watcher emits `meetings:auth-needed` so the renderer can
-//! re-push a fresh cookie or surface a re-login prompt.
+//! re-push a fresh cookie or surface a re-login prompt, then backs off
+//! (`UnauthorizedRetry`) instead of retrying that same pair every tick, and
+//! after `UNAUTHORIZED_PAUSE_AFTER` rejections in a row stops polling that
+//! pair entirely — a stuck install with a dead session would otherwise poll
+//! prod forever. A renderer repush that changes the credential pair (sign-in)
+//! is retried on the very next tick, and `meetings_watcher_resume_polling`
+//! (the popover opening with a live session) clears every pause.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -39,19 +46,12 @@ use crate::tray_meetings::MeetingItem as TrayMeetingItem;
 
 const MEETING_POLL_LIMIT: u8 = 10;
 
-/// Show the reminder starting this many seconds before meeting start.
 const NOTIFY_LEAD_SECS: i64 = 60;
 
-/// Keep reminding eligible (until dismissed / acted on) this many seconds
-/// after the scheduled start. Overlay auto-hide mirrors this hold window.
 const NOTIFY_HOLD_AFTER_START_SECS: i64 = 5 * 60;
 
-/// Forget de-dupe / snooze entries once a meeting's start is this far past, so
-/// the maps don't grow unbounded across a long-running session.
 const STALE_AFTER_SECS: i64 = 30 * 60;
 
-/// Seconds until the given RFC3339 instant (negative = past). Unparseable
-/// strings sort as far-past so they get pruned.
 fn parse_secs_until(rfc3339: &str, now: chrono::DateTime<chrono::Utc>) -> i64 {
     chrono::DateTime::parse_from_rfc3339(rfc3339)
         .map(|s| {
@@ -62,9 +62,6 @@ fn parse_secs_until(rfc3339: &str, now: chrono::DateTime<chrono::Utc>) -> i64 {
         .unwrap_or(i64::MIN)
 }
 
-/// Shared state for the watcher loop. Lives behind a Mutex; the watcher task
-/// reads it on every tick. The frontend pokes `set_server_url` /
-/// `set_session` to update.
 #[derive(Default)]
 pub struct MeetingsWatcherState {
     inner: Mutex<MeetingsWatcherInner>,
@@ -73,32 +70,91 @@ pub struct MeetingsWatcherState {
 #[derive(Default)]
 struct MeetingsWatcherInner {
     server_url: Option<String>,
-    /// Raw `document.cookie` string forwarded from the renderer.
     session_cookie: Option<String>,
-    /// Legacy framework session token persisted by the desktop renderer.
     auth_token: Option<String>,
-    /// The renderer's entitlement for the experimental meetings experience.
-    /// Keep this off until a successful preference read enables it.
     lab_enabled: bool,
-    /// meetingId -> the scheduledStart we last alerted for. Keyed by start time
-    /// so a rescheduled meeting (same id, new time) re-notifies instead of
-    /// being suppressed forever; pruned once the start is well in the past.
     notified: HashMap<String, String>,
-    /// meetingId -> unix-seconds deadline. While now < deadline the meeting is
-    /// skipped; once it passes we re-fire the reminder exactly once.
     snoozed_until: HashMap<String, i64>,
-    /// platform -> unix-seconds when a calendar reminder last fired. Soft
-    /// guard so adhoc Zoom/Teams detection doesn't double-prompt right after
-    /// a calendar banner for the same app.
     last_calendar_notify_at: HashMap<String, i64>,
+    unauthorized: HashMap<Poller, UnauthorizedRetry>,
 }
 
-/// Snapshot of auth fields the adhoc watcher needs to POST create-meeting.
 #[derive(Clone, Default)]
 pub struct MeetingsSessionSnapshot {
     pub server_url: Option<String>,
     pub session_cookie: Option<String>,
     pub auth_token: Option<String>,
+}
+
+pub(crate) type SessionCredentials = (Option<String>, Option<String>);
+
+const UNAUTHORIZED_RETRY_CAP: Duration = Duration::from_secs(5 * 60);
+
+/// More than one, so a single 401 during a deploy can't stop polling until
+/// the user happens to sign in again.
+const UNAUTHORIZED_PAUSE_AFTER: u32 = 3;
+
+/// Every background caller that authenticates with the session this state
+/// holds. Each gets its own rejection budget so one poller's pause never
+/// hides another's first attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Poller {
+    Meetings,
+    FeatureFlags,
+    AdhocMeetings,
+}
+
+pub(crate) struct UnauthorizedRetry {
+    credentials: SessionCredentials,
+    backoff: Duration,
+    next_attempt_at: std::time::Instant,
+    rejections: u32,
+}
+
+impl UnauthorizedRetry {
+    pub(crate) fn after(
+        previous: Option<&UnauthorizedRetry>,
+        credentials: SessionCredentials,
+        base: Duration,
+        now: std::time::Instant,
+    ) -> Self {
+        let (backoff, rejections) = match previous {
+            Some(p) if p.credentials == credentials => (
+                (p.backoff * 2).min(UNAUTHORIZED_RETRY_CAP),
+                p.rejections + 1,
+            ),
+            _ => (base, 1),
+        };
+        Self {
+            credentials,
+            backoff,
+            next_attempt_at: now + backoff,
+            rejections,
+        }
+    }
+
+    pub(crate) fn is_paused(&self) -> bool {
+        self.rejections >= UNAUTHORIZED_PAUSE_AFTER
+    }
+
+    pub(crate) fn should_skip(
+        &self,
+        credentials: &SessionCredentials,
+        now: std::time::Instant,
+    ) -> bool {
+        &self.credentials == credentials && (self.is_paused() || now < self.next_attempt_at)
+    }
+}
+
+pub(crate) fn should_poll(
+    retry: Option<&UnauthorizedRetry>,
+    credentials: &SessionCredentials,
+    now: std::time::Instant,
+) -> bool {
+    if *credentials == (None, None) {
+        return false;
+    }
+    !retry.is_some_and(|r| r.should_skip(credentials, now))
 }
 
 impl MeetingsWatcherState {
@@ -111,6 +167,54 @@ impl MeetingsWatcherState {
             g.last_calendar_notify_at.clear();
         }
         Ok(())
+    }
+
+    pub(crate) fn should_poll(
+        &self,
+        poller: Poller,
+        credentials: &SessionCredentials,
+        now: std::time::Instant,
+    ) -> bool {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        should_poll(g.unauthorized.get(&poller), credentials, now)
+    }
+
+    /// Returns true when this rejection paused the poller.
+    pub(crate) fn note_unauthorized(
+        &self,
+        poller: Poller,
+        credentials: SessionCredentials,
+        base: Duration,
+        now: std::time::Instant,
+    ) -> bool {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let retry = UnauthorizedRetry::after(g.unauthorized.get(&poller), credentials, base, now);
+        let paused = retry.is_paused();
+        g.unauthorized.insert(poller, retry);
+        if paused {
+            dlog!(
+                "[clips-tray] {:?} paused after {} rejections with the same session",
+                poller,
+                UNAUTHORIZED_PAUSE_AFTER
+            );
+        }
+        paused
+    }
+
+    pub(crate) fn note_authorized(&self, poller: Poller, credentials: &SessionCredentials) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let matches = g
+            .unauthorized
+            .get(&poller)
+            .is_some_and(|retry| &retry.credentials == credentials);
+        if matches {
+            g.unauthorized.remove(&poller);
+        }
+    }
+
+    pub fn resume_polling(&self) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.unauthorized.clear();
     }
 
     pub fn lab_enabled(&self) -> Result<bool, String> {
@@ -139,7 +243,6 @@ impl MeetingsWatcherState {
         }
     }
 
-    /// True if a calendar reminder for `platform` fired within `within_secs`.
     pub fn recent_calendar_notify(&self, platform: &str, within_secs: i64) -> bool {
         let Ok(g) = self.inner.lock() else {
             return false;
@@ -158,6 +261,16 @@ pub async fn meetings_watcher_set_lab_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     state.set_lab_enabled(enabled)
+}
+
+/// Called when the popover opens with a session the server still accepts, so a
+/// poller paused by rejections during a deploy blip picks back up.
+#[tauri::command]
+pub async fn meetings_watcher_resume_polling(
+    state: tauri::State<'_, MeetingsWatcherState>,
+) -> Result<(), String> {
+    state.resume_polling();
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -205,10 +318,6 @@ pub async fn meetings_watcher_set_server_url(
     Ok(())
 }
 
-/// Forward the renderer's `document.cookie` to the Rust fetch loop. Called
-/// from the popover on boot and after any sign-in change. Empty strings
-/// clear the cookie (forces 401 → `meetings:auth-needed` → renderer
-/// re-pushes).
 #[tauri::command]
 pub async fn meetings_watcher_set_session(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -241,10 +350,6 @@ pub async fn meetings_watcher_set_session(
     Ok(())
 }
 
-/// Snooze an upcoming-meeting reminder for `minutes` (default 5). Recorded in
-/// the watcher so the next tick skips the meeting until the deadline, then
-/// re-fires once. The renderer just invokes this and closes the banner — a
-/// `setTimeout` inside the overlay webview would die when the window closes.
 #[tauri::command]
 pub async fn meetings_snooze(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -255,14 +360,11 @@ pub async fn meetings_snooze(
     let until = chrono::Utc::now().timestamp() + mins * 60;
     if let Ok(mut g) = state.inner.lock() {
         g.snoozed_until.insert(meeting_id.clone(), until);
-        // Clear the de-dupe entry so it can alert again after the snooze.
         g.notified.remove(&meeting_id);
     }
     Ok(())
 }
 
-/// Spawn the long-running watcher task. Idempotent in practice — gated on
-/// a static OnceLock so a double-call from setup is safe.
 pub fn spawn_watcher(app: AppHandle) {
     use std::sync::OnceLock;
     static STARTED: OnceLock<()> = OnceLock::new();
@@ -274,9 +376,10 @@ pub fn spawn_watcher(app: AppHandle) {
     });
 }
 
+const MEETINGS_UNAUTHORIZED_RETRY_BASE: Duration = Duration::from_secs(10);
+
 async fn run_watcher(app: AppHandle) {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
-    // Skip the first tick — gives the frontend time to push us a server URL.
     interval.tick().await;
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -289,14 +392,18 @@ async fn run_watcher(app: AppHandle) {
         }
     };
     loop {
-        interval.tick().await;
-        if let Err(err) = tick_once(&app, &client).await {
+        let now = interval.tick().await.into_std();
+        if let Err(err) = tick_once(&app, &client, now).await {
             eprintln!("[clips-tray] meetings_watcher tick failed: {err}");
         }
     }
 }
 
-async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), String> {
+async fn tick_once(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    now: std::time::Instant,
+) -> Result<(), String> {
     let config = feature_config(app);
     if !config.meetings_enabled {
         return Ok(());
@@ -320,18 +427,18 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let Some(server_url) = server_url else {
         return Ok(());
     };
+    let credentials: SessionCredentials = (cookie.clone(), auth_token.clone());
+    if !state.should_poll(Poller::Meetings, &credentials, now) {
+        return Ok(());
+    }
 
     let url = format!("{}/_agent-native/actions/list-meetings", server_url);
     let limit = MEETING_POLL_LIMIT.to_string();
-    // Include meetings that started within the hold window so a late-open
-    // desktop still surfaces the reminder until 5 minutes after start.
     let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60 + 1).to_string();
     let mut req = client.get(&url).query(&[
         ("view", "upcoming"),
         ("limit", limit.as_str()),
         ("upcomingWithinMin", within_min.as_str()),
-        // list-meetings also uses this for the lower bound when we widen the
-        // upcoming window to include recently-started events (see action).
         ("includeStartedWithinMin", "5"),
         ("excludePersonalSoloEvents", "true"),
         ("excludeDeclinedEvents", "true"),
@@ -348,22 +455,26 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         .await
         .map_err(|e| format!("fetch meetings: {e}"))?;
     let status = resp.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        // Tell the renderer to re-push a fresh cookie or surface a
-        // re-login prompt. We keep silently retrying every 10s - once
-        // the renderer pushes a new cookie via
-        // `meetings_watcher_set_session` we'll succeed on the next tick.
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
-        return Err("list-meetings http 401 — meetings:auth-needed emitted".to_string());
+        state.note_unauthorized(
+            Poller::Meetings,
+            credentials,
+            MEETINGS_UNAUTHORIZED_RETRY_BASE,
+            now,
+        );
+        return Err(format!(
+            "list-meetings http {} — meetings:auth-needed emitted",
+            status.as_u16()
+        ));
     }
     if !status.is_success() {
         return Err(format!("list-meetings http {}", status));
     }
+    state.note_authorized(Poller::Meetings, &credentials);
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     let meetings = parse_meetings(&body);
 
-    // Push the snapshot to listeners (tray.rs uses this to rebuild its
-    // menu so the "Upcoming Meetings" submenu stays current).
     let snapshot: Vec<TrayMeetingItem> = meetings
         .iter()
         .take(3)
@@ -393,9 +504,6 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         let current_start = start_str.to_string();
         let secs_until = parse_secs_until(start_str, now);
 
-        // Decide whether to alert, under a single lock: honor snooze, prune
-        // stale entries, and de-dupe on (meetingId, scheduledStart) so a moved
-        // meeting re-notifies instead of being suppressed forever.
         let should_notify = {
             let state = app.state::<MeetingsWatcherState>();
             let mut g = state.inner.lock().map_err(|e| e.to_string())?;
@@ -405,15 +513,12 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
             g.snoozed_until
                 .retain(|_, until| *until > now_ts - STALE_AFTER_SECS);
 
-            // Eligible from 1 min before start through 5 min after start.
-            // secs_until > 0 => still upcoming; negative => already started.
             let in_window =
                 secs_until <= NOTIFY_LEAD_SECS && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
 
             let eligible = match g.snoozed_until.get(&m.id).copied() {
                 Some(until) if now_ts < until => false, // still snoozed
                 Some(_) => {
-                    // Snooze elapsed — re-fire if still inside the hold window.
                     g.snoozed_until.remove(&m.id);
                     in_window
                 }
@@ -446,13 +551,6 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
                 state.note_calendar_notify(m.platform.as_deref());
             }
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
-            // Awaited, not spawned. The stored payload has to exist before
-            // auto-start is announced below: startup acknowledges itself with
-            // `meetings:hide-notification`, and an acknowledgement that arrives
-            // before the payload was stored clears nothing, leaving a spawned
-            // task free to install a "Take notes?" card over a meeting that is
-            // already recording. Ordering it here makes that impossible rather
-            // than unlikely, and matches the ad-hoc path.
             if let Err(err) = crate::notifications::notify_meeting_starting(
                 app.clone(),
                 m.id.clone(),
@@ -531,13 +629,6 @@ pub(crate) fn find_matching_calendar_meeting(
     Some((*meeting).clone())
 }
 
-/// `parse_meetings`, but able to say "this was not a meetings list at all".
-///
-/// `None` means no recognized list key and not a bare array — a changed
-/// envelope, or a 200 carrying an error payload. A caller that is about to
-/// *write* based on the answer needs that apart from `Some(vec![])`: an empty
-/// list is a checked "no such meeting", while an unreadable body says nothing,
-/// and treating the second as the first is how a duplicate row gets inserted.
 pub(crate) fn try_parse_meetings(body: &serde_json::Value) -> Option<Vec<MeetingItem>> {
     let payload = body.get("result").unwrap_or(body);
     if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(payload.clone()) {
@@ -554,20 +645,212 @@ pub(crate) fn try_parse_meetings(body: &serde_json::Value) -> Option<Vec<Meeting
     serde_json::from_value::<Vec<MeetingItem>>(payload.clone()).ok()
 }
 
-/// Read-only callers, where "no meetings" and "cannot tell" lead to the same
-/// harmless outcome: nothing to remind about, nothing to enrich with.
 pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
     try_parse_meetings(body).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use chrono::{TimeZone, Utc};
 
     use super::{
         find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings,
-        MeetingsWatcherState,
+        should_poll, MeetingsWatcherState, Poller, UnauthorizedRetry,
     };
+
+    #[test]
+    fn should_poll_skips_with_no_credentials_at_all() {
+        let now = Instant::now();
+        assert!(!should_poll(None, &(None, None), now));
+    }
+
+    #[test]
+    fn should_poll_allows_a_fresh_pair_with_no_backoff_state() {
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        assert!(should_poll(None, &creds, now));
+    }
+
+    #[test]
+    fn should_poll_skips_the_same_pair_during_backoff_and_allows_it_after() {
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let retry = Some(UnauthorizedRetry::after(
+            None,
+            creds.clone(),
+            Duration::from_secs(10),
+            now,
+        ));
+
+        assert!(!should_poll(
+            retry.as_ref(),
+            &creds,
+            now + Duration::from_secs(5)
+        ));
+        assert!(should_poll(
+            retry.as_ref(),
+            &creds,
+            now + Duration::from_secs(10)
+        ));
+    }
+
+    #[test]
+    fn should_poll_ignores_backoff_when_credentials_change() {
+        let now = Instant::now();
+        let stale = (Some("stale-cookie".to_string()), None);
+        let fresh = (Some("fresh-cookie".to_string()), None);
+        let retry = Some(UnauthorizedRetry::after(
+            None,
+            stale,
+            Duration::from_secs(300),
+            now,
+        ));
+
+        assert!(should_poll(retry.as_ref(), &fresh, now));
+    }
+
+    #[test]
+    fn unauthorized_retry_skips_the_same_pair_until_backoff_elapses() {
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let retry = UnauthorizedRetry::after(None, creds.clone(), Duration::from_secs(10), now);
+
+        assert!(retry.should_skip(&creds, now));
+        assert!(retry.should_skip(&creds, now + Duration::from_secs(9)));
+        assert!(!retry.should_skip(&creds, now + Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn unauthorized_retry_ignores_backoff_when_credentials_change() {
+        let now = Instant::now();
+        let stale = (Some("stale-cookie".to_string()), None);
+        let fresh = (Some("fresh-cookie".to_string()), None);
+        let retry = UnauthorizedRetry::after(None, stale, Duration::from_secs(300), now);
+
+        assert!(!retry.should_skip(&fresh, now));
+    }
+
+    #[test]
+    fn unauthorized_retry_doubles_and_caps_at_five_minutes() {
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), Some("token".to_string()));
+        let base = Duration::from_secs(10);
+
+        let mut retry = UnauthorizedRetry::after(None, creds.clone(), base, now);
+        assert_eq!(retry.backoff, base);
+        for _ in 0..10 {
+            retry = UnauthorizedRetry::after(Some(&retry), creds.clone(), base, now);
+        }
+        assert_eq!(retry.backoff, Duration::from_secs(5 * 60));
+    }
+
+    #[test]
+    fn unauthorized_retry_pauses_the_same_pair_after_three_rejections() {
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        let first = UnauthorizedRetry::after(None, creds.clone(), base, now);
+        let second = UnauthorizedRetry::after(Some(&first), creds.clone(), base, now);
+        assert!(!second.is_paused(), "two rejections still retry");
+        assert!(!second.should_skip(&creds, now + Duration::from_secs(60 * 60)));
+
+        let third = UnauthorizedRetry::after(Some(&second), creds.clone(), base, now);
+        assert!(third.is_paused());
+        assert!(
+            third.should_skip(&creds, now + Duration::from_secs(24 * 60 * 60)),
+            "a paused pair is never retried on a timer"
+        );
+        assert!(
+            !third.should_skip(&(Some("fresh".to_string()), None), now),
+            "signing in again resumes"
+        );
+    }
+
+    #[test]
+    fn a_rejection_with_new_credentials_restarts_the_count() {
+        let now = Instant::now();
+        let stale = (Some("stale".to_string()), None);
+        let fresh = (Some("fresh".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        let mut retry = UnauthorizedRetry::after(None, stale.clone(), base, now);
+        retry = UnauthorizedRetry::after(Some(&retry), stale, base, now);
+        retry = UnauthorizedRetry::after(Some(&retry), fresh, base, now);
+        assert_eq!(retry.rejections, 1);
+        assert!(!retry.is_paused());
+    }
+
+    #[test]
+    fn pollers_pause_independently_and_resume_together() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        assert!(!state.note_unauthorized(Poller::Meetings, creds.clone(), base, now));
+        assert!(!state.note_unauthorized(Poller::Meetings, creds.clone(), base, now));
+        assert!(state.note_unauthorized(Poller::Meetings, creds.clone(), base, now));
+
+        let later = now + Duration::from_secs(60 * 60);
+        assert!(!state.should_poll(Poller::Meetings, &creds, later));
+        assert!(state.should_poll(Poller::FeatureFlags, &creds, later));
+
+        state.resume_polling();
+        assert!(state.should_poll(Poller::Meetings, &creds, now));
+    }
+
+    #[test]
+    fn a_successful_adhoc_create_clears_the_rejection_count() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        state.note_unauthorized(Poller::AdhocMeetings, creds.clone(), base, now);
+        state.note_unauthorized(Poller::AdhocMeetings, creds.clone(), base, now);
+        state.note_authorized(Poller::AdhocMeetings, &creds);
+
+        assert!(!state.note_unauthorized(Poller::AdhocMeetings, creds, base, now));
+    }
+
+    #[test]
+    fn a_successful_feature_flags_refresh_clears_the_rejection_count() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        state.note_unauthorized(Poller::FeatureFlags, creds.clone(), base, now);
+        state.note_unauthorized(Poller::FeatureFlags, creds.clone(), base, now);
+        state.note_authorized(Poller::FeatureFlags, &creds);
+
+        assert!(!state.note_unauthorized(Poller::FeatureFlags, creds, base, now));
+    }
+
+    #[test]
+    fn stale_authorized_result_does_not_clear_a_new_session_rejection() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let stale = (Some("stale-cookie".to_string()), None);
+        let current = (Some("current-cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        for _ in 0..super::UNAUTHORIZED_PAUSE_AFTER {
+            state.note_unauthorized(Poller::Meetings, stale.clone(), base, now);
+        }
+        for _ in 0..super::UNAUTHORIZED_PAUSE_AFTER {
+            state.note_unauthorized(Poller::Meetings, current.clone(), base, now);
+        }
+
+        state.note_authorized(Poller::Meetings, &stale);
+        assert!(!state.should_poll(Poller::Meetings, &current, now));
+
+        state.note_authorized(Poller::Meetings, &current);
+        assert!(state.should_poll(Poller::Meetings, &current, now));
+    }
 
     #[test]
     fn meetings_lab_defaults_off_and_can_be_toggled() {

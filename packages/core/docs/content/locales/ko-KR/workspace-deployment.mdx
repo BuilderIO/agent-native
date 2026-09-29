@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-내부적으로 각 앱은 `APP_BASE_PATH`/`VITE_APP_BASE_PATH`로 설정되는 `/mail` 같은 URL 접두사인 자체 **base path**로 빌드된 다음, 대상 Nitro 프리셋에 맞게 패키징됩니다. Cloudflare Pages는 생성된 **디스패처 워커(dispatcher worker)**, 즉 들어오는 경로를 읽어 해당하는 앱으로 요청을 전달하는 `dist/_worker.js`의 작은 스크립트를 통해 라우팅합니다. Netlify는 앱마다 하나의 함수와 생성된 리디렉션을 사용합니다. Vercel은 Build Output API를 사용해 작업 공간 수준의 `.vercel/output`을 작성합니다.
+내부적으로 각 앱은 `APP_BASE_PATH`/`VITE_APP_BASE_PATH`로 설정되는 `/mail` 같은 URL 접두사인 자체 **base path**로 빌드된 다음, 대상 Nitro 프리셋에 맞게 패키징됩니다. **Netlify**가 기본값입니다. 앱마다 하나의 함수와 생성된 리디렉션을 사용합니다. Vercel은 Build Output API를 사용해 작업 공간 수준의 `.vercel/output`을 작성합니다.
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (기본값)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify(기본값)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -140,7 +129,7 @@ npx @agent-native/core@latest deploy
 
 직접 배포하는 대신 제공업체의 빌드 명령을 연결하시나요? 동일한 명령에 `--build-only`를 추가하세요. 예를 들면 `npx @agent-native/core@latest deploy --preset vercel --build-only`입니다. 출력물을 직접 작성하므로 작업 공간 라우팅을 위한 `vercel.json`이 필요하지 않습니다.
 
-하나의 공유 오리진 대신 앱마다 별도 도메인을 선호하시나요? 작업 공간의 모든 앱은 여전히 독립적으로 배포할 수 있습니다. 독립형 스캐폴드처럼 `cd apps/<name> && npx @agent-native/core@latest build`를 실행하세요.
+하나의 공유 오리진 대신 앱마다 별도 도메인을 선호하시나요? 작업 공간의 모든 앱은 여전히 독립적으로 배포할 수 있습니다. 독립형 스캐폴드처럼 `cd apps/<name> && pnpm build`를 실행하세요.
 
 </Callout>
 
@@ -217,7 +206,7 @@ npx @agent-native/core@latest deploy
 base path는 클라이언트 번들에는 빌드 타임 입력값이고 서버에는 런타임 입력값입니다. 프록시가 라우팅할 경로와 동일한 경로로 각 앱을 빌드하세요:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

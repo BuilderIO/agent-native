@@ -40,7 +40,7 @@ vi.mock("react-router", () => ({
   ),
 }));
 
-vi.mock("@/components/player/recording-views-badge", () => ({
+vi.mock("@/components/player/agent-view-count", () => ({
   AgentViewCount: () => null,
 }));
 
@@ -106,6 +106,7 @@ const recording: RecordingSummary = {
   id: "recording-1",
   title: "Test recording",
   description: "",
+  kind: "video",
   thumbnailUrl: null,
   animatedThumbnailUrl: null,
   durationMs: 1_000,

@@ -9,7 +9,7 @@ export type InboxPillData = {
   hintKey?: string;
 };
 
-type PillTone =
+export type PillTone =
   | "muted"
   | "success"
   | "warning"
@@ -19,7 +19,7 @@ type PillTone =
   | "progress";
 
 const TONE_CLASS: Record<PillTone, string> = {
-  muted: "bg-muted text-muted-foreground",
+  muted: "bg-secondary text-secondary-foreground",
   success: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   warning: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
   danger: "bg-destructive/10 text-destructive",
@@ -30,6 +30,8 @@ const TONE_CLASS: Record<PillTone, string> = {
 
 function riskTone(risk?: string | null): PillTone {
   switch (risk?.toLowerCase()) {
+    case "negligible":
+      return "muted";
     case "low":
       return "success";
     case "medium":
@@ -37,6 +39,19 @@ function riskTone(risk?: string | null): PillTone {
     case "high":
       return "high";
     case "critical":
+      return "danger";
+    default:
+      return "muted";
+  }
+}
+
+function confidenceTone(confidence?: string | null): PillTone {
+  switch (confidence?.toLowerCase()) {
+    case "high":
+      return "success";
+    case "medium":
+      return "warning";
+    case "low":
       return "danger";
     default:
       return "muted";
@@ -64,7 +79,13 @@ function statusTone(status?: string | null): PillTone {
   }
 }
 
-function Pill({ value, tone }: { value?: string | null; tone: PillTone }) {
+export function Pill({
+  value,
+  tone,
+}: {
+  value?: string | null;
+  tone: PillTone;
+}) {
   return (
     <span
       className={cn(
@@ -79,6 +100,14 @@ function Pill({ value, tone }: { value?: string | null; tone: PillTone }) {
 
 export function TriageRiskPill({ risk }: { risk?: string | null }) {
   return <Pill value={risk} tone={riskTone(risk)} />;
+}
+
+export function TriageConfidencePill({
+  confidence,
+}: {
+  confidence?: string | null;
+}) {
+  return <Pill value={confidence} tone={confidenceTone(confidence)} />;
 }
 
 export function TriageStatusPill({ status }: { status?: string | null }) {

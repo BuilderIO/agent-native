@@ -5,15 +5,76 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, vi } from "vitest";
 import { describe, expect, it } from "vitest";
 
+const appBridgeHarness = vi.hoisted(() => ({
+  app: null as any,
+  enabled: false,
+  connected: null as Promise<void> | null,
+  toolInput: null as any,
+  toolResult: null as any,
+}));
+
+vi.mock("@modelcontextprotocol/ext-apps/app-bridge", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@modelcontextprotocol/ext-apps/app-bridge")
+    >();
+
+  class TestPostMessageTransport {
+    peer: TestPostMessageTransport | null = null;
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    onmessage?: (message: any) => void;
+
+    async start() {
+      if (!appBridgeHarness.enabled || this.peer) return;
+      const viewTransport = new TestPostMessageTransport();
+      this.peer = viewTransport;
+      viewTransport.peer = this;
+
+      const { App } = await import("@modelcontextprotocol/ext-apps");
+      const app = new App(
+        { name: "Test MCP App", version: "1.0.0" },
+        {},
+        { autoResize: false },
+      );
+      app.ontoolinput = (params: unknown) => {
+        appBridgeHarness.toolInput = params;
+      };
+      app.ontoolresult = (params: unknown) => {
+        appBridgeHarness.toolResult = params;
+      };
+      appBridgeHarness.app = app;
+      appBridgeHarness.connected = app.connect(viewTransport as any);
+      await appBridgeHarness.connected;
+    }
+
+    async send(message: any) {
+      queueMicrotask(() => this.peer?.onmessage?.(message));
+    }
+
+    async close() {
+      this.onclose?.();
+    }
+  }
+
+  return { ...actual, PostMessageTransport: TestPostMessageTransport };
+});
+
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
   AGENT_NATIVE_EMBED_VERSION,
 } from "../../embedding/protocol.js";
+import { callMcpTool, listVisibleMcpTools } from "../../mcp-client/app-api.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { setGlobalMcpManager } from "../../server/agent-chat/mcp-glue.js";
+import { runWithRequestContext } from "../../server/request-context.js";
+import { OptionalPeerDependencyError } from "../../shared/optional-peer.js";
+import * as optionalPeers from "../../shared/optional-peer.js";
 import {
   buildMcpAppCsp,
   clampMcpAppHeight,
+  createReadOnlyMcpAppSrcDoc,
   DEFAULT_MCP_APP_IFRAME_HEIGHT,
   isMcpAppReadyMessage,
   MCP_APP_INITIALIZE_TIMEOUT_MS,
@@ -32,9 +93,16 @@ describe("McpAppRenderer security helpers", () => {
     root = createRoot(container);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     act(() => root.unmount());
     container.remove();
+    await appBridgeHarness.app?.close().catch(() => undefined);
+    appBridgeHarness.app = null;
+    appBridgeHarness.enabled = false;
+    appBridgeHarness.connected = null;
+    appBridgeHarness.toolInput = null;
+    appBridgeHarness.toolResult = null;
+    setGlobalMcpManager(null as any);
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -199,6 +267,177 @@ describe("McpAppRenderer security helpers", () => {
 
     expect(container.textContent).not.toContain(
       "MCP App did not finish initializing.",
+    );
+  });
+
+  it("initializes the v2 bridge and proxies MCP tool listing and calls through the app API", async () => {
+    appBridgeHarness.enabled = true;
+    const callTool = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "tool result" }],
+    }));
+    const tool = {
+      source: "apps",
+      name: "mcp__apps__inspect",
+      originalName: "inspect",
+      description: "Inspect an item",
+      inputSchema: { type: "object" },
+      raw: {
+        name: "inspect",
+        _meta: { ui: { visibility: ["app"] } },
+      },
+    };
+    const endpoints: string[] = [];
+    setGlobalMcpManager({
+      getTools: () => [tool],
+      getToolsForServer: (serverId: string) =>
+        serverId === "apps" ? [tool] : [],
+      callTool,
+    } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const endpoint = new URL(String(input), "http://localhost").pathname;
+        endpoints.push(endpoint);
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        if (
+          !endpoint.endsWith("/list-tools") &&
+          !endpoint.endsWith("/call-tool")
+        ) {
+          throw new Error(`Unexpected MCP App endpoint: ${endpoint}`);
+        }
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme" },
+          () =>
+            endpoint.endsWith("/list-tools")
+              ? listVisibleMcpTools({ serverId: body.serverId })
+              : callMcpTool(body.serverId, body.toolName, body.arguments),
+        );
+        return Response.json(
+          endpoint.endsWith("/list-tools") ? { tools: response } : response,
+        );
+      }),
+    );
+    const payload = {
+      ...mcpAppPayload({
+        resourceHtml:
+          "<!doctype html><html><body>Interactive app</body></html>",
+        openUrl: "https://plan.agent-native.com/plans/plan-123",
+      }),
+      serverId: "apps",
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(McpAppRenderer, {
+          app: payload,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => expect(appBridgeHarness.connected).toBeTruthy());
+      await appBridgeHarness.connected;
+      await vi.waitFor(() => expect(appBridgeHarness.toolInput).not.toBeNull());
+      expect(appBridgeHarness.app).not.toBeNull();
+    });
+    expect(appBridgeHarness.toolInput).toEqual({ arguments: { embed: true } });
+    expect(appBridgeHarness.toolResult).toEqual({
+      content: [],
+      structuredContent: payload.toolResult.structuredContent,
+    });
+
+    let listed: any;
+    await act(async () => {
+      listed = await appBridgeHarness.app.request({
+        method: "tools/list",
+        params: {},
+      });
+    });
+    expect(listed.tools).toEqual([
+      expect.objectContaining({
+        name: "inspect",
+        description: "Inspect an item",
+      }),
+    ]);
+
+    let result: any;
+    await act(async () => {
+      result = await appBridgeHarness.app.callServerTool({
+        name: "inspect",
+        arguments: { id: "item-1" },
+      });
+    });
+    expect(result).toEqual({
+      content: [{ type: "text", text: "tool result" }],
+    });
+    expect(callTool).toHaveBeenCalledWith("mcp__apps__inspect", {
+      id: "item-1",
+    });
+    expect(endpoints).toEqual([
+      "/_agent-native/mcp/apps/list-tools",
+      "/_agent-native/mcp/apps/call-tool",
+    ]);
+  });
+
+  it("renders saved app markup as a sanitized non-scripted snapshot", async () => {
+    const payload = mcpAppPayload({
+      resourceHtml:
+        '<!doctype html><script>window.leak = true</script><html><head><meta http-equiv="refresh" content="0;url=https://tracker.example"></head><body onload="window.leak = true"><a href="https://tracker.example">Saved app</a><img src="https://tracker.example/image.png"></body></html>',
+      openUrl: "https://plan.agent-native.com/plans/plan-123",
+    });
+    payload.resource!._meta = {
+      ui: { csp: { resourceDomains: ["https://untrusted-cdn.example.com"] } },
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(McpAppRenderer, {
+          app: payload,
+          readOnly: true,
+        }),
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")).not.toBeNull(),
+    );
+    const renderedIframe = container.querySelector("iframe");
+    expect(renderedIframe?.getAttribute("sandbox")).toBe("");
+    await vi.waitFor(() =>
+      expect(renderedIframe?.srcdoc).toContain("connect-src 'none'"),
+    );
+    expect(renderedIframe?.srcdoc).toContain("script-src 'none'");
+    expect(renderedIframe?.srcdoc).toContain("navigate-to 'none'");
+    expect(
+      renderedIframe?.srcdoc?.indexOf("Content-Security-Policy"),
+    ).toBeLessThan(renderedIframe?.srcdoc?.indexOf("<body") ?? -1);
+    expect(renderedIframe?.srcdoc).toContain("Saved app");
+    expect(renderedIframe?.srcdoc).not.toContain("window.leak");
+    expect(renderedIframe?.srcdoc).not.toContain("tracker.example");
+    expect(renderedIframe?.srcdoc).not.toContain("untrusted-cdn.example.com");
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("places the read-only policy before any replayed markup", async () => {
+    const parseFromString = vi.spyOn(DOMParser.prototype, "parseFromString");
+    const srcDoc = await createReadOnlyMcpAppSrcDoc(
+      "<script>window.early = true</script><p>Replay</p>",
+    );
+
+    expect(parseFromString).not.toHaveBeenCalled();
+    expect(srcDoc.indexOf("Content-Security-Policy")).toBeLessThan(
+      srcDoc.indexOf("<body"),
+    );
+    expect(srcDoc).not.toContain("window.early");
+    expect(srcDoc).toContain("Replay");
+  });
+
+  it("preserves the typed install hint when the read-only sanitizer peer is missing", async () => {
+    const missingPeer = new OptionalPeerDependencyError("linkedom");
+    vi.spyOn(optionalPeers, "loadOptionalPeer").mockRejectedValue(missingPeer);
+
+    await expect(createReadOnlyMcpAppSrcDoc("<p>Saved app</p>")).rejects.toBe(
+      missingPeer,
     );
   });
 });

@@ -8,7 +8,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import {
+  getReasoningEffortOptionsForModel,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -126,6 +129,7 @@ type FactoryAutomation = {
   prompt?: string | null;
   body?: string | null;
   model?: string | null;
+  reasoningEffort?: string | null;
   schedule?: string | null;
   enabled: boolean;
   triggerType?: string | null;
@@ -572,8 +576,8 @@ export default function FactoryRoute() {
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-10 shrink-0"
+                size="icon-lg"
+                className="shrink-0"
                 onClick={goToFactoryList}
                 aria-label={t("factoryRoute.backToFactories")}
               >
@@ -613,8 +617,8 @@ export default function FactoryRoute() {
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-10 shrink-0"
+              size="icon-lg"
+              className="shrink-0"
               onClick={goToFactoryList}
               aria-label={t("factoryRoute.backToFactories")}
             >
@@ -671,8 +675,8 @@ export default function FactoryRoute() {
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
               aria-label={t("factoryRoute.auditRefresh")}
               title={t("factoryRoute.auditRefresh")}
               disabled={auditFetching}
@@ -902,6 +906,36 @@ function OverviewView({
   );
 }
 
+function lastAutomationStorageKey(factoryId: string): string {
+  return `factory:${factoryId}:lastAutomationId`;
+}
+
+function persistedLastAutomationId(factoryId: string): string | null {
+  try {
+    return localStorage.getItem(lastAutomationStorageKey(factoryId));
+  } catch {
+    // coercion-ok: storage may be unavailable; indistinguishable from no persisted selection, and the tab already falls back to row 0.
+    return null;
+  }
+}
+
+function persistLastAutomationId(
+  factoryId: string,
+  automationId: string,
+): void {
+  try {
+    localStorage.setItem(lastAutomationStorageKey(factoryId), automationId);
+    // coercion-ok: persistence is best effort; the selection remains usable this session either way.
+  } catch {}
+}
+
+function clearPersistedLastAutomationId(factoryId: string): void {
+  try {
+    localStorage.removeItem(lastAutomationStorageKey(factoryId));
+    // coercion-ok: best-effort cleanup; a stale entry only affects which automation is pre-selected next time this tab is opened.
+  } catch {}
+}
+
 function AutomationsView({
   factoryId,
   t,
@@ -950,11 +984,14 @@ function AutomationsView({
   const selectedFromList = selectedId
     ? (automations.find((automation) => automation.id === selectedId) ?? null)
     : null;
+  const persistedId = selectedId ? null : persistedLastAutomationId(factoryId);
+  const persistedFromList = persistedId
+    ? (automations.find((automation) => automation.id === persistedId) ?? null)
+    : null;
   const selected =
-    selectedFromList ?? (selectedId ? null : (automations[0] ?? null));
-  // The list has loaded and does not contain the requested id: deleted, or from
-  // another factory. Distinct from the still-loading case, where `response` is
-  // undefined and the editor must keep waiting.
+    selectedFromList ??
+    persistedFromList ??
+    (selectedId ? null : (automations[0] ?? null));
   const automationMissing =
     Boolean(selectedId) && !selectedFromList && response !== undefined;
   const modelOptions = useMemo(() => {
@@ -976,12 +1013,24 @@ function AutomationsView({
   }, [availableModels]);
   const autoModelLabel = `Auto (currently ${formatModelName(defaultModel)})`;
   const activeAutomationId = selected?.id ?? null;
+  const effortOptions = useMemo(
+    () =>
+      getReasoningEffortOptionsForModel(
+        !draft?.model || draft.model === "auto" ? defaultModel : draft.model,
+      ),
+    [draft?.model, defaultModel],
+  );
 
   function draftForAutomation(automation: FactoryAutomation) {
-    return { ...automation, model: automation.model?.trim() || "auto" };
+    return {
+      ...automation,
+      model: automation.model?.trim() || "auto",
+      reasoningEffort: automation.reasoningEffort?.trim() || "",
+    };
   }
 
   function setCreateOpen(open: boolean) {
+    if (open) clearPersistedLastAutomationId(factoryId);
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -1001,14 +1050,13 @@ function AutomationsView({
     (id: string, listed: FactoryAutomation[] = automations) => {
       const nextAutomation = listed.find((automation) => automation.id === id);
       if (!nextAutomation) {
-        // Writing the id while the list still lacks the row is what the
-        // missing-automation empty state then reports as "gone".
         return false;
       }
       const nextDraft = draftForAutomation(nextAutomation);
       syncedConfigKeyRef.current = automationEditorConfigKey(nextDraft);
       draftRef.current = nextDraft;
       setDraft(nextDraft);
+      persistLastAutomationId(factoryId, id);
       setSearchParams(
         (current) => {
           const next = new URLSearchParams(current);
@@ -1020,7 +1068,7 @@ function AutomationsView({
       );
       return true;
     },
-    [automations, setSearchParams],
+    [automations, factoryId, setSearchParams],
   );
 
   useEffect(() => {
@@ -1029,14 +1077,13 @@ function AutomationsView({
 
   useEffect(() => {
     if (!selected) {
-      // Only drop the draft once the list has spoken. While it is still loading
-      // an unresolved id is unknown, not missing.
       if (selectedId && !automationMissing) return;
       syncedConfigKeyRef.current = null;
       draftRef.current = null;
       setDraft((current) => (current === null ? current : null));
       return;
     }
+    persistLastAutomationId(factoryId, selected.id);
     if (!selectedId) {
       selectAutomation(selected.id);
       return;
@@ -1049,7 +1096,7 @@ function AutomationsView({
     syncedConfigKeyRef.current = merged.syncedKey;
     draftRef.current = merged.draft;
     setDraft(merged.draft);
-  }, [automationMissing, selectAutomation, selected, selectedId]);
+  }, [automationMissing, factoryId, selectAutomation, selected, selectedId]);
 
   useEffect(() => {
     if (Object.keys(queuedRuns).length === 0 || !response) return;
@@ -1086,6 +1133,7 @@ function AutomationsView({
         displayName: draft.displayName,
         prompt: draft.prompt ?? draft.body ?? "",
         model: draft.model ?? "",
+        reasoningEffort: draft.reasoningEffort ?? "",
         enabled: draft.enabled,
         slackWorkspace: draft.slackWorkspace,
         slackChannelId: omitNullDestination(draft.slackChannelId),
@@ -1104,9 +1152,6 @@ function AutomationsView({
         inboxLimit: draft.inboxLimit,
         workLimit: draft.workLimit,
       });
-      // Save normalizes author ids, limits, and the timezone, so the refetched
-      // row is authoritative. Clearing the key makes the next sync adopt it
-      // instead of treating the draft as still-unsaved forever.
       syncedConfigKeyRef.current = null;
       await automationsQuery.refetch();
       void queryClient.invalidateQueries({
@@ -1154,8 +1199,6 @@ function AutomationsView({
   async function runAutomation() {
     if (!draft) return;
     if (draftHasUnsavedEdits(draft)) {
-      // A run reads the saved resource, so running now would execute a
-      // different config than the one on screen.
       toast.error(t("factoryRoute.automationRunNeedsSave"));
       return;
     }
@@ -1479,6 +1522,36 @@ function AutomationsView({
                     }
                   />
                 }
+                effortControl={
+                  effortOptions.length > 0 ? (
+                    <SettingsRow
+                      label={t("factoryRoute.automationEffort")}
+                      control={
+                        <select
+                          id="factory-automation-effort"
+                          aria-label={t("factoryRoute.automationEffort")}
+                          value={draft.reasoningEffort ?? ""}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              reasoningEffort: event.target.value,
+                            })
+                          }
+                          className="h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-64"
+                        >
+                          <option value="">
+                            {t("factoryRoute.automationEffortAuto")}
+                          </option>
+                          {effortOptions.map((effort) => (
+                            <option key={effort} value={effort}>
+                              {t(automationEffortLabelKey(effort))}
+                            </option>
+                          ))}
+                        </select>
+                      }
+                    />
+                  ) : undefined
+                }
               />
               <SettingsGroup variant="soft" title={t("factoryRoute.pastRuns")}>
                 {(draft.runs ?? draft.pastRuns ?? []).length === 0 ? (
@@ -1568,6 +1641,18 @@ function formatAutomationDate(value: string | number | null | undefined) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+const AUTOMATION_EFFORT_LABEL_KEYS: Record<string, string> = {
+  low: "factoryRoute.automationEffortLow",
+  medium: "factoryRoute.automationEffortMedium",
+  high: "factoryRoute.automationEffortHigh",
+  xhigh: "factoryRoute.automationEffortXhigh",
+  max: "factoryRoute.automationEffortMax",
+};
+
+function automationEffortLabelKey(effort: string): string {
+  return AUTOMATION_EFFORT_LABEL_KEYS[effort] ?? effort;
 }
 
 function formatModelName(model: string | null | undefined) {

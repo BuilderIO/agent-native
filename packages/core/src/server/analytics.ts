@@ -1,34 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
 
-/**
- * Opt-in analytics injection for SSR streams.
- * Supported environment variables:
- * - `GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID
- * - `GTM_CONTAINER_ID` — Google Tag Manager web container ID
- *
- * Netlify configuration-file env vars are build-time only for serverless
- * functions, so the Vite/Nitro build paths also bake this public value into
- * SSR bundles.
- *
- * Amplitude and Sentry are initialized client-side via their npm packages
- * (see `packages/core/src/client/analytics.ts`). GTM and GA require script
- * tag injection because their loaders must be `<script>` elements.
- *
- * When GTM is set, its head bootstrap is injected before `</head>` and its
- * noscript fallback immediately after `<body>`. GTM takes precedence over GA
- * so pageviews are not double-counted; configure the GA tag inside GTM.
- * When only GA is set, the corresponding script tags are injected before
- * `</head>`.
- * When not set, the stream passes through untouched (zero overhead).
- *
- * Usage in entry.server.tsx:
- * ```ts
- * import { wrapWithAnalytics } from "@agent-native/core/server";
- * return new Response(wrapWithAnalytics(body), { ... });
- * ```
- */
-
 declare const __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: string | undefined;
 declare const __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: string | undefined;
 
@@ -88,7 +60,6 @@ function getAgentNativeAnalyticsEndpoint(): string {
   );
 }
 
-/** Project public first-party Analytics config into static auth HTML. */
 export function getAgentNativeAnalyticsConfigScript(): string | null {
   const publicKey = getAgentNativeAnalyticsPublicKey();
   if (!publicKey) return null;
@@ -103,29 +74,40 @@ export function getAgentNativeAnalyticsConfigScript(): string | null {
   ].join("");
 }
 
-/**
- * The exact JS body (no surrounding `<script>` tags) of the inline gtag
- * bootstrap block. The loader is created only for real browser traffic so a
- * synthetic browser never initializes Google's analytics runtime.
- * Returns `null` when GA is not configured.
- */
-export function getGaInlineConfigScriptBody(): string | null {
+export function getGaInlineConfigScriptBody(options?: {
+  dataLayerName?: string;
+  sendPageView?: boolean;
+}): string | null {
   const id = getGaMeasurementId();
   if (!id) return null;
-  const jsId = JSON.stringify(id);
+  const dataLayerName = options?.dataLayerName ?? "dataLayer";
+  const dataLayer = `window[${JSON.stringify(dataLayerName)}]`;
+  const dataLayerQuery =
+    dataLayerName === "dataLayer"
+      ? ""
+      : `&l=${encodeURIComponent(dataLayerName)}`;
+  const gtagCall = dataLayerName === "dataLayer" ? "gtag" : "agentNativeGtag";
+  const gtagBootstrap =
+    dataLayerName === "dataLayer"
+      ? `window.gtag=window.gtag||function(){${dataLayer}.push(arguments);};`
+      : `var agentNativeGtag=function(){${dataLayer}.push(arguments);};window.__AGENT_NATIVE_GA_GTAG__=agentNativeGtag;`;
+  const config =
+    options?.sendPageView === false
+      ? `${gtagCall}('config',${JSON.stringify(id)},{send_page_view:false});`
+      : `${gtagCall}('config',${JSON.stringify(id)});`;
   const src = JSON.stringify(
-    `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`,
+    `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}${dataLayerQuery}`,
   );
   const guard = getSyntheticTrafficBrowserGuard();
   return (
     `if(${guard}){` +
-    `window.dataLayer=window.dataLayer||[];` +
-    `function gtag(){dataLayer.push(arguments);}` +
-    `gtag('js',new Date());` +
-    `gtag('config',${jsId});` +
+    `${dataLayer}=${dataLayer}||[];` +
+    gtagBootstrap +
+    `${gtagCall}('js',new Date());` +
+    config +
     `if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('__an_signin')){` +
     `sessionStorage.removeItem('__an_signin');` +
-    `gtag('event','sign_in');` +
+    `${gtagCall}('event','sign_in');` +
     `}` +
     `var agentNativeGtagScript=document.createElement('script');` +
     `agentNativeGtagScript.async=true;` +
@@ -140,6 +122,14 @@ function getGaScript(): string | null {
   if (!id) return null;
   const inlineBody = getGaInlineConfigScriptBody();
   return `<script>${inlineBody}</script>`;
+}
+
+function getGtmGaFallbackScript(): string | null {
+  const inlineBody = getGaInlineConfigScriptBody({
+    dataLayerName: "__AGENT_NATIVE_GA_DATA_LAYER__",
+    sendPageView: false,
+  });
+  return inlineBody ? `<script>${inlineBody}</script>` : null;
 }
 
 function getGtmHeadScript(containerId: string): string {
@@ -162,7 +152,11 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
   const containerId = getGtmContainerId();
   if (containerId) {
     return {
-      head: [agentNativeAnalytics, getGtmHeadScript(containerId)]
+      head: [
+        agentNativeAnalytics,
+        getGtmHeadScript(containerId),
+        getGtmGaFallbackScript(),
+      ]
         .filter(Boolean)
         .join(""),
       body: getGtmBodyFallback(containerId),
@@ -177,13 +171,6 @@ function getAnalyticsInjection(): AnalyticsInjection | null {
 const HEAD_CLOSE_PATTERN = /<\/head>/i;
 const BODY_OPEN_PATTERN = /<body\b[^>]*>/i;
 
-/**
- * Add the configured analytics scripts to a complete HTML document.
- *
- * The normal app document is streamed through `wrapWithAnalytics`, but
- * framework-owned documents such as `/signup` are returned as strings by the
- * auth guard and need the same injection path.
- */
 export function injectAnalyticsIntoHtml(html: string): string {
   const injection = getAnalyticsInjection();
   if (!injection) return html;

@@ -324,8 +324,6 @@ describe("contentActionInvalidatePredicate", () => {
       ),
     ).toBe(true);
 
-    // The poll state keeps the newest key for each source. A later document
-    // mutation can therefore be the only visible event after a comment write.
     expect(
       predicate(
         {
@@ -839,6 +837,56 @@ describe("contentActionInvalidatePredicate", () => {
       contentActionInvalidatePredicate("/settings")(
         { queryKey: ["action", "get-document", { id: "document-1" }] },
         [{ source: "action", key: "edit-document" }],
+      ),
+    ).toBe(false);
+  });
+
+  it("refreshes active navigation and Recent after an external rename on any route", () => {
+    const predicate = contentActionInvalidatePredicate("/settings");
+    const event = [{ source: "action", key: "update-document" }];
+
+    expect(
+      predicate(
+        {
+          queryKey: [
+            "action",
+            "query-content-database-items",
+            { databaseId: "files", navigation: { parentId: null } },
+          ],
+          isActive: () => true,
+        },
+        event,
+      ),
+    ).toBe(true);
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-content-recent", { scopeKey: "user" }],
+          isActive: () => true,
+        },
+        event,
+      ),
+    ).toBe(true);
+    expect(
+      predicate(
+        {
+          queryKey: [
+            "action",
+            "get-content-navigation-context",
+            { id: "document" },
+          ],
+          isActive: () => true,
+        },
+        event,
+      ),
+    ).toBe(true);
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-content-recent", { scopeKey: "user" }],
+          isActive: () => false,
+        },
+        event,
       ),
     ).toBe(false);
   });
