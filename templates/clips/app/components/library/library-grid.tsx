@@ -4,8 +4,8 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconAlertTriangle,
   IconChevronLeft,

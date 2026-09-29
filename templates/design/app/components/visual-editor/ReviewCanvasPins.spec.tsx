@@ -85,10 +85,10 @@ vi.mock("@agent-native/core/client/org", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/review", async () => {
+vi.mock("@agent-native/toolkit/app/review", async () => {
   const actual = await vi.importActual<
-    typeof import("@agent-native/core/client/review")
-  >("@agent-native/core/client/review");
+    typeof import("@agent-native/toolkit/app/review")
+  >("@agent-native/toolkit/app/review");
 
   return {
     ...actual,
@@ -102,6 +102,16 @@ vi.mock("@agent-native/core/client/review", async () => {
       ) : (
         <MockReviewCommentComposer {...props} />
       ),
+  };
+});
+
+vi.mock("@agent-native/core/client/review", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/client/review")
+  >("@agent-native/core/client/review");
+
+  return {
+    ...actual,
     useCreateReviewComment: () => ({
       mutate: mocks.createMutate,
       isPending: false,

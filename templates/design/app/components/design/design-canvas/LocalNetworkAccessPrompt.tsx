@@ -75,6 +75,14 @@ export function LocalNetworkAccessPrompt({
   const permissionHelp = showPermissionHelp ? (
     <details className="text-xs text-muted-foreground">
       <summary className="cursor-pointer">{noPromptLabel}</summary>
+      <img
+        src="/local-network-access-prompt.png"
+        alt={description}
+        className="mt-3 block w-full rounded-md border border-border"
+        width={1586}
+        height={992}
+        loading="lazy"
+      />
       <p className="mt-2 leading-relaxed">{permissionSettingsInstructions}</p>
       <img
         src="/local-network-access-settings.png"

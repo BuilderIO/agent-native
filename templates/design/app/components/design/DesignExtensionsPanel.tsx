@@ -1,11 +1,9 @@
 import {
-  BuilderSetupCard,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   useActionQuery,
   useActionMutation,
@@ -16,6 +14,8 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import { EmbeddedExtension } from "@agent-native/toolkit/app/extensions";
 import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
   IconAdjustmentsHorizontal,

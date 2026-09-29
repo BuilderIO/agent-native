@@ -1,9 +1,9 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   actionErrorMessage,
 } from "@agent-native/core/client/hooks";
 import { composerSourceReferenceSchema } from "@agent-native/core/shared";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import { z } from "zod";
 

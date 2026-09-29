@@ -226,7 +226,7 @@ truthful data, it can call the framework `render-data-widget` action with the
 작업 중:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -364,10 +364,8 @@ when: (args, result) => {
 SSE 또는 NDJSON 런타임 이벤트를 반환하는 POST 엔드포인트를 노출할 수 있습니다.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

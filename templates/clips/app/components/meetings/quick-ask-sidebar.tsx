@@ -2,9 +2,9 @@ import {
   sendToAgentChat,
   useAgentEngineConfigured,
   useChatModels,
-  BuilderSetupCard,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import {
   IconCommand,

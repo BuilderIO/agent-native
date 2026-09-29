@@ -66,6 +66,24 @@ describe("repository eject manifests", () => {
     expect(covered).toEqual(expected);
   });
 
+  it("keeps every Toolkit app entrypoint backed by copied source", () => {
+    const packageJson = readJson<{ exports: Record<string, unknown> }>(
+      "packages/toolkit/package.json",
+    );
+    for (const entrypoint of Object.keys(packageJson.exports).filter((key) =>
+      key.startsWith("./app/"),
+    )) {
+      const unit = toolkit.units.find(
+        (candidate) =>
+          candidate.entrypoints.includes(entrypoint) ||
+          candidate.styles?.some((style) => style.entrypoint === entrypoint),
+      );
+      expect(unit, entrypoint).toBeDefined();
+      expect(unit?.strategy, entrypoint).toBe("source-copy");
+      expect(unit?.sourceEntries?.length, entrypoint).toBeGreaterThan(0);
+    }
+  });
+
   it("tracks every item in the five live integration catalogs", () => {
     expect(items(manifests, "remote-mcp-presets")).toEqual(
       DEFAULT_MCP_INTEGRATIONS.map((entry) => entry.id).sort(),

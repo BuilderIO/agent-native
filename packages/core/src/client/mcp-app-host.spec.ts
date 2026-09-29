@@ -177,7 +177,13 @@ describe("MCP app host client helpers", () => {
     expect(calls[0][0]).toMatchObject({
       type: AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.UPDATE_MODEL_CONTEXT,
       data: {
-        content: [{ type: "text", text: "Selected customer: Acme" }],
+        content: [
+          {
+            type: "text",
+            text: "Selected customer: Acme",
+            annotations: { audience: ["assistant"] },
+          },
+        ],
         structuredContent: { customerId: "acme" },
       },
     });
@@ -297,7 +303,13 @@ describe("MCP app host client helpers", () => {
         expect.objectContaining({
           method: "ui/update-model-context",
           params: {
-            content: [{ type: "text", text: "Selected customer: Acme" }],
+            content: [
+              {
+                type: "text",
+                text: "Selected customer: Acme",
+                annotations: { audience: ["assistant"] },
+              },
+            ],
             structuredContent: { customerId: "acme" },
           },
         }),
@@ -366,9 +378,13 @@ describe("MCP app host client helpers", () => {
     )!;
     expect(contextCall).toMatchObject({
       params: {
-        content: [{ type: "text", text: "Selected row ids: a, b" }],
-        mode: "plan",
-        requestMode: "plan",
+        content: [
+          {
+            type: "text",
+            text: "Selected row ids: a, b",
+            annotations: { audience: ["assistant"] },
+          },
+        ],
       },
     });
     dispatchHostMessage({
@@ -384,8 +400,6 @@ describe("MCP app host client helpers", () => {
       params: {
         role: "user",
         content: [{ type: "text", text: "Continue with this selection" }],
-        mode: "plan",
-        requestMode: "plan",
       },
     });
 
@@ -442,7 +456,46 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(true);
   });
 
-  it("does not concatenate hidden context into ChatGPT follow-up prompts", async () => {
+  it("does not submit a chat after the host rejects its model context", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("openai", { sendFollowUpMessage });
+
+    const result = sendMcpAppHostMessage({
+      context: "Selected row: row-123",
+      message: "Summarize this row",
+      structuredContent: { rowId: "row-123" },
+    });
+
+    await flushMicrotasks();
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    const contextCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: contextCall.id,
+      result: { ok: false },
+    });
+
+    await expect(result).resolves.toBe(false);
+    expect(
+      getJsonRpcCalls(parent).some((call) => call.method === "ui/message"),
+    ).toBe(false);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses MCP model context and messages with the OpenAI bridge", async () => {
     const parent = parentWindow();
     setDirectParent(parent);
     const sendFollowUpMessage = vi.fn(async () => ({}));
@@ -460,34 +513,54 @@ describe("MCP app host client helpers", () => {
       requestMode: "plan",
     });
 
-    await expect(result).resolves.toBe(true);
-    expect(setWidgetState).toHaveBeenCalledWith({
-      existing: true,
-      agentNativeChatContext:
-        "Hidden draft context. Do not ask to read application-state/compose.json.",
-      agentNativeModelContext: {
+    await flushMicrotasks();
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(contextCall).toMatchObject({
+      params: {
         content: [
           {
             type: "text",
             text: "Hidden draft context. Do not ask to read application-state/compose.json.",
+            annotations: { audience: ["assistant"] },
           },
         ],
-        mode: "plan",
-        requestMode: "plan",
       },
     });
-    expect(sendFollowUpMessage).toHaveBeenCalledWith({
-      prompt: "Rewrite the selected sentence",
-      scrollToBottom: true,
-      mode: "plan",
-      requestMode: "plan",
+    dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
+    await flushMicrotasks();
+
+    const messageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    expect(messageCall).toMatchObject({
+      params: {
+        role: "user",
+        content: [{ type: "text", text: "Rewrite the selected sentence" }],
+      },
     });
-    expect(JSON.stringify(sendFollowUpMessage.mock.calls)).not.toContain(
+    expect(JSON.stringify(messageCall)).not.toContain(
       "application-state/compose.json",
     );
+    dispatchHostMessage({ jsonrpc: "2.0", id: messageCall.id, result: {} });
+
+    await expect(result).resolves.toBe(true);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
+    expect(setWidgetState).not.toHaveBeenCalled();
   });
 
-  it("persists rich content blocks for ChatGPT follow-up prompts", async () => {
+  it("sends rich context blocks and clears the OpenAI model context", async () => {
     const parent = parentWindow();
     setDirectParent(parent);
     const sendFollowUpMessage = vi.fn(async () => ({}));
@@ -514,17 +587,35 @@ describe("MCP app host client helpers", () => {
       ],
     });
 
-    await expect(result).resolves.toBe(true);
-    expect(setWidgetState).toHaveBeenCalledWith({
-      existing: true,
-      agentNativeChatContext: "Hidden selected asset context",
-      agentNativeModelContext: {
+    await flushMicrotasks();
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(contextCall).toMatchObject({
+      params: {
         content: [
-          { type: "text", text: "Hidden selected asset context" },
-          { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+          {
+            type: "text",
+            text: "Hidden selected asset context",
+            annotations: { audience: ["assistant"] },
+          },
+          {
+            type: "image",
+            data: "ZmFrZS1pbWFnZQ==",
+            mimeType: "image/webp",
+            annotations: { audience: ["assistant"] },
+          },
         ],
-        mode: "plan",
-        requestMode: "plan",
         structuredContent: {
           selectedAsset: {
             assetId: "asset-123",
@@ -533,12 +624,25 @@ describe("MCP app host client helpers", () => {
         },
       },
     });
-    expect(sendFollowUpMessage).toHaveBeenCalledWith({
-      prompt: "Use the selected Assets image",
-      scrollToBottom: true,
-      mode: "plan",
-      requestMode: "plan",
+    dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
+    await flushMicrotasks();
+
+    const messageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    expect(messageCall).toMatchObject({
+      params: {
+        role: "user",
+        content: [
+          { type: "text", text: "Use the selected Assets image" },
+          { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+        ],
+      },
     });
+    dispatchHostMessage({ jsonrpc: "2.0", id: messageCall.id, result: {} });
+    await expect(result).resolves.toBe(true);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
+    expect(setWidgetState).not.toHaveBeenCalled();
   });
 
   it("sends follow-up prompts through the wrapper bridge in nested MCP app frames", async () => {
@@ -643,7 +747,13 @@ describe("MCP app host client helpers", () => {
     )!;
     expect(contextCall).toMatchObject({
       params: {
-        content: [{ type: "text", text: "Hidden selected asset context" }],
+        content: [
+          {
+            type: "text",
+            text: "Hidden selected asset context",
+            annotations: { audience: ["assistant"] },
+          },
+        ],
       },
     });
     dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
@@ -699,8 +809,17 @@ describe("MCP app host client helpers", () => {
     expect(contextCall).toMatchObject({
       params: {
         content: [
-          { type: "text", text: "Hidden selected asset context" },
-          { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+          {
+            type: "text",
+            text: "Hidden selected asset context",
+            annotations: { audience: ["assistant"] },
+          },
+          {
+            type: "image",
+            data: "ZmFrZS1pbWFnZQ==",
+            mimeType: "image/webp",
+            annotations: { audience: ["assistant"] },
+          },
         ],
         structuredContent: {
           selectedAsset: {
@@ -726,34 +845,154 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(true);
   });
 
-  it("clears ChatGPT hidden context when a follow-up has no context", async () => {
+  it("uses the OpenAI fallback for text-only chat when MCP initialization fails", async () => {
     const parent = parentWindow();
     setDirectParent(parent);
     const sendFollowUpMessage = vi.fn(async () => ({}));
-    const setWidgetState = vi.fn();
     vi.stubGlobal("openai", {
-      widgetState: {
-        existing: true,
-        agentNativeChatContext: "Previous draft context",
-      },
-      setWidgetState,
       sendFollowUpMessage,
     });
 
     const result = sendMcpAppHostMessage({
       message: "Send a context-free follow-up",
+      content: [
+        { type: "text", text: "Send a context-free follow-up" },
+        { type: "text", text: "Include the row owner" },
+      ],
+      requestMode: "plan",
     });
 
+    await flushMicrotasks();
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      error: { code: -32601, message: "Method not found" },
+    });
     await expect(result).resolves.toBe(true);
-    expect(setWidgetState).toHaveBeenCalledWith({
-      existing: true,
-      agentNativeChatContext: null,
-      agentNativeModelContext: { content: [] },
-    });
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
-      prompt: "Send a context-free follow-up",
+      prompt:
+        "Send a context-free follow-up\n\nAdditional text:\nInclude the row owner",
       scrollToBottom: true,
+      mode: "plan",
+      requestMode: "plan",
     });
+  });
+
+  it("does not expose assistant-only context through the OpenAI fallback", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("openai", { sendFollowUpMessage });
+
+    const result = sendMcpAppHostMessage({
+      context: "Selected row: row-123",
+      message: "Summarize this row",
+    });
+
+    await flushMicrotasks();
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    const contextCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: contextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    const messageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: messageCall.id,
+      error: { code: -32601, message: "Method not found" },
+    });
+
+    await expect(result).resolves.toBe(false);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not expose structured context through the OpenAI fallback", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("openai", { sendFollowUpMessage });
+
+    const result = sendMcpAppHostMessage({
+      message: "Summarize this row",
+      structuredContent: { rowId: "row-123" },
+    });
+
+    await flushMicrotasks();
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    const contextCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
+    await flushMicrotasks();
+
+    const messageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: messageCall.id,
+      error: { code: -32601, message: "Method not found" },
+    });
+
+    await expect(result).resolves.toBe(false);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
+  });
+
+  it("reports failure when the OpenAI fallback cannot represent rich content", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("openai", { sendFollowUpMessage });
+
+    const result = sendMcpAppHostMessage({
+      message: "Describe this image",
+      content: [
+        { type: "text", text: "Describe this image" },
+        { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+      ],
+    });
+
+    await flushMicrotasks();
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      error: { code: -32601, message: "Method not found" },
+    });
+
+    await expect(result).resolves.toBe(false);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
   });
 
   it("keeps direct MCP host helpers enabled after the URL token is stripped", async () => {
@@ -815,6 +1054,7 @@ describe("MCP app host client helpers", () => {
           {
             type: "text",
             text: "Hidden draft context. Do not ask to read application-state/compose.json.",
+            annotations: { audience: ["assistant"] },
           },
         ],
       },
@@ -885,6 +1125,101 @@ describe("MCP app host client helpers", () => {
       result: {},
     });
 
+    await expect(secondResult).resolves.toBe(true);
+  });
+
+  it("serializes direct MCP Apps context and message pairs", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+
+    const firstResult = sendMcpAppHostMessage({
+      context: "Context A",
+      message: "Message A",
+    });
+    const secondResult = sendMcpAppHostMessage({
+      context: "Context B",
+      message: "Message B",
+    });
+    await flushMicrotasks();
+
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    let calls = getJsonRpcCalls(parent);
+    const firstContextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(firstContextCall.params).toMatchObject({
+      content: [{ text: "Context A" }],
+    });
+    expect(
+      calls.filter((call) => call.method === "ui/update-model-context"),
+    ).toHaveLength(1);
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: firstContextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const firstMessageCall = calls.find(
+      (call) => call.method === "ui/message",
+    )!;
+    expect(firstMessageCall.params).toMatchObject({
+      content: [{ text: "Message A" }],
+    });
+    expect(calls.filter((call) => call.method === "ui/message")).toHaveLength(
+      1,
+    );
+    expect(
+      calls.filter((call) => call.method === "ui/update-model-context"),
+    ).toHaveLength(1);
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: firstMessageCall.id,
+      result: {},
+    });
+    await flushHostLifecycleTurn();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCalls = calls.filter(
+      (call) => call.method === "ui/update-model-context",
+    );
+    expect(contextCalls).toHaveLength(2);
+    const secondContextCall = contextCalls[1]!;
+    expect(secondContextCall.params).toMatchObject({
+      content: [{ text: "Context B" }],
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: secondContextCall.id,
+      result: {},
+    });
+    await flushHostLifecycleTurn();
+
+    const messageCalls = getJsonRpcCalls(parent).filter(
+      (call) => call.method === "ui/message",
+    );
+    expect(messageCalls).toHaveLength(2);
+    const secondMessageCall = messageCalls[1]!;
+    expect(secondMessageCall.params).toMatchObject({
+      content: [{ text: "Message B" }],
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: secondMessageCall.id,
+      result: {},
+    });
+
+    await expect(firstResult).resolves.toBe(true);
     await expect(secondResult).resolves.toBe(true);
   });
 });

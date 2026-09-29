@@ -107,7 +107,7 @@ function useEagerFileUploadsMock<T>(
   };
 }
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
     attachmentsEnabled?: boolean;

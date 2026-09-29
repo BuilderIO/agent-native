@@ -1,13 +1,13 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
-  BuilderSetupCard,
   chatModelSelectionStorageKey,
   focusAgentChat,
   useAgentEngineConfigured,
   useChatModels,
-} from "@agent-native/core/client/agent-chat";
-import { isLocalRuntimeEngine } from "@agent-native/core/client/composer";
-import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { submitToAgent } from "@agent-native/core/client/navigation";
+} from "@agent-native/toolkit/app/chat";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/app/chat/composer";
+import { submitToAgent } from "@agent-native/toolkit/app/shared";
 import {
   IconLayoutSidebarRight,
   IconMessage,

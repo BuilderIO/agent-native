@@ -1,5 +1,4 @@
 import {
-  AgentChatHome,
   markAgentChatHomeHandoff,
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
@@ -9,6 +8,7 @@ import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
 } from "@agent-native/toolkit/agentkit";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 

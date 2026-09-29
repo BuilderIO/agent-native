@@ -530,12 +530,30 @@ describe("Slides prompt-led home", () => {
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const commit = vi.fn();
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "slides" as const,
+          id: "reference-deck",
+          title: "Reference deck",
+        },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:reference-deck:",
+        title: "Reference deck",
+        context: "A restrained visual style",
+        status: "ready" as const,
+      },
+    ];
     const options = {
       model: "test-model",
       engine: "builder",
       effort: "high" as const,
-      slidesContext: { designSystemId: null, references: [] },
-      contextItems: [],
+      slidesContext: composerContext,
+      contextItems,
     };
     await act(async () => {
       promptProps.mock.lastCall![0].onSubmit(
@@ -558,6 +576,7 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit.mock.calls[0][1]).toContain(
       "Do not restore a workspace default",
     );
+    expect(agentSubmit.mock.calls[0][1]).toContain("A restrained visual style");
     expect(agentSubmit.mock.calls[0][2]).toMatchObject({
       model: "test-model",
       effort: "high",
@@ -571,8 +590,8 @@ describe("Slides prompt-led home", () => {
               generationContext: expect.objectContaining({
                 additionalContext:
                   "Private meeting notes from the source picker",
-                composerContext: options.slidesContext,
-                contextItems: [],
+                composerContext,
+                contextItems,
               }),
             },
           }),
@@ -1354,6 +1373,29 @@ describe("Slides prompt-led home", () => {
       modelSelection,
     );
     expect(sessionStorage.getItem("slides:pending-deck-prompt")).toBeNull();
+    await act(async () => {
+      promptProps.mock.lastCall![0].onSubmit(
+        "Continue after sign-in",
+        [],
+        {
+          commit: vi.fn(),
+          discard: vi.fn(),
+          attachments: [],
+          context: "Reference context",
+        },
+        {
+          model: modelSelection.model,
+          engine: modelSelection.engine,
+          effort: modelSelection.effort,
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+    await waitFor(() =>
+      expect(referenceProps.mock.lastCall![0].open).toBe(true),
+    );
     expect(createDeck).not.toHaveBeenCalled();
+    expect(agentSubmit).not.toHaveBeenCalled();
   });
 });

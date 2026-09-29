@@ -3,7 +3,7 @@ import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,

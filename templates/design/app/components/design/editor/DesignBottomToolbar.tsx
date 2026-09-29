@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconArrowUpRight,
   IconBrush,

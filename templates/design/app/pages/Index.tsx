@@ -1,16 +1,9 @@
 import {
-  BuilderSetupCard,
   fetchAgentEngineConfiguredState,
   type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
-import {
-  PromptComposer,
-  snapshotComposerContextItems,
-  type PromptComposerSubmitOptions,
-  type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -38,6 +31,13 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import {
+  PromptComposer,
+  snapshotComposerContextItems,
+  type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";

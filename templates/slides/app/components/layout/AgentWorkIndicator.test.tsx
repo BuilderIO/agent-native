@@ -1,4 +1,4 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import {
   act,
   cleanup,

@@ -1,4 +1,4 @@
-import type { BlockRenderContext } from "@agent-native/core/blocks";
+import type { BlockRenderContext } from "@agent-native/toolkit/app/blocks";
 import { IconArrowsMaximize, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 

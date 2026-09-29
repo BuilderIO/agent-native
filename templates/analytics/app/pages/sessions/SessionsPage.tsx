@@ -1,13 +1,13 @@
-import { CodeSurface } from "@agent-native/core/blocks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
+import { CodeSurface } from "@agent-native/toolkit/app/blocks";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
-} from "@agent-native/core/client/settings";
-import { docsUrl } from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconCheck,
   IconChevronDown,

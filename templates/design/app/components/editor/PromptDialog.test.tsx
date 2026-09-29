@@ -3,7 +3,7 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
 
-import type { PromptComposerProps } from "@agent-native/core/client/composer";
+import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   act,
   createRef,
@@ -83,7 +83,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: (props: ComposerStubProps) => {
     mockComposer.current = props;
     const [text, setText] = useState("");

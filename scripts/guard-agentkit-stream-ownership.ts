@@ -19,7 +19,7 @@ const SSE_MODULE = /(?:^|\/)sse-event-processor(?:\.js)?$/;
 const SSE_STREAM_READERS = new Set(["readSSEStream", "readSSEStreamRaw"]);
 
 const AGENTKIT_STREAM_OWNING_MODULE =
-  /^@agent-native\/agentkit(?!\/protocol$)(?:\/.*)?$/;
+  /^@agent-native\/(?:agentkit(?!\/protocol$)(?:\/.*)?|toolkit\/app\/agentkit(?:\/.*)?)$/;
 const LEGACY_ASSISTANT_UI_BINDINGS = new Set([
   "ActionBarPrimitive",
   "AssistantRuntimeProvider",

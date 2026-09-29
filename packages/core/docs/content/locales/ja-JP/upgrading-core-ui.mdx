@@ -1,0 +1,171 @@
+---
+title: "既存アプリをCore 0.198.0へアップグレードする"
+description: "Core 0.198.0への移行、Toolkitのimport、任意のpeer package、検証手順を説明します。"
+---
+
+# 既存アプリをCore 0.198.0へアップグレードする
+
+この手順に沿って、既存アプリをCore 0.198.0へ移行します。アプリまたは
+workspaceのルートでコマンドを実行し、開始前にレビュー可能な差分を
+用意してください。リモートのデプロイ設定は別途確認します。CLIは
+ローカルの環境ファイルを読み取れますが、リモート環境やデータベースに
+保存された機能設定は確認できません。
+
+## 1. アップグレードとimport codemodをプレビューする
+
+Core 0.198.0に含まれるCLIを使い、このreleaseのmigration manifestを
+読み込みます。
+
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
+
+アプリに Core 0.198.0 をインストールした後は、同じプレビューをローカル CLI バイナリから実行できます。
+
+    npx agent-native upgrade --codemods --dry-run
+
+`--codemods` コマンドは `ts-morph` を使います。アプリからまだ解決できない場合は、先に開発依存関係としてインストールしてください: `pnpm add -D ts-morph`。
+
+`--codemods` は、サポートされる import の変更を既定で適用します。依存関係の変更案、
+ファイル差分、警告を事前に確認するには `--dry-run` を追加してください。`--yes` は不要になりました。
+
+codemodはCoreとToolkitの有効なmigration manifestを使います。.tsと
+.tsxファイルだけ（宣言ファイル、生成物、依存関係ディレクトリを除く）を
+走査し、対応するimportとre-exportのspecifierを書き換えます。named
+exportが複数のmoduleへ移動する場合、symbolごとに宣言を分割し、aliasと
+type-only importを保持できます。単純なCSSの@import pathも書き換え、
+解決できた移動でpackage境界を越える場合は不足するdependencyを追加
+します。
+
+診断では CommonJS の `require()` と動的 `import()` 形式も検出しますが、codemod はこれらの呼び出し式を書き換えません。報告された新しい移行先を使って置き換え、その後 Vite または `agent-native doctor` を再実行してください。CSS の `@import url(...)` パスは、引用符の有無にかかわらず codemod で書き換えられます。
+
+呼び出し箇所は変更せず、ファイルも移動しません。解決できない移動や
+plannedの移動は警告を出してそのまま残します。default、namespace、
+side-effect、star形式のimport/exportは分割できません。symbol単位のCSS importも分割できません。これらは手動で
+確認してください。削除されたexportにはコード変更が必要な場合が
+あります。CLIの警告に記載されたmigration guideを確認してください。
+
+プレビューにはupgrade全体の計画も含まれます。upgradeを止めるframework
+overrideやpatch、保留中の@agent-native/\* version更新、ローカル設定から
+判定されたfeature dependency、package managerによるinstall、scaffold
+skillの更新、root packageにscriptがある場合のtypecheckが表示されます。
+コマンドはpackage specをregistryの現在のlatestに変更し、install後に
+解決されたversionをpinします。0.198.0が意図する最新releaseである
+タイミングで実行してください。後日、正確なversionが必要な場合は
+解決されたpinを確認します。
+
+## 2. Toolkit とオプションパッケージを確認する
+
+`@agent-native/toolkit/*` に移動した import には `@agent-native/toolkit` が必要です。対応済みで解決可能な import または export を移動すると、codemod が Toolkit を追加します。アプリが Toolkit の export を使っていて依存関係が追加されなかった場合は、Core 0.198.0 に対応する Toolkit のバージョンをインストールしてください。
+
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
+
+### アップグレード CLI が選択する依存関係
+
+ローカル環境の検査条件に一致すると、CLI は次の依存関係を追加します。PGlite では、正規化したアプリ名の `${APP_NAME}_DATABASE_URL` を先に確認し、次に `DATABASE_URL` を確認します。URL がないか `pglite:` で始まる場合に PGlite を選びます。リモート環境やデータベース内の機能設定は確認できないため、本番環境とプレビュー環境を別途確認してください。
+
+| 機能                                      | オプションパッケージ         | バージョン              | CLI が確認するローカル設定                                                                  |
+| ----------------------------------------- | ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------- |
+| PGlite データベース                       | @electric-sql/pglite         | ^0.5.8                  | 正規化した `${APP_NAME}_DATABASE_URL`、次に `DATABASE_URL`。未設定または `pglite:` で始まる |
+| サーバー Sentry                           | @sentry/node                 | ^10.60.0 または ^11.0.0 | `SENTRY_SERVER_DSN`、`SENTRY_DSN`、または Sentry のキー一式                                 |
+| ブラウザー Sentry                         | @sentry/browser              | ^10.60.0 または ^11.0.0 | クライアント Sentry DSN、`SENTRY_DSN`、またはキー一式                                       |
+| ビルド時の Sentry source map アップロード | @sentry/vite-plugin          | ^5.4.0                  | `SENTRY_AUTH_TOKEN`、organization、project が設定済み                                       |
+| SSO 認証                                  | @better-auth/sso             | 1.7.4                   | `AUTH_SSO` が有効                                                                           |
+| SCIM 認証                                 | @better-auth/scim            | 1.7.4                   | `AUTH_SCIM` が有効                                                                          |
+| Amplitude                                 | @amplitude/analytics-browser | ^2.45.8                 | `VITE_AMPLITUDE_API_KEY` が設定済み                                                         |
+| Microsoft Teams                           | botframework-connector       | ^4.23.3                 | `MICROSOFT_TEAMS_APP_ID` と `MICROSOFT_TEAMS_APP_PASSWORD` が設定済み                       |
+
+### 使用する機能に応じて追加する実行時 peer
+
+CLI は次の peer を自動判定しません。アプリで使う機能に応じてパッケージを追加し、ローカルとデプロイ先の設定を確認してください。AI SDK エンジンには `ai` と、選択したプロバイダーのパッケージが必要です。
+
+| 機能                                                            | オプションパッケージ                                                                             | バージョン       |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- |
+| AI SDK エンジン                                                 | ai                                                                                               | >=6              |
+| Anthropic、Cohere、Google、Groq、Mistral、OpenAI のプロバイダー | @ai-sdk/anthropic, @ai-sdk/cohere, @ai-sdk/google, @ai-sdk/groq, @ai-sdk/mistral, @ai-sdk/openai | >=3 each         |
+| OpenRouter プロバイダー                                         | @openrouter/ai-sdk-provider                                                                      | >=2              |
+| Ollama プロバイダー                                             | ai-sdk-ollama                                                                                    | >=3              |
+| Context X-Ray の正確な Anthropic トークン数                     | @anthropic-ai/tokenizer                                                                          | ^0.0.4           |
+| Builder デザインシステムのインデックス用型                      | @builder.io/ai-utils                                                                             | ^0.84.0          |
+| Jev の直接 TypeSafe AI リクエスト                               | @typesafe-ai/sdk                                                                                 | ^0.6.0           |
+| Office ドキュメント取り込み                                     | officeparser; mammoth                                                                            | ^7.3.0; ^1.12.0  |
+| スプレッドシート取り込み                                        | xlsx                                                                                             | ^0.18.5          |
+| PowerPoint 取り込み                                             | jszip; fast-xml-parser                                                                           | ^3.10.1; ^5.10.1 |
+| メディアメタデータと画像変換                                    | sharp                                                                                            | ^0.35.3          |
+| ソーシャルプレビュー / Open Graph の SVG レンダリング           | @resvg/resvg-js                                                                                  | ^2.6.2           |
+| ブラウザーセッションのリプレイ記録                              | @rrweb/record                                                                                    | ^2.1.0           |
+| OpenTelemetry トレーシング連携                                  | @opentelemetry/api                                                                               | ^1.9.1           |
+| LaunchDarkly サーバー側 feature flag                            | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
+| 埋め込みターミナルセッション                                    | node-pty; ws                                                                                     | >=1; >=8         |
+| 拡張機能の HTML 整形                                            | prettier                                                                                         | ^3.8.3           |
+| 組み込みテンプレートソース検索                                  | @agent-native/core-corpus                                                                        | 0.198.0          |
+
+**Core に含まれる依存関係:** Web-to-Markdown によるページ抽出では `linkedom`、`@mozilla/readability`、`turndown` を使います。これらは通常の Core パッケージ依存関係として含まれるため、別途追加する必要はありません。Vite、React Router、Tailwind、Drizzle Kit などのビルド／フレームワーク用 peer は、この表のアプリ機能には含めません。アプリのフレームワーク構成に合わせてください。
+
+組み込みテンプレートのソース検索を使う場合は、対応するバージョンのコーパスパッケージを開発依存関係として追加します: `pnpm add -D @agent-native/core-corpus@0.198.0`。
+
+## 3. アップグレードを適用する
+
+プレビューとfeature packageを確認したら計画を適用します。
+
+    npx agent-native upgrade --codemods
+
+この1つのcommandで、対象となる@agent-native/\* dependency specを更新し、
+検出したfeature dependencyを調整し、package managerを実行し、解決した
+Agent-Native versionをpinし、対応codemodを適用します。さらにscaffold
+skillを更新し、rootにtypecheck scriptがあれば実行します。codemod適用
+だけを目的にupgradeをもう一度実行する必要はありません。警告や
+アプリ固有のエラーはアプリのコードで修正してください。frameworkの
+overrideやpatchは追加しないでください。
+
+## 4. 結果を検証する
+
+差分全体、特にcodemodがスキップした警告とdependency versionを確認し、
+次を実行します。
+
+    npx @agent-native/core@0.198.0 upgrade check
+    pnpm typecheck
+
+npmまたはYarnでは対応するtypecheck commandを使い、アプリに必要な
+testとbuildも実行します。ローカルおよびデプロイ済みのfeature設定が
+任意peerの表で網羅されていることを確認します。次の表にある旧importを
+検索してください。残った一致は意図的なもの、manifest非対応のもの、
+または警告で説明されたものに限ります。
+
+## 古いpathと移行先の例
+
+migration manifestはsymbol単位で移動先を定義するため、同じ古いmoduleの
+exportでも別々の移動先になる場合があります。次の表は代表例であり、
+移動するsymbolをすべて列挙したものではありません。
+
+| 古いpathとsymbol                                                                                                                 | 新しいpath                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| @agent-native/core/client/settings                                                                                               | @agent-native/toolkit/app/settings                                                                                                                          |
+| @agent-native/core/client/agent-chat: AgentPanel、AgentSidebar、AgentChatHome、AgentChatSurface                                  | @agent-native/toolkit/app/chat                                                                                                                              |
+| @agent-native/core/client/agent-chat: guided-question export                                                                     | @agent-native/toolkit/app/chat/agentkit-chat                                                                                                                |
+| @agent-native/core/client/changelog: ChangelogDialog、ChangelogSettingsCard                                                      | @agent-native/toolkit/app/changelog                                                                                                                         |
+| @agent-native/core/client/org: OrgSwitcher、BuilderCreditNotice                                                                  | @agent-native/toolkit/app/org                                                                                                                               |
+| @agent-native/core/client/org: TeamPage                                                                                          | @agent-native/toolkit/app/org/TeamPage                                                                                                                      |
+| @agent-native/core/client/org: OrgInfo、DomainMatchOrg、OrgInvitationSummary                                                     | @agent-native/core/org/types                                                                                                                                |
+| @agent-native/core/client/setup-connections: BuilderConnectCard、SetupConnectionsPage                                            | @agent-native/toolkit/app/setup-connections                                                                                                                 |
+| @agent-native/core/client/setup-connections: FileStorageSetupPopover                                                             | @agent-native/toolkit/app/chat/FileStorageSetupPopover                                                                                                      |
+| @agent-native/core/client/setup-connections: settings、onboarding、resources、integrationsのUI export                            | @agent-native/toolkit/app/settings、@agent-native/toolkit/app/onboarding、@agent-native/toolkit/app/resources、@agent-native/toolkit/app/integrationsへ分割 |
+| @agent-native/core/client/host: buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox                              | @agent-native/toolkit/app/extensions/portable-extension                                                                                                     |
+| @agent-native/core/client/ui: 共通UI export、feedback export                                                                     | @agent-native/toolkit/app/shared、@agent-native/toolkit/app/feedback                                                                                        |
+| @agent-native/core/client/ui: buildSignInReturnHref                                                                              | @agent-native/core/client/sign-in-return                                                                                                                    |
+| @agent-native/core/blocks: client registry、renderer、editor、server block typeとregistration                                    | @agent-native/toolkit/app/blocks、@agent-native/core/blocks/server                                                                                          |
+| @agent-native/core/client/hooks: AppProviders、AppProvidersProps                                                                 | @agent-native/toolkit/app/providers                                                                                                                         |
+| @agent-native/core/client: PromptComposer と TiptapComposer を含む composer と音声関連のシンボル                                 | @agent-native/toolkit/app/chat                                                                                                                              |
+| @agent-native/core/client/components/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                  | @agent-native/toolkit/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                                                            |
+| @agent-native/core/client/editor と @agent-native/core/client/rich-markdown-editor: RegistryBlockDataProvider                    | @agent-native/toolkit/app/blocks                                                                                                                            |
+| @agent-native/core/client/editor と @agent-native/core/client/rich-markdown-editor: その他のエディター export                    | @agent-native/toolkit/editor                                                                                                                                |
+| @agent-native/core/client/editor と @agent-native/core/client/rich-markdown-editor: uploadEditorImage                            | @agent-native/core/client/uploads                                                                                                                           |
+| @agent-native/core/client/components/{AgentPresenceChip,PresenceBar,LiveCursorOverlay,RecentEditHighlights,RemoteSelectionRings} | @agent-native/toolkit/collab-ui                                                                                                                             |
+| @agent-native/core/styles/agent-native.css                                                                                       | @agent-native/toolkit/styles.css                                                                                                                            |
+| @agent-native/core/styles/agent-conversation.css                                                                                 | @agent-native/toolkit/app/styles/agent-conversation.css                                                                                                     |
+| @agent-native/core/styles/chat-history-list.css                                                                                  | @agent-native/toolkit/app/styles/chat-history-list.css                                                                                                      |
+| @agent-native/agentkit/react/styles.css                                                                                          | @agent-native/toolkit/app/agentkit/react/styles.css                                                                                                         |
+| @agent-native/agentkit/reactとそのReact subpath                                                                                  | @agent-native/toolkit/app/agentkit                                                                                                                          |
+
+正規のsource URL:
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

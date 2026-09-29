@@ -46,7 +46,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <span>{content}</span>,
 }));
 

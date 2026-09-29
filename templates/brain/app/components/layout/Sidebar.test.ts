@@ -10,7 +10,7 @@ describe("Brain sidebar footer", () => {
   it("does not reserve empty space for a hidden organization switcher", () => {
     expect(source).toContain("<OrgSwitcher compact={collapsed} />");
     expect(source).not.toContain("OrgSwitcher reserveSpace");
-    expect(source).toContain('from "@agent-native/core/client/org"');
+    expect(source).toContain('from "@agent-native/toolkit/app/org"');
   });
 
   it("leaves Settings to the account menu instead of a rail item", () => {

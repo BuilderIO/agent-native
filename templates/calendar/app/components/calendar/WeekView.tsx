@@ -35,6 +35,7 @@ import {
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
 import {
+  isCompactCalendarEvent,
   groupAdjacentAllDayPlacements,
   layoutAllDayEvents,
   partitionAllDayEvents,
@@ -47,7 +48,6 @@ import {
   getDateKeyInTimezone,
   getEventDateKey,
   getEventSegmentForCalendarDay,
-  isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
 import { normalizeNumberOfDays } from "@/lib/calendar-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
@@ -610,7 +610,7 @@ export const WeekView = memo(function WeekView({
     () =>
       events.filter(
         (event) =>
-          isAllDayCalendarEvent(event) || isFullDayOutOfOfficeEvent(event),
+          isCompactCalendarEvent(event) || isFullDayOutOfOfficeEvent(event),
       ),
     [events],
   );
@@ -619,7 +619,7 @@ export const WeekView = memo(function WeekView({
     () =>
       events.filter(
         (event) =>
-          !isAllDayCalendarEvent(event) &&
+          !isCompactCalendarEvent(event) &&
           isOutOfOfficeEvent(event) &&
           !isFullDayOutOfOfficeEvent(event),
       ),
@@ -629,7 +629,7 @@ export const WeekView = memo(function WeekView({
   const timedEvents = useMemo(
     () =>
       events.filter(
-        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+        (event) => !isCompactCalendarEvent(event) && !isOutOfOfficeEvent(event),
       ),
     [events],
   );
