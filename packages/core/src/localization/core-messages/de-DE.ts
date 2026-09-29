@@ -93,7 +93,7 @@ const messages: AgentChatTranslation = {
   "observability.promoteMustContainOptional":
     "Antwort muss enthalten (optional)",
   "observability.promoteNeedsContains":
-    "Dieser Lauf enthält keinen erfolgreichen Toolaufruf. Gib vor dem Hochstufen Text ein, den die Antwort enthalten muss.",
+    "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib vor der Hochstufung den Text ein, den die Antwort enthalten muss.",
   "observability.summarizeWithAgent": "Mit Agent zusammenfassen",
   "observability.regenerateSummary": "Zusammenfassung neu erstellen",
   "observability.summarizeWithAgentHelp":
@@ -405,6 +405,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Empfohlen",
   "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
   "mcpIntegrations.menuLabel": "Integrationen",
+  "mcpApps.optionalPeerRequired":
+    "Diese MCP-App benötigt das Paket {{packageName}}. Installiere es mit {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Tools und Dienste mit dem Agenten verbinden",
   "mcpIntegrations.title": "Integrationen verbinden",

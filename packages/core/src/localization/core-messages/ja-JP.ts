@@ -87,7 +87,7 @@ const messages: AgentChatTranslation = {
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
   "observability.promoteMustContain": "返信に含めるテキスト…",
-  "observability.promoteMustContainLabel": "昇格した評価の返信に含めるテキスト",
+  "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
   "observability.promoteMustContainOptional": "返信に含めるテキスト（任意）",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
@@ -658,6 +658,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
   "mcpIntegrations.menuLabel": "連携",
+  "mcpApps.optionalPeerRequired":
+    "この MCP アプリには {{packageName}} が必要です。{{installCommand}} でインストールしてください。",
   "mcpIntegrations.menuDescription": "ツールやサービスをエージェントに接続",
   "mcpIntegrations.title": "連携を接続",
   "mcpIntegrations.description":

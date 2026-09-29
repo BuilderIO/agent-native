@@ -292,6 +292,39 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("defaults empty completion status and preserves deltas", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages[0]).toMatchObject({
+      status: "complete",
+      parts: [{ type: "text", text: "Answer" }],
+    });
+  });
+
   it("preserves a failed synthetic completion status while retaining deltas", () => {
     const reduced = [
       event(1, { type: "run.started" }),

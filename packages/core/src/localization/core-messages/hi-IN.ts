@@ -635,6 +635,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "अनुशंसित",
   "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "mcpIntegrations.menuLabel": "इंटीग्रेशन",
+  "mcpApps.optionalPeerRequired":
+    "इस MCP ऐप के लिए {{packageName}} पैकेज ज़रूरी है। इसे {{installCommand}} से इंस्टॉल करें।",
   "mcpIntegrations.menuDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
   "mcpIntegrations.title": "इंटीग्रेशन कनेक्ट करें",
   "mcpIntegrations.description":

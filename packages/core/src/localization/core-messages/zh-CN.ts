@@ -612,6 +612,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推荐",
   "integrations.subtitle": "连接您的智能体可以使用的工具。",
   "mcpIntegrations.menuLabel": "集成",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 应用需要 {{packageName}}。请使用 {{installCommand}} 安装。",
   "mcpIntegrations.menuDescription": "将工具和服务连接到智能体",
   "mcpIntegrations.title": "连接集成",
   "mcpIntegrations.description":

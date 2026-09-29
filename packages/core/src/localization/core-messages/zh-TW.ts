@@ -86,7 +86,7 @@ const messages: AgentChatTranslation = {
   "observability.promoteMustContainLabel": "升級後評估回覆必須包含的文字",
   "observability.promoteMustContainOptional": "回覆必須包含（選填）",
   "observability.promoteNeedsContains":
-    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行推廣。",
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.summarizeWithAgent": "請代理程式摘要",
   "observability.regenerateSummary": "重新產生摘要",
   "observability.summarizeWithAgentHelp":
@@ -614,6 +614,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推薦",
   "integrations.subtitle": "連線您的代理可以使用的工具。",
   "mcpIntegrations.menuLabel": "整合",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 應用需要 {{packageName}}。請使用 {{installCommand}} 安裝。",
   "mcpIntegrations.menuDescription": "將工具和服務連線至代理",
   "mcpIntegrations.title": "連線整合",
   "mcpIntegrations.description": "瀏覽 {{count}} 個代理整合，或新增自訂整合。",

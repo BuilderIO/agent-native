@@ -701,6 +701,10 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         "db-slowest",
         state.db.slowestOperationMs,
       );
+      // db-ops counts a pool connect and its query separately, so a statement
+      // budget has to read these two instead.
+      appendServerTiming(response, event, "db-queries", state.db.queryCount);
+      appendServerTiming(response, event, "db-connects", state.db.connectCount);
     }
     if (state.startupDb && state.startupDb.operationCount > 0) {
       appendServerTiming(

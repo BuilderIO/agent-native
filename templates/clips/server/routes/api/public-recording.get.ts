@@ -23,6 +23,10 @@ import {
 } from "../../../shared/agent-context.js";
 import { displayCommentMentions } from "../../../shared/comment-mentions.js";
 import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "../../../shared/recording-kind.js";
+import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
@@ -48,6 +52,7 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { viewerScreenshotEditsJson } from "../../lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import {
   getRecordingAccessTokenResourceId,
@@ -488,11 +493,18 @@ export default defineEventHandler(async (event) => {
       id: rec.id,
       title: rec.title,
       description: rec.description,
+      kind: resolveRecordingKind(rec.kind),
+      // A screenshot's picture is served by the thumbnail route, which is the
+      // full stored image and carries the same short-lived token as the video
+      // URL — so the share password gates the image bytes too.
+      imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
-      editsJson: rec.editsJson,
+      editsJson: isImageRecording(rec)
+        ? viewerScreenshotEditsJson(rec.editsJson)
+        : rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,

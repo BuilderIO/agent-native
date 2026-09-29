@@ -8,6 +8,8 @@ const sentryMock = vi.hoisted(() => {
     setTag: vi.fn(),
   };
   return {
+    missing: false,
+    loadFailure: undefined as Error | undefined,
     init: vi.fn(),
     getIsolationScope: vi.fn(() => mockScope),
     withScope: vi.fn((fn: (scope: typeof mockScope) => unknown) =>
@@ -18,12 +20,20 @@ const sentryMock = vi.hoisted(() => {
   };
 });
 
-vi.mock("@sentry/node", () => ({
-  init: sentryMock.init,
-  getIsolationScope: sentryMock.getIsolationScope,
-  withScope: sentryMock.withScope,
-  captureException: sentryMock.captureException,
-}));
+vi.mock("@sentry/node", () => {
+  if (sentryMock.loadFailure) throw sentryMock.loadFailure;
+  if (sentryMock.missing) {
+    throw Object.assign(new Error("Cannot find package '@sentry/node'"), {
+      code: "ERR_MODULE_NOT_FOUND",
+    });
+  }
+  return {
+    init: sentryMock.init,
+    getIsolationScope: sentryMock.getIsolationScope,
+    withScope: sentryMock.withScope,
+    captureException: sentryMock.captureException,
+  };
+});
 
 describe("server/sentry", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -31,13 +41,17 @@ describe("server/sentry", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     sentryMock.init.mockClear();
+    sentryMock.loadFailure = undefined;
     sentryMock.captureException.mockClear();
     sentryMock.mockScope.setUser.mockClear();
     sentryMock.mockScope.setTag.mockClear();
+    sentryMock.missing = false;
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    sentryMock.missing = false;
+    sentryMock.loadFailure = undefined;
     vi.resetModules();
   });
 
@@ -51,9 +65,41 @@ describe("server/sentry", () => {
       const { initServerSentry, isServerSentryEnabled } =
         await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(false);
+      expect(await initServerSentry()).toBe(false);
       expect(sentryMock.init).not.toHaveBeenCalled();
       expect(isServerSentryEnabled()).toBe(false);
+    });
+
+    it("keeps server boot healthy when the optional Sentry peer is missing", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      sentryMock.missing = true;
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { initServerSentry, isServerSentryEnabled } =
+        await import("./sentry.js");
+
+      await expect(initServerSentry()).resolves.toBe(false);
+      expect(isServerSentryEnabled()).toBe(false);
+      expect(sentryMock.init).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls[0]?.[0]).toContain("Server Sentry disabled");
+      expect(error.mock.calls[0]?.[0]).toContain("pnpm add @sentry/node");
+      error.mockRestore();
+    });
+
+    it("disables Sentry on any peer load failure without rejecting boot", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      sentryMock.loadFailure = new Error("Sentry module failed to load");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { initServerSentry, isServerSentryEnabled } =
+        await import("./sentry.js");
+
+      await expect(initServerSentry()).resolves.toBe(false);
+      await expect(initServerSentry()).resolves.toBe(false);
+      expect(isServerSentryEnabled()).toBe(false);
+      expect(sentryMock.init).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls[0]?.[0]).toContain("Server Sentry disabled");
+      error.mockRestore();
     });
 
     it("initializes with the DSN when present", async () => {
@@ -62,7 +108,7 @@ describe("server/sentry", () => {
       const { initServerSentry, isServerSentryEnabled } =
         await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(true);
+      expect(await initServerSentry()).toBe(true);
       expect(sentryMock.init).toHaveBeenCalledTimes(1);
       const cfg = sentryMock.init.mock.calls[0][0];
       expect(cfg.dsn).toBe("https://test@example/123");
@@ -79,7 +125,7 @@ describe("server/sentry", () => {
       process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "beta";
       const { initServerSentry } = await import("./sentry.js");
 
-      initServerSentry();
+      await initServerSentry();
 
       const cfg = sentryMock.init.mock.calls[0][0];
       expect(cfg.environment).toBe("beta");
@@ -95,7 +141,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_DSN = "https://common@example/456";
       const { initServerSentry } = await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(true);
+      expect(await initServerSentry()).toBe(true);
       expect(sentryMock.init.mock.calls[0][0].dsn).toBe(
         "https://common@example/456",
       );
@@ -109,7 +155,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_INGEST_HOST = "o1.ingest.us.sentry.io";
       const { initServerSentry } = await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(true);
+      expect(await initServerSentry()).toBe(true);
       expect(sentryMock.init.mock.calls[0][0].dsn).toBe(
         "https://public_key@o1.ingest.us.sentry.io/4511270423822336",
       );
@@ -119,7 +165,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       process.env.SENTRY_SERVER_TRACES_SAMPLE_RATE = "0.25";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       expect(sentryMock.init.mock.calls[0][0].tracesSampleRate).toBe(0.25);
     });
@@ -128,7 +174,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       process.env.SENTRY_SERVER_TRACES_SAMPLE_RATE = "abc";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       expect(sentryMock.init.mock.calls[0][0].tracesSampleRate).toBe(0);
     });
@@ -136,8 +182,8 @@ describe("server/sentry", () => {
     it("is idempotent — calling twice does not re-initialize", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
-      initServerSentry();
+      await initServerSentry();
+      await initServerSentry();
       expect(sentryMock.init).toHaveBeenCalledTimes(1);
     });
   });
@@ -146,7 +192,7 @@ describe("server/sentry", () => {
     it("drops ValidationError exceptions", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -158,7 +204,7 @@ describe("server/sentry", () => {
     it("strips authorization, cookie, and set-cookie headers", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -184,7 +230,7 @@ describe("server/sentry", () => {
     it("strips ip_address but keeps explicit identity fields", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -203,7 +249,7 @@ describe("server/sentry", () => {
     it("drops the user object when only ip_address was set", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -215,7 +261,7 @@ describe("server/sentry", () => {
     it("drops socket hang up unhandled rejections from node:_http_client", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -243,7 +289,7 @@ describe("server/sentry", () => {
     it("drops auto.node socket hang up unhandled rejections from node:_http_client", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -272,7 +318,7 @@ describe("server/sentry", () => {
     it("drops SDK-only ErrorEvent unhandled rejections", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -301,7 +347,7 @@ describe("server/sentry", () => {
     it("drops ErrorEvent rejections whose only in_app frames are bundled SDK chunks", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -337,7 +383,7 @@ describe("server/sentry", () => {
     it("keeps ErrorEvent unhandled rejections with application frames", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -371,7 +417,7 @@ describe("server/sentry", () => {
     it("keeps socket hang up errors that aren't unhandled rejections", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -400,7 +446,7 @@ describe("server/sentry", () => {
     it("keeps socket hang up rejections without an _http_client frame", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -424,7 +470,7 @@ describe("server/sentry", () => {
     it("drops metadata-only SDK ErrorEvent payloads", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -440,7 +486,7 @@ describe("server/sentry", () => {
     it("drops bare HTTPError Unauthorized events", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -459,7 +505,7 @@ describe("server/sentry", () => {
     it("strips runtime_env from contexts", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -486,7 +532,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, setSentryUserForRequest } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const session: AuthSession = {
         email: "alice@example.com",
@@ -516,7 +562,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, setSentryUserForRequest } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       setSentryUserForRequest({ email: "alice@example.com" });
       expect(sentryMock.mockScope.setUser).toHaveBeenCalledWith({
@@ -530,7 +576,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, setSentryUserForRequest } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       setSentryUserForRequest(null);
       expect(sentryMock.mockScope.setUser).toHaveBeenCalledWith(null);
@@ -552,7 +598,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, captureRouteError } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const err = new Error("boom");
       const result = captureRouteError(err, {
