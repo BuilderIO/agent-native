@@ -429,7 +429,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
       : buildChecks(changedPaths, full),
     workspaceFilters,
     testWorkspaceFilters,
-    scriptTests: full ? [] : scriptTestsForPaths(changedPaths),
+    scriptTests: scriptTestsForPaths(changedPaths),
   };
 }
 

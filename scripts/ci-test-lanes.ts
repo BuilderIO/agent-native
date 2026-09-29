@@ -4,7 +4,11 @@ import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isDocsPath, normalizeChangedPath } from "./ci-change-scope.ts";
+import {
+  isDocsPath,
+  isInstructionPath,
+  normalizeChangedPath,
+} from "./ci-change-scope.ts";
 
 const ROOT = process.cwd();
 const CORE = "@agent-native/core";
@@ -187,6 +191,9 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   return paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     if (CORE_FORCE_FULL_TEST_PATHS.has(normalized)) return true;
+    // Core tests read bundled skills and instructions from disk, outside the
+    // module graph `vitest --changed` follows.
+    if (isInstructionPath(normalized)) return true;
     if (!normalized.startsWith("packages/core/") || isDocsPath(normalized)) {
       return false;
     }

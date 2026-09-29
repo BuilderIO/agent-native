@@ -370,6 +370,20 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   );
 });
 
+test("still runs changed root script tests when the change set is full", () => {
+  const scope = classifyChangedPaths([
+    ".github/workflows/ci.yml",
+    "scripts/package-release-workflow.test.ts",
+    "scripts/guard-no-unbounded-table-reads.mjs",
+  ]);
+  assert.equal(scope.full, true);
+  assert.equal(scope.checks.guards, true);
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/guard-no-unbounded-table-reads.test.ts",
+    "scripts/package-release-workflow.test.ts",
+  ]);
+});
+
 test("selects the changeset check for package, changeset, and checker changes", () => {
   assert.equal(
     classifyChangedPaths(["packages/core/src/index.ts"]).checks.changeset,

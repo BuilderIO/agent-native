@@ -84,8 +84,8 @@ jobs:
           if [ "$CI_FULL" = "true" ]; then
             node --experimental-strip-types scripts/ci-test-lanes.ts
           else
-            CI_WORKSPACE_FILTERS="$TARGETED_WORKSPACE_FILTERS" \
-              CI_BASE_SHA="$(git rev-parse HEAD^1)" \
+            base_sha="$(git rev-parse HEAD^1)"
+            CI_WORKSPACE_FILTERS="$TARGETED_WORKSPACE_FILTERS" CI_BASE_SHA="$base_sha" \
               node --experimental-strip-types scripts/ci-test-lanes.ts
           fi
 
