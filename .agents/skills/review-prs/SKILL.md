@@ -67,9 +67,16 @@ For every PR you inspect, read:
    approval with no newer event is the existing code assessment, so check its
    merge evidence without repeating that review;
  - all current human and bot review summaries, inline comments, and replies;
- - required checks, their actual conclusions, and whether any lane is pending,
-   skipped, unknown, or failing;
+ - every current check/status context and actual conclusion, marking pending,
+   skipped, unknown, or failing separately;
  - the repository ownership and the affected app or framework boundary.
+
+Inspect repository rulesets as well as branch protection. List them with
+`gh api repos/BuilderIO/agent-native/rulesets`, then inspect each matching
+`/rulesets/<id>` definition's `conditions.ref_name` and
+`required_status_checks` for the PR base branch. `gh pr checks --required` can
+omit ruleset requirements; never infer that no checks are required from that
+command alone.
 
 Use the GitHub organization membership API to verify that the author is a
 member of `BuilderIO`. Do not infer internal status from a display name, email,
@@ -284,9 +291,9 @@ off. Keep this review sweep in the foreground for a 10-minute merge gate. Once
 all the conditions hold, record the live `headRefOid`; they must remain true
 for 10 consecutive minutes on that same head:
 
- - every required check and status context for the recorded head reports
-   success, including contexts published by GitHub Actions and other
-   integrations;
+ - every status context required by branch protection or an applicable
+   repository ruleset reports success on the recorded head, including contexts
+   published by GitHub Actions and other integrations;
  - every actionable review finding has a verified fix or terminal disposition;
  - the PR is `MERGEABLE` with no conflicts;
  - the same recorded `headRefOid` remains unchanged for the entire 10-minute
