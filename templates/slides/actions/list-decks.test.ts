@@ -82,6 +82,59 @@ describe("list-decks", () => {
     });
     expect(result.decks[0]).not.toHaveProperty("slides");
   });
+  it("keeps a paged gallery readable when one legacy deck has malformed JSON", async () => {
+    const goodRow = {
+      ...deckRows[0],
+      data: JSON.stringify({
+        slides: [{ id: "slide-1" }],
+        aspectRatio: "16:9",
+      }),
+    };
+    const badRow = { ...deckRows[0], id: "deck_bad", data: "not json" };
+    rowsForQuery = [goodRow, badRow];
+    limitFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const captured: unknown[] = [];
+    const unregister = registerErrorCaptureProvider("test", (error) => {
+      captured.push(error);
+    });
+    try {
+      const result = await action.run({ limit: 12, includePreview: "true" });
+      expect(result.count).toBe(2);
+      expect(result.decks[0]).toMatchObject({
+        previewSlide: { id: "slide-1" },
+        aspectRatio: "16:9",
+      });
+      expect(result.decks[1]).toMatchObject({ id: "deck_bad" });
+      expect(result.decks[1]).not.toHaveProperty("previewSlide");
+      expect(captured.length).toBeGreaterThan(0);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("flags a first slide that is too large for a gallery preview", async () => {
+    const hugeSlide = { id: "slide-1", content: "x".repeat(200 * 1024) };
+    rowsForQuery = [
+      { ...deckRows[0], data: JSON.stringify({ slides: [hugeSlide] }) },
+    ];
+    limitFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const result = await action.run({ limit: 12, includePreview: "true" });
+    expect(result.decks[0]).toMatchObject({ previewTooLarge: true });
+    expect(result.decks[0]).not.toHaveProperty("previewSlide");
+  });
+
   it("applies title search before pagination without reading slide bodies", async () => {
     await action.run({ limit: 30, search: "Road%_map" });
     expect(whereFn).toHaveBeenCalledWith({
@@ -167,7 +220,13 @@ describe("list-decks", () => {
       visibility: "visibility_col",
       ownerEmail: "owner_email_col",
       previewSlide: expect.objectContaining({
-        strings: expect.arrayContaining(["::jsonb -> 'slides' -> 0)::text"]),
+        strings: expect.arrayContaining([
+          "(case when length(",
+          expect.stringContaining(" then "),
+        ]),
+      }),
+      previewTooLarge: expect.objectContaining({
+        strings: expect.arrayContaining(["(length(", expect.any(String)]),
       }),
       aspectRatio: expect.objectContaining({
         strings: expect.arrayContaining(["::jsonb ->> 'aspectRatio')"]),

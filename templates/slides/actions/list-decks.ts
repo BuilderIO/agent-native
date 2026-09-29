@@ -24,6 +24,49 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   }
 }
 
+// Thumbnails render from the first slide only; a slide beyond this size is
+// reported as too large instead of inflating every gallery page.
+const MAX_PREVIEW_SLIDE_CHARS = 128 * 1024;
+
+const firstSlideText = sql`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
+const previewProjection = {
+  previewSlide: sql<
+    string | null
+  >`(case when length(${firstSlideText}) <= ${MAX_PREVIEW_SLIDE_CHARS} then ${firstSlideText} end)`,
+  previewTooLarge: sql<
+    boolean | null
+  >`(length(${firstSlideText}) > ${MAX_PREVIEW_SLIDE_CHARS})`,
+  aspectRatio: sql<
+    string | null
+  >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`,
+};
+
+function previewFromRawData(data: string, deckId: string) {
+  let previewSlide: string | null = null;
+  let previewTooLarge: boolean | null = null;
+  let aspectRatio: string | null = null;
+  try {
+    const parsed = JSON.parse(data);
+    const firstSlide = Array.isArray(parsed?.slides)
+      ? parsed.slides[0]
+      : undefined;
+    if (firstSlide !== undefined) {
+      const text = JSON.stringify(firstSlide);
+      if (text.length <= MAX_PREVIEW_SLIDE_CHARS) previewSlide = text;
+      else previewTooLarge = true;
+    }
+    if (typeof parsed?.aspectRatio === "string") {
+      aspectRatio = parsed.aspectRatio;
+    }
+  } catch (parseError) {
+    captureError(parseError, {
+      route: "list-decks",
+      extra: { deckId },
+    });
+  }
+  return { previewSlide, previewTooLarge, aspectRatio };
+}
+
 const INVALID_TEXT_REPRESENTATION = "22P02";
 const UNSUPPORTED_UNICODE_ESCAPE = "22P05";
 
@@ -185,32 +228,53 @@ export default defineAction({
         ? and(where, ...pageConditions)
         : where;
       const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
-      const rows = await db
+      const previewRequested = args.includePreview === "true";
+      const pagedMeta = {
+        id: schema.decks.id,
+        title: schema.decks.title,
+        ownerEmail: schema.decks.ownerEmail,
+        designSystemId: schema.decks.designSystemId,
+        createdAt: schema.decks.createdAt,
+        updatedAt: schema.decks.updatedAt,
+        visibility: schema.decks.visibility,
+      };
+      const pagedQuery = db
         .select({
-          id: schema.decks.id,
-          title: schema.decks.title,
-          ownerEmail: schema.decks.ownerEmail,
-          designSystemId: schema.decks.designSystemId,
-          createdAt: schema.decks.createdAt,
-          updatedAt: schema.decks.updatedAt,
-          visibility: schema.decks.visibility,
-          previewSlide:
-            args.includePreview === "true"
-              ? sql<
-                  string | null
-                >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`
-              : sql<null>`null`,
-          aspectRatio:
-            args.includePreview === "true"
-              ? sql<
-                  string | null
-                >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`
-              : sql<null>`null`,
+          ...pagedMeta,
+          previewSlide: previewRequested
+            ? previewProjection.previewSlide
+            : sql<null>`null`,
+          previewTooLarge: previewRequested
+            ? previewProjection.previewTooLarge
+            : sql<null>`null`,
+          aspectRatio: previewRequested
+            ? previewProjection.aspectRatio
+            : sql<null>`null`,
         })
         .from(schema.decks)
         .where(pagedWhere)
         .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
         .limit(pageSize + 1);
+      let rows: Awaited<typeof pagedQuery>;
+      try {
+        rows = await pagedQuery;
+      } catch (error) {
+        if (!previewRequested || !isInvalidJsonCastError(error)) throw error;
+        captureError(error, {
+          route: "list-decks",
+          extra: { includePreview: true, paged: true },
+        });
+        const rawRows = await db
+          .select({ ...pagedMeta, data: schema.decks.data })
+          .from(schema.decks)
+          .where(pagedWhere)
+          .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
+          .limit(pageSize + 1);
+        rows = rawRows.map(({ data, ...meta }) => ({
+          ...meta,
+          ...previewFromRawData(data, meta.id),
+        }));
+      }
       const hasNextPage = rows.length > pageSize;
       const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
       const lastRow = visibleRows[visibleRows.length - 1];
@@ -238,10 +302,15 @@ export default defineAction({
         updatedAt: row.updatedAt,
         ...(args.includePreview === "true"
           ? {
-              previewSlide: parseJsonProjection(
-                row.previewSlide,
-                "first slide preview",
-              ),
+              ...(row.previewSlide !== null
+                ? {
+                    previewSlide: parseJsonProjection(
+                      row.previewSlide,
+                      "first slide preview",
+                    ),
+                  }
+                : {}),
+              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
               aspectRatio: row.aspectRatio,
             }
           : {}),
@@ -255,12 +324,6 @@ export default defineAction({
 
     if (args.light === "true") {
       if (args.includePreview === "true") {
-        const previewSlideProjection = sql<
-          string | null
-        >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
-        const aspectRatioProjection = sql<
-          string | null
-        >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`;
         const previewQuery = db
           .select({
             id: schema.decks.id,
@@ -268,8 +331,7 @@ export default defineAction({
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
             ownerEmail: schema.decks.ownerEmail,
-            previewSlide: previewSlideProjection,
-            aspectRatio: aspectRatioProjection,
+            ...previewProjection,
           })
           .from(schema.decks)
           .where(where)
@@ -296,28 +358,10 @@ export default defineAction({
             .from(schema.decks)
             .where(where)
             .orderBy(desc(schema.decks.updatedAt));
-          rows = rawRows.map(({ data, ...meta }) => {
-            let previewSlide: string | null = null;
-            let aspectRatio: string | null = null;
-            try {
-              const parsed = JSON.parse(data);
-              const firstSlide = Array.isArray(parsed?.slides)
-                ? parsed.slides[0]
-                : undefined;
-              if (firstSlide !== undefined) {
-                previewSlide = JSON.stringify(firstSlide);
-              }
-              if (typeof parsed?.aspectRatio === "string") {
-                aspectRatio = parsed.aspectRatio;
-              }
-            } catch (parseError) {
-              captureError(parseError, {
-                route: "list-decks",
-                extra: { deckId: meta.id },
-              });
-            }
-            return { ...meta, previewSlide, aspectRatio };
-          });
+          rows = rawRows.map(({ data, ...meta }) => ({
+            ...meta,
+            ...previewFromRawData(data, meta.id),
+          }));
         }
 
         return {
@@ -339,6 +383,7 @@ export default defineAction({
               ...(previewSlide && typeof previewSlide === "object"
                 ? { previewSlide }
                 : {}),
+              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
               ...(typeof row.aspectRatio === "string"
                 ? { aspectRatio: row.aspectRatio }
                 : {}),
