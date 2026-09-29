@@ -4017,6 +4017,9 @@ importers:
       tiptap-markdown:
         specifier: 'catalog:'
         version: 0.9.0(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
+      tw-animate-css:
+        specifier: ^1.4.0
+        version: 1.4.0
       vaul:
         specifier: ^1.1.2
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
