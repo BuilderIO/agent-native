@@ -14,6 +14,7 @@ import { loadDashboardSeed } from "./dashboard-seeds";
 import { validateFirstPartyDashboardTimeScope } from "./dashboard-time-scope";
 import { parseDemoDescriptor } from "./demo-source";
 import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
+import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend";
 import {
   buildPanel,
   DEPLOYED_RECURRING_USERS_BY_TEMPLATE_SQL,
@@ -388,13 +389,23 @@ describe("dashboard catalog", () => {
     expect(catalogPanel.sql).toContain("'{{timeRangeStart}}'");
     expect(catalogPanel.sql).toContain("'{{timeRangeEnd}}'");
     expect(catalogPanel.sql).toContain(
-      "generate_series(GREATEST(bounds.start_date::timestamp",
+      "offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 + thousands.n * 1000 AS n",
+    );
+    expect(catalogPanel.sql).toContain(
+      "GREATEST(bounds.start_date, (bounds.end_date - INTERVAL '3659 days')::date)",
     );
     expect(catalogPanel.sql).toContain("SELECT 'unknown' WHERE NOT EXISTS");
-    expect(catalogPanel.sql).not.toContain("WITH digits AS");
     expect(seedPanel?.sql).toBe(catalogPanel.sql);
     expect(() =>
       validateFirstPartyAnalyticsSql(catalogPanel.sql),
+    ).not.toThrow();
+    expect(() =>
+      assertFirstPartyAnalyticsBigQuerySql(catalogPanel.sql),
+    ).not.toThrow();
+
+    const retentionPanel = requiredFirstPartyPanel("retention-over-time");
+    expect(() =>
+      assertFirstPartyAnalyticsBigQuerySql(retentionPanel.sql),
     ).not.toThrow();
   });
 

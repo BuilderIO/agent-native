@@ -71,10 +71,6 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "session_recordings",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
-const SAFE_ANALYTICS_SQL_TABLE_FUNCTIONS = new Set([
-  "pg_catalog.generate_series",
-]);
-const MAX_ANALYTICS_DATE_SPINE_DAYS = 3_660;
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
@@ -811,54 +807,6 @@ function stripSqlLiterals(sql: string): string {
   return out;
 }
 
-function stripSqlComments(sql: string): string {
-  let out = "";
-  let i = 0;
-  let inSingle = false;
-  let inDouble = false;
-  while (i < sql.length) {
-    const ch = sql[i];
-    const next = sql[i + 1];
-    if (!inSingle && !inDouble && ch === "-" && next === "-") {
-      const start = i;
-      while (i < sql.length && sql[i] !== "\n") i++;
-      out += " ".repeat(i - start);
-      continue;
-    }
-    if (!inSingle && !inDouble && ch === "/" && next === "*") {
-      const start = i;
-      let depth = 1;
-      i += 2;
-      while (i < sql.length && depth > 0) {
-        if (sql[i] === "/" && sql[i + 1] === "*") {
-          depth++;
-          i += 2;
-        } else if (sql[i] === "*" && sql[i + 1] === "/") {
-          depth--;
-          i += 2;
-        } else {
-          i++;
-        }
-      }
-      out += " ".repeat(i - start);
-      continue;
-    }
-    out += ch;
-    if (!inDouble && ch === "'") {
-      if (inSingle && next === "'") {
-        out += next;
-        i += 2;
-        continue;
-      }
-      inSingle = !inSingle;
-    } else if (!inSingle && ch === '"') {
-      inDouble = !inDouble;
-    }
-    i++;
-  }
-  return out;
-}
-
 interface AnalyticsSqlToken {
   value: string;
   quoted: boolean;
@@ -1105,76 +1053,6 @@ function collectAnalyticsSqlSources(sql: string): {
   return { cteNames, sources };
 }
 
-function readGenerateSeriesArgs(
-  sql: string,
-  code: string,
-  open: number,
-): string[] | null {
-  const args: string[] = [];
-  let depth = 0;
-  let start = open + 1;
-  for (let i = open + 1; i < code.length; i++) {
-    if (code[i] === "(") depth++;
-    else if (code[i] === ")") {
-      if (depth === 0) {
-        args.push(sql.slice(start, i).trim());
-        return args;
-      }
-      depth--;
-    } else if (code[i] === "," && depth === 0) {
-      args.push(sql.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  return null;
-}
-
-function normalizeAnalyticsSqlExpression(sql: string): string {
-  return stripSqlComments(sql).replace(/\s+/g, "").toLowerCase();
-}
-
-function validateAnalyticsDateSpines(sql: string): void {
-  const code = stripSqlLiterals(sql);
-  const tokens = tokenizeAnalyticsSql(sql);
-  const dateBound = String.raw`[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*(?:::(?:date|timestamp))?`;
-  const boundedStart = new RegExp(
-    String.raw`^greatest\(\s*(${dateBound})\s*,\s*(${dateBound})\s*-\s*interval\s*'\s*${MAX_ANALYTICS_DATE_SPINE_DAYS - 1}\s+days?\s*'\s*\)$`,
-    "i",
-  );
-
-  for (let i = 0; i + 3 < tokens.length; i++) {
-    if (
-      !isAnalyticsSqlKeyword(tokens[i], "pg_catalog") ||
-      tokens[i + 1].value !== "." ||
-      !isAnalyticsSqlKeyword(tokens[i + 2], "generate_series") ||
-      tokens[i + 3].value !== "("
-    ) {
-      continue;
-    }
-
-    const open = tokens[i + 3].start;
-    const args = readGenerateSeriesArgs(sql, code, open);
-    if (!args || args.length !== 3) {
-      throw new Error(
-        "First-party analytics date spines must use bounded dates and a 1-day step",
-      );
-    }
-
-    const [start, end, step] = args.map(stripSqlComments);
-    const bounded = boundedStart.exec(start);
-    if (
-      !bounded ||
-      normalizeAnalyticsSqlExpression(bounded[2]!) !==
-        normalizeAnalyticsSqlExpression(end) ||
-      !/^interval\s*'\s*1\s+day\s*'$/i.test(step)
-    ) {
-      throw new Error(
-        "First-party analytics date spines must use bounded dates and a 1-day step",
-      );
-    }
-  }
-}
-
 export function validateFirstPartyAnalyticsSql(sql: string): void {
   const stripped = stripSqlLiterals(sql).trim();
   const lowered = stripped.toLowerCase();
@@ -1209,8 +1087,6 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       "First-party analytics queries cannot read session replay chunks",
     );
   }
-  validateAnalyticsDateSpines(sql);
-
   const { cteNames, sources } = collectAnalyticsSqlSources(sql);
   let usesAllowedTable = false;
   for (const source of sources) {
@@ -1221,8 +1097,6 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       );
     }
     if (source.tableFunction) {
-      if (!source.quoted && SAFE_ANALYTICS_SQL_TABLE_FUNCTIONS.has(ref))
-        continue;
       throw new Error(
         `First-party analytics queries cannot read from table function ${source.ref}`,
       );

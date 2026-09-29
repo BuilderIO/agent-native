@@ -139,7 +139,7 @@
       "chartType": "area",
       "source": "first-party",
       "width": 2,
-      "sql": "WITH signup_events AS (SELECT event_date AS date, COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown') AS template FROM analytics_events WHERE ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}')) AND event_name = 'signup' AND (event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')), bounds AS (SELECT CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE MIN(date::date) END AS start_date, CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE MAX(date::date) END AS end_date FROM signup_events), dates AS (SELECT to_char(days.day, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN LATERAL pg_catalog.generate_series(GREATEST(bounds.start_date::timestamp, bounds.end_date::timestamp - INTERVAL '3659 days'), bounds.end_date::timestamp, INTERVAL '1 day') AS days(day)), templates AS (SELECT DISTINCT template FROM signup_events UNION ALL SELECT 'unknown' WHERE NOT EXISTS (SELECT 1 FROM signup_events)), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template",
+      "sql": "WITH digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 + thousands.n * 1000 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds CROSS JOIN digits thousands WHERE thousands.n < 4 AND ones.n + tens.n * 10 + hundreds.n * 100 + thousands.n * 1000 <= 3659), signup_events AS (SELECT event_date AS date, COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown') AS template FROM analytics_events WHERE ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}')) AND event_name = 'signup' AND (event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))) AND ('{{timeRange}}' NOT IN ('', 'all') OR event_date >= to_char(CURRENT_DATE - INTERVAL '3659 days', 'YYYY-MM-DD')) AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')), bounds AS (SELECT CASE WHEN '{{timeRange}}' IN ('', 'all') THEN (CURRENT_DATE - INTERVAL '3659 days')::date WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE MIN(date::date) END AS start_date, CASE WHEN '{{timeRange}}' IN ('', 'all') THEN CURRENT_DATE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE MAX(date::date) END AS end_date FROM signup_events), date_spine_bounds AS (SELECT GREATEST(bounds.start_date, (bounds.end_date - INTERVAL '3659 days')::date) AS start_date, bounds.end_date FROM bounds), dates AS (SELECT to_char(date_spine_bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM date_spine_bounds CROSS JOIN offsets WHERE date_spine_bounds.start_date + offsets.n <= date_spine_bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events UNION ALL SELECT 'unknown' WHERE NOT EXISTS (SELECT 1 FROM signup_events)), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template",
       "config": {
         "xKey": "date",
         "yKey": "count",
@@ -594,7 +594,10 @@
           "seriesKey": "period",
           "valueKey": "rate"
         },
-        "colors": ["#10b981", "#8b5cf6"],
+        "colors": [
+          "#10b981",
+          "#8b5cf6"
+        ],
         "description": "Trailing 7-day cohort return rates. A point appears once its return window has fully elapsed (7 days for 1-7d, 14 days for 7-14d), so the newest days are blank rather than zero."
       }
     },
@@ -1113,7 +1116,10 @@
           "valueKey": "responses"
         },
         "stacked": true,
-        "colors": ["#10b981", "#ef4444"],
+        "colors": [
+          "#10b981",
+          "#ef4444"
+        ],
         "description": "Explicit thumbs-up and thumbs-down responses grouped by the model that generated the rated response."
       }
     },
@@ -1128,7 +1134,11 @@
         "xKey": "sentiment",
         "yKey": "messages",
         "yFormatter": "number",
-        "colors": ["#10b981", "#94a3b8", "#ef4444"],
+        "colors": [
+          "#10b981",
+          "#94a3b8",
+          "#ef4444"
+        ],
         "description": "Optional LLM-inferred positive, neutral, and negative message classifications over the last 30 days. This is separate from explicit thumbs feedback."
       }
     }

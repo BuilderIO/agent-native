@@ -568,37 +568,22 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).not.toThrow();
   });
 
-  it("allows only bounded daily generate_series date spines", () => {
-    expect(() =>
-      validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(GREATEST(bounds.start_date::timestamp, bounds.end_date::timestamp - INTERVAL '3659 days'), bounds.end_date::timestamp, INTERVAL '1 day') AS days(day)",
-      ),
-    ).not.toThrow();
+  it("rejects PostgreSQL set-returning date functions, including infinite bounds", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("bounded dates and a 1-day step");
+    ).toThrow("table function pg_catalog.generate_series");
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1 /* timeRangeStart */, 10000000 /* timeRangeEnd */, INTERVAL '1 day') AS days(day)",
+        "WITH bounds AS (SELECT '2000-01-01'::timestamp AS start_date, 'infinity'::timestamp AS end_date) SELECT e.event_date FROM analytics_events e CROSS JOIN bounds CROSS JOIN LATERAL pg_catalog.generate_series(bounds.start_date, bounds.end_date, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("bounded dates and a 1-day step");
-    expect(() =>
-      validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(CURRENT_DATE - INTERVAL '100000 days' + 0 * length('timeRangeStart'), CURRENT_DATE - INTERVAL '1 day', INTERVAL '1 day') AS days(day)",
-      ),
-    ).toThrow("bounded dates and a 1-day step");
+    ).toThrow("table function pg_catalog.generate_series");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog /* split */ . generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("bounded dates and a 1-day step");
-    expect(() =>
-      validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series('2000-01-01'::date, '2026-01-01'::date, INTERVAL '1 day') AS days(day)",
-      ),
-    ).toThrow("bounded dates and a 1-day step");
+    ).toThrow("table function pg_catalog.generate_series");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL custom_series(1, 2) AS days(day)",
