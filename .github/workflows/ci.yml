@@ -647,7 +647,7 @@ jobs:
           for app in "${apps[@]}"; do
             app_dir="templates/$app"
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
-            if [[ -f "$app_dir/netlify.toml" ]] && sed -n '/^\[context\.production\.environment\]/,/^\[/p' "$app_dir/netlify.toml" | grep -qx 'AGENT_NATIVE_RELEASE_MIGRATIONS = "1"'; then
+            if [[ -f "$app_dir/netlify.toml" ]] && sed -n '/^[[:space:]]*\[context\.production\.environment\][[:space:]]*$/,/^[[:space:]]*\[/p' "$app_dir/netlify.toml" | grep -Eq "^[[:space:]]*AGENT_NATIVE_RELEASE_MIGRATIONS[[:space:]]*=[[:space:]]*(\"1\"|'1')[[:space:]]*(#.*)?$"; then
               export AGENT_NATIVE_RELEASE_MIGRATIONS=1
             else
               unset AGENT_NATIVE_RELEASE_MIGRATIONS
