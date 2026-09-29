@@ -531,8 +531,9 @@ Use this worktree's branch. Batch fixes with one
 `origin/main` only for GitHub conflicts; prefer normal merges on shared
 branches. Behind/pending never justify syncing.
 
-Shipping authorizes new PRs only. Pushing to an external PR requires explicit
-current-request authorization for that exact PR. Push-only authorization means
+Shipping authorizes new PRs and merge-authorized handling for PRs authored by
+the current user. Pushing to an external PR requires explicit current-request
+authorization for that exact PR. Push-only authorization means
 `ship_mode=ready-only`; leave it open. Use `ship_mode=merge-authorized` only
 when this request separately authorizes merging that PR; follow `/ship`'s
 guarded merge gate. Without push authorization, hand off and mark publishing
