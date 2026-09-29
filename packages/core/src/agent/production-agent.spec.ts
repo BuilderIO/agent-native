@@ -223,6 +223,68 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
   );
 }
 
+async function runToolCallSequence(
+  calls: Array<{ name: string; input: Record<string, unknown> }>,
+  actions: Record<string, ActionEntry>,
+) {
+  let nextCall = 0;
+  const events: AgentChatEvent[] = [];
+  const engine: AgentEngine = {
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream(options): AsyncIterable<EngineEvent> {
+      if (isLoopBreakerCloseout(options) || nextCall === calls.length) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "text",
+              text: isLoopBreakerCloseout(options) ? "Stopped." : "Done.",
+            },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+        return;
+      }
+      const call = calls[nextCall++];
+      yield {
+        type: "assistant-content",
+        parts: [
+          {
+            type: "tool-call",
+            id: `repeat-error-${nextCall}`,
+            name: call.name,
+            input: call.input,
+          },
+        ],
+      };
+      yield { type: "stop", reason: "tool_use" };
+    },
+  };
+
+  await runAgentLoop({
+    engine,
+    model: "test-model",
+    systemPrompt: "system",
+    tools: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+    actions,
+    send: (event) => events.push(event),
+    signal: new AbortController().signal,
+  });
+
+  return events;
+}
+
 describe("toolCallCacheKey", () => {
   it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
     expect(
@@ -6686,6 +6748,104 @@ describe("runAgentLoop", () => {
     );
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("resets other tools' repeat-error counts after a successful write", async () => {
+    const keyedFailure = vi.fn(async () => fail("same failure"));
+    const variedFailure = vi.fn(async () => fail("same failure"));
+    const write = vi.fn(async () => "saved");
+    const events = await runToolCallSequence(
+      [
+        { name: "keyed-read", input: { id: "same" } },
+        { name: "keyed-read", input: { id: "same" } },
+        { name: "varied-read", input: { id: 1 } },
+        { name: "varied-read", input: { id: 2 } },
+        { name: "repair", input: { id: "deck" } },
+        { name: "varied-read", input: { id: 3 } },
+        { name: "keyed-read", input: { id: "same" } },
+      ],
+      {
+        "keyed-read": { ...actionEntry({ readOnly: true }), run: keyedFailure },
+        "varied-read": {
+          ...actionEntry({ readOnly: true }),
+          run: variedFailure,
+        },
+        repair: { ...actionEntry({ readOnly: false }), run: write },
+      },
+    );
+
+    expect(keyedFailure).toHaveBeenCalledTimes(3);
+    expect(variedFailure).toHaveBeenCalledTimes(3);
+    expect(write).toHaveBeenCalledOnce();
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      7,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
+  it("retains the mutating tool's keyed repeat-error count", async () => {
+    let attempts = 0;
+    const write = vi.fn(async () => {
+      attempts += 1;
+      if (attempts <= 2 || attempts === 4) fail("same failure");
+      return "saved";
+    });
+    const events = await runToolCallSequence(
+      Array.from({ length: 4 }, () => ({
+        name: "repair",
+        input: { id: "same" },
+      })),
+      { repair: { ...actionEntry({ readOnly: false }), run: write } },
+    );
+
+    expect(write).toHaveBeenCalledTimes(4);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "repair",
+        result: expect.stringContaining("Stopped after 3 identical errors"),
+      }),
+    );
+  });
+
+  it("retains the mutating tool's across-argument repeat-error count", async () => {
+    let attempts = 0;
+    const write = vi.fn(async () => {
+      attempts += 1;
+      if (attempts <= 2 || attempts === 4) fail("same failure");
+      return "saved";
+    });
+    const events = await runToolCallSequence(
+      Array.from({ length: 4 }, (_, index) => ({
+        name: "repair-across-arguments",
+        input: { id: index },
+      })),
+      {
+        "repair-across-arguments": {
+          ...actionEntry({ readOnly: false }),
+          run: write,
+        },
+      },
+    );
+
+    expect(write).toHaveBeenCalledTimes(4);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "repair-across-arguments",
+        result: expect.stringContaining(
+          "Stopped after 3 attempts at repair-across-arguments",
+        ),
+      }),
     );
   });
 

@@ -6596,9 +6596,21 @@ export async function runAgentLoop(opts: {
           } else if (!actionIsReadOnly) {
             readOnlyToolResultCache.clear();
             duplicateReadOnlyToolCalls.clear();
+            const successfulWriteKey = toolCallCacheKey(
+              toolCall.name,
+              toolCall.input,
+            );
             for (const key of repeatedToolCalls.keys()) {
-              if (key !== toolCallCacheKey(toolCall.name, toolCall.input)) {
-                repeatedToolCalls.delete(key);
+              if (key !== successfulWriteKey) repeatedToolCalls.delete(key);
+            }
+            for (const key of repeatedToolErrors.keys()) {
+              if (!key.startsWith(`${successfulWriteKey}:`)) {
+                repeatedToolErrors.delete(key);
+              }
+            }
+            for (const key of repeatedToolErrorsAnyArgs.keys()) {
+              if (!key.startsWith(`${toolCall.name}:`)) {
+                repeatedToolErrorsAnyArgs.delete(key);
               }
             }
           }

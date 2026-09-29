@@ -693,6 +693,15 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
+    const failure = new Error("Labs settings unavailable");
+    mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);
+
+    await expect(loadResourcesForPrompt("user@example.test")).rejects.toBe(
+      failure,
+    );
+  });
+
   it.each([false, true])(
     "keeps Lab-gated skills per-user in %s compact prompt mode",
     async (compact) => {

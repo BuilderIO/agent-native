@@ -15,6 +15,7 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
+import type { ActionRunContext } from "../action.js";
 import {
   isActionContractError,
   isActionExposedToExternalAgents,
@@ -331,6 +332,39 @@ function withoutExternalOptOuts(
     Object.entries(actions).filter(([, entry]) =>
       isActionExposedToExternalAgents(entry),
     ),
+  );
+}
+
+async function filterActionsAvailableForDiscovery(
+  actions: Record<string, ActionEntry>,
+  context: ActionRunContext,
+): Promise<Record<string, ActionEntry>> {
+  const availability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    Promise<boolean>
+  >();
+  for (const entry of Object.values(actions)) {
+    const predicate = entry.agentDiscoveryAvailable;
+    if (predicate && !availability.has(predicate)) {
+      availability.set(predicate, Promise.resolve(predicate(context)));
+    }
+  }
+
+  const resolvedAvailability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    boolean
+  >();
+  await Promise.all(
+    [...availability].map(async ([predicate, check]) => {
+      resolvedAvailability.set(predicate, await check);
+    }),
+  );
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => {
+      const predicate = entry.agentDiscoveryAvailable;
+      return !predicate || resolvedAvailability.get(predicate) === true;
+    }),
   );
 }
 
@@ -1467,10 +1501,27 @@ export async function createMCPServerForRequest(
   const actions = withoutExternalOptOuts(
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
-  const visibleActions = Object.fromEntries(
+  const scopeVisibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
+  );
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
+  const orgId = await orgIdPromise;
+  const visibleActions = await runWithRequestContext(
+    {
+      userEmail: effectiveIdentity?.userEmail,
+      orgId,
+      ...(effectiveIdentity?.orgId === null
+        ? { orgScope: "personal" as const }
+        : {}),
+    },
+    () =>
+      filterActionsAvailableForDiscovery(scopeVisibleActions, {
+        caller: "mcp",
+        userEmail: effectiveIdentity?.userEmail,
+        orgId: orgId ?? null,
+      }),
   );
   // Compact/connector is the DEFAULT for every caller — hosted connectors,
   // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
@@ -1525,7 +1576,6 @@ export async function createMCPServerForRequest(
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
-  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
   const hasApprovalActions = Object.values(actions).some(
     (entry) => entry.needsApproval !== undefined,
   );

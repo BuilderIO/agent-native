@@ -1561,68 +1561,66 @@ export async function loadResourcesForPrompt(
     ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
     : SHARED_PROMPT_RESOURCE_MAX_CHARS;
 
-  try {
-    const {
-      loadAgentsBundle,
-      generateSkillsPromptBlock,
-      getRuntimeSkillsForUser,
-    } = await import("../agents-bundle.js");
-    const bundle = await loadAgentsBundle();
+  const {
+    loadAgentsBundle,
+    generateSkillsPromptBlock,
+    getRuntimeSkillsForUser,
+  } = await import("../agents-bundle.js");
+  const bundle = await loadAgentsBundle();
 
-    if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "workspace",
-        path: "AGENTS.md",
-        content: bundle.workspaceAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
-      });
-      addSection(block, "required");
-    }
+  if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
+    const block = promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "workspace",
+      path: "AGENTS.md",
+      content: bundle.workspaceAgentsMd,
+      maxChars: promptResourceMaxChars,
+      readHint:
+        'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
+    });
+    addSection(block, "required");
+  }
 
-    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
-    if (runtimeAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "template",
-        path: "AGENTS.md",
-        content: runtimeAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
-      });
-      addSection(block);
-    }
+  const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+  if (runtimeAgentsMd.trim()) {
+    const block = promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "template",
+      path: "AGENTS.md",
+      content: runtimeAgentsMd,
+      maxChars: promptResourceMaxChars,
+      readHint:
+        'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
+    });
+    addSection(block);
+  }
 
-    const runtimeSkills = await getRuntimeSkillsForUser(
-      bundle,
-      owner === SHARED_OWNER
-        ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
-        : owner,
-    );
-    if (!compact) {
-      const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
-      addSection(skillsBlock);
-    } else if (runtimeSkills.length > 0) {
-      const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
-      const lines = listedSkills.map((s) => {
-        const description = s.meta.description?.trim()
-          ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
-          : "";
-        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
-      });
-      if (runtimeSkills.length > listedSkills.length) {
-        lines.push(
-          `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
-        );
-      }
-      addSection(
-        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
+  const runtimeSkills = await getRuntimeSkillsForUser(
+    bundle,
+    owner === SHARED_OWNER
+      ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+      : owner,
+  );
+  if (!compact) {
+    const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
+    addSection(skillsBlock);
+  } else if (runtimeSkills.length > 0) {
+    const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+    const lines = listedSkills.map((s) => {
+      const description = s.meta.description?.trim()
+        ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
+        : "";
+      return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+    });
+    if (runtimeSkills.length > listedSkills.length) {
+      lines.push(
+        `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
       );
     }
-  } catch {}
+    addSection(
+      `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
+    );
+  }
 
   const workspaceOwner = workspaceResourceOwner(orgId);
   const workspaceAgents = await loadAgentsResourceForPrompt(
