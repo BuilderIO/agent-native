@@ -881,8 +881,9 @@ function mergeSelectionColorRanges(
 
 // Selection colors re-read the same file on every render, and tokenizing a
 // large imported screen costs hundreds of ms. Callers only read the spans.
-const COLOR_TOKEN_CACHE_MAX_FILES = 8;
+const COLOR_TOKEN_CACHE_MAX_CHARS = 8_000_000;
 const colorTokenCache = new Map<string, Map<string, ColorTokenSpan[]>>();
+let colorTokenCacheChars = 0;
 
 function cachedColorTokenSpansInHtml(
   content: string,
@@ -892,16 +893,26 @@ function cachedColorTokenSpansInHtml(
   const key = `${options.includeStyleBlocks !== false}|${
     properties ? [...properties].sort().join(",") : "*"
   }`;
-  const byKey = colorTokenCache.get(content) ?? new Map();
-  colorTokenCache.delete(content);
+  let byKey = colorTokenCache.get(content);
+  if (byKey) {
+    colorTokenCache.delete(content);
+  } else {
+    byKey = new Map();
+    colorTokenCacheChars += content.length;
+  }
   colorTokenCache.set(content, byKey);
   let tokens = byKey.get(key);
   if (!tokens) {
     tokens = colorTokenSpansInHtml(content, properties, options);
     byKey.set(key, tokens);
   }
-  if (colorTokenCache.size > COLOR_TOKEN_CACHE_MAX_FILES) {
-    colorTokenCache.delete(colorTokenCache.keys().next().value!);
+  while (
+    colorTokenCacheChars > COLOR_TOKEN_CACHE_MAX_CHARS &&
+    colorTokenCache.size > 1
+  ) {
+    const oldest = colorTokenCache.keys().next().value!;
+    colorTokenCache.delete(oldest);
+    colorTokenCacheChars -= oldest.length;
   }
   return tokens;
 }

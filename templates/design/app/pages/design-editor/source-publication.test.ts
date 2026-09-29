@@ -82,6 +82,19 @@ it("keeps an oversized unchanged screen cached", () => {
   expect(second).toBe(first);
 });
 
+it("evicts oversized unchanged screens past the referenced-bytes budget", () => {
+  const screen = (tag: string) =>
+    `<main data-agent-native-node-id="${tag}">${" ".repeat(24 * 1024 * 1024)}</main>`;
+  const prepare = (fileId: string, content: string) =>
+    prepareCanonicalSourceContent(content, { fileId, fileType: "html" });
+  const first = screen("a");
+  const firstResult = prepare("referenced-a", first);
+  prepare("referenced-b", screen("b"));
+  prepare("referenced-c", screen("c"));
+
+  expect(prepare("referenced-a", first)).not.toBe(firstResult);
+});
+
 it("bounds repaired-screen cache retention by UTF-8 bytes", () => {
   const content = `<main>${"😀".repeat(70_000)}</main>`;
 

@@ -3063,15 +3063,16 @@ function buildProjection(
  *
  * Bounded by source size, not entry count: the editor projects every screen of
  * a design in one pass, so any count below the screen count misses on every
- * screen of the next pass. A projection retains about 6 bytes per source char,
- * plus a few KB however small its document, so each entry is also charged a
- * floor — an empty document would otherwise cost nothing and never evict.
+ * screen of the next pass. A cached build (projection plus parsed elements)
+ * retains about 8 bytes per source char, plus a few KB however small its
+ * document, so each entry is also charged a floor — an empty document would
+ * otherwise cost nothing and never evict.
  *
  * Callers must treat the result as read-only — it is shared now. Every consumer
  * only reads (`find`/`filter`/`map`); `applyCodeLayer*`-style writers build new
  * HTML and re-project rather than editing a projection in place.
  */
-const PROJECTION_CACHE_MAX_CHARS = 16_000_000;
+const PROJECTION_CACHE_MAX_CHARS = 12_000_000;
 const PROJECTION_CACHE_ENTRY_FLOOR_CHARS = 2_048;
 const projectionCache = new Map<string, Map<string, ProjectionBuild>>();
 let projectionCacheChars = 0;
