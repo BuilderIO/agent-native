@@ -2107,6 +2107,9 @@ export async function resolveSecretDetailed(
       lookupFailed = true;
       cause = err;
     }
+    if (lookupFailed && !isTrustedSelfHostedRuntime()) {
+      return { value: null, lookupFailed: true, cause };
+    }
     const envFallback = (
       isBuilderCredentialKey(key)
         ? canUseBuilderDeployCredentialFallbackForRequest()

@@ -1698,11 +1698,33 @@ describe("resolveSecret (generic)", () => {
       await expect(resolveSecret("GITHUB_TOKEN")).resolves.toBeNull();
     });
 
-    it("reports an unreadable store instead of an absent signing secret", async () => {
-      mockReadAppSecret.mockRejectedValue(
-        new Error("db query timed out after 12000ms"),
-      );
+    it.each([undefined, "fake-deploy-signing-secret"])(
+      "reports an unreadable store with deploy secret %s",
+      async (deploySecret) => {
+        if (deploySecret) process.env.SLACK_SIGNING_SECRET = deploySecret;
+        const cause = new Error("db query timed out after 12000ms");
+        mockReadAppSecret.mockRejectedValue(cause);
 
+        await expect(
+          resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+        ).resolves.toEqual({ value: null, lookupFailed: true, cause });
+        await expect(
+          resolveSecret("SLACK_SIGNING_SECRET"),
+        ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+      },
+    );
+
+    it("does not bypass an unreadable org signing secret after a user-scope miss", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+      const cause = new Error("db query timed out after 12000ms");
+      mockReadAppSecret.mockImplementation(async ({ scope }) => {
+        if (scope === "org") throw cause;
+        return null;
+      });
+
+      await expect(
+        resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+      ).resolves.toEqual({ value: null, lookupFailed: true, cause });
       await expect(
         resolveSecret("SLACK_SIGNING_SECRET"),
       ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
