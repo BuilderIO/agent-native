@@ -1402,7 +1402,11 @@ export default function Index({ active = true }: { active?: boolean }) {
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      if (options?.slidesContext) {
+      if (
+        options?.slidesContext &&
+        (options.slidesContext.designSystemId ||
+          options.slidesContext.references.length > 0)
+      ) {
         void runPendingDeckGeneration(
           prompt,
           files,

@@ -114,8 +114,12 @@ describe("new deck generation flow", () => {
     );
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
+    const directGenerationIndex = promptSubmit.indexOf(
+      "options?.slidesContext &&",
+    );
+    expect(directGenerationIndex).toBeGreaterThan(-1);
     expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
-      promptSubmit.indexOf("if (options?.slidesContext)"),
+      directGenerationIndex,
     );
     expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
     expect(referenceStep).toContain("text: pending.prompt");
