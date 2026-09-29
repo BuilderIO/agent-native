@@ -448,12 +448,15 @@ function FlexContainerControls({
     bottom: parseNumericValue(styles.paddingBottom || "0"),
     left: parseNumericValue(styles.paddingLeft || "0"),
   };
-  const allPaddingEqual = fourValuesEqual([
-    padding.top,
-    padding.right,
-    padding.bottom,
-    padding.left,
-  ]);
+  const paddingMixed = {
+    top: isMixedValue(styles.paddingTop),
+    right: isMixedValue(styles.paddingRight),
+    bottom: isMixedValue(styles.paddingBottom),
+    left: isMixedValue(styles.paddingLeft),
+  };
+  const allPaddingEqual =
+    !Object.values(paddingMixed).some(Boolean) &&
+    fourValuesEqual([padding.top, padding.right, padding.bottom, padding.left]);
   const [paddingLinked, setPaddingLinked] = useState(allPaddingEqual);
 
   const autoLayoutValue: AutoLayoutMatrixValue = {
@@ -473,12 +476,7 @@ function FlexContainerControls({
     gapMixed: isMixedValue(styles.gap),
     gapModeMixed: isMixedValue(styles.justifyContent),
     padding,
-    paddingMixed: {
-      top: isMixedValue(styles.paddingTop),
-      right: isMixedValue(styles.paddingRight),
-      bottom: isMixedValue(styles.paddingBottom),
-      left: isMixedValue(styles.paddingLeft),
-    },
+    paddingMixed,
     paddingLinked,
     margin: marginProperties.value,
     marginMixed: marginProperties.mixed,
