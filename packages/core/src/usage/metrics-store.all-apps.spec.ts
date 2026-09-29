@@ -414,4 +414,74 @@ describe("listAppUsageMetrics all apps billing unit", () => {
       metrics.byApp.reduce((sum, b) => sum + (b.builderCredits ?? 0), 0),
     ).toBe(3.75);
   });
+
+  it("uses the default engine for legacy rows while preserving explicit engines", async () => {
+    process.env.AGENT_ENGINE = "builder";
+    resetAppConfigForTests();
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "clips",
+      costX100: 1_000,
+    });
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "mail",
+      costX100: 2_000,
+      engine: "anthropic",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me", builderCreditsEnabled: true },
+      { ownerEmail: "owner@example.com", orgId: "org-1", app: ALL_USAGE_APPS },
+    );
+
+    expect(metrics.billing.unit).toBe("mixed");
+    expect(metrics.totals).toMatchObject({
+      builderCredits: 0,
+      estimatedBuilderCredits: 2.5,
+      otherCostCents: 20,
+      otherCalls: 1,
+    });
+    expect(metrics.byApp).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "clips",
+          estimatedBuilderCredits: 2.5,
+          otherCostCents: 0,
+        }),
+        expect.objectContaining({
+          key: "mail",
+          estimatedBuilderCredits: 0,
+          otherCostCents: 20,
+        }),
+      ]),
+    );
+    expect(metrics.dailyBy.app).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "clips",
+          estimatedBuilderCredits: 2.5,
+          otherCostCents: 0,
+        }),
+        expect.objectContaining({
+          key: "mail",
+          estimatedBuilderCredits: 0,
+          otherCostCents: 20,
+        }),
+      ]),
+    );
+    expect(metrics.recent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          app: "clips",
+          estimatedBuilderCredits: 2.5,
+          otherCostCents: 0,
+        }),
+        expect.objectContaining({
+          app: "mail",
+          otherCostCents: 20,
+        }),
+      ]),
+    );
+  });
 });
