@@ -4859,7 +4859,9 @@ function PageEditorSessionBody({
             return { status: "superseded" };
           if (sync.status === "failed") throw sync.error;
           if (sync.status === "unavailable")
-            throw new Error("Collaborative document is unavailable");
+            throw Object.assign(new Error(t("empty.genericError")), {
+              cause: sync,
+            });
         }
         if (owner === "single-accepted" || owner === "single-other") {
           setPendingSuggestionDecision((current) => {
