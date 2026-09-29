@@ -66,6 +66,22 @@ describe("ensureAdditiveColumns", () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     });
 
+    it("skips catalog reads when the hosted function marker is present without NODE_ENV", async () => {
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+      const { ensureAdditiveColumns } =
+        await import("./ensure-additive-columns.js");
+      const execute = vi.fn();
+
+      const result = await ensureAdditiveColumns({
+        db: { execute } as any,
+        tables: [pgSessionRecordings],
+      });
+
+      expect(result.mode).toBe("skipped-serverless");
+      expect(execute).not.toHaveBeenCalled();
+    });
+
     it("adds a missing NOT NULL column with its literal default", async () => {
       const { ensureAdditiveColumns } =
         await import("./ensure-additive-columns.js");
@@ -321,7 +337,7 @@ describe("ensureAdditiveColumns", () => {
   });
 
   it("does not inspect schema from a production serverless function", async () => {
-    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
     const { ensureAdditiveColumns } =
       await import("./ensure-additive-columns.js");
@@ -337,6 +353,28 @@ describe("ensureAdditiveColumns", () => {
     expect(result.mode).toBe("skipped-serverless");
     expect(result.applied).toEqual([]);
     expect(client.execute).not.toHaveBeenCalled();
+  });
+
+  it("checks schema during an explicitly executing runtime migration", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { ensureAdditiveColumns } =
+      await import("./ensure-additive-columns.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    const { client, calls } = fakePgClient({
+      tableExists: true,
+      liveColumns: ["id", "created_at"],
+    });
+
+    await expect(
+      withMigrationExecutionRuntime(() =>
+        ensureAdditiveColumns({ db: client, tables: [pgSessionRecordings] }),
+      ),
+    ).resolves.toMatchObject({ mode: "checked" });
+    expect(
+      calls.some((call) => /information_schema\.columns/i.test(call)),
+    ).toBe(true);
   });
 
   it("logs applied/skipped/error lines through an injected logger", async () => {

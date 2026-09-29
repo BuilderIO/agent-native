@@ -2,6 +2,7 @@
 
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
+import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
@@ -13,7 +14,11 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   getEmbedAuthToken: vi.fn(() => null),
 }));
 
-import { computeSessionBypass } from "./root";
+import {
+  computeSessionBypass,
+  createMailSyncEventHandler,
+  isPrivateInboxPath,
+} from "./root";
 
 describe("computeSessionBypass", () => {
   beforeEach(() => {
@@ -35,6 +40,93 @@ describe("computeSessionBypass", () => {
       `/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
     );
     expect(computeSessionBypass()).toBe(true);
+  });
+});
+
+describe("isPrivateInboxPath", () => {
+  it.each([
+    "/inbox",
+    "/inbox/thread-1",
+    "/all",
+    "/all/thread-1",
+    "/unread/thread-1",
+  ])("opts in for %s", (pathname) => {
+    expect(isPrivateInboxPath(pathname)).toBe(true);
+  });
+
+  it.each(["/email", "/settings", "/home", "/unknown/thread-1"])(
+    "keeps %s out of background sync",
+    (pathname) => {
+      expect(isPrivateInboxPath(pathname)).toBe(false);
+    },
+  );
+});
+
+describe("createMailSyncEventHandler", () => {
+  it("refreshes Mail's raw queries after a Mail mailbox mutation", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({
+      source: "action",
+      type: "action-change",
+      key: "archive-email",
+    });
+    await Promise.resolve();
+
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(
+      expect.arrayContaining([["emails"], ["email"], LABELS_QUERY_KEY]),
+    );
+    queryClient.clear();
+  });
+
+  it.each([
+    "create-scheduled-send",
+    "cancel-scheduled-email",
+    "confirm-uncertain-scheduled-email",
+    "retry-uncertain-scheduled-email",
+    "send-scheduled-email-now",
+  ])("refreshes email and scheduled-job queries after %s", async (key) => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({ source: "action", type: "action-change", key });
+    await Promise.resolve();
+
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ["emails"],
+        ["email"],
+        LABELS_QUERY_KEY,
+        ["scheduled-jobs"],
+      ]),
+    );
+    queryClient.clear();
+  });
+
+  it("ignores unrelated action completions", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({
+      source: "action",
+      type: "action-change",
+      key: "create-calendar-event",
+    });
+    await Promise.resolve();
+
+    expect(invalidate).not.toHaveBeenCalled();
+    queryClient.clear();
   });
 });
 

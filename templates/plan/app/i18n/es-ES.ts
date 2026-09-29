@@ -20,11 +20,6 @@ const messages = {
   },
   settings: {
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para esta app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",

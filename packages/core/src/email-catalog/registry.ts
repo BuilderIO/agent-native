@@ -11,6 +11,8 @@ export interface TransactionalEmailDefinition {
   sender: string;
   senderLabel: string;
   preview: () => RenderedEmailMessage;
+  /** Async preview, used by `renderTransactionalEmailPreviewAsync` when set. */
+  previewAsync?: () => Promise<RenderedEmailMessage>;
 }
 
 export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
@@ -162,15 +164,44 @@ export function getTransactionalEmail(
   return registry.get(id);
 }
 
-export function renderTransactionalEmailPreview(
-  id: string,
-): RenderedEmailMessage {
+function requireDefinition(id: string): RegisteredTransactionalEmail {
   const definition = registry.get(id);
   if (!definition) {
     throw new Error(`Unknown transactional email "${id}".`);
   }
-  return definition.preview();
+  return definition;
 }
+
+export function renderTransactionalEmailPreview(
+  id: string,
+): RenderedEmailMessage {
+  return requireDefinition(id).preview();
+}
+
+/**
+ * Preview that also renders an app's override of a framework email, which the
+ * synchronous `renderTransactionalEmailPreview` cannot.
+ */
+export async function renderTransactionalEmailPreviewAsync(
+  id: string,
+): Promise<RenderedEmailMessage> {
+  const definition = requireDefinition(id);
+  return definition.previewAsync
+    ? definition.previewAsync()
+    : definition.preview();
+}
+
+export {
+  CORE_RESOURCE_SHARED_EMAIL_ID,
+  overrideTransactionalEmail,
+  removeTransactionalEmailOverride,
+  type CoreTransactionalEmailArgs,
+  type CoreTransactionalEmailId,
+  type CoreTransactionalEmailProps,
+  type TransactionalEmailOverride,
+  type TransactionalEmailOverrideResult,
+} from "./templates.js";
+export { escapeEmailHtml } from "../server/email-template.js";
 
 export function resetTransactionalEmailRegistry(): void {
   registry.clear();

@@ -10,7 +10,12 @@ vi.mock("./client.js", async (importOriginal) => {
   };
 });
 
-import { getDbExec, createDbExec, getMigrationDatabaseUrl } from "./client.js";
+import {
+  assertSchemaMutationAllowed,
+  getDbExec,
+  createDbExec,
+  getMigrationDatabaseUrl,
+} from "./client.js";
 import {
   deferMigration,
   runMigrations,
@@ -117,16 +122,46 @@ describe("runMigrations – serverless request runtime", () => {
     expect(createDbExec).not.toHaveBeenCalled();
   });
 
-  it("keeps request-time migrations when no release runner is configured", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    const exec = makeExec([{ v: 5 }]);
+  it("skips release migrations when a hosted function omits NODE_ENV", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("keeps request-time migrations for apps without release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "0");
+    vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "");
+    const exec = makeNamedExec({ version: 0 });
+    const originalExecute = exec.execute.getMockImplementation()!;
+    exec.execute.mockImplementation(async (statement) => {
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      if (/^\s*(CREATE|ALTER)/i.test(sql)) assertSchemaMutationAllowed(sql);
+      return originalExecute(statement);
+    });
     vi.mocked(getDbExec).mockReturnValue(exec);
+    vi.mocked(createDbExec).mockResolvedValue(exec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
 
     const plugin = runMigrations(migrations, { table: "guard_migrations" });
     await plugin(null);
 
     expect(getDbExec).toHaveBeenCalled();
+    expect(
+      exec.execute.mock.calls.map(([statement]) =>
+        typeof statement === "string" ? statement : statement.sql,
+      ),
+    ).toContain("CREATE TABLE t1 (id INTEGER PRIMARY KEY)");
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE outside_migration (id TEXT)"),
+    ).toThrow(/release job/);
   });
 
   it("skips request-time migrations for a production-owned beta schema", async () => {
@@ -141,9 +176,10 @@ describe("runMigrations – serverless request runtime", () => {
     expect(createDbExec).not.toHaveBeenCalled();
   });
 
-  it("does not treat a non-production beta schema marker as release ownership", async () => {
+  it("skips serverless request migrations for non-production beta schema markers", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
     vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "preview");
     const exec = makeExec([{ v: 5 }]);
     vi.mocked(getDbExec).mockReturnValue(exec);
@@ -151,7 +187,31 @@ describe("runMigrations – serverless request runtime", () => {
     const plugin = runMigrations(migrations, { table: "guard_migrations" });
     await plugin(null);
 
-    expect(getDbExec).toHaveBeenCalled();
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(exec.execute).not.toHaveBeenCalled();
+  });
+
+  it("does not query named migrations tables on a cold production function request", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    await runMigrations([{ version: 1, name: "org-setup", sql: "SELECT 1" }], {
+      table: "_org_migrations",
+    })(null);
+    await runMigrations(
+      [{ version: 1, name: "context-xray-setup", sql: "SELECT 1" }],
+      { table: "_context_xray_migrations" },
+    )(null);
+
+    const statements = exec.execute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(statements).toEqual([]);
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
   });
 
   it("still migrates through withMigrationRuntime, which is how release builds run", async () => {

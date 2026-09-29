@@ -3,15 +3,10 @@ import {
   readChatFirstModeState,
   writeChatFirstMode,
 } from "@agent-native/core/client/agent-chat";
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import {
-  useFeatureFlag,
-  useFeatureFlagState,
-} from "@agent-native/core/client/feature-flags";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgMembersPage, TeamPage } from "@agent-native/core/client/org";
 import {
-  AccountSettingsCard,
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
   SettingsGroup,
@@ -20,7 +15,6 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { IconShield } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -42,8 +36,8 @@ function DispatchMembersSettingsPage() {
   return <OrgMembersPage appRoles={dispatchAccessDescriptor} />;
 }
 
-// The redesigned Settings shows Members from core; Dispatch's replaces it so
-// the app-role column stays.
+// Settings shows Members from core; Dispatch's replaces it so the app-role
+// column stays.
 registerSettingsPages([
   { ...coreMembersPage, component: DispatchMembersSettingsPage },
 ]);
@@ -64,9 +58,6 @@ export interface DispatchSettingsPageProps {
 export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
   const t = useT();
   const connectAppsEnabled = useFeatureFlag(DISPATCH_CONNECT_APPS_FLAG.key);
-  // Core Preferences owns the interface language in the redesigned Settings,
-  // whose Dispatch General page shows `generalGroups` instead of `general`.
-  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
   const agentSettingsTabs = useAgentSettingsTabs({
     usageAppId: "dispatch",
     usageViewAllHref: "/admin/metrics",
@@ -120,21 +111,9 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
-      ...(redesign
-        ? []
-        : [
-            {
-              id: "dispatch-language",
-              label: t("settings.languageTitle"),
-              keywords: "language locale translation i18n",
-              hash: "language",
-            },
-          ]),
       {
         id: "dispatch-workspace",
-        label: redesign
-          ? t("settings.resourcesTitle")
-          : t("settings.workspaceTitle"),
+        label: t("settings.resourcesTitle"),
         keywords: "workspace resources integrations vault destinations",
         hash: "workspace-resources",
       },
@@ -145,7 +124,7 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
         hash: "chat-first",
       },
     ],
-    [redesign, t],
+    [t],
   );
 
   const chatFirstSwitch = (
@@ -180,49 +159,8 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
 
   return (
     <SettingsTabsPage
-      account={<AccountSettingsCard />}
       extraTabs={settingsTabs}
       generalSearchEntries={generalSearchEntries}
-      general={
-        <div className="mx-auto w-full max-w-2xl space-y-6">
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t("settings.description")}
-          </p>
-
-          <SettingsGroup>
-            <SettingsRow
-              id="language"
-              label={t("settings.languageTitle")}
-              description={t("settings.languageDescription")}
-              control={
-                <div className="w-56">
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </div>
-              }
-            />
-            <SettingsRow
-              id="workspace-resources"
-              label={t("settings.workspaceTitle")}
-              description={t("settings.workspaceDescription")}
-              control={resourceSettingsButton}
-            />
-            {connectAppsRow}
-          </SettingsGroup>
-
-          <SettingsGroup id="chat-first">
-            <SettingsRow
-              label={t("settings.chatFirstTitle")}
-              description={t("settings.chatFirstDescription")}
-              control={chatFirstSwitch}
-            >
-              <p className="text-sm leading-6 text-muted-foreground">
-                {t("settings.chatFirstSessionWatchDescription")}
-              </p>
-              {chatFirstStorageAlert}
-            </SettingsRow>
-          </SettingsGroup>
-        </div>
-      }
       generalGroups={
         <SettingsGroup id="workspace" title={t("settings.workspaceTitle")}>
           <SettingsRow
@@ -242,11 +180,7 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
           {connectAppsRow}
         </SettingsGroup>
       }
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

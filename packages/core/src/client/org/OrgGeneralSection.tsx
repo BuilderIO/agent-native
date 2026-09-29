@@ -498,7 +498,7 @@ export function OrgProfileGroup({ children }: { children?: ReactNode }) {
           hasMultipleOrgs ? (
             <Select
               value={org.orgId ?? ""}
-              onValueChange={(value) => switchOrg.mutate(value || null)}
+              onValueChange={(value) => switchOrg.mutate(value)}
               disabled={switchOrg.isPending}
             >
               <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">

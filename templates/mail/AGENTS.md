@@ -59,7 +59,8 @@ Read the relevant skill before deeper work:
 | Action | Purpose |
 | --- | --- |
 | `list-inbox-threads` | Inbox tabs, counts, and rows. |
-| `resync-inbox` | Force a Gmail resync. |
+| `sync-inbox` | Advance Gmail inbox sync by one bounded step. |
+| `resync-inbox` | Reset inbox sync and run one bounded step. |
 | `search-emails` / `list-emails` | Search or list by view/query. |
 | `list-labels` | Mailbox labels. |
 | `get-email` / `get-thread` | Full message or thread. |

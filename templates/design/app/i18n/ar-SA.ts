@@ -162,12 +162,6 @@ export default {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     openAgentSettings: "إدارة الوكيل",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة واجهة Design.",
-    languageLabel: "لغة الواجهة",
-    labs: "Labs",
-    labsIntro:
-      "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
     mcpAbout:
@@ -222,6 +216,7 @@ export default {
     },
   },
   common: {
+    loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
   },
   editPanel: {
@@ -319,6 +314,8 @@ export default {
       bottomLeft: "أسفل يسار",
       bottomRight: "أسفل يمين",
       blend: "مزج",
+      blendMode: "وضع المزج",
+      removeBlendMode: "إزالة وضع المزج",
       border: "حد",
       outline: "مخطط",
       inside: "داخلي",
@@ -1460,11 +1457,6 @@ export default {
       permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اسمح بالوصول إلى التطبيقات على جهازك.",
-      permissionCloseTitle: "إغلاق الإعداد؟",
-      permissionCloseDescription:
-        "لن يعمل التحرير المباشر حتى تسمح بالوصول في Chrome.",
-      permissionCloseStay: "إبقاء الإعداد مفتوحًا",
-      permissionCloseAnyway: "إغلاق على أي حال",
       permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },

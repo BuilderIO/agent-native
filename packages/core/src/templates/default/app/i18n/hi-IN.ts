@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "डिस्कनेक्ट हो रहा है…",
   },
   settings: {
-    title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह प्राथमिकता आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     agentTitle: "एजेंट सेटिंग्स",
     agentDescription:
       "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "टीम पहुंच और साझा कार्यक्षेत्र संसाधनों को प्रबंधित करें।",
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
-    backHome: "होम पर वापस जाएं",
     emailChange: "ईमेल बदलें",
     emailChangeSent: "इस बदलाव की पुष्टि करने के लिए अपना ईमेल देखें।",
     emailChangeError: "पुष्टिकरण नहीं भेजा जा सका।",

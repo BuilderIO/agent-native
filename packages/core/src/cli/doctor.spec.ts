@@ -17,6 +17,11 @@ import {
   type DoctorIo,
 } from "./doctor.js";
 
+const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
+  "../../docs/migrations/agentkit-chat.md",
+  import.meta.url,
+).href;
+
 const tmpRoots: string[] = [];
 
 afterEach(() => {
@@ -226,6 +231,75 @@ describe("runDoctorScan", () => {
         message: expect.stringContaining("planned to move"),
       }),
     ]);
+  });
+
+  it("reports removed API imports with a direct migration guide", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx":
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["migration-manifest"],
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          removedExports: {
+            "@agent-native/core/client/agent-chat": {
+              symbols: ["createAgentChatAdapter"],
+              migrationGuide: "https://example.test/agentkit-chat.md",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        guard: "migration-manifest",
+        file: "app/root.tsx",
+        message: expect.stringContaining("createAgentChatAdapter was removed"),
+      }),
+    ]);
+    expect(report.findings[0]?.message).toContain(
+      "https://example.test/agentkit-chat.md",
+    );
+  });
+
+  it("uses the installed Core package's matching chat migration guide", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx":
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["migration-manifest"],
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          removedExports: {
+            "@agent-native/core/client/agent-chat": {
+              symbols: ["createAgentChatAdapter"],
+              migrationGuide:
+                "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.findings[0]?.message).toContain(
+      AGENTKIT_CHAT_MIGRATION_GUIDE_URL,
+    );
+    expect(report.findings[0]?.message).not.toContain("blob/main");
+    expect(
+      fs.existsSync(fileURLToPath(AGENTKIT_CHAT_MIGRATION_GUIDE_URL)),
+    ).toBe(true);
   });
 });
 

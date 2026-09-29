@@ -156,14 +156,11 @@ export default {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     openAgentSettings: "에이전트 관리",
-    account: "계정",
     signedInAs: "로그인 계정",
     credentials: "데이터 소스 자격 증명",
     credentialsDescription:
       "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
     manageDataSources: "데이터 소스 관리",
-    languageTitle: "언어",
-    languageLabel: "인터페이스 언어",
     errorEmailNotifications: "새 오류 알림을 이메일로 받기",
     errorEmailNotificationsDescription:
       "새 JavaScript 오류가 캡처되면 이메일을 보냅니다. 기본값은 꺼져 있습니다.",
@@ -208,7 +205,6 @@ export default {
     storageSaved: "저장소 설정이 저장되었습니다.",
     storageSaveFailed: "저장소 설정을 저장하지 못했습니다.",
     alertsTitle: "알림",
-    alertsDescription: "퍼스트파티 분석 이벤트 규칙과 알림 전달을 관리합니다.",
     alertRunNow: "검사 실행",
     alertNew: "새 알림",
     alertsEmptyTitle: "아직 알림 규칙이 없습니다",

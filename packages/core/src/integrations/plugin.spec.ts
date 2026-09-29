@@ -2516,6 +2516,7 @@ describe("integrations plugin routes", () => {
       adapters: [incomingAdapter],
       systemPrompt: "Base prompt.",
       callAgent: false,
+      initialToolNames: [],
       actions: {
         "template-action": {
           tool: { description: "App action", parameters: {} },
@@ -2535,6 +2536,141 @@ describe("integrations plugin routes", () => {
     const [, options] = handleWebhookMock.mock.calls[0];
     expect(Object.keys(options.actions)).toContain("template-action");
     expect(Object.keys(options.actions)).not.toContain("call-agent");
+    expect(options.initialToolNames).toEqual([]);
+  });
+
+  it.each([
+    { initialToolNames: undefined, expected: ["starter", "deferred"] },
+    {
+      initialToolNames: Object.freeze(["starter"]),
+      expected: ["starter"],
+    },
+    { initialToolNames: Object.freeze([] as string[]), expected: [] },
+  ])(
+    "propagates initial tools $expected to webhooks, queued tasks, and Google Docs",
+    async ({ initialToolNames, expected }) => {
+      process.env.NODE_ENV = "development";
+      getSessionMock.mockResolvedValue({ email: "owner@example.test" });
+      const incomingAdapter: PlatformAdapter = {
+        ...adapter,
+        parseIncomingMessage: async () => ({
+          platform: "fake",
+          externalThreadId: "thread-qa",
+          text: "hello",
+          platformContext: {},
+          timestamp: Date.now(),
+        }),
+      };
+      const action = {
+        tool: {
+          description: "App action",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        run: async () => "ok",
+      };
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({
+        adapters: [
+          incomingAdapter,
+          { ...adapter, platform: "google-docs", label: "Google Docs" },
+        ],
+        actions: { starter: action, deferred: action },
+        initialToolNames,
+      })(nitroApp);
+      getIntegrationConfigMock.mockResolvedValue({
+        configData: { enabled: true },
+      });
+
+      const webhook = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/fake/webhook",
+        "POST",
+        { event: "message" },
+      );
+      const task = claimedTask(1);
+      claimPendingTaskMock.mockResolvedValueOnce(task);
+      processIntegrationTaskMock.mockResolvedValueOnce(undefined);
+      const processor = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        { taskId: task.id },
+      );
+      const poller = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/google-docs/enable",
+        "POST",
+      );
+
+      expect([webhook.status, processor.status, poller.status]).toEqual([
+        200, 200, 200,
+      ]);
+      const forwarded = [
+        handleWebhookMock.mock.calls[0][1],
+        processIntegrationTaskMock.mock.calls[0][1],
+        startGoogleDocsPollerMock.mock.calls.at(-1)![0],
+      ];
+      for (const options of forwarded) {
+        expect(options.initialToolNames).toEqual(expected);
+        expect(options.initialToolNames).not.toBe(initialToolNames);
+        expect(Object.keys(options.actions)).toEqual(
+          expect.arrayContaining(["starter", "deferred", "call-agent"]),
+        );
+      }
+      if (initialToolNames) {
+        forwarded[0].initialToolNames.push("added-by-consumer");
+        expect(initialToolNames).toEqual(expected);
+        expect(Object.isFrozen(initialToolNames)).toBe(true);
+      }
+    },
+  );
+
+  it("uses the app's initialToolNames for the first request and keeps the rest registered", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        text: "hello",
+        senderName: "QA User",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      initialToolNames: ["eager-action"],
+      actions: {
+        "eager-action": {
+          tool: { description: "Loaded up front", parameters: {} },
+          run: async () => "ok",
+        } as any,
+        "deferred-action": {
+          tool: { description: "Found through tool-search", parameters: {} },
+          run: async () => "ok",
+        } as any,
+      },
+    })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(options.initialToolNames).toEqual(["eager-action"]);
+    expect(Object.keys(options.actions)).toEqual(
+      expect.arrayContaining(["eager-action", "deferred-action"]),
+    );
   });
 
   it("politely declines a Slack DM when the default identity ladder declines", async () => {

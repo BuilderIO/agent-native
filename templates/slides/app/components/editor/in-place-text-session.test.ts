@@ -96,6 +96,15 @@ function select(
   window.getSelection()!.addRange(range);
 }
 
+function selectBackward(
+  start: Node,
+  startOffset: number,
+  end: Node,
+  endOffset: number,
+) {
+  window.getSelection()!.setBaseAndExtent(end, endOffset, start, startOffset);
+}
+
 function textOf(element: Element, text: string): Text {
   const found = textNodes(element).find((node) => node.data.includes(text));
   if (!found) throw new Error(`no text node with ${text}`);
@@ -378,6 +387,78 @@ describe("in-place text session: entering and ending", () => {
     select(text, 6, text, 10);
     session = startInPlaceTextSession(el);
     expect(window.getSelection()!.toString()).toBe("beta");
+  });
+
+  it("preserves an initial backward selection when entering edit mode", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    selectBackward(text, 1, text, 5);
+
+    session = startInPlaceTextSession(el);
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorNode).toBe(text);
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusNode).toBe(text);
+    expect(selection.focusOffset).toBe(1);
+  });
+
+  it("restores backward selection direction after blur and focus", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+
+    el.dispatchEvent(new FocusEvent("blur"));
+    selection.removeAllRanges();
+    el.dispatchEvent(new FocusEvent("focus"));
+
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
+    expect(selection.toString()).toBe("lpha");
+  });
+
+  it("keeps a pointer caret when refocusing after a backward selection", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    caret(text, 7);
+    el.focus();
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+
+    const selection = window.getSelection()!;
+    expect(document.activeElement).toBe(el);
+    expect(selection.isCollapsed).toBe(true);
+    expect([selection.anchorNode, selection.anchorOffset]).toEqual([text, 7]);
+  });
+
+  it("restores the saved selection when a pointer drag ends outside the editor", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    outside.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    window.getSelection()!.removeAllRanges();
+    el.focus();
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
   });
 
   it("refuses an element that is already editable", () => {

@@ -72,7 +72,6 @@ const messages = {
     create: "إنشاء",
     save: "حفظ",
     saving: "جار الحفظ…",
-    saveChanges: "حفظ التغييرات",
     connected: "متصل",
     notConnected: "غير متصل",
     disconnect: "قطع الاتصال",
@@ -799,7 +798,6 @@ const messages = {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     agentTitle: "إدارة الوكيل",
-    title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     labs: "Labs",
     labsIntro:
@@ -810,12 +808,6 @@ const messages = {
     labMeetingsDescription: "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
     labWisprFlow: "الإملاء الصوتي",
     labWisprFlowDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
-    intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
-    preferencesTitle: "التفضيلات",
-    languageTitle: "اللغة",
-    languageDescription:
-      "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
-    languageLabel: "لغة الواجهة",
     uploadWorkspaceTitle: "مساحة العمل النشطة",
     uploadWorkspaceDescription:
       "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
@@ -837,9 +829,6 @@ const messages = {
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",
-    playback: "التشغيل",
-    defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
-    playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
     transcript: "النص",
     transcriptCleanup: "تنظيف في الخلفية",
     transcriptCleanupDescription:
@@ -847,26 +836,17 @@ const messages = {
     notifications: "الإشعارات",
     monthlyRecap: "الملخص الشهري",
     sharing: "المشاركة",
-    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
-    defaultVisibilityDescription:
-      "تُطبَّق على كل تسجيل تنشئه. لا يزال بإمكانك تغيير الرؤية لكل تسجيل.",
     visibilityPrivate: "خاص - أنت فقط",
     visibilityOrg: "المؤسسة - أي شخص في مساحة عملك",
     visibilityPublic: "عام - أي شخص لديه الرابط",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
       "اختر إشعارات البريد الإلكتروني الاختيارية من Clips التي تريد تلقيها.",
-    saved: "تم حفظ الإعدادات",
     saveFailed: "فشل الحفظ",
-    builderConnectedToast: "تم اتصال Builder.io",
-    videoStorage: "تخزين الفيديو",
     videoStorageDescription:
       "Builder.io هو مسار التخزين الأساسي لعمليات رفع Clips. يتوفر S3 عندما تحتاج إلى استخدام حاويتك الخاصة.",
-    checkingBuilder: "جار فحص Builder.io",
     builderConnected: "Builder.io متصل",
     connectBuilder: "استخدام Builder.io",
-    builderConnectedFor: "يتم استخدام Builder.io لـ {{orgName}}.",
-    builderConnectedGeneric: "تستخدم المقاطع الجديدة مزود Builder.io المتصل.",
     builderIncludes:
       "يشمل المستوى المجاني من Builder.io تخزين الكائنات والرفع والنسخ المُدار للمقاطع الجديدة.",
     s3Title: "تخزين متوافق مع S3",
@@ -874,11 +854,8 @@ const messages = {
     active: "نشط",
     s3BuilderConnectedDescription:
       "استخدم هذا فقط إذا كان يجب على هذه المساحة الرفع إلى حاويتك الخاصة بدلًا من Builder.io.",
-    s3CurrentProvider: "يتم حاليًا استخدام {{providerName}}.",
     s3OwnBucketDescription:
       "استخدم حاويتك الخاصة إذا كنت لا تريد تخزين Builder.io.",
-    configureS3: "إعداد S3",
-    hideS3: "إخفاء S3",
     saveStorage: "حفظ التخزين",
     storageSaved: "تم حفظ إعدادات التخزين",
     storageRequired: "Endpoint و bucket و access key و secret مطلوبة.",
@@ -893,7 +870,6 @@ const messages = {
     s3BucketInvalid:
       "يجب أن يتكون اسم الحاوية من 3 إلى 63 حرفًا صغيرًا أو رقمًا أو شرطة",
     s3RegionInvalid: 'يجب أن تكون منطقة صالحة (مثال: us-east-1) أو "auto"',
-    apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription: "اختر كيفية اتصال Clips بالذكاء الاصطناعي.",
     builderEasySetup: "أرصدة Builder.io مجانية",
     builderAiAvailable:
@@ -904,18 +880,11 @@ const messages = {
     providerKeyDescription:
       "اختر Anthropic أو OpenAI أو OpenRouter أو Gemini أو Groq أو Mistral أو Cohere أو Ollama للاستخدام المفوتر من المزود.",
     providerKeysSet: "تم تعيين {{count}}",
-    providerActionTitle: "مزود الذكاء الاصطناعي",
-    providerActionDescription:
-      "يتضمن Builder.io مستوى مجانيًا، أو استخدم مفاتيح مخصصة.",
-    providerManage: "إدارة",
-    providerCustomKeys: "مفاتيح مخصصة",
-    checkingProviderKeys: "جار فحص مفاتيح المزود…",
     keySet: "تم التعيين",
     keyCleared: "تم مسح بيانات اعتماد التخزين",
     clearAllS3: "مسح بيانات الاعتماد",
     replaceKey: "استبدال المفتاح…",
     pasteProviderKey: "الصق مفتاح مزود أولًا.",
-    apiKeySaved: "تم حفظ مفتاح API",
     apiKeyFailed: "فشل حفظ المفتاح",
     slackTitle: "Agent-Native Clips لـ Slack",
     slackDescription:
@@ -1033,8 +1002,6 @@ const messages = {
     namedTitle: "{{name}} · الإعدادات",
     noOrganization: "لا توجد مؤسسة بعد. أنشئ واحدة من مبدل المؤسسات للبدء.",
     description: "إدارة المؤسسة: العلامة التجارية، الأعضاء، الدعوات.",
-    adminsOnlyBranding: "يمكن للمسؤولين فقط تعديل العلامة التجارية.",
-    brandingLoadFailed: "تعذّر تحميل هوية المؤسسة.",
     members: "الأعضاء",
     pendingInvites: "الدعوات المعلقة",
     noPendingInvites: "لا توجد دعوات معلقة.",

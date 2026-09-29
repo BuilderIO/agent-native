@@ -350,6 +350,70 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  test("stops preparing when live bridge registration is rejected", async ({
+    browser,
+    page,
+  }) => {
+    const created = await createOwnedVisualEditDesign(browser);
+    let registrationAttempts = 0;
+    await page.route("**/live-edit-bridge", async (route) => {
+      const request = route.request();
+      const requestHeaders = request.headers();
+      const origin = requestHeaders.origin ?? "*";
+      if (request.method() === "OPTIONS") {
+        await route.fulfill({
+          status: 204,
+          headers: {
+            "access-control-allow-origin": origin,
+            "access-control-allow-methods":
+              requestHeaders["access-control-request-method"] ?? "POST",
+            "access-control-allow-headers":
+              requestHeaders["access-control-request-headers"] ?? "",
+          },
+        });
+        return;
+      }
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      registrationAttempts += 1;
+      await route.fulfill({
+        status: 401,
+        headers: { "access-control-allow-origin": origin },
+        body: "Invalid or missing preview token",
+      });
+    });
+
+    try {
+      await page.goto(
+        appUrl(`/visual-edit/${created.designId}?editorView=overview`),
+        { waitUntil: "domcontentloaded" },
+      );
+      const frame = page.locator("iframe[data-design-preview-iframe]").first();
+      await expect(frame).toBeAttached();
+      await expect(
+        page
+          .getByText(
+            "The running app is shielded until Design connects to the local bridge.",
+          )
+          .first(),
+      ).toBeVisible();
+
+      const preparing = page.getByText(/prepar.*live editor/i);
+      await expect(preparing).toBeHidden();
+      const settledSource = await frame.getAttribute("src");
+      await page.waitForTimeout(2_500); // e2e-harness-ignore: negative stability window catches the reported spinner loop reappearing.
+
+      expect(registrationAttempts).toBeGreaterThan(0);
+      await expect(preparing).toBeHidden();
+      await expect(frame).toHaveAttribute("src", settledSource!);
+    } finally {
+      await page.unroute("**/live-edit-bridge");
+      await deleteDesign(browser, created.designId);
+    }
+  });
+
   test("rejects forged bare-link editor access", async ({ browser }) => {
     const context = await browser.newContext({
       storageState: { cookies: [], origins: [] },
@@ -1044,13 +1108,9 @@ test.describe.serial("public visual edit", () => {
   test("signed-out live canvas sharing requires sign-in and returns to the canvas", async ({
     browser,
   }) => {
-    await expectReturnUrl(
+    await expectSharePopoverReturnUrl(
       browser,
       `/visual-edit/${collaborationDesignId}?editorView=overview`,
-      (page) =>
-        page.getByRole("link", {
-          name: "Sign up to share a live canvas",
-        }),
       appReturnPath(`/visual-edit/${collaborationDesignId}?intent=share`),
     );
   });
@@ -1137,13 +1197,9 @@ test.describe.serial("public visual edit", () => {
       .toContain(`/visual-edit/${collaborationDesignId}?share=1`);
     await page.keyboard.press("Escape");
 
-    await expectReturnUrl(
+    await expectSharePopoverReturnUrl(
       browser,
       `/design/${collaborationDesignId}`,
-      (signedOutPage) =>
-        signedOutPage.getByRole("link", {
-          name: /^sign up to share a live canvas$/i,
-        }),
       appReturnPath(`/design/${collaborationDesignId}?intent=share`),
     );
 
@@ -1628,6 +1684,40 @@ async function expectReturnUrl(
     const button = getButton(signedOut.page);
     await expect(button).toBeVisible();
     await button.click();
+    await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
+
+    const url = new URL(signedOut.page.url());
+    const continuation = url.searchParams.get("c");
+    expect(continuation).toBeTruthy();
+    expect(decodeContinuation(continuation)).toBe(expectedReturnPath);
+    await assertNoRuntimeErrors(signedOut);
+  } finally {
+    await signedOut.close();
+  }
+}
+
+async function expectSharePopoverReturnUrl(
+  browser: Browser,
+  pathname: string,
+  expectedReturnPath: string,
+): Promise<void> {
+  const signedOut = await openSignedOutPage(browser, pathname);
+  try {
+    const share = signedOut.page.getByRole("button", {
+      name: "Share",
+      exact: true,
+    });
+    await expect(share).toBeVisible();
+    await share.click();
+
+    const signUp = signedOut.page.getByRole("link", {
+      name: "Sign up to share a live canvas",
+      exact: true,
+    });
+    await expect(signUp).toBeVisible();
+    await signUp.hover();
+    await expect(signUp).toBeVisible();
+    await signUp.click();
     await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
 
     const url = new URL(signedOut.page.url());

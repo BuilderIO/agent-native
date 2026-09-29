@@ -189,22 +189,22 @@ Los estilos de Toolkit incluyen la geometría compartida. `@agent-native/toolkit
 
 ## Agente y chat UI {#agent-chat-ui}
 
-| API                                  | Ruta de importación                          | Usar cuando                                                                                                                                 |
-| ------------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` o `/client/chat` | Quieres la barra lateral completa alrededor de tu aplicación.                                                                               |
-| `<AgentToggleButton>`                | `@agent-native/core/client` o `/client/chat` | Puedes representar tu propio botón de encabezado para la barra lateral.                                                                     |
-| `<AgentPanel>`                       | `@agent-native/core/client` o `/client/chat` | Quieres el panel completo en tu propio diseño, ruta, cuadro de diálogo o columna lateral.                                                   |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` o `/client/chat` | Quieres chatear en modo panel o página sin el envoltorio de la barra lateral.                                                               |
-| `<AssistantChat>`                    | `@agent-native/core/client` o `/client/chat` | Quieres ser propietario del Chrome circundante y al mismo tiempo mantener la conversación estándar y el tiempo de ejecución del compositor. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` o `/client/chat` | Quieres las pestañas de hilo del marco sin el cromo `AgentPanel`.                                                                           |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` o `/client/chat` | Tiene un punto final de agente BYO que transmite eventos de chat normalizados.                                                              |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` o `/client/chat` | Tienes una transmisión OpenAI Agents SDK y quieres el chat estándar UI alrededor de ella.                                                   |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` o `/client/chat` | Tienes un flujo de eventos de Respuestas OpenAI y quieres que se normalice en el chat UI.                                                   |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` o `/client/chat` | Tienes una transmisión de eventos AG-UI y quieres que se normalice en el chat UI.                                                           |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` o `/client/chat` | Tienes una transmisión del Agente Claude SDK y quieres que se normalice en el chat UI.                                                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` o `/client/chat` | Tienes una transmisión Vercel AI SDK y quieres normalizarla en el chat UI.                                                                  |
-| `useChatThreads()`                   | `@agent-native/core/client` o `/client/chat` | Necesita una lista de conversaciones personalizada, un selector de historial o un chat con ámbito UI.                                       |
-| `sendToAgentChat()`                  | `@agent-native/core/client` o `/client/chat` | Una acción de producto debería entregar el trabajo al chat del agente.                                                                      |
+| API                                  | Ruta de importación                    | Usar cuando                                                                                                                                 |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | Quieres la barra lateral completa alrededor de tu aplicación.                                                                               |
+| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | Puedes representar tu propio botón de encabezado para la barra lateral.                                                                     |
+| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | Quieres el panel completo en tu propio diseño, ruta, cuadro de diálogo o columna lateral.                                                   |
+| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | Quieres chatear en modo panel o página sin el envoltorio de la barra lateral.                                                               |
+| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | Quieres ser propietario del Chrome circundante y al mismo tiempo mantener la conversación estándar y el tiempo de ejecución del compositor. |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | Quieres las pestañas de hilo del marco sin el cromo `AgentPanel`.                                                                           |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | Tiene un punto final de agente BYO que transmite eventos de chat normalizados.                                                              |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | Tienes una transmisión OpenAI Agents SDK y quieres el chat estándar UI alrededor de ella.                                                   |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | Tienes un flujo de eventos de Respuestas OpenAI y quieres que se normalice en el chat UI.                                                   |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | Tienes una transmisión de eventos AG-UI y quieres que se normalice en el chat UI.                                                           |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | Tienes una transmisión del Agente Claude SDK y quieres que se normalice en el chat UI.                                                      |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | Tienes una transmisión Vercel AI SDK y quieres normalizarla en el chat UI.                                                                  |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | Necesita una lista de conversaciones personalizada, un selector de historial o un chat con ámbito UI.                                       |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | Una acción de producto debería entregar el trabajo al chat del agente.                                                                      |
 
 `AgentChatRuntime` es el contrato de agente BYO para el shell de chat estándar. Pase
 `runtime` a `<AssistantChat>` cuando un agente externo debe alimentar el
@@ -218,7 +218,7 @@ formas completas de la aplicación, consulte [Agent Surfaces](/docs/agent-surfac
 La ruta personalizada más corta sigue siendo una superficie precableada:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -228,7 +228,10 @@ export default function ChatRoute() {
 Para Chrome personalizado en torno al tiempo de ejecución estándar:
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import {
+  AssistantChat,
+  useChatThreads,
+} from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -445,7 +448,7 @@ visualización de llamada de herramienta.
 Utilice widgets de herramientas nativas cuando el resultado de una acción deba mostrarse como UI con calidad de aplicación
 chat interno en lugar de JSON simple. Las salidas reutilizables integradas incluyen
 `DataTableWidget`, `DataChartWidget` y `DataWidgetResult`; se exportan
-de `@agent-native/core/client/chat` y la entrada del cliente raíz. Ver
+de `@agent-native/core/client/widgets` y la entrada del cliente raíz. Ver
 [Native Interfaz de chat](/docs/native-chat-ui) para el contrato de resultado de acción.
 
 | API                              | Usar cuando                                                                                                      |

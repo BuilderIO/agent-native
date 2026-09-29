@@ -104,7 +104,7 @@ matching payload:
 
 Server actions should import the server-safe helpers and schemas from
 `@agent-native/core/data-widgets`; client code can import the same types from
-`@agent-native/core/client/chat` or `@agent-native/core/client`.
+`@agent-native/core/client/widgets` or `@agent-native/core/client`.
 
 ```ts filename="actions/chart-form-responses.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -225,7 +225,7 @@ Register product-specific components by exact renderer id, then declare that id
 on the action:
 
 ```tsx filename="app/chat-renderers.tsx"
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -366,7 +366,7 @@ described below.
 
 </Diagram>
 
-All connectors are exported from `@agent-native/core/client/chat` (and the root
+All connectors are exported from `@agent-native/core/client/agent-chat` (and the root
 `@agent-native/core/client` entry). Use the generic HTTP runtime when your agent
 can expose a POST endpoint that returns SSE or NDJSON runtime events:
 
@@ -374,7 +374,7 @@ can expose a POST endpoint that returns SSE or NDJSON runtime events:
 import {
   AssistantChat,
   createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -400,7 +400,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -443,7 +443,7 @@ iframes.
 When you want the built-in Agent-Native transport as a runtime object, use:
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -457,6 +457,8 @@ assistant-ui `ChatModelAdapter` implementations must be ported to
 `AgentTransport` or `AgentChatRuntime` to use AgentKit's transcript and
 composer. Use `PromptComposer` by itself when your product owns the entire
 external transcript and only wants Agent-Native's composer field.
+
+For the old-to-new API map and migration steps, see the [AgentKit chat migration guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md).
 
 OpenAI, AG-UI, Claude Agent SDK, and Vercel AI SDK streams can use the standard
 connector helpers. ACP remains coding-agent/editor interoperability, not the

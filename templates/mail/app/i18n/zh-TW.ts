@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "給自己的備註",
     },
     inbox: {
+      atLeastCount: "至少 {{count}}",
       syncing: "收件箱同步中…",
     },
     sort: {
@@ -319,13 +320,13 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "取消定時傳送",
       deliveryUnknownWarning:
-        "送達狀態未知；處理前請先檢查 Gmail 的「已寄出」資料夾。",
+        "送達狀態未知；處理前請先檢查 Mail 的「已寄出」檢視。",
       markSentAfterChecking: "我已檢查「已寄出」；標記為已寄出",
       sendNewCopy: "傳送新副本",
       sendingStatus: "正在處理定時郵件。暫時無法使用相關操作。",
       confirmSendNewCopyTitle: "要再傳送一份嗎？",
       confirmSendNewCopyDescription:
-        "原郵件可能已經送達。請先檢查 Gmail 的「已寄出」資料夾。再次傳送可能會造成重複郵件。",
+        "原郵件可能已經送達。請先檢查 Mail 的「已寄出」檢視。再次傳送可能會造成重複郵件。",
       dateInput: "日期和時間",
       noDateMatch: "沒有符合的未來時間",
       inputPlaceholder: "試試：上午 8 點、3 天後、8 月 7 日",
@@ -546,8 +547,6 @@ const messages = {
       deleteGmailFilter: "刪除 Gmail 過濾器",
       deleteGmailFilterDescription:
         "從 {{account}} 刪除此過濾器？這會直接更改 Gmail。",
-      title: "Gmail 過濾器",
-      description: "用於簡單發件人、主題和搜尋模式的伺服器端 Gmail 規則。",
       newFilter: "新過濾器",
       noFilters: "還沒有 Gmail 過濾器。",
     },
@@ -755,7 +754,6 @@ const messages = {
     personSingular: "{{count}} 人",
     peoplePlural: "{{count}} 人",
     deleteAliasDescription: "刪除別名“{{name}}”？此操作無法撤銷。",
-    aliasesDescription: "撰寫郵件時可使用的地址組。",
     newAlias: "新建別名",
     noAliases: "還沒有別名。建立一個即可開始。",
     applyLabel: "應用標籤",
@@ -774,14 +772,6 @@ const messages = {
     actions: "操作",
     editRule: "編輯規則",
     deleteRule: "刪除規則",
-    noEventAutomations: "還沒有郵件事件觸發的自動化。",
-    eventAutomationsPrompt:
-      "讓代理建立自動化，例如“當我收到老板的郵件時，加星號並通知我”。",
-    disabled: "已停用",
-    on: "在",
-    when: "當",
-    lastRun: "上次執行：",
-    automationsDescription: "使用 AI 自動處理新收件箱郵件的規則。",
     allowAutomationSends: "允許自動化自動傳送郵件",
     allowAutomationSendsDescription:
       "預設為關閉。需要自動化每次傳送郵件時不必請求核准時，請開啟此選項。",
@@ -791,15 +781,11 @@ const messages = {
     noAutomationRules: "還沒有自動化規則。",
     noAutomationRulesDescription:
       "建立規則來自動標記郵件、封存新聞郵件、為重要郵件加星號等。你也可以讓 AI 代理為你設定。",
-    eventTriggers: "事件觸發器",
-    eventTriggersDescription:
-      "郵件事件發生時觸發的自動化（例如收到新郵件）。由代理管理。",
     importedSignature: "已從 {{account}} 匯入簽名。",
     noGmailSignature: "未找到 {{account}} 的 Gmail 簽名。",
     importSignatureFailed: "匯入 Gmail 簽名失敗。",
     draftingSettingsSaved: "草稿設定已儲存。",
     draftingSettingsSaveFailed: "儲存草稿設定失敗。",
-    draftingDescription: "撰寫和生成郵件草稿時使用的偏好設定。",
     signature: "簽名",
     importFromGmail: "從 Gmail 匯入",
     signatureHelp:
@@ -813,40 +799,14 @@ const messages = {
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",
     reset: "重設",
-    trackingDescription:
-      "了解收件人何時開啟你傳送的郵件以及點選連結。統計會顯示在每封已傳送郵件下方。",
     trackEmailOpens: "跟蹤郵件開啟",
     trackEmailOpensDescription:
       "在外發郵件中插入 1×1 像素，以檢視收件人何時開啟。",
     trackLinkClicks: "跟蹤連結點選",
     trackLinkClicksDescription:
       "重寫外發郵件中的外部連結，以統計收件人點選時間。",
-    slackLoadFailed: "載入 Slack 狀態失敗",
-    slackUpdateFailed: "更新 Slack 收件入口失敗",
-    slackConfigured: "Slack 憑證已設定。",
-    slackNeedsCredentials:
-      "舊版自訂收件入口需要 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET。新的 Slack 訊息自動化請在設定 > 訊息中連接工作區。",
-    slackIntake: "Slack 收件入口（舊版）",
-    slackDescription: "允許組織成員從 Slack 排隊郵件草稿的舊版自訂整合。",
-    enabled: "已啟用",
-    disable: "停用",
-    enable: "啟用",
-    slackPostEndpoint: "Slack POST 端點",
-    slackPostEndpointHelp:
-      "用於 Slack Event Subscriptions。瀏覽器 GET 可能顯示 Not Found。",
-    title: "設定",
-    general: "通用",
-    generalDescription: "Mail 的語言和帳號級偏好設定。",
-    languageTitle: "語言",
-    languageDescription:
-      "選取此帳號的介面語言。Mail 會在不同設備上記住你的選取。",
-    languageLabel: "介面語言",
-    whatsNew: "最新變化",
-    whatsNewDescription: "Agent-Native Mail 最近面向使用者的更新。",
     drafting: "起草",
     snippets: "片段",
-    snippetsDescription:
-      "可保存的常用回覆，輸入 / 和片段名稱即可插入撰寫中的草稿。",
     newSnippet: "新增片段",
     noSnippets: "尚無片段，建立一個開始使用。",
     snippetName: "片段名稱",
@@ -856,7 +816,6 @@ const messages = {
     editSnippet: "編輯片段",
     deleteSnippet: "刪除片段",
     deleteSnippetDescription: "刪除片段「{{name}}」？此操作無法復原。",
-    automations: "自動化",
     rules: "規則",
     rulesModel: "規則模型",
     rulesModelDescription: "將收到的郵件與你的規則進行比對。",
@@ -869,7 +828,6 @@ const messages = {
     gmailFilters: "Gmail 篩選器",
     aliases: "別名",
     tracking: "跟蹤",
-    slack: "Slack",
     deleteAlias: "刪除別名",
     editAlias: "編輯別名",
   },

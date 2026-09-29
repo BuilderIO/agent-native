@@ -75,7 +75,6 @@ const messages = {
     create: "Crear",
     save: "Guardar",
     saving: "Guardando…",
-    saveChanges: "Guardar cambios",
     connected: "Conectado",
     notConnected: "No conectado",
     disconnect: "Desconectar",
@@ -819,7 +818,6 @@ const messages = {
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
     agentTitle: "Gestionar agente",
-    title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     labs: "Labs",
     labsIntro:
@@ -832,12 +830,6 @@ const messages = {
     labWisprFlow: "Dictado por voz",
     labWisprFlowDescription:
       "Muestra u oculta el dictado por voz en Clips Desktop.",
-    intro: "Preferencias y servicios conectados para este espacio de Clips.",
-    preferencesTitle: "Preferencias",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
-    languageLabel: "Idioma de la interfaz",
     uploadWorkspaceTitle: "Espacio activo",
     uploadWorkspaceDescription:
       "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",
@@ -859,10 +851,6 @@ const messages = {
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",
-    playback: "Reproducción",
-    defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
-    playbackDescription:
-      "Se aplica automáticamente cuando abres una grabación.",
     transcript: "Transcripción",
     transcriptCleanup: "Limpieza en segundo plano",
     transcriptCleanupDescription:
@@ -870,27 +858,17 @@ const messages = {
     notifications: "Notificaciones",
     monthlyRecap: "Resumen mensual",
     sharing: "Compartir",
-    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
-    defaultVisibilityDescription:
-      "Se aplica a cada grabación que crees. Puedes cambiar la visibilidad en cada grabación.",
     visibilityPrivate: "Privado - solo tú",
     visibilityOrg: "Organización - cualquiera de tu espacio",
     visibilityPublic: "Público - cualquiera con el enlace",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
       "Elige qué correos opcionales de Clips quieres recibir.",
-    saved: "Ajustes guardados",
     saveFailed: "No se pudo guardar",
-    builderConnectedToast: "Builder.io conectado",
-    videoStorage: "Almacenamiento de vídeo",
     videoStorageDescription:
       "Builder.io es la ruta principal de almacenamiento para las subidas de Clips. S3 está disponible si necesitas usar tu propio bucket.",
-    checkingBuilder: "Comprobando Builder.io",
     builderConnected: "Builder.io conectado",
     connectBuilder: "Usar Builder.io",
-    builderConnectedFor: "Usando Builder.io para {{orgName}}.",
-    builderConnectedGeneric:
-      "Los clips nuevos usan el proveedor Builder.io conectado.",
     builderIncludes:
       "El nivel gratuito de Builder.io incluye almacenamiento de objetos, subidas y transcripción gestionada para clips nuevos.",
     s3Title: "Almacenamiento compatible con S3",
@@ -898,11 +876,8 @@ const messages = {
     active: "Activo",
     s3BuilderConnectedDescription:
       "Úsalo solo si este espacio debe subir a tu propio bucket en lugar de Builder.io.",
-    s3CurrentProvider: "Usando actualmente {{providerName}}.",
     s3OwnBucketDescription:
       "Usa tu propio bucket si no quieres almacenamiento de Builder.io.",
-    configureS3: "Configurar S3",
-    hideS3: "Ocultar S3",
     saveStorage: "Guardar almacenamiento",
     storageSaved: "Ajustes de almacenamiento guardados",
     storageRequired: "Endpoint, bucket, access key y secret son obligatorios.",
@@ -917,7 +892,6 @@ const messages = {
     s3BucketInvalid:
       "El nombre del bucket debe tener 3–63 letras minúsculas, números o guiones",
     s3RegionInvalid: 'Debe ser una región válida (p. ej. us-east-1) o "auto"',
-    apiSetup: "Configuración de IA",
     apiSetupDescription: "Elige cómo Clips se conecta a la IA.",
     builderEasySetup: "Créditos gratis de Builder.io",
     builderAiAvailable:
@@ -928,18 +902,11 @@ const messages = {
     providerKeyDescription:
       "Elige Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere u Ollama para uso facturado por proveedor.",
     providerKeysSet: "{{count}} configuradas",
-    providerActionTitle: "Proveedor de IA",
-    providerActionDescription:
-      "Builder.io incluye un nivel gratuito, o usa claves propias.",
-    providerManage: "Gestionar",
-    providerCustomKeys: "Claves propias",
-    checkingProviderKeys: "Comprobando claves de proveedor…",
     keySet: "Configurada",
     keyCleared: "Credenciales de almacenamiento borradas",
     clearAllS3: "Borrar credenciales",
     replaceKey: "Reemplazar clave…",
     pasteProviderKey: "Pega primero una clave de proveedor.",
-    apiKeySaved: "Clave de API guardada",
     apiKeyFailed: "No se pudo guardar la clave",
     slackTitle: "Agent-Native Clips para Slack",
     slackDescription:
@@ -1059,8 +1026,6 @@ const messages = {
       "Aún no hay organización. Crea una desde el selector de organización para empezar.",
     description:
       "Administración de organización: marca, miembros e invitaciones.",
-    adminsOnlyBranding: "Solo los administradores pueden editar la marca.",
-    brandingLoadFailed: "No se pudo cargar la identidad de la organización.",
     members: "Miembros",
     pendingInvites: "Invitaciones pendientes",
     noPendingInvites: "No hay invitaciones pendientes.",

@@ -345,13 +345,15 @@ export interface AuthOptions {
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
   googleScopes?: string[];
-  marketing?: {
-    appName: string;
-    tagline: string;
-    description?: string;
-    features?: string[];
-    learnMoreUrl?: string;
-  };
+  marketing?:
+    | false
+    | {
+        appName: string;
+        tagline: string;
+        description?: string;
+        features?: string[];
+        learnMoreUrl?: string;
+      };
   signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
   googleAuthMode?: GoogleAuthMode;
   betterAuth?: BetterAuthConfig;
@@ -2311,7 +2313,7 @@ function getOnboardingLoginHtmlConfig(
   }
   return {
     authMode,
-    rootAuth: options.rootAuth ?? Boolean(options.marketing),
+    rootAuth: options.rootAuth ?? options.marketing !== undefined,
     loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
@@ -6829,7 +6831,7 @@ export async function autoMountAuth(
       if (
         options.googleOnly ||
         options.loginHtml ||
-        options.marketing ||
+        options.marketing !== undefined ||
         options.renderSignInPage
       ) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
@@ -6841,7 +6843,7 @@ export async function autoMountAuth(
       }
       if (options.rootAuth !== undefined) {
         _authGuardConfig.rootAuth = options.rootAuth;
-      } else if (options.loginHtml || options.marketing) {
+      } else if (options.loginHtml || options.marketing !== undefined) {
         _authGuardConfig.rootAuth = true;
       }
       if (options.publicPaths) {
