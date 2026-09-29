@@ -28,15 +28,19 @@ jobs:
       core_integration: ${{ steps.scope.outputs.core_integration }}
       plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
       brain_evals: ${{ steps.scope.outputs.brain_evals }}
-      brain_privacy: ${{ steps.scope.outputs.brain_privacy }}
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       guards: ${{ steps.scope.outputs.guards }}
-      drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
+      agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
+      changeset: ${{ steps.scope.outputs.changeset }}
+      script_tests: ${{ steps.scope.outputs.script_tests }}
+      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
+      has_tests: ${{ steps.lanes.outputs.has_tests }}
+      core_test_files: ${{ steps.lanes.outputs.core_test_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -60,6 +64,31 @@ jobs:
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
+      # Full planning only reads manifests and counts files. Targeted planning
+      # runs `pnpm list` and `vitest list --changed`, so it needs an install.
+      - name: Install dependencies for targeted lane planning
+        if: steps.scope.outputs.full != 'true' && steps.scope.outputs.fast_tests == 'true'
+        uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
+
+      - name: Partition test packages into sharded lanes
+        id: lanes
+        if: steps.scope.outputs.full == 'true' || steps.scope.outputs.fast_tests == 'true'
+        env:
+          CI_FULL: ${{ steps.scope.outputs.full }}
+          TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
+          LANES: 5
+        run: |
+          set -euo pipefail
+          if [ "$CI_FULL" = "true" ]; then
+            node --experimental-strip-types scripts/ci-test-lanes.ts
+          else
+            base_sha="$(git rev-parse HEAD^1)"
+            CI_WORKSPACE_FILTERS="$TARGETED_WORKSPACE_FILTERS" CI_BASE_SHA="$base_sha" \
+              node --experimental-strip-types scripts/ci-test-lanes.ts
+          fi
+
   lint:
     name: Lint & format
     needs: change-scope
@@ -78,7 +107,9 @@ jobs:
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
-        run: pnpm fmt:check && pnpm oxlint
+        # The tree carries ~15k pre-existing warnings; printing them buries
+        # the errors that actually fail this step.
+        run: pnpm fmt:check && pnpm oxlint --quiet
 
       - name: Check changed source files
         if: needs.change-scope.outputs.full != 'true'
@@ -114,6 +145,16 @@ jobs:
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
           fi
 
+      - name: Require changeset for publishable package changes
+        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-changeset.mjs
+
+      - name: Enforce package bump policy
+        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        run: node scripts/guard-no-major-changeset.mjs
+
   typecheck:
     name: Typecheck
     needs: change-scope
@@ -142,65 +183,15 @@ jobs:
             pnpm -r --no-bail --if-present "${filters[@]}" run typecheck
           fi
 
-  discover-lanes:
-    name: Plan test lanes
-    needs: change-scope
-    if: needs.change-scope.outputs.full == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-
-      - name: Partition test packages into sharded lanes
-        id: plan
-        env:
-          LANES: 5
-        run: node --experimental-strip-types scripts/ci-test-lanes.ts
-
-  discover-targeted-lanes:
-    name: Plan targeted test lanes
-    needs: change-scope
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-      has_tests: ${{ steps.plan.outputs.has_tests }}
-      core_test_files: ${{ steps.plan.outputs.core_test_files }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 2
-          filter: blob:none
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: no-scripts
-
-      - name: Partition affected test packages into sharded lanes
-        id: plan
-        env:
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
-          LANES: 5
-        run: |
-          set -euo pipefail
-          CI_BASE_SHA="$(git rev-parse HEAD^1)" node --experimental-strip-types scripts/ci-test-lanes.ts
-
   test-rest:
     name: Fast tests ${{ matrix.lane }}
-    needs: [change-scope, discover-lanes]
+    needs: change-scope
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-lanes.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -255,13 +246,13 @@ jobs:
 
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
-    needs: [change-scope, discover-targeted-lanes]
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.discover-targeted-lanes.outputs.has_tests == 'true'
+    needs: change-scope
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-targeted-lanes.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -286,7 +277,7 @@ jobs:
         env:
           CORE_SHARD: ${{ matrix.coreShard }}
           CORE_TEST_MODE: ${{ matrix.coreMode }}
-          CORE_TEST_FILES: ${{ needs.discover-targeted-lanes.outputs.core_test_files }}
+          CORE_TEST_FILES: ${{ needs.change-scope.outputs.core_test_files }}
         run: |
           set -euo pipefail
           args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
@@ -336,15 +327,7 @@ jobs:
 
   fast-tests:
     name: Fast tests
-    needs:
-      [
-        change-scope,
-        docs,
-        discover-lanes,
-        discover-targeted-lanes,
-        test-rest,
-        test-targeted,
-      ]
+    needs: [change-scope, docs, test-rest, test-targeted]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -354,9 +337,9 @@ jobs:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
           CI_FULL: ${{ needs.change-scope.outputs.full }}
+          FAST_TESTS: ${{ needs.change-scope.outputs.fast_tests }}
+          HAS_TESTS: ${{ needs.change-scope.outputs.has_tests }}
           DOCS_RESULT: ${{ needs.docs.result }}
-          DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
-          DISCOVER_TARGETED_LANES_RESULT: ${{ needs.discover-targeted-lanes.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
         run: |
@@ -372,35 +355,42 @@ jobs:
             echo "Docs-only change: full fast-test lanes are not required."
             exit 0
           fi
-          if [ "$CI_FULL" != "true" ]; then
-            if [ "$DISCOVER_TARGETED_LANES_RESULT" != "success" ]; then
-              echo "::error::discover-targeted-lanes did not succeed ($DISCOVER_TARGETED_LANES_RESULT)"
+          if [ "$CI_FULL" = "true" ]; then
+            if [ "$HAS_TESTS" != "true" ] || [ "$TEST_REST_RESULT" != "success" ]; then
+              echo "::error::full fast-test lanes did not succeed (has_tests=$HAS_TESTS, test-rest=$TEST_REST_RESULT)"
               exit 1
             fi
-            if [ "${{ needs.discover-targeted-lanes.outputs.has_tests }}" = "true" ]; then
+            echo "Full fast-test suite passed across all sharded lanes."
+            exit 0
+          fi
+          if [ "$FAST_TESTS" != "true" ]; then
+            if [ "$TEST_TARGETED_RESULT" != "skipped" ]; then
+              echo "::error::targeted test job ran without a fast-test selection ($TEST_TARGETED_RESULT)"
+              exit 1
+            fi
+            echo "No workspace fast tests are selected for this change set."
+            exit 0
+          fi
+          case "$HAS_TESTS" in
+            true)
               if [ "$TEST_TARGETED_RESULT" != "success" ]; then
                 echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
                 exit 1
               fi
               echo "Targeted workspace fast tests passed."
-            else
+              ;;
+            false)
               if [ "$TEST_TARGETED_RESULT" != "skipped" ] && [ "$TEST_TARGETED_RESULT" != "success" ]; then
                 echo "::error::targeted test job did not skip cleanly ($TEST_TARGETED_RESULT)"
                 exit 1
               fi
               echo "No affected workspace has a test script; targeted fast tests were skipped."
-            fi
-            exit 0
-          fi
-          for dep in "discover-lanes:$DISCOVER_LANES_RESULT" \
-                     "test-rest:$TEST_REST_RESULT"; do
-            name="${dep%%:*}"; result="${dep##*:}"
-            if [ "$result" != "success" ]; then
-              echo "::error::$name did not succeed ($result)"
+              ;;
+            *)
+              echo "::error::targeted lanes were not planned (has_tests='$HAS_TESTS')"
               exit 1
-            fi
-          done
-          echo "Full fast-test suite passed across all sharded lanes."
+              ;;
+          esac
 
   docs:
     name: Docs checks
@@ -442,47 +432,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.content == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
-      - name: Run Content DB tests
-        run: pnpm test:content-db
-
-  # Runs on every PR regardless of scope, so it must not wait on change-scope:
-  # the gate only adds a second queue wait before an unconditional job.
-  pglite-tests:
-    name: PGlite lock and migration tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
-      - name: Install isolated PGlite test driver
-        run: >-
-          npm install --ignore-scripts --no-save
-          --prefix "$RUNNER_TEMP/s2573-pglite"
-          @electric-sql/pglite@0.5.8
-
-      - name: Run PGlite lock and migration action semantics tests
-        run: node scripts/test-content-database-lock-pglite.mjs
-        env:
-          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
-
-  content-db-postgres-tests:
-    name: Content DB PostgreSQL locking
-    needs: change-scope
-    if: needs.change-scope.outputs.content == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
@@ -503,7 +453,24 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      - name: Run Content DB tests
+        run: pnpm test:content-db
+
+      - name: Install isolated PGlite test driver
+        if: ${{ !cancelled() }}
+        run: >-
+          npm install --ignore-scripts --no-save
+          --prefix "$RUNNER_TEMP/s2573-pglite"
+          @electric-sql/pglite@0.5.8
+
+      - name: Run PGlite lock and migration action semantics tests
+        if: ${{ !cancelled() }}
+        run: node scripts/test-content-database-lock-pglite.mjs
+        env:
+          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
+
       - name: Run Content PostgreSQL lock integration tests
+        if: ${{ !cancelled() }}
         run: |
           pnpm test:content-db-postgres
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
@@ -610,20 +577,8 @@ jobs:
       - name: Run brain evals
         run: pnpm test:brain-evals
 
-  brain-privacy-evals:
-    name: Brain privacy leakage evals
-    needs: change-scope
-    if: needs.change-scope.outputs.brain_privacy == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
       - name: Block privacy leaks and false positives
+        if: ${{ !cancelled() }}
         run: pnpm test:brain-privacy-evals
 
   build:
@@ -754,20 +709,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Free disk for scaffold smoke
-        run: |
-          df -h
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/local/share/boost \
-            /usr/share/dotnet \
-            /usr/share/swift
-          docker system prune -af || true
-          sudo apt-get clean
-          df -h
+      - uses: ./.github/actions/free-disk
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -894,7 +836,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -934,41 +876,59 @@ jobs:
       - name: Run security guards
         run: pnpm guards
 
-  guard-no-drizzle-push:
-    name: Guard — no drizzle-kit push in build paths
-    needs: change-scope
-    if: needs.change-scope.outputs.drizzle == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Run root script tests for this change
+        if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}
+        env:
+          SCRIPT_TESTS: ${{ needs.change-scope.outputs.script_tests }}
+        run: |
+          set -euo pipefail
+          node_tests=()
+          vitest_tests=()
+          while IFS= read -r file; do
+            if grep -q -E "from ['\"]vitest['\"]" "$file"; then
+              vitest_tests+=("$file")
+            else
+              node_tests+=("$file")
+            fi
+          done < <(node -e 'for (const file of JSON.parse(process.env.SCRIPT_TESTS)) console.log(file)')
+          status=0
+          if ((${#node_tests[@]} > 0)); then
+            pnpm exec tsx --test "${node_tests[@]}" || status=1
+          fi
+          if ((${#vitest_tests[@]} > 0)); then
+            pnpm exec vitest run "${vitest_tests[@]}" || status=1
+          fi
+          exit "$status"
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-
-      - name: Scan netlify.toml + package.json for `drizzle-kit push`
-        run: node scripts/guard-no-drizzle-push.mjs
-
-  qa-static:
-    name: QA — static template checks
-    needs: change-scope
-    if: needs.change-scope.outputs.qa_static == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      # These checks read source files only — no DB, browser, network, or
-      # secrets — so they're safe to run on every PR. (The heavier harnesses —
-      # test:mcp:e2e, qa:public-share, qa:composer-geometry — need a live
-      # server / DB / browser and belong in a separate, set-up job.)
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: no-scripts
-
+      # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)
+        if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
         run: pnpm qa:template-routes
 
       - name: Template action audit (advisory)
+        if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
         run: pnpm actions:audit
+
+  standalone-chat:
+    name: Generate + run standalone Chat
+    needs: change-scope
+    # Required check: run when selected, and also when change-scope did not
+    # succeed so the check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.agentkit_acceptance == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+    steps:
+      - name: Require a successful change scope
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/standalone-chat-acceptance

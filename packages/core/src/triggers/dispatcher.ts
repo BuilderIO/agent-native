@@ -299,7 +299,7 @@ async function drainReadyTriggerQueue(
     deps.appId === "mail"
       ? new Date(sweepStartedAt - MAX_MAIL_TRIGGER_EVENT_AGE_MS).toISOString()
       : undefined;
-  let staleMailExpiryIncomplete = false;
+  let staleMailExpiryIncomplete = deps.appId === "mail";
   const readyQueryOptions = () => ({
     ...DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
     ...(staleMailExpiryIncomplete && staleMailEventCutoff !== undefined
