@@ -62,6 +62,7 @@ test.describe("Slides realtime editor", () => {
       await openEditor(pageA, `${editorUrl}?agentSidebar=open`, sourceText);
       pageB = await context.newPage();
       const transportRequests = { poll: 0, events: 0, stream: 0 };
+      let streamConnected = false;
       pageB.on("request", (request) => {
         if (request.method() !== "GET") return;
         const pathname = new URL(request.url()).pathname.replace(/\/+$/, "");
@@ -71,6 +72,12 @@ test.describe("Slides realtime editor", () => {
           transportRequests.events += 1;
         } else if (pathname.endsWith("/realtime/stream")) {
           transportRequests.stream += 1;
+        }
+      });
+      pageB.on("response", (response) => {
+        const pathname = new URL(response.url()).pathname.replace(/\/+$/, "");
+        if (pathname.endsWith("/realtime/stream") && response.ok()) {
+          streamConnected = true;
         }
       });
       await openEditor(pageB, editorUrl, sourceText);
@@ -153,10 +160,11 @@ test.describe("Slides realtime editor", () => {
         events: transportRequests.events - requestsAtIdleStart.events,
         stream: transportRequests.stream - requestsAtIdleStart.stream,
       };
+      const streamConnectedAtIdleStart = streamConnected;
       console.info(
         `[beta-slides-realtime] idle transport window ${JSON.stringify({
           idleWindowMs,
-          streamConnectedAtIdleStart: requestsAtIdleStart.stream > 0,
+          streamConnectedAtIdleStart,
           idleRequestStarts,
           observedRequests: transportRequests,
           tab: "pageB",
