@@ -39,12 +39,11 @@ const state = vi.hoisted(() => ({
   sweep: vi.fn(),
   draft: null as null | Record<string, unknown>,
   read: vi.fn(),
+  session: null as null | { email: string; orgId: string },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: state.receipt,
-  useSession: () => ({
-    session: { email: "writer@example.test", orgId: "org" },
-  }),
+  useSession: () => ({ session: state.session }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -146,6 +145,7 @@ describe("Page browser journal recovery", () => {
     vi.clearAllMocks();
     state.entries = [];
     state.draft = null;
+    state.session = { email: "writer@example.test", orgId: "org" };
     state.read.mockImplementation(
       () => state.entries.find((entry) => !entry.recoveryStatus) ?? null,
     );
@@ -350,6 +350,27 @@ describe("Page browser journal recovery", () => {
     expect(state.read).not.toHaveBeenCalled();
     expect(state.rebase).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("holds the editor until the session is known, then replays the journal", async () => {
+    // The session cache expires, so a page opened later can mount before its
+    // session read returns. The editor must not show the saved body over a
+    // journal it has not replayed.
+    state.session = null;
+    state.entries = [entry("first", "Local")];
+    state.rebase.mockResolvedValue({
+      status: "saved",
+      document: { ...page, content: "Local" },
+    });
+    await act(async () => render());
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(state.read).not.toHaveBeenCalled();
+
+    state.session = { email: "writer@example.test", orgId: "org" };
+    await act(async () => render());
+    expect(state.rebase).toHaveBeenCalledTimes(1);
+    expect(state.entries).toEqual([]);
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 
   it("checks a confirmed save receipt before replaying a pending attempt", async () => {
