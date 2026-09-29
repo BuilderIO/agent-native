@@ -723,7 +723,7 @@ const PR_REVIEW_GATE_NEGATIVE_STATE_RE = new RegExp(
   "i",
 );
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
-  /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
+  /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:security(?:[-\s]+team(?:['’]s)?)?\s+)?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
 const PR_REVIEW_MERGE_PROHIBITION_RE =
@@ -741,9 +741,11 @@ const PR_REVIEW_GATE_WITH_PASSING_CHECKS_RE = new RegExp(
 
 function hasActivePrReviewMergeGate(sentence) {
   if (
-    PR_REVIEW_GATE_BASE_FRESHNESS_RE.test(sentence) ||
-    PR_REVIEW_GATE_NEGATIVE_STATE_RE.test(sentence) ||
-    PR_REVIEW_GATE_REQUIRED_BEFORE_MERGE_RE.test(sentence)
+    [
+      PR_REVIEW_GATE_BASE_FRESHNESS_RE,
+      PR_REVIEW_GATE_NEGATIVE_STATE_RE,
+      PR_REVIEW_GATE_REQUIRED_BEFORE_MERGE_RE,
+    ].some((pattern) => hasUnscopedPrReviewGateMatch(sentence, pattern))
   ) {
     return true;
   }
@@ -760,13 +762,15 @@ function hasActivePrReviewMergeGate(sentence) {
     if (
       !PR_REVIEW_GATE_WAIVER_RE.test(before) &&
       !PR_REVIEW_GATE_NEGATION_BEFORE_RE.test(before) &&
-      !PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after)
+      !PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after) &&
+      !isOtherProductMergeGate(sentence, greenChecks)
     ) {
       return true;
     }
   }
 
   for (const match of sentence.matchAll(PR_REVIEW_MERGE_GATE_RE)) {
+    if (isOtherProductMergeGate(sentence, match)) continue;
     const before = sentence.slice(Math.max(0, match.index - 70), match.index);
     const after = sentence.slice(
       match.index + match[0].length,
@@ -809,12 +813,22 @@ function hasActivePrReviewMergeGate(sentence) {
   return false;
 }
 
+function hasUnscopedPrReviewGateMatch(sentence, pattern) {
+  const matcher = new RegExp(
+    pattern.source,
+    `${pattern.flags.replace("g", "")}g`,
+  );
+  return Array.from(sentence.matchAll(matcher)).some(
+    (match) => !isOtherProductMergeGate(sentence, match),
+  );
+}
+
 function isOtherProductMergeGate(sentence, gate) {
   const otherScope = PR_REVIEW_GATE_OTHER_SCOPE_RE.exec(sentence);
   return (
     otherScope &&
-    gate.index >= otherScope.index &&
-    gate.index < otherScope.index + otherScope[0].length
+    gate.index < otherScope.index + otherScope[0].length &&
+    gate.index + gate[0].length > otherScope.index
   );
 }
 
@@ -885,10 +899,22 @@ function isUnblockedPrReviewReadyCorrection(text, match) {
           candidateMergeText.slice(prohibition.index + prohibition[0].length),
         ),
     ) &&
-    !PR_REVIEW_GATE_PRECONDITION_RE.test(previousSentence) &&
-    !PR_REVIEW_GATE_PRECONDITION_RE.test(sentencePrefix) &&
-    !PR_REVIEW_GATE_NOUN_PRECONDITION_RE.test(previousSentence) &&
-    !PR_REVIEW_GATE_NOUN_PRECONDITION_RE.test(mergePreconditions) &&
+    !hasUnscopedPrReviewGateMatch(
+      previousSentence,
+      PR_REVIEW_GATE_PRECONDITION_RE,
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      sentencePrefix,
+      PR_REVIEW_GATE_PRECONDITION_RE,
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      previousSentence,
+      PR_REVIEW_GATE_NOUN_PRECONDITION_RE,
+    ) &&
+    !hasUnscopedPrReviewGateMatch(
+      mergePreconditions,
+      PR_REVIEW_GATE_NOUN_PRECONDITION_RE,
+    ) &&
     !hasActivePrReviewMergeGate(reviewText)
   );
 }
@@ -914,6 +940,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   ],
   [true, "If no changes are needed, merge this PR; don't merge unrelated PRs."],
   [true, "Don't merge unrelated PRs. If no changes are needed, merge this PR."],
+  [
+    true,
+    "Wait for security approval before merging other PRs. If no changes are needed, merge this PR.",
+  ],
+  [
+    false,
+    "Wait for security approval before merging this PR. If no changes are needed, merge this PR.",
+  ],
   [true, "If we are happy, we merge."],
   [true, "If we're happy with the PR, we merge."],
   [true, "If we’re happy with the PR, we merge."],
