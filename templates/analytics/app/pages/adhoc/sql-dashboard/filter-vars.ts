@@ -171,14 +171,20 @@ export function resolveFilterVars(
       const startKey = filter.id + "Start";
       const endKey = filter.id + "End";
       const defaultRange = value === "custom" ? filter.default || "30d" : value;
-      const fallbackStart = dateRangeStart(defaultRange);
+      const fallbackStart =
+        value === "custom" ? "" : dateRangeStart(defaultRange);
+      const fallbackEnd = value === "custom" ? "" : daysAgo(0);
       out[filter.id] = value;
       out[startKey] = resolveDateParam(
         getParam(startKey),
         fallbackStart,
         fallbackStart,
       );
-      out[endKey] = resolveDateParam(getParam(endKey), daysAgo(0), daysAgo(0));
+      out[endKey] = resolveDateParam(
+        getParam(endKey),
+        fallbackEnd,
+        fallbackEnd,
+      );
     } else {
       const value = getParam(filter.id);
       out[filter.id] =
