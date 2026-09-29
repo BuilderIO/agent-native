@@ -235,6 +235,58 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
+    it("allows schema probes and DDL only inside a runtime-owned migration", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+      delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const { withMigrationExecutionRuntime } =
+        await import("./migration-runtime.js");
+      let created = false;
+      const calls: string[] = [];
+      const client = {
+        execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+          const text = typeof sql === "string" ? sql : sql.sql;
+          calls.push(text);
+          if (/FROM information_schema\.columns/.test(text)) {
+            return {
+              rows: created
+                ? [{ table_name: "settings", column_name: "id" }]
+                : [],
+              rowsAffected: 0,
+            };
+          }
+          if (/FROM pg_indexes/.test(text))
+            return { rows: [], rowsAffected: 0 };
+          if (/CREATE TABLE/.test(text)) created = true;
+          return { rows: [], rowsAffected: 0 };
+        },
+        transaction: async (fn: (tx: any) => Promise<unknown>) => fn(client),
+      } as any;
+
+      expect(
+        await ensureTableExists("settings", "CREATE TABLE settings (id TEXT)", {
+          injectedClient: client,
+        }),
+      ).toBe(false);
+      expect(calls).toEqual([]);
+
+      await expect(
+        withMigrationExecutionRuntime(() =>
+          ensureTableExists("settings", "CREATE TABLE settings (id TEXT)", {
+            injectedClient: client,
+          }),
+        ),
+      ).resolves.toBe(true);
+      expect(
+        calls.some((call) => /information_schema\.columns/.test(call)),
+      ).toBe(true);
+      expect(calls.some((call) => /CREATE TABLE settings/.test(call))).toBe(
+        true,
+      );
+    });
+
     it("resumes skipping once migration duty is released", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "");

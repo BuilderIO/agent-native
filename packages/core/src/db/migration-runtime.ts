@@ -1,17 +1,25 @@
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+
 /**
- * Migration duty: the process-local claim that the current call is allowed to
- * create or alter schema.
+ * Migration duty and execution context for schema changes.
  *
- * Its own module, and deliberately dependency-free, because both `./client.js`
- * and `./ddl-guard.js` need to read it. Putting the reader on `client.js` would
- * mean every `vi.mock("../db/client.js")` in the codebase has to stub one more
- * export to keep `ensureTable()` working — the exact coupling `ddl-guard.ts`
- * was split out to avoid.
+ * Keep it separate because `./client.js` and `./ddl-guard.js` both read it;
+ * putting the reader on `client.js` would force every client mock to stub an
+ * extra export just to keep `ensureTable()` working.
  */
 
 type MigrationRuntimeGlobal = typeof globalThis & {
   __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
 };
+
+interface MigrationExecutionStorage {
+  getStore(): boolean | undefined;
+  run<T>(store: boolean, fn: () => T): T;
+}
+
+const AsyncLocalStorage = getAsyncLocalStorageCtor();
+const migrationExecutionStorage: MigrationExecutionStorage | undefined =
+  AsyncLocalStorage ? new AsyncLocalStorage<boolean>() : undefined;
 
 function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
   return (
@@ -75,6 +83,10 @@ export function isMigrationAuthorizedRuntime(): boolean {
   );
 }
 
+export function isMigrationExecutingRuntime(): boolean {
+  return migrationExecutionStorage?.getStore() === true;
+}
+
 export async function withMigrationRuntime<T>(
   run: () => Promise<T>,
 ): Promise<T> {
@@ -90,4 +102,18 @@ export async function withMigrationRuntime<T>(
       runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = previous;
     }
   }
+}
+
+export async function withMigrationExecutionRuntime<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  if (migrationExecutionStorage) {
+    return migrationExecutionStorage.run(true, run);
+  }
+  if (isHostedFunctionInvocationRuntime()) {
+    throw new Error(
+      "AsyncLocalStorage is required to run hosted runtime migrations safely",
+    );
+  }
+  return run();
 }

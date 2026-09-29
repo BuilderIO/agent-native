@@ -11,6 +11,7 @@ function stringifyValue(value: unknown): string {
 import { getDbExec, type DbExec } from "./client.js";
 import {
   isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
@@ -18,6 +19,7 @@ import {
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function schemaEnsureDisabled(): boolean {
+  if (isMigrationExecutingRuntime()) return false;
   if (isHostedFunctionInvocationRuntime()) return true;
   if (isMigrationAuthorizedRuntime()) return false;
   if (isProductionServerlessFunctionRuntime()) return true;

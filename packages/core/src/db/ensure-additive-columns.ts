@@ -54,7 +54,10 @@
  */
 
 import type { DbExec } from "./client.js";
-import { isProductionServerlessFunctionRuntime } from "./migration-runtime.js";
+import {
+  isMigrationExecutingRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -220,7 +223,10 @@ export async function ensureAdditiveColumns(
   options: EnsureAdditiveColumnsOptions,
 ): Promise<EnsureAdditiveColumnsResult> {
   const { db, tables, logger = defaultLogger } = options;
-  if (isProductionServerlessFunctionRuntime()) {
+  if (
+    isProductionServerlessFunctionRuntime() &&
+    !isMigrationExecutingRuntime()
+  ) {
     return { ...emptyResult(), mode: "skipped-serverless" };
   }
   const result = emptyResult();

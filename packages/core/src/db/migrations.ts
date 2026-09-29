@@ -10,6 +10,7 @@ import {
 import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
+  withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
 
 // Core plugins must serialize boot-time DDL for each database. The same
@@ -432,5 +433,8 @@ export function runMigrations(
       }
     }
   };
-  return async () => withMigrationLock(getMigrationDatabaseUrl(), migrate);
+  return async () =>
+    withMigrationLock(getMigrationDatabaseUrl(), () =>
+      withMigrationExecutionRuntime(migrate),
+    );
 }

@@ -10,7 +10,12 @@ vi.mock("./client.js", async (importOriginal) => {
   };
 });
 
-import { getDbExec, createDbExec, getMigrationDatabaseUrl } from "./client.js";
+import {
+  assertSchemaMutationAllowed,
+  getDbExec,
+  createDbExec,
+  getMigrationDatabaseUrl,
+} from "./client.js";
 import {
   deferMigration,
   runMigrations,
@@ -130,18 +135,33 @@ describe("runMigrations – serverless request runtime", () => {
   });
 
   it("keeps request-time migrations for apps without release migrations", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
     vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "0");
     vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "");
-    const exec = makeExec([{ v: 5 }]);
+    const exec = makeNamedExec({ version: 0 });
+    const originalExecute = exec.execute.getMockImplementation()!;
+    exec.execute.mockImplementation(async (statement) => {
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      if (/^\s*(CREATE|ALTER)/i.test(sql)) assertSchemaMutationAllowed(sql);
+      return originalExecute(statement);
+    });
     vi.mocked(getDbExec).mockReturnValue(exec);
+    vi.mocked(createDbExec).mockResolvedValue(exec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
 
     const plugin = runMigrations(migrations, { table: "guard_migrations" });
     await plugin(null);
 
     expect(getDbExec).toHaveBeenCalled();
-    expect(exec.execute).toHaveBeenCalled();
+    expect(
+      exec.execute.mock.calls.map(([statement]) =>
+        typeof statement === "string" ? statement : statement.sql,
+      ),
+    ).toContain("CREATE TABLE t1 (id INTEGER PRIMARY KEY)");
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE outside_migration (id TEXT)"),
+    ).toThrow(/release job/);
   });
 
   it("skips request-time migrations for a production-owned beta schema", async () => {

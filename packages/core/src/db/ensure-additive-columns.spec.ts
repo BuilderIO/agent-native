@@ -355,6 +355,28 @@ describe("ensureAdditiveColumns", () => {
     expect(client.execute).not.toHaveBeenCalled();
   });
 
+  it("checks schema during an explicitly executing runtime migration", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { ensureAdditiveColumns } =
+      await import("./ensure-additive-columns.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    const { client, calls } = fakePgClient({
+      tableExists: true,
+      liveColumns: ["id", "created_at"],
+    });
+
+    await expect(
+      withMigrationExecutionRuntime(() =>
+        ensureAdditiveColumns({ db: client, tables: [pgSessionRecordings] }),
+      ),
+    ).resolves.toMatchObject({ mode: "checked" });
+    expect(
+      calls.some((call) => /information_schema\.columns/i.test(call)),
+    ).toBe(true);
+  });
+
   it("logs applied/skipped/error lines through an injected logger", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { ensureAdditiveColumns } =

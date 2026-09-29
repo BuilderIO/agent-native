@@ -1,6 +1,7 @@
 import { getDbExec, type DbExec } from "./client.js";
 import {
   isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
@@ -39,8 +40,10 @@ export async function widenIntColumnsToBigInt(
 ): Promise<void> {
   if (
     columns.length === 0 ||
-    isHostedFunctionInvocationRuntime() ||
-    (isProductionServerlessFunctionRuntime() && !isMigrationAuthorizedRuntime())
+    (!isMigrationExecutingRuntime() &&
+      (isHostedFunctionInvocationRuntime() ||
+        (isProductionServerlessFunctionRuntime() &&
+          !isMigrationAuthorizedRuntime())))
   ) {
     return;
   }

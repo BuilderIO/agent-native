@@ -390,6 +390,60 @@ describe("db/client Postgres URL handling", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("allows DDL only while a hosted runtime migration is executing", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    await withMigrationExecutionRuntime(async () => {
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+    });
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+  });
+
+  it("does not grant concurrent requests a runtime migration's DDL permission", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    let migrationEntered!: () => void;
+    let finishMigration!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      migrationEntered = resolve;
+    });
+    const waitForFinish = new Promise<void>((resolve) => {
+      finishMigration = resolve;
+    });
+
+    const migration = withMigrationExecutionRuntime(async () => {
+      migrationEntered();
+      await waitForFinish;
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+    });
+    await entered;
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    finishMigration();
+    await migration;
+  });
+
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
     vi.stubEnv("NETLIFY", "true");
     (

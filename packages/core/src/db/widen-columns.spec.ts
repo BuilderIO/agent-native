@@ -81,6 +81,27 @@ describe("widenIntColumnsToBigInt", () => {
     );
   });
 
+  it("allows widening within a runtime-owned migration", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    const { client, calls } = fakeClient(["updated_at"]);
+
+    await withMigrationExecutionRuntime(() =>
+      widenIntColumnsToBigInt("settings", ["updated_at"], client),
+    );
+
+    expect(
+      calls.some((call) => /information_schema\.columns/i.test(call)),
+    ).toBe(true);
+    expect(calls).toContain(
+      "ALTER TABLE settings ALTER COLUMN updated_at TYPE BIGINT",
+    );
+  });
+
   it("rejects non-identifier table names (no query issued)", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { widenIntColumnsToBigInt } = await import("./widen-columns.js");

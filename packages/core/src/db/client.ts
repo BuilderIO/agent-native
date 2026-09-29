@@ -8,6 +8,7 @@ import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
 import {
   hasCloudflareRuntime,
   isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
@@ -1026,7 +1027,8 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  */
 export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
   const migrationRuntimeCanMutate =
-    isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime();
+    isMigrationExecutingRuntime() ||
+    (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
   if (
     isProductionServerlessFunctionRuntime() &&
     !migrationRuntimeCanMutate &&
