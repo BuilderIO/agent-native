@@ -48,7 +48,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { NotificationsBell } from "@agent-native/core/client/notifications"',
+      'import { NotificationsBell } from "@agent-native/toolkit/app/notifications"',
     );
     expect(
       source.match(/<NotificationsBell browserNotifications \/>/g),

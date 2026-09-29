@@ -152,6 +152,41 @@ describe("retention-over-time panel SQL", () => {
     );
   });
 
+  it("keeps preset cohorts' first-seen history beyond the selected spine", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const firstSeen = offsetDate(today, 50);
+    const returnDate = offsetDate(today, 20);
+    for (const userKey of ["p1", "p2", "p3", "p4", "p5"]) {
+      await seedFirstSeenEvent(client, userKey, firstSeen);
+      await seedFirstSeenEvent(client, userKey, returnDate);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "30d",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{ date: string; period: string; cohort_users: number }>;
+      }
+    ).rows;
+    const row = rows.find(
+      (candidate) =>
+        candidate.date === returnDate && candidate.period === "1-7d return",
+    );
+
+    expect(row?.cohort_users).toBe(0);
+  });
+
   it("keeps the oldest 365d anchor's trailing cohort inside the base lookback", async () => {
     client = await PGlite.create("memory://");
     await createAnalyticsEventsTable(client);
@@ -255,5 +290,60 @@ describe("retention-over-time panel SQL", () => {
     expect(startWeek?.rate).toBe(0.6);
     expect(startFortnight?.cohort_users).toBe(5);
     expect(startFortnight?.rate).toBe(0.4);
+  });
+
+  it("bounds wide custom source scans to the capped spine and its lookbacks", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const start = offsetDate(today, 5_000);
+    const spineStart = offsetDate(today, 3_659);
+    const outsideHistory = offsetDate(spineStart, 500);
+    const returnDay3 = offsetDate(spineStart, -3);
+    const returnDay10 = offsetDate(spineStart, -10);
+
+    for (const userKey of ["w1", "w2", "w3", "w4", "w5"]) {
+      await seedFirstSeenEvent(client, userKey, outsideHistory);
+      await seedFirstSeenEvent(client, userKey, spineStart);
+    }
+    for (const userKey of ["w1", "w2", "w3"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay3);
+    }
+    for (const userKey of ["w4", "w5"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay10);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "custom",
+      timeRangeStart: start,
+      timeRangeEnd: today,
+      emailFilter: "",
+      appFilter: "",
+    });
+
+    type RetentionRow = {
+      date: string;
+      period: string;
+      cohort_users: number;
+      rate: number | null;
+    };
+    const rows = ((await client.query(sql)) as { rows: RetentionRow[] }).rows;
+    const dates = [...new Set(rows.map((row) => row.date))].sort();
+    expect(dates).toHaveLength(3_660);
+    expect(dates[0]).toBe(spineStart);
+    expect(dates[dates.length - 1]).toBe(today);
+    const firstDay = (period: string) =>
+      rows.find((row) => row.date === spineStart && row.period === period);
+
+    expect(firstDay("1-7d return")?.cohort_users).toBe(5);
+    expect(firstDay("1-7d return")?.rate).toBe(0.6);
+    expect(firstDay("7-14d return")?.cohort_users).toBe(5);
+    expect(firstDay("7-14d return")?.rate).toBe(0.4);
   });
 });

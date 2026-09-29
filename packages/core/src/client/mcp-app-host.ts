@@ -74,7 +74,7 @@ export interface McpAppHostContextSnapshot {
 }
 
 type PendingRequest = {
-  resolve: (ok: boolean) => void;
+  resolve: (data: HostResponseMessage["data"]) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
 
@@ -83,6 +83,16 @@ type PendingJsonRpcRequest = {
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
+
+class JsonRpcRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code: unknown,
+    readonly outcome: "rejected" | "unknown" | "not-sent",
+  ) {
+    super(message);
+  }
+}
 
 type HostContextMessage = {
   type: typeof AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.HOST_CONTEXT;
@@ -105,6 +115,7 @@ type HostResponseMessage = {
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
+const CANCEL_CHAT_ACK_TIMEOUT_MS = 1000;
 const DIRECT_MCP_APP_PROTOCOL_VERSION = "2026-01-26";
 
 let snapshot: McpAppHostContextSnapshot = {
@@ -262,7 +273,7 @@ function resolvePending(data: HostResponseMessage["data"]): void {
   if (!request) return;
   pending.delete(data.requestId);
   clearTimeout(request.timeout);
-  request.resolve(data.ok === true);
+  request.resolve(data);
 }
 
 function resolveJsonRpc(data: Record<string, unknown>): void {
@@ -277,7 +288,9 @@ function resolveJsonRpc(data: Record<string, unknown>): void {
       typeof data.error.message === "string"
         ? data.error.message
         : "MCP Apps host request failed.";
-    request.reject(new Error(message));
+    request.reject(
+      new JsonRpcRequestError(message, data.error.code, "rejected"),
+    );
     return;
   }
   request.resolve(data.result ?? {});
@@ -347,7 +360,10 @@ function postHostRequest(
       pending.delete(id);
       resolve(false);
     }, REQUEST_TIMEOUT_MS);
-    pending.set(id, { resolve, timeout });
+    pending.set(id, {
+      resolve: (response) => resolve(response?.ok === true),
+      timeout,
+    });
 
     try {
       window.parent.postMessage({ type, data: payload }, "*");
@@ -359,7 +375,9 @@ function postHostRequest(
   });
 }
 
-function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
+function postWrapperHostChat(
+  chat: McpAppHostChatMessage,
+): Promise<boolean | null> {
   ensureListener();
   const id = requestId();
   const requestMode = normalizeMcpAppHostRequestMode(
@@ -367,10 +385,43 @@ function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
   );
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      pending.delete(id);
-      resolve(false);
+      const request = pending.get(id);
+      if (!request) return;
+      request.timeout = setTimeout(() => {
+        pending.delete(id);
+        resolve(null);
+      }, CANCEL_CHAT_ACK_TIMEOUT_MS);
+      try {
+        window.parent.postMessage(
+          {
+            type: "agentNative.cancelChat",
+            data: { requestId: id },
+          },
+          "*",
+        );
+      } catch (error) {
+        // The chat may already be queued or running, so its outcome is unknown.
+        console.warn(
+          "[agent-native] MCP Apps host chat cancellation failed",
+          error,
+        );
+      }
     }, REQUEST_TIMEOUT_MS);
-    pending.set(id, { resolve, timeout });
+    pending.set(id, {
+      resolve: (response) => {
+        if (response?.ok === true) {
+          resolve(true);
+        } else if (
+          isRecord(response?.result) &&
+          response.result.notSubmitted === true
+        ) {
+          resolve(false);
+        } else {
+          resolve(null);
+        }
+      },
+      timeout,
+    });
 
     try {
       window.parent.postMessage(
@@ -427,11 +478,30 @@ function objectValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function isHostRejectedResult(result: unknown): boolean {
+  return isRecord(result) && (result.isError === true || result.ok === false);
+}
+
+function provesMessageWasNotSent(error: unknown): boolean {
+  return (
+    error instanceof JsonRpcRequestError &&
+    (error.outcome === "not-sent" || error.code === -32601)
+  );
+}
+
 function openAiFollowUpPrompt(chat: McpAppHostChatMessage): string | null {
   if (chat.context?.trim() || chat.structuredContent !== undefined) return null;
 
   const content = chat.content ?? [];
   if (content.some((part) => part.type !== "text")) return null;
+  if (
+    content.some((part) => {
+      const audience = objectValue(part.annotations).audience;
+      return Array.isArray(audience) && audience.includes("assistant");
+    })
+  ) {
+    return null;
+  }
 
   const message = chat.message.trim();
   const extraText = new Set<string>();
@@ -468,8 +538,8 @@ async function sendOpenAiFollowUpFallback(
 }
 
 function queueDirectHostChat(
-  operation: () => Promise<boolean>,
-): Promise<boolean> {
+  operation: () => Promise<boolean | null>,
+): Promise<boolean | null> {
   const result = directHostChatQueue.then(operation, operation);
   directHostChatQueue = result.then(
     () => undefined,
@@ -520,7 +590,13 @@ function postJsonRpcRequest(
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       jsonRpcPending.delete(id);
-      reject(new Error("MCP Apps host did not respond."));
+      reject(
+        new JsonRpcRequestError(
+          "MCP Apps host did not respond.",
+          undefined,
+          "unknown",
+        ),
+      );
     }, REQUEST_TIMEOUT_MS);
     jsonRpcPending.set(id, { resolve, reject, timeout });
 
@@ -529,7 +605,13 @@ function postJsonRpcRequest(
     } catch (err) {
       jsonRpcPending.delete(id);
       clearTimeout(timeout);
-      reject(err instanceof Error ? err : new Error(String(err)));
+      reject(
+        new JsonRpcRequestError(
+          err instanceof Error ? err.message : String(err),
+          undefined,
+          "not-sent",
+        ),
+      );
     }
   });
 }
@@ -614,13 +696,12 @@ async function postDirectHostRequest(
       : type === AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.OPEN_LINK
         ? "ui/open-link"
         : "ui/request-display-mode";
-  await postJsonRpcRequest(method, data);
-  return true;
+  return !isHostRejectedResult(await postJsonRpcRequest(method, data));
 }
 
 export function sendMcpAppHostMessage(
   chat: McpAppHostChatMessage,
-): Promise<boolean> | false {
+): Promise<boolean | null> | false {
   if (!chat.message.trim() || !isInChildFrame() || !isMcpAppBridgeEnabled()) {
     return false;
   }
@@ -651,6 +732,7 @@ export function sendMcpAppHostMessage(
       : content.filter((part) => part && part.type !== "text");
     const modelContext = {
       content: assistantOnlyContent(contextContent),
+      ...requestModePayload,
       ...(chat.structuredContent !== undefined
         ? { structuredContent: chat.structuredContent }
         : {}),
@@ -659,7 +741,7 @@ export function sendMcpAppHostMessage(
     if (openAiBridge) updateSnapshotFromOpenAiBridge(openAiBridge);
     try {
       await waitForDirectMcpAppInitialized();
-    } catch (error) {
+    } catch {
       if (
         !(await sendOpenAiFollowUpFallback(
           openAiBridge,
@@ -667,46 +749,48 @@ export function sendMcpAppHostMessage(
           requestModePayload,
         ))
       ) {
-        throw error;
+        return false;
       }
       return true;
     }
-    const contextResult = await postJsonRpcRequest(
-      "ui/update-model-context",
-      modelContext,
-    );
-    if (
-      isRecord(contextResult) &&
-      (contextResult.isError === true || contextResult.ok === false)
-    ) {
-      throw new Error("MCP host rejected model context update.");
+    let contextResult: unknown;
+    try {
+      contextResult = await postJsonRpcRequest(
+        "ui/update-model-context",
+        modelContext,
+      );
+    } catch (error) {
+      console.warn(
+        "[agent-native] MCP Apps host model context update failed",
+        error,
+      );
+      return false;
+    }
+    if (isHostRejectedResult(contextResult)) {
+      return false;
     }
     try {
       const result = await postJsonRpcRequest("ui/message", {
         role: "user",
         content,
+        ...requestModePayload,
       });
-      if (
-        isRecord(result) &&
-        (result.isError === true || result.ok === false)
-      ) {
-        throw new Error("MCP Apps host rejected the chat message.");
+      if (isHostRejectedResult(result)) {
+        return null;
       }
+      return true;
     } catch (error) {
+      if (!provesMessageWasNotSent(error)) return null;
       if (
-        !(await sendOpenAiFollowUpFallback(
-          openAiBridge,
-          chat,
-          requestModePayload,
-        ))
+        await sendOpenAiFollowUpFallback(openAiBridge, chat, requestModePayload)
       ) {
-        throw error;
+        return true;
       }
+      return false;
     }
-    return true;
   }).catch((error) => {
     console.warn("[agent-native] MCP App host chat submission failed", error);
-    return false;
+    return null;
   });
 }
 

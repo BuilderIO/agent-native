@@ -1093,7 +1093,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     if (directHostMessage) {
       void Promise.resolve(directHostMessage)
         .then((ok) => {
-          if (!ok) {
+          if (ok === false) {
             window.parent.postMessage(
               payload,
               getFramePostMessageTargetOrigin() || "*",

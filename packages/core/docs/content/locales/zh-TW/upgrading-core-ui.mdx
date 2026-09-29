@@ -31,7 +31,7 @@ re-export specifier。如果具名 export 移至不同模組，它可以依 symb
 宣告，同時保留 alias 和 type-only import。它也會改寫簡單的 CSS @import
 路徑，並在已解析的改寫跨越 package 邊界時加入缺少的相依套件。
 
-診斷也會偵測 CommonJS `require()` 與動態 `import()` 形式，但 codemod 不會重寫這些呼叫運算式。請依照報告中的新位置替換它們，然後重新執行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路徑無論是否加上引號，codemod 都會重寫。
+診斷也會偵測 CommonJS `require()` 與動態 `import()` 形式。舊模組只有一個新目的地時，codemod 會重寫字串常值的 `import()` 呼叫。`require()` 和需要依符號拆分的動態匯入會保持不變並顯示警告；請依照報告中的新位置替換它們，然後重新執行 Vite 或 `agent-native doctor`。CSS `@import url(...)` 路徑無論是否加上引號，codemod 都會重寫。
 
 它不會改變呼叫位置或移動檔案。無法解析或標記為 planned 的遷移會保留
 原狀並顯示警告。它不能拆分 default、namespace、side-effect 或 star
@@ -64,8 +64,8 @@ manager 安裝、scaffold skill 更新，以及根 package 有 typecheck script
 | 伺服器端 Sentry              | @sentry/node                 | ^10.60.0 或 ^11.0.0 | `SENTRY_SERVER_DSN`、`SENTRY_DSN` 或 Sentry 金鑰組                                    |
 | 瀏覽器端 Sentry              | @sentry/browser              | ^10.60.0 或 ^11.0.0 | 用戶端 Sentry DSN、`SENTRY_DSN` 或金鑰組                                              |
 | 建置時上傳 Sentry source map | @sentry/vite-plugin          | ^5.4.0              | 已設定 `SENTRY_AUTH_TOKEN`、組織和專案                                                |
-| SSO 驗證                     | @better-auth/sso             | 1.7.4               | 已啟用 `AUTH_SSO`                                                                     |
-| SCIM 驗證                    | @better-auth/scim            | 1.7.4               | 已啟用 `AUTH_SCIM`                                                                    |
+| SSO 驗證                     | @better-auth/sso             | 1.7.6               | 已啟用 `AUTH_SSO`                                                                     |
+| SCIM 驗證                    | @better-auth/scim            | 1.7.6               | 已啟用 `AUTH_SCIM`                                                                    |
 | Amplitude                    | @amplitude/analytics-browser | ^2.45.8             | 已設定 `VITE_AMPLITUDE_API_KEY`                                                       |
 | Microsoft Teams              | botframework-connector       | ^4.23.3             | 已設定 `MICROSOFT_TEAMS_APP_ID` 和 `MICROSOFT_TEAMS_APP_PASSWORD`                     |
 
@@ -100,11 +100,17 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 
 ## 3. 套用升級
 
-檢查預覽並確認功能套件後，套用計畫：
+檢查預覽並確認功能套件後，使用指定版本的 CLI 套用計畫。如果應用程式仍
+使用 Core 0.196 或更舊的 CLI，這一點很重要，因為舊 CLI 內含較舊的遷移
+manifest：
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+在應用程式安裝 Core 0.198.0 後，可從本機 CLI 執行相同命令：
 
     npx agent-native upgrade --codemods
 
-這個命令會更新符合條件的 @agent-native/\* dependency spec，調整偵測到的
+兩種呼叫都會更新符合條件的 @agent-native/\* dependency spec，調整偵測到的
 功能相依套件、執行 package manager、固定解析後的 Agent-Native 版本、
 套用支援的 codemod、更新 scaffold skill，並在根目錄有 typecheck script
 時執行。無須為了套用 codemod 再執行一次 upgrade。請在應用程式程式碼中
@@ -115,11 +121,17 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 檢查完整差異，尤其是略過的 codemod 警告和相依套件版本，然後執行：
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-npm 或 Yarn 請使用對應的 typecheck 命令，並執行應用程式相關的測試和
-build。確認選用 peer 表涵蓋本機與部署環境的功能設定。搜尋下表中的舊
-import；剩餘結果應為刻意保留、manifest 不支援，或已有警告說明。
+Doctor 預設會執行 `migration-manifest` 和 `feature-dependencies` 檢查。它會
+回報舊 import，以及依本機設定偵測到的功能所缺少的選用 peer。它無法檢查
+遠端部署設定或儲存在資料庫中的功能設定，請另外確認這些設定。
+
+npm 或 Yarn 請使用對應的 typecheck 命令。如果應用程式有測試和 build
+指令，請執行它們，通常是 `pnpm test` 和 `pnpm build`。確認選用 peer 表涵蓋
+本機與部署環境的功能設定。搜尋下表中的舊 import；剩餘結果應為刻意保留、
+manifest 不支援，或已有警告說明。
 
 ## 舊路徑和代表性目的地
 

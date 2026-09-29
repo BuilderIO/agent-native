@@ -747,6 +747,27 @@ describe("sendToAgentChat", () => {
     );
   });
 
+  it("does not relay a direct MCP App chat when host delivery is unknown", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(null));
+
+    const tabId = sendToAgentChat({
+      message: "continue with this selection",
+      submit: true,
+    });
+
+    await flushMicrotasks();
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId },
+      }),
+    );
+  });
+
   it("routes MCP App usage labels and action scopes to the local app chat", () => {
     vi.useFakeTimers();
     window.location.search =

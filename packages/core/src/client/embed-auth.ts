@@ -41,7 +41,6 @@ type AuthFailureRecord = {
 };
 
 const authFailureCache = new Map<string, AuthFailureRecord>();
-let embedAuthFailure: AuthFailureRecord | null = null;
 
 function browserWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
@@ -298,7 +297,6 @@ export function _resetEmbedAuthForTests(): void {
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   authFailureCache.clear();
-  embedAuthFailure = null;
 }
 
 /**
@@ -420,18 +418,10 @@ function activeAuthFailure(
   return null;
 }
 
-function getCachedAuthFailure(
-  key: string,
-  useEmbedWideFailure: boolean,
-): AuthFailureRecord | null {
+function getCachedAuthFailure(key: string): AuthFailureRecord | null {
   const cached = activeAuthFailure(authFailureCache.get(key));
   if (cached) return cached;
   authFailureCache.delete(key);
-
-  if (!useEmbedWideFailure) return null;
-  const embedCached = activeAuthFailure(embedAuthFailure);
-  if (embedCached) return embedCached;
-  embedAuthFailure = null;
   return null;
 }
 
@@ -454,7 +444,6 @@ function authFailureResponse(record: AuthFailureRecord): Response {
 async function recordAuthFailure(
   key: string,
   response: Response,
-  useEmbedWideFailure: boolean,
 ): Promise<void> {
   let body: string | null = null;
   try {
@@ -484,12 +473,10 @@ async function recordAuthFailure(
     expiresAt: Date.now() + AUTH_FAILURE_COOLDOWN_MS,
   };
   authFailureCache.set(key, record);
-  if (useEmbedWideFailure) embedAuthFailure = record;
 }
 
-function clearAuthFailure(key: string, useEmbedWideFailure: boolean): void {
+function clearAuthFailure(key: string): void {
   authFailureCache.delete(key);
-  if (useEmbedWideFailure) embedAuthFailure = null;
 }
 
 function withEmbedAuthHeaders(
@@ -568,9 +555,8 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     init?: RequestInit,
   ) => {
     const request = requestUrlAndKey(input, init, win);
-    const embedMode = isEmbedAuthActive();
     if (request?.shouldGuard) {
-      const cached = getCachedAuthFailure(request.key, embedMode);
+      const cached = getCachedAuthFailure(request.key);
       if (cached) return authFailureResponse(cached);
     }
 
@@ -583,9 +569,9 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
     const response = await originalFetch(fetchInput as any, fetchInit as any);
     if (request?.shouldGuard && isAuthFailureStatus(response.status)) {
-      await recordAuthFailure(request.key, response, embedMode || !!token);
+      await recordAuthFailure(request.key, response);
     } else if (request?.shouldGuard && response.ok) {
-      clearAuthFailure(request.key, embedMode || !!token);
+      clearAuthFailure(request.key);
     }
     return response;
   }) as typeof fetch;
