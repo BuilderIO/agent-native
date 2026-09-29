@@ -161,7 +161,7 @@ function BuildEditionButton({ label }: { label: string }) {
           context: [
             "The user pressed Build edition on the /editions archive.",
             "Series: daily. Scope: every repo the caller can see.",
-            "Fetch the merged-PR ledger through the GitHub provider API, call list-edition-candidates with the window aligned to the caller's timezone, then call create-edition exactly once.",
+            "Call list-edition-candidates with the window aligned to the caller's timezone, then call create-edition exactly once. Plan registers no provider-api action, so do not go looking for a merged-PR ledger; the coverage note is simply unknown without one.",
           ].join("\n"),
         })
       }
