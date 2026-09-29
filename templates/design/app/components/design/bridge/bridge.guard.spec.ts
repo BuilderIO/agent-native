@@ -7087,6 +7087,8 @@ it(
   <svg id="opacity-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:40px;width:80px;height:80px"><g opacity="0"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="visibility-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:140px;width:80px;height:80px"><g visibility="hidden"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="display-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:240px;width:80px;height:80px"><g display="none"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
+  <svg id="transparent-paint-server-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:300px;width:80px;height:80px"><defs><linearGradient id="radius-transparent-gradient"><stop offset="0%" stop-color="#222" stop-opacity="0"></stop><stop offset="100%" stop-color="#eee" stop-opacity="0"></stop></linearGradient></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-gradient)"></path></svg>
+  <svg id="visible-paint-server-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:300px;width:80px;height:80px"><defs><linearGradient id="radius-visible-gradient"><stop offset="0%" stop-color="#222"></stop><stop offset="100%" stop-color="#eee"></stop></linearGradient></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-gradient)"></path></svg>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
   <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
   <div id="unknown" style="position:absolute;left:520px;top:40px;width:60px;height:30px"></div>
@@ -7120,6 +7122,8 @@ it(
         "opacity-group-polygon",
         "visibility-group-polygon",
         "display-group-polygon",
+        "transparent-paint-server-polygon",
+        "visible-paint-server-polygon",
       ]) {
         await selectElementDirect(page, `#${id}`);
         const visible = await page.evaluate(() =>
@@ -7255,6 +7259,25 @@ it(
           );
           expect(visibleAtCorner).toEqual(["nw"]);
         }
+        if (id === "visible-paint-server-polygon") {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error("visible gradient polygon is not visible");
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex).toEqual(["vertex-0"]);
+        }
         if (id === "stroke-rectangle") {
           await page.mouse.move(644, 244);
           const visibleAtCorner = await page.evaluate(() =>
@@ -7295,6 +7318,7 @@ it(
           id === "no-paint-rectangle" ||
           id === "transparent-fill-rectangle" ||
           id === "transparent-gradient-rectangle" ||
+          id === "transparent-paint-server-polygon" ||
           id === "zero-opacity-rectangle"
         ) {
           const box = await page.locator(`#${id}`).boundingBox();

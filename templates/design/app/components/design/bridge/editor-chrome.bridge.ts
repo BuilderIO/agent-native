@@ -9354,6 +9354,56 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !stopAt;
   }
 
+  function cornerRadiusSvgGradientHasVisibleStops(gradient, visited) {
+    if (visited.indexOf(gradient) >= 0) return false;
+    visited.push(gradient);
+    var stops = Array.from(gradient.children).filter(function (child) {
+      return child.tagName.toLowerCase() === "stop";
+    });
+    for (var index = 0; index < stops.length; index += 1) {
+      var style = window.getComputedStyle(stops[index]);
+      if (
+        Number(style.getPropertyValue("stop-opacity")) > 0 &&
+        cornerRadiusColorIsVisible(style.getPropertyValue("stop-color"))
+      ) {
+        return true;
+      }
+    }
+    if (stops.length) return false;
+    var reference =
+      gradient.getAttribute("href") ||
+      gradient.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+      "";
+    if (reference.charAt(0) !== "#") return false;
+    var inherited = gradient.ownerDocument.getElementById(reference.slice(1));
+    if (
+      !inherited ||
+      !/^(?:linear|radial)gradient$/i.test(inherited.localName || "")
+    ) {
+      return false;
+    }
+    return cornerRadiusSvgGradientHasVisibleStops(inherited, visited);
+  }
+
+  function cornerRadiusSvgPaintIsVisible(value, target) {
+    var paint = String(value || "").trim();
+    if (!paint || paint === "none") return false;
+    var reference = /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)(?:\s+(.+))?$/i.exec(
+      paint,
+    );
+    if (!reference) {
+      return /^url\(/i.test(paint) ? false : cornerRadiusColorIsVisible(paint);
+    }
+    var paintServer = target.ownerDocument.getElementById(reference[2]);
+    if (!paintServer) {
+      return reference[3] ? cornerRadiusColorIsVisible(reference[3]) : false;
+    }
+    if (/^(?:linear|radial)gradient$/i.test(paintServer.localName || "")) {
+      return cornerRadiusSvgGradientHasVisibleStops(paintServer, []);
+    }
+    return false;
+  }
+
   function cornerRadiusHasVisiblePaint(el) {
     if (!cornerRadiusNodeAndAncestorsAreVisible(el, null)) return false;
     var style = window.getComputedStyle(el);
@@ -9389,11 +9439,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return (
       (paintStyle.fill !== "none" &&
         Number(paintStyle.fillOpacity) > 0 &&
-        cornerRadiusColorIsVisible(paintStyle.fill)) ||
+        cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)) ||
       (paintStyle.stroke !== "none" &&
         parseFloat(paintStyle.strokeWidth) > 0 &&
         Number(paintStyle.strokeOpacity) > 0 &&
-        cornerRadiusColorIsVisible(paintStyle.stroke))
+        cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget))
     );
   }
 
