@@ -1,3 +1,4 @@
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentNativePath } from "../api-path.js";
 
@@ -7,6 +8,25 @@ export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
 const FIRST_RUN_STATUS_TIMEOUT_MS = 10_000;
 
 let firstRunStatusRequest: Promise<boolean> | null = null;
+
+export type FirstRunCookieState = "present" | "absent" | "unreadable";
+
+export function readFirstRunOnboardingCookieState(): FirstRunCookieState {
+  if (typeof document === "undefined") return "present";
+  const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
+  try {
+    const present = document.cookie.split(";").some((cookie) => {
+      const entry = cookie.trim();
+      return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
+    });
+    return present ? "present" : "absent";
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "SecurityError") {
+      return "unreadable";
+    }
+    throw error;
+  }
+}
 
 export interface FirstRunOnboardingStatusDetail {
   firstRun: boolean;

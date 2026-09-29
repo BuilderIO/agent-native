@@ -17,6 +17,15 @@ type CacheEntry = {
 };
 
 const RESULT_TTL_MS = 500;
+/**
+ * One signed-in session answer serves the whole page load: the shell's
+ * bootstrap read, analytics, and every `useSession` consumer share it for this
+ * long. Focus and visibility do not expire it here; `use-session` decides when
+ * a session must be re-read (logout, a peer tab's invalidation, a 401, a stale
+ * answer). A signed-out answer keeps the short TTL, because signing in
+ * elsewhere is exactly what the next focus should pick up.
+ */
+export const SESSION_RESULT_LIFETIME_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 const cache = new Map<string, CacheEntry>();
@@ -24,11 +33,26 @@ const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
 const requestControllers = new Map<string, AbortController>();
 const requestGenerations = new Map<string, number>();
 let invalidationListenersInstalled = false;
-let generation = 0;
+// Endpoint statuses expire on focus and visibility; the session read only on
+// a full invalidation, so it has its own generation.
+let statusGeneration = 0;
+let sessionGeneration = 0;
+
+// Mirrors `use-session`: a body carrying `error` is a signed-out answer.
+function isSignedInSession(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !(value as { error?: unknown }).error
+  );
+}
 
 function expireClientStatusCache(): void {
-  generation += 1;
-  cache.clear();
+  statusGeneration += 1;
+  const sessionUrl = agentNativePath(SESSION_STATUS_PATH);
+  for (const url of cache.keys()) {
+    if (url !== sessionUrl) cache.delete(url);
+  }
 }
 
 function installInvalidationListeners(): void {
@@ -72,7 +96,10 @@ async function fetchClientStatus<T>(
   const pending = requests.get(url);
   if (pending) return pending as Promise<ClientStatusResult<T>>;
 
-  const requestGeneration = generation;
+  const sessionRead = path === SESSION_STATUS_PATH;
+  const currentGeneration = () =>
+    sessionRead ? sessionGeneration : statusGeneration;
+  const requestGeneration = currentGeneration();
   const requestUrlGeneration = requestGenerations.get(url) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
@@ -84,7 +111,7 @@ async function fetchClientStatus<T>(
     }, REQUEST_TIMEOUT_MS);
   });
   const bootstrappedSession =
-    path === SESSION_STATUS_PATH && typeof window !== "undefined"
+    sessionRead && typeof window !== "undefined"
       ? window.__agentNativeSessionBootstrap
       : undefined;
   if (bootstrappedSession) delete window.__agentNativeSessionBootstrap;
@@ -109,12 +136,16 @@ async function fetchClientStatus<T>(
   const request = Promise.race([transport, timeout])
     .then((result) => {
       if (
-        generation === requestGeneration &&
+        currentGeneration() === requestGeneration &&
         (requestGenerations.get(url) ?? 0) === requestUrlGeneration &&
         result.state === "available"
       ) {
         cache.set(url, {
-          expiresAt: Date.now() + RESULT_TTL_MS,
+          expiresAt:
+            Date.now() +
+            (sessionRead && isSignedInSession(result.value)
+              ? SESSION_RESULT_LIFETIME_MS
+              : RESULT_TTL_MS),
           result,
         });
       }
@@ -145,8 +176,17 @@ export function invalidateClientStatusRequest(path: string): void {
   requests.delete(url);
 }
 
+/**
+ * Drop a cached result without aborting a read already in flight, so callers
+ * refreshing on the same event share that read instead of starting another.
+ */
+export function expireClientStatusResult(path: string): void {
+  cache.delete(agentNativePath(path));
+}
+
 export function invalidateClientStatusRequests(): void {
-  generation += 1;
+  statusGeneration += 1;
+  sessionGeneration += 1;
   if (typeof window !== "undefined") {
     delete window.__agentNativeSessionBootstrap;
   }

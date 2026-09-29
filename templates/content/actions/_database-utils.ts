@@ -372,7 +372,7 @@ export function normalizeContentDatabasePageOptions(options: {
   const limit =
     typeof options.limit === "number" && Number.isFinite(options.limit)
       ? Math.max(
-          1,
+          0,
           Math.min(Math.floor(options.limit), CONTENT_DATABASE_MAX_READ_LIMIT),
         )
       : null;
@@ -1232,16 +1232,17 @@ export async function getContentDatabasePageResponse(
       : await getAllContentDatabaseSourceSnapshots(database, {
           documentIds: limit !== null ? [...serializedDocumentIds] : undefined,
         });
-  const organizationVisibleDocumentIds = organizationFilesItemFilter
-    ? new Set(
-        (
-          await db
-            .select({ documentId: schema.contentDatabaseItems.documentId })
-            .from(schema.contentDatabaseItems)
-            .where(visibleItemFilter)
-        ).map((item) => item.documentId),
-      )
-    : null;
+  const organizationVisibleDocumentIds =
+    organizationFilesItemFilter && sourceSnapshots.length > 0
+      ? new Set(
+          (
+            await db
+              .select({ documentId: schema.contentDatabaseItems.documentId })
+              .from(schema.contentDatabaseItems)
+              .where(visibleItemFilter)
+          ).map((item) => item.documentId),
+        )
+      : null;
   const sources = organizationVisibleDocumentIds
     ? sourceSnapshots.map((source) =>
         filterContentDatabaseSourceForVisibleDocuments(

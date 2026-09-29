@@ -76,3 +76,47 @@ export function useAfterPaint(): boolean {
   useEffect(() => scheduleAfterPaint(() => setReady(true)), []);
   return ready;
 }
+
+/**
+ * How long into a page load background status reads wait. The paint-aligned
+ * wait above settles within 250-500ms, well before a route's first content on
+ * a real workspace, so reads that only feed badges and setup hints still
+ * competed with it for the server and its database connections.
+ */
+const STARTUP_SETTLE_MS = 3_000;
+
+function startupSettleRemainingMs(): number {
+  if (typeof performance === "undefined") return 0;
+  return Math.max(0, STARTUP_SETTLE_MS - performance.now());
+}
+
+/**
+ * `scheduleAfterPaint`, but never before the page is `STARTUP_SETTLE_MS` old.
+ * Later in the page's life it is `scheduleAfterPaint` unchanged.
+ */
+export function scheduleAfterStartup(
+  callback: () => void,
+): ScheduleAfterPaintCancel {
+  if (typeof window === "undefined" || typeof setTimeout !== "function") {
+    return () => {};
+  }
+  let cancelAfterPaint: ScheduleAfterPaintCancel | null = null;
+  const timer = setTimeout(() => {
+    cancelAfterPaint = scheduleAfterPaint(callback);
+  }, startupSettleRemainingMs());
+  return () => {
+    clearTimeout(timer);
+    cancelAfterPaint?.();
+  };
+}
+
+export function useAfterStartup(): boolean {
+  const [ready, setReady] = useState(
+    () => typeof window !== "undefined" && startupSettleRemainingMs() === 0,
+  );
+  useEffect(() => {
+    if (ready) return;
+    return scheduleAfterStartup(() => setReady(true));
+  }, [ready]);
+  return ready;
+}

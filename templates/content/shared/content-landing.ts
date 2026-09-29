@@ -30,6 +30,8 @@ export type ContentLandingResult = {
   documentId: string;
   resolution: ContentLandingResolution;
   fallbackReason?: "saved-document-unavailable";
+  /** Set whenever this landing created the Welcome page, even on fallback. */
+  welcomeCreated?: true;
 };
 
 export type ContentSpaceLandingResult =
@@ -37,6 +39,7 @@ export type ContentSpaceLandingResult =
       target: ContentLastLocationState;
       resolution: ContentLandingResolution;
       fallbackReason?: "saved-document-unavailable";
+      welcomeCreated?: true;
     }
   | {
       target: null;

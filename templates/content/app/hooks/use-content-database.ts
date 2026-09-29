@@ -72,7 +72,7 @@ export function contentDatabaseByIdQueryKey(
   return [
     "action",
     "get-content-database",
-    { databaseId, ...(limit ? { limit } : {}) },
+    { databaseId, ...(limit !== undefined ? { limit } : {}) },
   ] as const;
 }
 
@@ -784,7 +784,7 @@ export function useContentDatabaseById(
     databaseId
       ? {
           databaseId,
-          ...(options?.limit ? { limit: options.limit } : {}),
+          ...(options?.limit !== undefined ? { limit: options.limit } : {}),
           ...(options?.contentSpaceId
             ? { contentSpaceId: options.contentSpaceId }
             : {}),
@@ -938,11 +938,12 @@ export function useRestoreContentDatabase() {
   });
 }
 
-export function useTrashedContentDatabases() {
+export function useTrashedContentDatabases(options?: { enabled?: boolean }) {
   return useActionQuery<ListTrashedContentDatabasesResponse>(
     "list-trashed-content-databases",
     {},
     {
+      enabled: options?.enabled !== false,
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -1266,12 +1267,15 @@ function contentDatabaseViewMutationSequencesFor(queryClient: object) {
   return sequences;
 }
 
-export function useContentDatabasePersonalView(databaseId: string | null) {
+export function useContentDatabasePersonalView(
+  databaseId: string | null,
+  options?: { enabled?: boolean },
+) {
   return useActionQuery<ContentDatabasePersonalViewResponse>(
     "get-content-database-personal-view",
     databaseId ? { databaseId } : undefined,
     {
-      enabled: !!databaseId,
+      enabled: !!databaseId && options?.enabled !== false,
       retry: false,
       placeholderData: (previous, previousQuery) =>
         preserveScopedDatabasePlaceholder(previous, previousQuery, {
