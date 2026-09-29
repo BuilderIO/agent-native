@@ -13,6 +13,8 @@ import type { ThinkingDisplay } from "@agent-native/core/shared/thinking-display
 import type {
   AgentComposerLayoutVariant,
   AgentSuggestionInput,
+  ComposerContextMenuItem,
+  ComposerContextSnapshot,
 } from "@agent-native/toolkit/composer";
 import type {
   ComposerAgentOption,
@@ -114,6 +116,28 @@ export type AssistantChatSuggestionVisibility =
   | "always"
   | "after-agent-response";
 
+export interface AssistantChatComposerContext {
+  menuItems: ComposerContextMenuItem[];
+  contextItems: ComposerContextSnapshot;
+  onRemoveContextItem: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  onInspectContextItem?: (key: string) => void;
+  dialogs?: React.ReactNode;
+  /** Revalidate only the captured app-owned items before dispatch. */
+  prepareSubmission: (
+    snapshot: ComposerContextSnapshot,
+  ) => Promise<ComposerContextSnapshot>;
+  /** Receive the exact prepared snapshot after dispatch accepts it. */
+  submissionAccepted: (snapshot: ComposerContextSnapshot) => void;
+}
+
+export interface AssistantChatComposerContextProviderProps {
+  threadId: string;
+  tabId?: string;
+  isActive: boolean;
+  children: (context: AssistantChatComposerContext) => React.ReactNode;
+}
+
 export function shouldShowAssistantChatSuggestions(
   visibility: AssistantChatSuggestionVisibility,
   hasAssistantMessage: boolean,
@@ -171,9 +195,9 @@ export interface AssistantChatProps {
   suppressInlineOpenApp?: boolean;
   /** Placeholder text for empty state */
   emptyStateText?: string;
-  /** Static or agent-authored next actions shown at the base of the chat. */
+  /** Initial empty-thread starters. Completed turns use the runtime's model-authored suggestions. */
   suggestions?: AgentSuggestionInput[];
-  /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
+  /** Initial empty-thread suggestion behavior; never disables or replaces runtime follow-ups. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
   /** Where suggestions appear. Context chips use a next-action bar at the thread base. */
   suggestionPlacement?:
@@ -214,6 +238,8 @@ export interface AssistantChatProps {
   onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** App-owned context controller, mounted separately for each chat thread. */
+  composerContextProvider?: React.ComponentType<AssistantChatComposerContextProviderProps>;
   /** Optional home content rendered above the composer on an empty chat. */
   homeIntroSlot?: React.ReactNode;
   /** Optional content rendered below the composer on an empty chat. */

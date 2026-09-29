@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "連携" } },
   creativeContext: {
     title: "ライブラリ",
     description:
@@ -1679,7 +1680,7 @@ export default {
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
   homeContext: {
-    websiteReference: "ウェブサイトを添付",
+    websiteReference: "ウェブサイトを追加",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
     figmaUrlLabel: "Figmaリンク",
@@ -1708,7 +1709,7 @@ export default {
     design: "デザイン",
     slides: "スライド",
     referenceDesign: "デザインを参照",
-    figmaReference: "Figmaを添付",
+    figmaReference: "Figmaを追加",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",

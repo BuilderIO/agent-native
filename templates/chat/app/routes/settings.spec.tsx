@@ -9,6 +9,7 @@ const pageProps = vi.hoisted(() => ({
     general?: unknown;
     team?: unknown;
     generalSearchEntries?: unknown;
+    whatsNewMarkdown?: string;
   } | null,
 }));
 
@@ -22,6 +23,7 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     general?: React.ReactNode;
     team?: React.ReactNode;
     generalSearchEntries?: unknown;
+    whatsNewMarkdown?: string;
   }) => {
     pageProps.current = props;
     return <main>{props.general}</main>;
@@ -64,5 +66,15 @@ describe("Chat settings route", () => {
     expect(pageProps.current?.generalSearchEntries).toBeUndefined();
     expect(container.textContent).not.toContain("settings.languageTitle");
     expect(pageProps.current?.team).toBeUndefined();
+  });
+
+  it("passes the app changelog to Settings for the What's new page", () => {
+    act(() => {
+      root.render(<SettingsRoute />);
+    });
+
+    expect(pageProps.current?.whatsNewMarkdown).toContain(
+      "Chat retries the original request with its attachments after model setup.",
+    );
   });
 });

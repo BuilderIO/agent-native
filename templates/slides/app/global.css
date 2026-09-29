@@ -1571,6 +1571,11 @@ button[title="Open agent sidebar"] {
   animation: slide-zoom-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
 }
 
+.slide-reference-preview-frame {
+  aspect-ratio: var(--reference-ratio);
+  width: var(--reference-width);
+}
+
 @keyframes elem-appear {
   from {
     opacity: 0;

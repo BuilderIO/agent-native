@@ -3,6 +3,14 @@ export {
   type ComposerWebsiteExtraction,
 } from "./composer-website-source.js";
 export {
+  isAgentKitFigmaSourceAvailable,
+  listAgentKitCapabilities,
+  readAgentKitIntegrationIntent,
+  type AgentKitCapabilityAppId,
+  type AgentKitCapabilityCatalog,
+  type AgentKitIntegrationCapability,
+} from "../agentkit/capabilities.js";
+export {
   defineAppConfig,
   getAppConfig,
   resolveAppHomePath,

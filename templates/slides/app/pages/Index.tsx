@@ -110,6 +110,8 @@ import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import {
   formatSlidesComposerContext,
+  readSlidesComposerContext,
+  type SlidesComposerContext,
   type SlidesPromptSubmitOptions,
 } from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
@@ -136,6 +138,7 @@ import {
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
+import { findPromptReferenceDeckId } from "@/lib/new-deck-reference-selection";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
   forgetRecentReference,
@@ -446,8 +449,10 @@ export default function Index({ active = true }: { active?: boolean }) {
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured = effectiveAgentEngineState === "configured";
-  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const agentEngineConfigured =
+    effectiveAgentEngineState === "configured" && !agentEngine.missing;
+  const agentEngineMissing =
+    effectiveAgentEngineState === "missing" || agentEngine.missing;
   const canChatRef = useRef(agentEngineConfigured);
   canChatRef.current = agentEngineConfigured;
   useEffect(() => {
@@ -538,9 +543,12 @@ export default function Index({ active = true }: { active?: boolean }) {
     files: UploadedFile[];
     referenceFilePaths: string[];
     importedReference?: ImportedReferenceSource;
+    referenceDeckId?: string;
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
     modelSelection?: DeckModelSelection;
+    composerContext?: SlidesComposerContext;
+    contextItems?: SlidesPromptSubmitOptions["contextItems"];
   } | null>(null);
   const pendingDeckAttachmentActionsRef =
     useRef<PromptAttachmentActions | null>(null);
@@ -1401,10 +1409,21 @@ export default function Index({ active = true }: { active?: boolean }) {
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+      const promptReferenceDeckId = findPromptReferenceDeckId(
+        prompt,
+        window.location.origin,
+        decks,
+      );
+      const hasExplicitComposerDeckReference =
+        options?.slidesContext?.references.some(
+          (reference) => reference.source === "slides",
+        ) ?? false;
       if (
         options?.slidesContext &&
-        (options.slidesContext.designSystemId ||
-          options.slidesContext.references.length > 0)
+        ((!promptReferenceDeckId &&
+          (options.slidesContext.designSystemId ||
+            options.slidesContext.references.length > 0)) ||
+          hasExplicitComposerDeckReference)
       ) {
         void runPendingDeckGeneration(
           prompt,
@@ -1438,6 +1457,9 @@ export default function Index({ active = true }: { active?: boolean }) {
             ? newDeckRetryImportedReference
             : undefined,
         context: retryContext,
+        ...(promptReferenceDeckId
+          ? { referenceDeckId: promptReferenceDeckId }
+          : {}),
         attachments: [
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
           ...attachments.attachments,
@@ -1449,6 +1471,12 @@ export default function Index({ active = true }: { active?: boolean }) {
               effort: options.effort,
             }
           : newDeckRetryModelSelection,
+        ...(options?.slidesContext
+          ? {
+              composerContext: options.slidesContext,
+              contextItems: options.contextItems,
+            }
+          : {}),
       });
       setNewDeckRetryPrompt(undefined);
       setNewDeckRetryReferenceFilePaths([]);
@@ -1467,6 +1495,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
+      decks,
       setNewDeckPromptOpen,
       runPendingDeckGeneration,
     ],
@@ -1659,11 +1688,34 @@ export default function Index({ active = true }: { active?: boolean }) {
         (carriedDeckSelected && !carriedDeckMissing
           ? carriedImportedReference.filePath
           : undefined);
+      let composerContext = pending.composerContext;
+      let contextItems = pending.contextItems;
+      if (
+        composerContext &&
+        (composerContext.designSystemId !== selection.designSystemId ||
+          !contextItems)
+      ) {
+        const nextComposerContext = {
+          ...composerContext,
+          designSystemId:
+            selection.designSystemId === undefined
+              ? composerContext.designSystemId
+              : selection.designSystemId,
+        };
+        composerContext = nextComposerContext;
+        contextItems = await readSlidesComposerContext(
+          nextComposerContext,
+          t("home.context.emptySource"),
+          t("home.context.figmaReadFailed"),
+          t("home.context.websiteReadFailed"),
+        );
+      }
       const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
         {
           ...selection,
+          ...(composerContext ? { composerContext, contextItems } : {}),
           ...(referenceFilePaths.length > 0 ? { referenceFilePaths } : {}),
           ...(importedReferenceFilePath ? { importedReferenceFilePath } : {}),
           ...(carriedDeckMissing ? { referenceDeckId: null } : {}),
@@ -1682,6 +1734,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       pendingDeck,
       rememberReference,
       runPendingDeckGeneration,
+      t,
     ],
   );
 
@@ -1922,7 +1975,9 @@ export default function Index({ active = true }: { active?: boolean }) {
       setShowNewDeckReferenceStep(false);
       return;
     }
-    forgetReference("design-system");
+    if (!pending.composerContext?.designSystemId) {
+      forgetReference("design-system");
+    }
     forgetReference("deck");
     if (!pending.prompt.trim() && pending.files.length === 0) {
       setShowNewDeckReferenceStep(false);
@@ -1934,8 +1989,14 @@ export default function Index({ active = true }: { active?: boolean }) {
       pending.prompt,
       pending.files,
       {
-        designSystemId: null,
+        designSystemId: pending.composerContext?.designSystemId ?? null,
         referenceDeckId: null,
+        ...(pending.composerContext
+          ? {
+              composerContext: pending.composerContext,
+              contextItems: pending.contextItems,
+            }
+          : {}),
         ...(pending.referenceFilePaths.length > 0
           ? { referenceFilePaths: pending.referenceFilePaths }
           : {}),
@@ -2220,7 +2281,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome ? (
+        isHome && quickActionsEnabled ? (
           <AgentSuggestionBar
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
@@ -2385,8 +2446,14 @@ export default function Index({ active = true }: { active?: boolean }) {
         }}
         designSystems={designSystems}
         decks={decks}
-        defaultDesignSystemId={initialDesignSystemId}
-        defaultReferenceDeckId={initialReferenceDeckId}
+        defaultDesignSystemId={
+          pendingDeck?.composerContext
+            ? pendingDeck.composerContext.designSystemId
+            : initialDesignSystemId
+        }
+        defaultReferenceDeckId={
+          pendingDeck?.referenceDeckId ?? initialReferenceDeckId
+        }
         onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}

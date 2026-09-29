@@ -45,6 +45,8 @@ export {
 export { clearChatStorage } from "@agent-native/core/client/agent-chat";
 export type {
   AssistantChatProps,
+  AssistantChatComposerContext,
+  AssistantChatComposerContextProviderProps,
   AssistantChatHandle,
   AssistantChatAdapterContext,
   AssistantChatSendOptions,

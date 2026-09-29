@@ -259,6 +259,7 @@ export interface AgentSidebarProps {
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
   composerSlot?: AssistantChatProps["composerSlot"];
+  composerContextProvider?: AssistantChatProps["composerContextProvider"];
   onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
   availableAgents?: AssistantChatProps["availableAgents"];
@@ -297,7 +298,7 @@ export interface AgentSidebarProps {
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
   openOnChatRunning?: boolean;
-  onFullscreenRequest?: () => void;
+  onFullscreenRequest?: (threadId?: string) => void;
   onOpenSettings?: (section?: string) => void;
   onNewCliTab?: () => void;
   onNewUiTab?: () => void;
@@ -336,6 +337,7 @@ export function AgentSidebar({
   dynamicSuggestions,
   composerToolbarSlot,
   composerSlot,
+  composerContextProvider,
   onComposerTextChange,
   imageModelMenu,
   availableAgents,
@@ -1167,6 +1169,7 @@ export function AgentSidebar({
                 suggestionPlacement="context-chips"
                 composerToolbarSlot={composerToolbarSlot}
                 composerSlot={composerSlot}
+                composerContextProvider={composerContextProvider}
                 onComposerTextChange={onComposerTextChange}
                 imageModelMenu={imageModelMenu}
                 availableAgents={effectiveAvailableAgents}

@@ -292,6 +292,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         selectedEffort?: string;
         availableModels?: Array<{ engine: string; configured: boolean }>;
         composerDisabled?: boolean;
+        composerDisabledPlaceholder?: string;
+        isActiveComposer?: boolean;
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
@@ -331,6 +333,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-composer-submission-disabled={
             props.composerSubmissionDisabled ? "true" : "false"
           }
+          data-disabled-placeholder={props.composerDisabledPlaceholder}
+          data-composer-active={props.isActiveComposer ? "true" : "false"}
           data-context-scope={
             props.contextScope
               ? `${props.contextScope.type}:${props.contextScope.id}`
@@ -555,6 +559,53 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
     expect(threadMocks.switchThread).not.toHaveBeenCalled();
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
+  });
+
+  it("preserves a host-disabled composer and its explanation after model loading", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          composerDisabled
+          composerDisabledPlaceholder="Connect an integration first"
+        />,
+      );
+      await Promise.resolve();
+    });
+    const composer = container.querySelector('[data-testid="assistant-chat"]');
+    expect(composer?.getAttribute("data-composer-disabled")).toBe("true");
+    expect(composer?.getAttribute("data-disabled-placeholder")).toBe(
+      "Connect an integration first",
+    );
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          composerDisabled={false}
+        />,
+      );
+    });
+    expect(composer?.getAttribute("data-composer-disabled")).toBe("false");
+    expect(composer?.getAttribute("data-disabled-placeholder")).toBeNull();
+  });
+
+  it("deactivates the selected composer while chat content is hidden", async () => {
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" contentHidden />,
+      ),
+    );
+    const composer = container.querySelector('[data-testid="assistant-chat"]');
+    expect(composer?.getAttribute("data-composer-active")).toBe("false");
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          contentHidden={false}
+        />,
+      ),
+    );
+    expect(composer?.getAttribute("data-composer-active")).toBe("true");
   });
 
   it("reopens a closed target tab before delivering a continuation", async () => {

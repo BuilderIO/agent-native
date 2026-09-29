@@ -6,12 +6,14 @@ import { integrationCategory } from "@agent-native/core/client/integrations/inte
 import { useOrg } from "@agent-native/core/client/org/hooks";
 import {
   buildMcpOAuthStartUrl,
+  getMcpIntegrationApiFallback,
   navigateToMcpOAuthStart,
   requiresMcpIntegrationOrganizationScope,
   supportsMcpIntegrationOrganizationScope,
   isMcpIntegrationUrl,
   type DefaultMcpIntegration,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
+import { isMcpIntegrationOAuthAvailable } from "@agent-native/core/client/resources/mcp-integration-setup";
 import {
   formatMcpServerError,
   type McpServer,
@@ -96,14 +98,18 @@ const CHANNEL_ALIASES: Readonly<Record<string, string>> = {
   "google-workspace": "google-docs",
 };
 
-type SignIn = "oauth" | "token" | "none";
+type SignIn = "oauth" | "token" | "none" | "unavailable";
 
 /** How the viewer connects: a token covers a header connection and an API fallback. */
 function signInOf(integration: DefaultMcpIntegration): SignIn {
-  if (integration.apiFallback || integration.authMode === "headers") {
+  if (
+    getMcpIntegrationApiFallback(integration) ||
+    integration.authMode === "headers"
+  ) {
     return "token";
   }
-  return integration.authMode === "oauth" ? "oauth" : "none";
+  if (integration.authMode !== "oauth") return "none";
+  return isMcpIntegrationOAuthAvailable(integration) ? "oauth" : "unavailable";
 }
 
 /**
@@ -113,7 +119,8 @@ function signInOf(integration: DefaultMcpIntegration): SignIn {
 function gateOf(
   integration: DefaultMcpIntegration,
 ): "workspace" | "provider" | null {
-  if (integration.availability !== "provider-setup") return null;
+  if (integration.managedOAuth || integration.availability !== "provider-setup")
+    return null;
   return integration.connectionMode === "manual" ? "workspace" : "provider";
 }
 
@@ -177,18 +184,24 @@ function TokenDialog({
 
   const hintKey = integrationBrand(integration.id)?.tokenHint;
   const hint = hintKey ? t(hintKey) : null;
-  const docsUrl = integration.apiFallback?.docsUrl ?? integration.docsUrl;
+  const docsUrl =
+    getMcpIntegrationApiFallback(integration)?.docsUrl ?? integration.docsUrl;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const value = token.trim();
     if (!value || pending) return;
+    const apiFallback = getMcpIntegrationApiFallback(integration);
+    if (!apiFallback && integration.authMode !== "headers") {
+      setError(t(`${K}.callout.unavailable`));
+      return;
+    }
     setPending(true);
     setError(null);
     try {
-      if (integration.apiFallback) {
+      if (apiFallback) {
         await saveApiKeyValue({
-          name: integration.apiFallback.secretKey,
+          name: apiFallback.secretKey,
           value,
           registered: true,
         });
@@ -424,7 +437,7 @@ function IntegrationDetail({
     org.data?.orgName ?? t("agentChat.settingsShell.builder.orgFallback");
   const signIn = signInOf(integration);
   const gate = gateOf(integration);
-  const unavailable = brand?.unavailable === true;
+  const unavailable = brand?.unavailable === true || signIn === "unavailable";
   const orgOnly = requiresMcpIntegrationOrganizationScope(integration);
   const canShare =
     supportsMcpIntegrationOrganizationScope(integration) && mcp.canCreateOrgMcp;
@@ -436,6 +449,7 @@ function IntegrationDetail({
   const serversKnown = mcp.serversQuery.isSuccess || mcp.serversQuery.isError;
 
   const connect = async () => {
+    if (unavailable || signIn === "token") return;
     // No preset URL (Sigma's is per account): the connect dialog asks for it.
     if (!integration.url.trim()) {
       setSetupOpen(true);
@@ -550,7 +564,9 @@ function IntegrationDetail({
       ? t(`${K}.access.oauth`, { name })
       : signIn === "token"
         ? t(`${K}.access.token`)
-        : t(`${K}.access.none`);
+        : signIn === "none"
+          ? t(`${K}.access.none`)
+          : "";
   const setupNote = integration.setupNoteKey ? t(integration.setupNoteKey) : "";
   const guide = integration.docsUrl ? (
     <>
@@ -586,7 +602,7 @@ function IntegrationDetail({
             body: setupNote,
             guide,
           }
-        : setupNote && (gate === "provider" || integration.apiFallback)
+        : setupNote && (gate === "provider" || signIn === "token")
           ? {
               icon: IconInfoCircle,
               title:
@@ -715,7 +731,9 @@ function IntegrationDetail({
                 ? t("mcpIntegrations.auth.oauth")
                 : signIn === "token"
                   ? t(`${K}.accessToken`)
-                  : t(`${K}.signInNone`)}
+                  : signIn === "none"
+                    ? t(`${K}.signInNone`)
+                    : t(`${K}.callout.unavailable`)}
             </RowValue>
           }
         />
@@ -745,7 +763,9 @@ function IntegrationDetail({
         ) : null}
         {/* An API fallback connects without the server, and an unavailable
             one can't be reached, so neither URL is one to copy. */}
-        {integration.url && !unavailable && !integration.apiFallback ? (
+        {integration.url &&
+        !unavailable &&
+        !getMcpIntegrationApiFallback(integration) ? (
           <SettingsRow
             id="server-url"
             label={t(`${K}.serverUrl`)}
@@ -772,7 +792,7 @@ function IntegrationDetail({
       </SettingsGroup>
 
       <TokenDialog
-        open={tokenOpen}
+        open={tokenOpen && signIn === "token" && !unavailable}
         onOpenChange={setTokenOpen}
         integration={integration}
         scope={scope}

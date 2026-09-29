@@ -634,6 +634,279 @@ describe("Slides prompt-led home", () => {
     expect(commit).toHaveBeenCalledOnce();
   });
 
+  it("preselects a prompt deck link and keeps composer references on Continue", async () => {
+    localStorage.setItem(
+      "slides:recent-references",
+      JSON.stringify([{ id: "shared", kind: "deck", lastUsedAt: 1 }]),
+    );
+    createDeck.mockReturnValue({ id: "new-deck" });
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        {
+          source: "website" as const,
+          id: "https://example.com",
+          title: "Example",
+          url: "https://example.com",
+        },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "website:https://example.com:",
+        title: "Example",
+        context: "Reference page styling",
+        status: "ready" as const,
+      },
+    ];
+    const chatAttachment = {
+      type: "file" as const,
+      name: "notes.txt",
+      contentType: "text/plain",
+      displayOnly: true as const,
+      text: "Keep the notes attached.",
+    };
+    const modelSelection = {
+      model: "test-model",
+      engine: "builder",
+      effort: "high" as const,
+    };
+    renderHome({
+      decks: [ownDeck, sharedDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await waitFor(() =>
+      expect(contextOptions.mock.lastCall![0].defaultReferenceDeck?.id).toBe(
+        "shared",
+      ),
+    );
+    const attachments = {
+      commit: vi.fn(),
+      discard: vi.fn(),
+      attachments: [chatAttachment],
+    };
+    const prompt = `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`;
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(prompt, [], attachments, {
+        ...modelSelection,
+        slidesContext: composerContext,
+        contextItems,
+      });
+    });
+
+    const referenceStep = referenceProps.mock.lastCall![0] as {
+      defaultReferenceDeckId: string | null;
+      onSelect: (selection: {
+        designSystemId: string | null;
+        referenceDeckId: string | null;
+      }) => Promise<void>;
+      open: boolean;
+    };
+    expect(referenceStep.open).toBe(true);
+    expect(referenceStep.defaultReferenceDeckId).toBe("own");
+
+    await act(async () =>
+      referenceStep.onSelect({
+        designSystemId: null,
+        referenceDeckId: "shared",
+      }),
+    );
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+
+    expect(agentSubmit.mock.calls[0][1]).toContain("Reference page styling");
+    expect(agentSubmit.mock.calls[0][2]).toMatchObject({
+      attachments: [chatAttachment],
+      model: modelSelection.model,
+      engine: modelSelection.engine,
+      effort: modelSelection.effort,
+    });
+    expect(callAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: {
+              generationContext: expect.objectContaining({
+                referenceDeckId: "shared",
+                composerContext,
+                contextItems,
+              }),
+            },
+          }),
+        ],
+      }),
+    );
+    expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps composer references when Skip clears an inferred deck reference", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    const composerContext = {
+      designSystemId: "ds-explicit",
+      references: [
+        {
+          source: "website" as const,
+          id: "https://example.com",
+          title: "Example",
+          url: "https://example.com",
+        },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "system:ds-explicit",
+        title: "Brand system",
+        context: "Brand tokens",
+        status: "ready" as const,
+      },
+      {
+        key: "website:https://example.com:",
+        title: "Example",
+        context: "Reference page styling",
+        status: "ready" as const,
+      },
+    ];
+    const chatAttachment = {
+      type: "file" as const,
+      name: "notes.txt",
+      contentType: "text/plain",
+      displayOnly: true as const,
+      text: "Keep the notes attached.",
+    };
+    const modelSelection = {
+      model: "test-model",
+      engine: "builder",
+      effort: "high" as const,
+    };
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const attachments = {
+      commit: vi.fn(),
+      discard: vi.fn(),
+      attachments: [chatAttachment],
+    };
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        attachments,
+        { ...modelSelection, slidesContext: composerContext, contextItems },
+      );
+    });
+
+    const referenceStep = referenceProps.mock.lastCall![0] as {
+      defaultDesignSystemId: string | null;
+      defaultReferenceDeckId: string | null;
+      onSkip: () => Promise<void>;
+      open: boolean;
+    };
+    expect(referenceStep.open).toBe(true);
+    expect(referenceStep.defaultDesignSystemId).toBe("ds-explicit");
+    expect(referenceStep.defaultReferenceDeckId).toBe("own");
+
+    await act(async () => referenceStep.onSkip());
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+
+    expect(agentSubmit.mock.calls[0][1]).toContain("Brand tokens");
+    expect(agentSubmit.mock.calls[0][1]).toContain("Reference page styling");
+    expect(agentSubmit.mock.calls[0][2]).toMatchObject({
+      attachments: [chatAttachment],
+      model: modelSelection.model,
+      engine: modelSelection.engine,
+      effort: modelSelection.effort,
+    });
+    expect(callAction).not.toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: {
+              generationContext: expect.objectContaining({
+                designSystemId: "ds-explicit",
+                referenceDeckId: null,
+                composerContext,
+                contextItems,
+              }),
+            },
+          }),
+        ],
+      }),
+    );
+    expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("lets an explicit composer deck reference win over a prompt link", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Shared deck" },
+      ],
+    };
+    const contextItems = [
+      {
+        key: "slides:shared:",
+        title: "Shared deck",
+        context: "Explicit composer deck reference",
+        status: "ready" as const,
+      },
+    ];
+    renderHome({
+      decks: [ownDeck, sharedDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        { slidesContext: composerContext, contextItems },
+      );
+    });
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+
+    expect(referenceProps.mock.lastCall![0].open).toBe(false);
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "Explicit composer deck reference",
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(callAction).toHaveBeenCalledWith(
+      "patch-deck",
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            fields: {
+              generationContext: expect.objectContaining({
+                referenceDeckId: null,
+                composerContext,
+                contextItems,
+              }),
+            },
+          }),
+        ],
+      }),
+    );
+  });
+
   it("opens the file picker without a provider and preserves the mounted composer after cancel", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
@@ -1049,13 +1322,37 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByText("Apply our brand to this deck")).toBeNull();
   });
 
-  it("hides home suggestions until provider status is confirmed", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
-  });
+  it.each([
+    { state: "missing", missing: true, ready: false },
+    { state: "unknown", missing: false, ready: false },
+    { state: "unavailable", missing: false, ready: false },
+    { state: "configured", missing: false, ready: true },
+    { state: "configured", missing: true, ready: false },
+  ])(
+    "gates home composer and suggestions for $state (missing=$missing)",
+    async ({ state, missing, ready }) => {
+      agentEngine.state = state;
+      agentEngine.missing = missing;
+      renderHome();
+      await screen.findByRole("textbox", { name: "Presentation prompt" });
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        disabled: !ready,
+        submissionDisabled: !ready,
+        showModelSelector: ready,
+        modelStatusChecksEnabled: ready,
+      });
+      expect(Boolean(screen.queryByLabelText("home.suggestedPrompts"))).toBe(
+        ready,
+      );
+      expect(
+        Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
+      ).toBe(ready);
+      expect(
+        screen.queryByRole("button", { name: "Create a product pitch deck" }),
+      ).toBeNull();
+      expect(suggestionQuery.enabled).toBe(ready);
+    },
+  );
 
   it("restores the full pending generation when reference selection is canceled", async () => {
     const uploadedFile = {

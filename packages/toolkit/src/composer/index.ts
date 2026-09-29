@@ -1,5 +1,9 @@
 export { FileReference } from "./extensions/FileReference.js";
 export {
+  useComposerDefaultActions,
+  mergeComposerMenuItems,
+} from "./ComposerPlusMenu.js";
+export {
   ComposerContextMenu,
   ComposerContextSearchInput,
   type ComposerContextSearchInputProps,

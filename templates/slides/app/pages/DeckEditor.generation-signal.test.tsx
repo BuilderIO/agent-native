@@ -122,6 +122,7 @@ vi.mock("@/context/DeckContext", () => ({
     reorderSlides: vi.fn(),
     setDeckSlides: vi.fn(),
     undo: vi.fn(),
+    undoAvailability: {},
     loading: false,
     loadError: false,
   }),
