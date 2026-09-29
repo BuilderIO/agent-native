@@ -677,7 +677,10 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
 const PR_REVIEW_MERGE_GATE_RE =
   /\b(?:approval|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?|builds?)|reviewers?|security(?:[-\s]team(?:['’]s)?)?|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
 const PR_REVIEW_GATE_REQUIRED_RE =
-  /\b(?:required|wait(?:ing)?\s+for|subject\s+to|contingent\s+upon|(?:only\s+)?after|upon|once|when|until|unless|if|with)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+  /\b(?:required|wait(?:ing)?\s+for|subject\s+to|contingent\s+upon|(?:only\s+)?after|upon|once|when|until|unless|if)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+const PR_REVIEW_GATE_WITH_APPROVAL_RE = /\bwith(?:\s+[\w’'-]+){0,5}\s*$/i;
+const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
+  /\b(?:no|without)\b(?:\s+[\w’'-]+){0,3}\s*$/i;
 const PR_REVIEW_GATE_WAIVER_RE =
   /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_CONDITION_AFTER_RE =
@@ -697,8 +700,11 @@ function hasActivePrReviewMergeGate(sentence) {
     );
     if (PR_REVIEW_GATE_WAIVER_RE.test(before)) continue;
     if (PR_REVIEW_GATE_NEGATION_AFTER_RE.test(after)) continue;
+    if (PR_REVIEW_GATE_NEGATION_BEFORE_RE.test(before)) continue;
     if (
       PR_REVIEW_GATE_REQUIRED_RE.test(before) ||
+      (match[0].toLowerCase() === "approval" &&
+        PR_REVIEW_GATE_WITH_APPROVAL_RE.test(before)) ||
       PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after)
     ) {
       return true;
@@ -765,6 +771,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "If no changes are needed, do not wait for CI to finish; merge."],
   [true, "If no changes are needed, merge the CI fix."],
   [true, "If no changes are needed, merge the security fix."],
+  [true, "If no changes are needed, merge with the security team's notes."],
+  [true, "If no changes are needed, merge with no approval required."],
   [true, "If no changes are needed, merge if the approval isn't required."],
   [true, "If no changes are needed, don't wait for Steve's approval; merge."],
   [true, "Stop saying someone else needs to approve when the PR is ready."],
