@@ -1714,7 +1714,19 @@ test.describe("URL-backed live auto-layout probe", () => {
       groupABox.y + groupABox.height / 2,
     );
     await page.keyboard.up(primaryModifier);
-    await page.waitForTimeout(600);
+    const selectedRows = page.locator(
+      '[role="treeitem"][aria-selected="true"]',
+    );
+    await expect
+      .poll(async () => await selectedRows.allTextContents(), {
+        timeout: 5_000,
+      })
+      .toEqual(expect.arrayContaining([expect.stringContaining("Group A")]));
+    await expect(selectedRows).toHaveCount(1);
+    await expect(
+      page.locator('button[aria-label="Unlink padding"]'),
+    ).toBeVisible();
+
     await page.keyboard.down("Shift");
     await page.keyboard.down(primaryModifier);
     await page.mouse.click(
@@ -1723,9 +1735,6 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
     await page.keyboard.up(primaryModifier);
     await page.keyboard.up("Shift");
-    const selectedRows = page.locator(
-      '[role="treeitem"][aria-selected="true"]',
-    );
     await expect
       .poll(async () => await selectedRows.allTextContents(), {
         timeout: 5_000,
@@ -1736,6 +1745,7 @@ test.describe("URL-backed live auto-layout probe", () => {
           expect.stringContaining("Group B"),
         ]),
       );
+    await expect(selectedRows).toHaveCount(2);
     await expect(
       page.locator('button[aria-label="Link padding"]'),
     ).toBeVisible();
