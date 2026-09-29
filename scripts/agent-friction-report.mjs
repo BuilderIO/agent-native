@@ -727,7 +727,9 @@ const PR_REVIEW_GATE_OTHER_SCOPE_RE =
 const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
 const PR_REVIEW_MERGE_PROHIBITION_RE =
-  /\b(?:don['’]t|do\s+not|never|must\s+not|mustn['’]t|should\s+not|shouldn['’]t|can\s+not|can['’]t|cannot)\s+merge\b/i;
+  /\b(?:don['’]t|do\s+not|never|must\s+not|mustn['’]t|should\s+not|shouldn['’]t|can\s+not|can['’]t|cannot)\s+merge\b/gi;
+const PR_REVIEW_OTHER_PR_TARGET_RE =
+  /^\s+(?:(?:any|all|the|those|these)\s+)?(?:other|unrelated|different|another|separate|remaining|additional)\s+(?:PRs?|pull\s+requests?)\b/i;
 const PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE = new RegExp(
   String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\s+(?:the\s+)?(?:CI\s+green|green\s+CI)(?:\s+checks?)?\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)`,
   "i",
@@ -872,11 +874,17 @@ function isUnblockedPrReviewReadyCorrection(text, match) {
     preceding.lastIndexOf("\n", sentenceStart - 2),
   );
   const previousSentence = preceding.slice(previousBoundary + 1, sentenceStart);
-  const reviewText = `${previousSentence}${sentencePrefix}${match[0]}${followingPrReviewMergeRequirement(text, match)}`;
+  const candidateMergeText = `${sentencePrefix}${match[0]}${followingPrReviewMergeRequirement(text, match)}`;
+  const reviewText = `${previousSentence}${candidateMergeText}`;
   const mergeIndex = match[0].search(/\bmerge\b/i);
   const mergePreconditions = `${sentencePrefix}${match[0].slice(0, mergeIndex)}`;
   return (
-    !PR_REVIEW_MERGE_PROHIBITION_RE.test(reviewText) &&
+    ![...candidateMergeText.matchAll(PR_REVIEW_MERGE_PROHIBITION_RE)].some(
+      (prohibition) =>
+        !PR_REVIEW_OTHER_PR_TARGET_RE.test(
+          candidateMergeText.slice(prohibition.index + prohibition[0].length),
+        ),
+    ) &&
     !PR_REVIEW_GATE_PRECONDITION_RE.test(previousSentence) &&
     !PR_REVIEW_GATE_PRECONDITION_RE.test(sentencePrefix) &&
     !PR_REVIEW_GATE_NOUN_PRECONDITION_RE.test(previousSentence) &&
@@ -904,6 +912,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     true,
     "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
   ],
+  [true, "If no changes are needed, merge this PR; don't merge unrelated PRs."],
+  [true, "Don't merge unrelated PRs. If no changes are needed, merge this PR."],
   [true, "If we are happy, we merge."],
   [true, "If we're happy with the PR, we merge."],
   [true, "If we’re happy with the PR, we merge."],
@@ -1080,6 +1090,7 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, merge only after all review threads are resolved.",
   ],
   [false, "If no changes are needed, you must not merge."],
+  [false, "If no changes are needed, merge this PR; don't merge it."],
   [false, "If no changes are needed, we shouldn't merge."],
   [false, "If no changes are needed, I can't merge."],
   [
