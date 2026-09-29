@@ -3,6 +3,7 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -492,7 +493,10 @@ function runBuildStep(
     });
 
     child.on("exit", (code, signal) => {
-      const exitCode = code ?? (signal ? 1 : 0);
+      // Exit 128+N like a shell so callers can tell a killed step from a
+      // failed one: workspace deploy reads 137 (SIGKILL) as out of memory.
+      const exitCode =
+        code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : 0);
       if (exitCode === 0) {
         resolve();
         return;
@@ -501,10 +505,16 @@ function runBuildStep(
       const { template, app } = inferBuildContext(cwd);
       const childCommand = `${cmd} ${cmdArgs.join(" ")}`;
       const err = new Error(
-        `Build step "${opts.label}" failed with exit code ${exitCode}` +
+        (signal
+          ? `Build step "${opts.label}" was killed by ${signal}` +
+            (signal === "SIGKILL" ? " (likely out of memory)" : "")
+          : `Build step "${opts.label}" failed with exit code ${exitCode}`) +
           (template ? ` (template=${template})` : "") +
           (app ? ` (app=${app})` : ""),
       );
+      // A killed step prints nothing of its own, so this line is the only
+      // explanation the user sees.
+      if (signal) console.error(`\n${err.message}`);
       Sentry.captureException(err, {
         tags: {
           buildStep: opts.label,

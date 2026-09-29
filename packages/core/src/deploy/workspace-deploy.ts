@@ -292,11 +292,23 @@ export async function runWorkspaceDeploy(
       );
       logAppBuildStart(build);
       const started = Date.now();
-      execFile("pnpm", ["--filter", app, "build"], {
-        cwd: workspaceRoot,
-        env: build.env,
-        stdio: "inherit",
-      });
+      try {
+        execFile("pnpm", ["--filter", app, "build"], {
+          cwd: workspaceRoot,
+          env: build.env,
+          stdio: "inherit",
+        });
+      } catch (error) {
+        const { status, signal } = error as {
+          status?: number | null;
+          signal?: NodeJS.Signals | null;
+        };
+        if (status == null && signal == null) throw error;
+        throw new Error(
+          describeAppBuildExit(app, status ?? null, signal ?? null, false),
+          { cause: error },
+        );
+      }
       timings.push({ app, ms: Date.now() - started });
     }
     // Outputs are assembled one app at a time, in app order, even when builds
@@ -538,21 +550,30 @@ function runAppBuildProcess(
         resolve();
         return;
       }
-      // The kernel OOM killer sends SIGKILL (exit 137); with builds running
-      // side by side that almost always means too many at once.
-      const oomHint =
-        signal === "SIGKILL" || code === 137
-          ? " (likely out of memory: lower --concurrency)"
-          : "";
-      reject(
-        new Error(
-          signal
-            ? `pnpm --filter ${build.app} build was killed by ${signal}${oomHint}`
-            : `pnpm --filter ${build.app} build exited with code ${code}${oomHint}`,
-        ),
-      );
+      reject(new Error(describeAppBuildExit(build.app, code, signal, true)));
     });
   });
+}
+
+function describeAppBuildExit(
+  app: string,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  concurrent: boolean,
+): string {
+  const outcome = signal
+    ? `was killed by ${signal}`
+    : `exited with code ${code}`;
+  // The kernel OOM killer sends SIGKILL, usually to the Vite or Nitro process
+  // inside the app build; `agent-native build` reports that as exit 137 and
+  // pnpm passes it through.
+  const outOfMemory = signal === "SIGKILL" || code === 137;
+  const hint = !outOfMemory
+    ? ""
+    : concurrent
+      ? " (likely out of memory: lower buildConcurrency or --concurrency)"
+      : " (likely out of memory: use a build machine with more memory)";
+  return `pnpm --filter ${app} build ${outcome}${hint}`;
 }
 
 function prefixLines(

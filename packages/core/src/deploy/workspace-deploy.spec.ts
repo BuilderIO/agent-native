@@ -2167,10 +2167,33 @@ describe.skipIf(process.platform === "win32")(
         "exits: pnpm --filter exits build exited with code 3",
       );
       await expect(result).rejects.toThrow(
-        "oom: pnpm --filter oom build exited with code 137 (likely out of memory: lower --concurrency)",
+        "oom: pnpm --filter oom build exited with code 137 (likely out of memory: lower buildConcurrency or --concurrency)",
       );
       await expect(result).rejects.toThrow(
-        "killed: pnpm --filter killed build was killed by SIGKILL (likely out of memory: lower --concurrency)",
+        "killed: pnpm --filter killed build was killed by SIGKILL (likely out of memory: lower buildConcurrency or --concurrency)",
+      );
+    });
+
+    it("reports likely out-of-memory kills when building one app at a time", async () => {
+      makeWorkspaceApp(tmpDir, "oom");
+      installFakePnpm("exit 137");
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          args: ["--preset=vercel", "--build-only"],
+        }),
+      ).rejects.toThrow(
+        "pnpm --filter oom build exited with code 137 (likely out of memory: use a build machine with more memory)",
+      );
+
+      installFakePnpm("kill -9 $$");
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          args: ["--preset=vercel", "--build-only"],
+        }),
+      ).rejects.toThrow(
+        "pnpm --filter oom build was killed by SIGKILL (likely out of memory: use a build machine with more memory)",
       );
     });
 
