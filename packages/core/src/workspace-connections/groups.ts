@@ -2,16 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
+  isProductionServerlessFunctionRuntime,
   isUniqueViolation,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
-import {
-  isMigrationAuthorizedRuntime,
-  isProductionServerlessFunctionRuntime,
-} from "../db/migration-runtime.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
