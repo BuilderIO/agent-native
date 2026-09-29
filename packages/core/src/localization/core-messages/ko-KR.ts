@@ -95,6 +95,12 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
   "observability.summaryExpired":
     "아직 요약이 표시되지 않았습니다. 다시 시도할 수 있지만 에이전트가 계속 작업 중일 수 있습니다.",
+  "observability.promoteMustContain": "답변에 포함할 내용…",
+  "observability.promoteMustContainOptional": "답변에 포함할 내용(선택 사항)",
+  "observability.promoteMustContainLabel":
+    "승격된 평가 답변에 포함되어야 하는 텍스트",
+  "observability.promoteNeedsContains":
+    "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "onboarding.back": "뒤로",
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",

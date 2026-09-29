@@ -94,6 +94,12 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "تعذّر إرسال الطلب. حاول مرة أخرى.",
   "observability.summaryExpired":
     "لم يظهر ملخص بعد. يمكنك إعادة المحاولة، لكن قد يكون الوكيل لا يزال يعمل.",
+  "observability.promoteMustContain": "يجب أن يتضمن الرد…",
+  "observability.promoteMustContainOptional": "يجب أن يتضمن الرد (اختياري)",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن يتضمنه رد التقييم الذي تمت ترقيته",
+  "observability.promoteNeedsContains":
+    "لا يتضمن هذا التشغيل أي استدعاء ناجح للأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل الترقية.",
   "onboarding.back": "رجوع",
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",

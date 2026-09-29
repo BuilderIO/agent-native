@@ -152,6 +152,11 @@ function nestAgentChatMessages(
 
 function observabilitySummaryMessages(messages: AgentChatTranslation) {
   return {
+    promoteMustContain: messages["observability.promoteMustContain"],
+    promoteMustContainOptional:
+      messages["observability.promoteMustContainOptional"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
+    promoteNeedsContains: messages["observability.promoteNeedsContains"],
     summarizeWithAgent: messages["observability.summarizeWithAgent"],
     regenerateSummary: messages["observability.regenerateSummary"],
     summarizeWithAgentHelp: messages["observability.summarizeWithAgentHelp"],
