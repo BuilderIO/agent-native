@@ -358,7 +358,7 @@ describe("runDoctorScan", () => {
           sinceVersion: "0.110.0",
           moves: {},
           dependencies: [
-            { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+            { name: "@better-auth/sso", version: "1.7.6", when: "sso" },
           ],
         },
       ],
@@ -368,7 +368,7 @@ describe("runDoctorScan", () => {
       expect.objectContaining({
         guard: "feature-dependencies",
         file: "package.json",
-        message: expect.stringContaining("@better-auth/sso@1.7.4"),
+        message: expect.stringContaining("@better-auth/sso@1.7.6"),
       }),
     ]);
     expect(report.findings[0]?.message).toContain(
@@ -390,7 +390,7 @@ describe("runDoctorScan", () => {
           sinceVersion: "0.110.0",
           moves: {},
           dependencies: [
-            { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+            { name: "@better-auth/sso", version: "1.7.6", when: "sso" },
           ],
         },
       ],

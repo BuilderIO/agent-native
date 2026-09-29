@@ -293,7 +293,7 @@ describe("DispatchControlPlane", () => {
     });
   });
 
-  it("shows mounted and connected apps together without duplicates", async () => {
+  it("shows apps built in this workspace without cross-workspace catalogs", async () => {
     clientState.workspaceApps = [
       {
         id: "onboarding",
@@ -378,10 +378,10 @@ describe("DispatchControlPlane", () => {
     });
 
     expect(container.textContent).toContain("Onboarding");
-    expect(container.textContent).toContain("Mail");
-    expect(container.textContent).toContain("Custom app");
+    expect(container.textContent).not.toContain("Mail");
+    expect(container.textContent).not.toContain("Custom app");
     expect(container.textContent).not.toContain("Clips");
-    expect(container.textContent).toContain("Analytics");
+    expect(container.textContent).not.toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
     expect(
@@ -392,16 +392,10 @@ describe("DispatchControlPlane", () => {
     );
     expect(viewAllLink?.className).toContain("text-muted-foreground");
     expect(container.textContent).not.toContain("Other apps");
-    expect(container.textContent).not.toContain("available");
+    expect(container.textContent).not.toContain("Available apps");
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");
-    expect(
-      Array.from(container.querySelectorAll("a")).some(
-        (anchor) =>
-          anchor.getAttribute("href") === "https://custom.agent-native.com",
-      ),
-    ).toBe(true);
     expect(
       container.querySelectorAll(
         'button[aria-label="Open options for Onboarding"]',
@@ -422,7 +416,7 @@ describe("DispatchControlPlane", () => {
     expect(onboardingNewTabLink).not.toBeNull();
   });
 
-  it("searches available apps case-insensitively before showing the empty state", async () => {
+  it("searches only apps in this workspace", async () => {
     clientState.workspaceApps = [
       {
         id: "analytics",
@@ -462,16 +456,15 @@ describe("DispatchControlPlane", () => {
     });
 
     await searchApps("Brain");
-    expect(container.textContent).toContain("Brain");
-    expect(container.textContent).not.toContain("Assets");
-    expect(container.textContent).not.toContain("No apps match your search");
+    expect(container.textContent).toContain("No apps match your search");
+    expect(container.querySelectorAll("article")).toHaveLength(0);
 
     await searchApps("brain");
-    expect(container.textContent).toContain("Brain");
-    expect(container.textContent).not.toContain("Assets");
+    expect(container.textContent).toContain("No apps match your search");
+    expect(container.querySelectorAll("article")).toHaveLength(0);
 
     await searchApps("missing app");
     expect(container.textContent).toContain("No apps match your search");
-    expect(container.textContent).not.toContain("Brain");
+    expect(container.querySelectorAll("article")).toHaveLength(0);
   });
 });

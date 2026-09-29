@@ -1429,6 +1429,8 @@ export default {
         "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
       reactSourceAnchorsUnavailable:
         "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
+      sourceLocationSnapshotFailed:
+        "No se pudieron comprobar las ubicaciones del código fuente de esta vista previa.",
       screenSourceUpdated: "Fuente de pantalla actualizada",
       screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
       vectorEditUnsupported:
@@ -1491,7 +1493,7 @@ export default {
         "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
       permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
       permissionPromptSettingsInstructions:
-        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y permite el acceso a las aplicaciones de tu dispositivo.",
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
       permissionPromptRetry: "Reintentar conexión",
     },
   },

@@ -26,12 +26,12 @@
     },
     {
       "name": "@better-auth/sso",
-      "version": "1.7.4",
+      "version": "1.7.6",
       "when": "sso"
     },
     {
       "name": "@better-auth/scim",
-      "version": "1.7.4",
+      "version": "1.7.6",
       "when": "scim"
     },
     {

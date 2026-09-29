@@ -1430,6 +1430,8 @@ export default {
         "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
       reactSourceAnchorsUnavailable:
         "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
+      sourceLocationSnapshotFailed:
+        "このプレビューのソース位置を確認できませんでした。",
       screenSourceUpdated: "画面ソースを更新しました",
       screenSourceUpdateFailed: "画面ソースを更新できませんでした",
       vectorEditUnsupported:
@@ -1492,7 +1494,7 @@ export default {
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
       permissionPromptSettingsInstructions:
-        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
     },
   },
