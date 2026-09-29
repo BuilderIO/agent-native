@@ -670,8 +670,9 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "العودة إلى القائمة",
     promoteMustContain: "يجب أن يتضمن الرد…",
-    promoteMustContainOptional: "يجب أن يتضمن الرد (اختياري)",
-    promoteMustContainLabel: "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
+    promoteMustContainOptional: "نص اختياري للتحقق من وجوده في الرد…",
+    promoteMustContainLabel:
+      "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
     promoteNeedsContains:
       "لا يتضمن هذا التشغيل أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل ترقيته إلى تقييم.",
     spans: "Spans",

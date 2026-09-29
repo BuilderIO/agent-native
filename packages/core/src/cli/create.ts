@@ -4,10 +4,13 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
@@ -87,6 +90,9 @@ const MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@modelcontextprotocol/core"',
   '"@modelcontextprotocol/node"',
   '"@modelcontextprotocol/server"',
+  '"@agent-native/agentkit"',
+  '"@agent-native/toolkit"',
+  '"@agent-native/recap-cli"',
   '"@typescript/*"',
   '"@sentry/*"',
   "fast-xml-parser",
@@ -118,6 +124,13 @@ export class ValidationError extends Error {
   }
 }
 
+class CreateWizardCancelledError extends Error {
+  constructor() {
+    super("Scaffold cancelled.");
+    this.name = "CreateWizardCancelledError";
+  }
+}
+
 function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
   return moveTemplatesToFront(templates, ["headless", "chat"]);
 }
@@ -132,6 +145,28 @@ function moveTemplatesToFront(
   if (preferred.length === 0) return templates;
   const preferredSet = new Set(preferred.map((t) => t.name));
   return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
+}
+
+async function loadCreateTui() {
+  // Keep the Ink-only module out of the single-file desktop runner bundle.
+  const tuiModule = "./create-tui.js";
+  if (
+    !process.stdin.isTTY ||
+    !process.stdout.isTTY ||
+    process.env.CI === "false"
+  ) {
+    return import(tuiModule);
+  }
+
+  // Ink caches CI detection on import, but a real TTY still needs live redraws.
+  const originalCi = process.env.CI;
+  process.env.CI = "false";
+  try {
+    return await import(tuiModule);
+  } finally {
+    if (originalCi === undefined) delete process.env.CI;
+    else process.env.CI = originalCi;
+  }
 }
 
 const HEADLESS_OPTION = {
@@ -152,6 +187,202 @@ export interface CreateAppOptions {
   noInstall?: boolean;
   forceWorkspace?: boolean;
   inPlace?: boolean;
+  _communityAppPicker?: (
+    apps: CommunityWorkspaceAppOption[],
+  ) => Promise<string>;
+}
+
+export async function runCreateCommand(
+  name?: string,
+  opts?: CreateAppOptions,
+): Promise<void> {
+  if (name === "." || name === "./") {
+    name = path.basename(process.cwd());
+    opts = { ...opts, inPlace: true };
+  }
+
+  const workspace = detectWorkspace(process.cwd());
+  const parsed = parseTemplateList(opts?.template);
+  const requestedCommunityTemplate =
+    parsed.find((template) => isCommunityTemplateSelection(template)) ??
+    (parsed.includes(COMMUNITY_OPTION.name)
+      ? COMMUNITY_OPTION.name
+      : undefined);
+  const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const hasInteractiveConfig =
+    !name ||
+    !opts?.template ||
+    requestedCommunityTemplate === COMMUNITY_OPTION.name ||
+    (isTTY && Boolean(requestedCommunityTemplate)) ||
+    Boolean(workspace && parsed.length > 1);
+  if (!isTTY) {
+    if (hasInteractiveConfig) {
+      console.error(
+        "An interactive terminal is needed to choose a project type. Pass a project name and --template, or run `agent-native create --help`.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    await createApp(name, opts);
+    return;
+  }
+
+  if (!hasInteractiveConfig) {
+    await createApp(name, opts);
+    return;
+  }
+
+  if (workspace && parsed.includes("headless")) {
+    await createApp(name, opts);
+    return;
+  }
+  const installedApps = workspace
+    ? listInstalledApps(workspace.workspaceRoot)
+    : [];
+  const requestedApps = parsed.filter(
+    (template) =>
+      template !== COMMUNITY_OPTION.name &&
+      template !== requestedCommunityTemplate &&
+      !installedApps.includes(template),
+  );
+  if (workspace && requestedCommunityTemplate && requestedApps.length > 0) {
+    console.error(
+      "Add community templates separately from first-party apps in an existing workspace.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const alreadyInstalled =
+    parsed.length > 0 &&
+    requestedApps.length === 0 &&
+    !requestedCommunityTemplate
+      ? parsed[0]
+      : undefined;
+  if (alreadyInstalled) {
+    console.error(
+      `App "${alreadyInstalled}" is already installed in this workspace.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const initialKind: CreateStartKind | undefined = workspace
+    ? requestedCommunityTemplate
+      ? "community"
+      : "workspace-add"
+    : opts?.forceWorkspace
+      ? "first-party"
+      : opts?.standalone
+        ? Boolean(requestedCommunityTemplate)
+          ? "community"
+          : parsed.includes("headless")
+            ? "headless"
+            : "standalone"
+        : parsed.includes("dispatch")
+          ? "first-party"
+          : parsed.includes("headless")
+            ? "headless"
+            : parsed.length > 1
+              ? "first-party"
+              : parsed.length === 1
+                ? Boolean(requestedCommunityTemplate)
+                  ? "community"
+                  : "standalone"
+                : undefined;
+  const initialCommunityTemplate =
+    initialKind === "community"
+      ? requestedCommunityTemplate === COMMUNITY_OPTION.name
+        ? undefined
+        : requestedCommunityTemplate
+      : undefined;
+  if (
+    workspace &&
+    !requestedCommunityTemplate &&
+    coreTemplates().every((template) => installedApps.includes(template.name))
+  ) {
+    console.log("All available apps are already installed.");
+    return;
+  }
+
+  const { runCreateWizard } = await loadCreateTui();
+  const answers = await runCreateWizard({
+    cwd: process.cwd(),
+    initialName: workspace ? undefined : name,
+    initialKind,
+    initialTemplates: workspace
+      ? requestedCommunityTemplate
+        ? []
+        : requestedApps
+      : parsed.filter((template) => template !== COMMUNITY_OPTION.name),
+    initialCommunityTemplate,
+    installedApps,
+    addToWorkspace: Boolean(workspace),
+    validateName(value: string) {
+      if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+        return "Use lowercase letters, numbers, and hyphens (must start with a letter).";
+      }
+      if (opts?.inPlace) {
+        const conflicting = fs
+          .readdirSync(process.cwd())
+          .filter((entry) => !IN_PLACE_ALLOWLIST.has(entry));
+        if (conflicting.length > 0) {
+          return "This folder is not empty. Choose another name or use an empty folder.";
+        }
+      } else if (fs.existsSync(path.resolve(process.cwd(), value))) {
+        return `Directory "${value}" already exists. Choose another name.`;
+      }
+      return undefined;
+    },
+    validateCommunityTemplate(value: string) {
+      try {
+        parseCommunityPromptValue(value);
+        return undefined;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
+  if (!answers) {
+    console.log("Cancelled. No files were created.");
+    return;
+  }
+
+  const communityAppPicker = async (apps: CommunityWorkspaceAppOption[]) => {
+    const { promptInkChoice } = await loadCreateTui();
+    const selection = await promptInkChoice(
+      "Choose an app from this community workspace",
+      apps.map((app) => ({ value: app.name, label: app.label })),
+    );
+    if (!selection) throw new CreateWizardCancelledError();
+    return selection;
+  };
+
+  if (answers.addToWorkspace) {
+    await addSelectedAppsToWorkspace(
+      answers.kind === "community"
+        ? [parseCommunityPromptValue(answers.communityTemplate ?? "").canonical]
+        : answers.templates,
+      communityAppPicker,
+    );
+    return;
+  }
+
+  const selection =
+    answers.kind === "headless"
+      ? "headless"
+      : answers.kind === "community"
+        ? parseCommunityPromptValue(answers.communityTemplate ?? "").canonical
+        : answers.kind === "standalone"
+          ? (answers.templates[0] ?? "chat")
+          : answers.templates.join(",") || "dispatch";
+  await createApp(answers.name, {
+    ...opts,
+    template: selection,
+    standalone: answers.kind === "standalone" || answers.kind === "headless",
+    forceWorkspace:
+      answers.kind === "chat-workspace" || answers.kind === "first-party",
+    _communityAppPicker: communityAppPicker,
+  });
 }
 
 export async function createApp(
@@ -315,17 +546,21 @@ function communityScaffoldOptions(
   shape: "standalone" | "workspace",
   destinationAppName: string,
   targetWorkspaceCoreName?: string,
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
 ): ScaffoldAppTemplateOptions {
   return {
     shape,
     destinationAppName,
     targetWorkspaceCoreName,
-    ...(process.stdin.isTTY && process.stdout.isTTY
-      ? {
-          selectCommunityWorkspaceApp: (apps: CommunityWorkspaceAppOption[]) =>
-            promptCommunityWorkspaceApp(apps, clack),
-        }
-      : {}),
+    ...(appPicker
+      ? { selectCommunityWorkspaceApp: appPicker }
+      : process.stdin.isTTY && process.stdout.isTTY
+        ? {
+            selectCommunityWorkspaceApp: (
+              apps: CommunityWorkspaceAppOption[],
+            ) => promptCommunityWorkspaceApp(apps, clack),
+          }
+        : {}),
   };
 }
 
@@ -447,6 +682,7 @@ async function createWorkspaceInteractive(
           "workspace",
           appName,
           workspaceCoreName,
+          opts?._communityAppPicker,
         ),
       );
       s.message(
@@ -497,6 +733,12 @@ async function createWorkspaceInteractive(
       `Workspace scaffolded with ${templates.length} app${templates.length === 1 ? "" : "s"}.`,
     );
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(targetDir);
+      clack.outro("Cancelled. No files were created.");
+      return;
+    }
     s.stop("Failed to scaffold workspace.");
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
@@ -504,20 +746,6 @@ async function createWorkspaceInteractive(
   }
 
   finalizeScaffold(targetDir, opts?.inPlace);
-
-  const treeLines = [
-    `  ${name}/                    ← your workspace`,
-    ...scaffoldedApps.map(
-      (appName, i) =>
-        `  ${i === scaffoldedApps.length - 1 ? "└─" : "├─"} apps/${appName}/`.padEnd(
-          30,
-        ) + `   ← app`,
-    ),
-  ];
-  const dispatchNextStep = [
-    `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
-    `at the top, with all your apps listed under it.`,
-  ];
 
   const installSteps = hasPnpm()
     ? [
@@ -534,19 +762,12 @@ async function createWorkspaceInteractive(
 
   clack.outro(
     [
-      `Created workspace "${name}" with ${templates.length} app${templates.length === 1 ? "" : "s"}:`,
-      ``,
-      ...treeLines,
-      ``,
-      `Next steps:`,
-      ``,
-      `  cd ${name}`,
+      `Workspace ready · ${templates.length} app${templates.length === 1 ? "" : "s"}`,
+      `Path: ${opts?.inPlace ? process.cwd() : path.resolve(targetDir)}`,
+      `Apps: ${scaffoldedApps.map(titleCase).join(", ")}`,
+      "Next:",
+      `  cd ${opts?.inPlace ? "." : name}`,
       ...installSteps,
-      ``,
-      ...dispatchNextStep,
-      ``,
-      `Add another app later:        npx @agent-native/core@latest add-app`,
-      `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
 }
@@ -677,8 +898,6 @@ export async function addAppToWorkspace(
     process.exit(1);
   }
 
-  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
-
   clack.intro("Add an app to your workspace");
 
   const installed = listInstalledApps(workspace.workspaceRoot);
@@ -692,7 +911,14 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
-    await scaffoldOneAppIntoWorkspace(workspace, name, tpl, clack);
+    await scaffoldOneAppIntoWorkspace(
+      workspace,
+      name,
+      tpl,
+      clack,
+      true,
+      opts?._communityAppPicker,
+    );
     return;
   }
 
@@ -720,8 +946,55 @@ export async function addAppToWorkspace(
   }
 
   for (const t of templates) {
-    await scaffoldOneAppIntoWorkspace(workspace, t, t, clack);
+    const added = await scaffoldOneAppIntoWorkspace(
+      workspace,
+      t,
+      t,
+      clack,
+      true,
+      opts?._communityAppPicker,
+    );
+    if (!added) return;
   }
+}
+
+async function addSelectedAppsToWorkspace(
+  templates: string[],
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
+): Promise<void> {
+  const clack = await import("@clack/prompts");
+  const workspace = detectWorkspace(process.cwd());
+  if (!workspace) {
+    clack.cancel("Not inside a workspace. Run `agent-native create` first.");
+    process.exit(1);
+  }
+  if (templates.length === 0) {
+    clack.cancel("No apps selected. Choose at least one app to add.");
+    process.exit(0);
+  }
+
+  for (const template of templates) {
+    const added = await scaffoldOneAppIntoWorkspace(
+      workspace,
+      workspaceAppNameForTemplateSelection(template),
+      template,
+      clack,
+      false,
+      appPicker,
+    );
+    if (!added) return;
+  }
+
+  clack.outro(
+    [
+      `Added ${templates.length} app${templates.length === 1 ? "" : "s"} to ${path.resolve(workspace.workspaceRoot)}:`,
+      ...templates.map((template) => `  · ${template}`),
+      "",
+      "Next steps:",
+      "  pnpm install",
+      "  pnpm dev",
+    ].join("\n"),
+  );
 }
 
 async function scaffoldOneAppIntoWorkspace(
@@ -729,7 +1002,11 @@ async function scaffoldOneAppIntoWorkspace(
   appName: string,
   templateName: string,
   clack: typeof import("@clack/prompts"),
-): Promise<void> {
+  showOutro = true,
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
+  scaffoldTemplate: typeof scaffoldAppTemplate = scaffoldAppTemplate,
+  prepareWorkspaceOverrides: typeof prepareLocalWorkspaceOverrides = prepareLocalWorkspaceOverrides,
+): Promise<boolean> {
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
@@ -749,7 +1026,7 @@ async function scaffoldOneAppIntoWorkspace(
   );
 
   try {
-    const resolution = await scaffoldAppTemplate(
+    const resolution = await scaffoldTemplate(
       appDir,
       templateName,
       communityScaffoldOptions(
@@ -757,6 +1034,7 @@ async function scaffoldOneAppIntoWorkspace(
         "workspace",
         appName,
         workspace.workspaceCoreName,
+        appPicker,
       ),
     );
     replacePlaceholders(
@@ -801,25 +1079,38 @@ async function scaffoldOneAppIntoWorkspace(
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
+    const workspaceOverrides = prepareWorkspaceOverrides(
+      workspace.workspaceRoot,
+    );
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
+    applyLocalWorkspaceOverrides(workspace.workspaceRoot, workspaceOverrides);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(appDir);
+      clack.outro("Cancelled. No app was added.");
+      return false;
+    }
     s.stop(`Failed to scaffold apps/${appName}.`);
     cleanupOnFailure(appDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  clack.outro(
-    [
-      `Done!`,
-      ``,
-      `  pnpm install`,
-      `  pnpm dev`,
-      ``,
-      `The workspace gateway will detect apps/${appName} and serve it at /${appName}.`,
-    ].join("\n"),
-  );
+  if (showOutro) {
+    clack.outro(
+      [
+        `Added apps/${appName} to ${path.resolve(workspace.workspaceRoot)}.`,
+        ``,
+        `  pnpm install`,
+        `  pnpm dev`,
+        ``,
+        `The workspace gateway will serve this app at /${appName}.`,
+      ].join("\n"),
+    );
+  }
+  return true;
 }
 
 async function createStandaloneApp(
@@ -853,22 +1144,48 @@ async function createStandaloneApp(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  const includedAppName =
+    template === "headless"
+      ? "Headless"
+      : titleCase(normalizeTemplateName(template));
+  const willDownload =
+    template !== "headless" &&
+    (isCommunityTemplateSelection(template) ||
+      !findLocalTemplate(normalizeTemplateName(template)));
   s.start(
     template === "headless"
       ? "Scaffolding the headless agent app..."
-      : (communityTemplateDownloadMessage(template) ??
-          `Downloading the ${template} template from GitHub...`),
+      : willDownload
+        ? (communityTemplateDownloadMessage(template) ??
+          `Downloading the ${template} template from GitHub...`)
+        : `Scaffolding the ${titleCase(template)} template...`,
   );
+  let includedApp = includedAppName;
   try {
     const resolution = await scaffoldAppTemplate(
       targetDir,
       template,
-      communityScaffoldOptions(clack, "standalone", name),
+      communityScaffoldOptions(
+        clack,
+        "standalone",
+        name,
+        undefined,
+        opts?._communityAppPicker,
+      ),
     );
-    s.message(`Setting up ${name}…`);
+    includedApp =
+      sanitizeTerminalLabel(resolution.sourceIdentity?.appTitle ?? "") ||
+      (resolution.communityTemplate?.app ?? includedApp);
+    s.message(`Configuring ${name}...`);
     postProcessStandalone(name, targetDir, template, resolution);
     s.stop("App created!");
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(targetDir);
+      clack.outro("Cancelled. No files were created.");
+      return;
+    }
     s.stop("Failed to create app.");
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
@@ -876,23 +1193,35 @@ async function createStandaloneApp(
   }
 
   finalizeScaffold(targetDir, opts?.inPlace);
+  const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
+  const changeDirectory = opts?.inPlace ? "." : name;
 
   if (template === "headless") {
     clack.outro(
       [
-        "Done! Next steps:",
+        "Headless app ready",
+        `Path: ${projectPath}`,
+        "Included: Headless",
+        "Next:",
         "",
-        `  cd ${name}`,
+        `  cd ${changeDirectory}`,
         "  pnpm install",
         "  pnpm action hello --name Builder",
         `  pnpm agent "Call hello for Builder"`,
-        "",
-        "Add a UI later by starting from the Chat template; `agent-native add` is reserved for integration blueprints.",
       ].join("\n"),
     );
   } else {
     clack.outro(
-      `Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`,
+      [
+        "Standalone app ready",
+        `Path: ${projectPath}`,
+        `Included: ${includedApp}`,
+        "Next:",
+        "",
+        `  cd ${changeDirectory}`,
+        "  pnpm install",
+        "  pnpm dev",
+      ].join("\n"),
     );
   }
 }
@@ -1861,54 +2190,52 @@ function postProcessStandalone(
   }
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
-  try {
-    const existing = fs.existsSync(wsPath)
-      ? fs.readFileSync(wsPath, "utf-8")
-      : "";
-    const sections: Record<string, Record<string, string>> = {
-      allowBuilds: {
-        esbuild: "true",
-        // Its postinstall downloads the binary. Without this it installs empty
-        // and the deploy silently bundles no ffmpeg.
-        "ffmpeg-static": "true",
-        "node-pty": "true",
-        "tesseract.js": "true",
-      },
+  const existing = fs.existsSync(wsPath)
+    ? fs.readFileSync(wsPath, "utf-8")
+    : "";
+  const sections: Record<string, Record<string, string>> = {
+    allowBuilds: {
+      esbuild: "true",
+      // Its postinstall downloads the binary. Without this it installs empty
+      // and the deploy silently bundles no ffmpeg.
+      "ffmpeg-static": "true",
+      "node-pty": "true",
+      "tesseract.js": "true",
+    },
+  };
+  if (templateName !== "headless") {
+    sections.overrides = {
+      '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
+      '"@assistant-ui/tap"': '"^0.5.14"',
+      nf3: '"0.3.17"',
     };
-    if (templateName !== "headless") {
-      sections.overrides = {
-        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
-        '"@assistant-ui/tap"': '"^0.5.14"',
-        nf3: '"0.3.17"',
-      };
-    }
-    if (templateName && getTemplate(templateName)) {
-      sections.overrides = {
-        ...sections.overrides,
-        ...TIPTAP_WORKSPACE_OVERRIDES,
-      };
-    }
-    const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
-    if (Object.keys(localFrameworkOverrides).length > 0) {
-      sections.overrides ??= {};
-      Object.assign(sections.overrides, localFrameworkOverrides);
-    }
-    const localRecapCli = localRecapCliOverride();
-    if (localRecapCli) {
-      sections.overrides ??= {};
-      sections.overrides['"@agent-native/recap-cli"'] =
-        JSON.stringify(localRecapCli);
-    }
-    let updated = mergeWorkspaceYamlSections(existing, sections);
-    updated = mergeWorkspaceYamlListItems(
-      updated,
-      "minimumReleaseAgeExclude",
-      MINIMUM_RELEASE_AGE_EXCLUDES,
-    );
-    if (updated !== existing) {
-      fs.writeFileSync(wsPath, updated);
-    }
-  } catch {}
+  }
+  if (templateName && getTemplate(templateName)) {
+    sections.overrides = {
+      ...sections.overrides,
+      ...TIPTAP_WORKSPACE_OVERRIDES,
+    };
+  }
+  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
+  if (Object.keys(localFrameworkOverrides).length > 0) {
+    sections.overrides ??= {};
+    Object.assign(sections.overrides, localFrameworkOverrides);
+  }
+  const localRecapCli = localRecapCliOverride();
+  if (localRecapCli) {
+    sections.overrides ??= {};
+    sections.overrides['"@agent-native/recap-cli"'] =
+      JSON.stringify(localRecapCli);
+  }
+  let updated = mergeWorkspaceYamlSections(existing, sections);
+  updated = mergeWorkspaceYamlListItems(
+    updated,
+    "minimumReleaseAgeExclude",
+    MINIMUM_RELEASE_AGE_EXCLUDES,
+  );
+  if (updated !== existing) {
+    fs.writeFileSync(wsPath, updated);
+  }
   if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
@@ -2105,6 +2432,9 @@ export { parseWorkspaceScope };
 export {
   mergeWorkspaceYamlSections as _mergeWorkspaceYamlSections,
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
+  mergeWorkspaceYamlListItems as _mergeWorkspaceYamlListItems,
+  scaffoldOneAppIntoWorkspace as _scaffoldOneAppIntoWorkspace,
+  CreateWizardCancelledError as _CreateWizardCancelledError,
   ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
@@ -2118,6 +2448,7 @@ export {
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
+  prepareLocalWorkspaceOverrides as _prepareLocalWorkspaceOverrides,
   ensureLocalPackageBuildOutputs as _ensureLocalPackageBuildOutputs,
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
@@ -2661,13 +2992,23 @@ function discoverCommunityWorkspaceApps(
       return [
         {
           name: entry.name,
-          label: sourceIdentity.appTitle,
+          label: sanitizeTerminalLabel(sourceIdentity.appTitle),
           dir: appDir,
           sourceIdentity,
         },
       ];
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function sanitizeTerminalLabel(value: string): string {
+  return value
+    .replace(
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+      "�",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function readPackageJsonObject(
@@ -2976,29 +3317,6 @@ function githubTarballUrl(
  *   - If the section is absent, a new block is appended at the end.
  * Entries already present (by key) are skipped.
  */
-/**
- * Whether `section` already has `key`. Scoped to the section body: a key
- * mentioned in another section (`"node-pty@*"` under packageExtensions) must
- * not stop it being written here. Quotes are ignored on both sides.
- */
-function workspaceYamlSectionHasKey(
-  yaml: string,
-  section: string,
-  key: string,
-): boolean {
-  const header = new RegExp(`^${escapeRegExp(section)}:\\s*$`, "m").exec(yaml);
-  if (!header) return false;
-  const rest = yaml.slice(header.index + header[0].length);
-  // A column-zero comment is still inside the section; only a key ends it.
-  const end = rest.search(/\n(?=[^\s#])/);
-  const body = end === -1 ? rest : rest.slice(0, end);
-  const bare = key.replace(/^["']|["']$/g, "");
-  return body.split("\n").some((line) => {
-    const match = /^\s+(["']?)(.+?)\1\s*:/.exec(line);
-    return match !== null && match[2] === bare;
-  });
-}
-
 function mergeWorkspaceYamlSections(
   yaml: string,
   sections: Record<string, Record<string, string>>,
@@ -3006,15 +3324,24 @@ function mergeWorkspaceYamlSections(
   let result = yaml;
   for (const [section, entries] of Object.entries(sections)) {
     for (const [key, value] of Object.entries(entries)) {
-      if (workspaceYamlSectionHasKey(result, section, key)) continue;
-      const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
-      const match = sectionHeader.exec(result);
-      if (match) {
-        const insertAt = match.index + match[0].length;
+      const existingSection = findWorkspaceYamlSection(result, section);
+      if (existingSection?.kind === "flow") {
+        if (workspaceYamlFlowMappingHasEntry(existingSection, section, key)) {
+          continue;
+        }
+        result = appendWorkspaceYamlFlowEntry(
+          result,
+          existingSection,
+          `${formatWorkspaceYamlString(normalizeYamlScalar(key))}: ${formatWorkspaceYamlScalar(value)}`,
+        );
+      } else if (existingSection?.kind === "scalar") {
+        throw unsupportedWorkspaceYamlSection(section, "mapping");
+      } else if (existingSection) {
+        if (workspaceYamlSectionHasEntry(existingSection, key)) continue;
         result =
-          result.slice(0, insertAt) +
-          `\n  ${key}: ${value}` +
-          result.slice(insertAt);
+          result.slice(0, existingSection.insertAt) +
+          `\n${existingSection.indent}${key}: ${value}` +
+          result.slice(existingSection.insertAt);
       } else {
         result =
           result.trimEnd() +
@@ -3026,6 +3353,321 @@ function mergeWorkspaceYamlSections(
   return result;
 }
 
+function workspaceYamlSectionHasEntry(
+  existingSection: Extract<WorkspaceYamlSection, { kind: "block" }>,
+  key: string,
+): boolean {
+  return existingSection.body.split(/\r?\n/).some((line) => {
+    const entry = parseYamlMappingKey(line, existingSection.indent);
+    return (
+      entry !== undefined &&
+      normalizeYamlScalar(entry) === normalizeYamlScalar(key)
+    );
+  });
+}
+
+type WorkspaceYamlSection =
+  | { kind: "block"; body: string; indent: string; insertAt: number }
+  | {
+      kind: "flow";
+      collection: "mapping" | "sequence";
+      value: Record<string, unknown> | unknown[];
+      start: number;
+      end: number;
+    }
+  | { kind: "scalar" };
+
+function findWorkspaceYamlSection(
+  yaml: string,
+  section: string,
+): WorkspaceYamlSection | undefined {
+  const sectionHeader = new RegExp(`^${escapeRegExp(section)}:[ \\t]*`, "m");
+  const match = sectionHeader.exec(yaml);
+  if (!match) return undefined;
+
+  const valueStart = match.index + match[0].length;
+  const remainingValue = yaml.slice(valueStart);
+  if (remainingValue.startsWith("{") || remainingValue.startsWith("[")) {
+    let end: number;
+    try {
+      end = findFlowCollectionEnd(remainingValue);
+    } catch (error) {
+      throw new Error(
+        `Cannot update flow-style ${section} in pnpm-workspace.yaml. Convert it to block style before scaffolding.`,
+        { cause: error },
+      );
+    }
+    const source = remainingValue.slice(0, end + 1);
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(source);
+    } catch (error) {
+      throw new Error(
+        `Cannot update flow-style ${section} in pnpm-workspace.yaml. Convert it to block style before scaffolding.`,
+        { cause: error },
+      );
+    }
+    if (source.startsWith("{") && isPlainRecord(parsed)) {
+      return {
+        kind: "flow",
+        collection: "mapping",
+        value: parsed,
+        start: valueStart,
+        end: valueStart + end + 1,
+      };
+    }
+    if (source.startsWith("[") && Array.isArray(parsed)) {
+      return {
+        kind: "flow",
+        collection: "sequence",
+        value: parsed,
+        start: valueStart,
+        end: valueStart + end + 1,
+      };
+    }
+    throw unsupportedWorkspaceYamlSection(section, "mapping or sequence");
+  }
+  const lineEnd = yaml.indexOf("\n", valueStart);
+  const scalar = yaml
+    .slice(valueStart, lineEnd === -1 ? yaml.length : lineEnd)
+    .trim();
+  if (scalar && !scalar.startsWith("#")) {
+    return { kind: "scalar" };
+  }
+
+  const insertAt = lineEnd === -1 ? yaml.length : lineEnd;
+  const remaining = yaml.slice(insertAt);
+  const nextSection = /^(?!#)\S[^:\n]*:[^\n]*$/m.exec(remaining);
+  const body = remaining.slice(0, nextSection?.index ?? remaining.length);
+  const indent = body
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+    .map((line) => line.match(/^[ \t]+/)?.[0])
+    .filter((value): value is string => value !== undefined)
+    .sort((a, b) => a.length - b.length)[0];
+  return {
+    kind: "block",
+    body,
+    indent: indent ?? "  ",
+    insertAt,
+  };
+}
+
+function findFlowCollectionEnd(source: string): number {
+  const closingFor: Record<string, string> = { "{": "}", "[": "]" };
+  const first = source[0];
+  const firstClose = first ? closingFor[first] : undefined;
+  if (!firstClose) throw new Error("Expected a flow-style YAML collection.");
+
+  const stack = [firstClose];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 1; index < source.length; index++) {
+    const char = source[index]!;
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && source[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (!quote && (char === "{" || char === "[")) {
+      stack.push(closingFor[char]!);
+    } else if (!quote && (char === "}" || char === "]")) {
+      if (stack.pop() !== char) {
+        throw new Error("Cannot update an invalid flow-style YAML collection.");
+      }
+      if (stack.length === 0) return index;
+    } else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t\r\n]/.test(source[index - 1]!))
+    ) {
+      const newline = source.indexOf("\n", index);
+      if (newline < 0) break;
+      index = newline;
+    }
+    escaped = false;
+  }
+  throw new Error("Cannot update an unterminated flow-style YAML collection.");
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function unsupportedWorkspaceYamlSection(
+  section: string,
+  expected: string,
+): Error {
+  return new Error(
+    `Cannot merge ${section} in pnpm-workspace.yaml because its value is not a supported flow-style ${expected}. Convert it to block style before scaffolding.`,
+  );
+}
+
+function workspaceYamlFlowMappingHasEntry(
+  section: Extract<WorkspaceYamlSection, { kind: "flow" }>,
+  sectionName: string,
+  key: string,
+): boolean {
+  if (section.collection !== "mapping" || Array.isArray(section.value)) {
+    throw unsupportedWorkspaceYamlSection(sectionName, "mapping");
+  }
+  return Object.keys(section.value).some(
+    (existingKey) =>
+      normalizeYamlScalar(existingKey) === normalizeYamlScalar(key),
+  );
+}
+
+function appendWorkspaceYamlFlowEntry(
+  yaml: string,
+  section: Extract<WorkspaceYamlSection, { kind: "flow" }>,
+  entry: string,
+): string {
+  const collection = yaml.slice(section.start, section.end);
+  const inner = collection.slice(1, -1);
+  if (hasUnquotedFlowComment(inner)) {
+    throw new Error(
+      "Cannot update a flow-style YAML collection with comments. Convert it to block style before scaffolding.",
+    );
+  }
+  const content = inner.trimEnd();
+  const trailing = inner.slice(content.length);
+  const separator = !content.trim()
+    ? ""
+    : content.endsWith(",")
+      ? " "
+      : inner.includes("\n")
+        ? `,\n${inner.match(/(?:^|\r?\n)([ \t]*)\S/)?.[1] ?? "  "}`
+        : ", ";
+  const nextCollection = `${collection[0]}${content}${separator}${entry}${trailing}${collection.at(-1)}`;
+  return (
+    yaml.slice(0, section.start) + nextCollection + yaml.slice(section.end)
+  );
+}
+
+function hasUnquotedFlowComment(source: string): boolean {
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!;
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && source[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t\r\n]/.test(source[index - 1]!))
+    ) {
+      return true;
+    }
+    escaped = false;
+  }
+  return false;
+}
+
+function formatWorkspaceYamlScalar(value: string): string {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(value);
+  } catch (error) {
+    throw new Error(
+      "Cannot merge an invalid YAML scalar into pnpm-workspace.yaml.",
+      {
+        cause: error,
+      },
+    );
+  }
+  if (parsed !== null && typeof parsed === "object") {
+    throw new Error(
+      "Cannot merge a non-scalar value into pnpm-workspace.yaml.",
+    );
+  }
+  return stringifyYaml(parsed).trim();
+}
+
+function formatWorkspaceYamlString(value: string): string {
+  return stringifyYaml(value).trim();
+}
+
+function parseYamlMappingKey(line: string, indent: string): string | undefined {
+  if (!line.startsWith(indent)) return undefined;
+  const content = line.slice(indent.length);
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 0; index < content.length; index++) {
+    const char = content[index];
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && content[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (
+      !quote &&
+      char === ":" &&
+      (index === content.length - 1 || /[ \t]/.test(content[index + 1]!))
+    ) {
+      return content.slice(0, index).trim();
+    }
+    escaped = false;
+  }
+  return undefined;
+}
+
+function normalizeYamlScalar(value: string): string {
+  let scalar = value.trim();
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < scalar.length; index++) {
+    const char = scalar[index];
+    if (quote === '"' && char === "\\") {
+      index++;
+      continue;
+    }
+    if (quote && char === quote) quote = undefined;
+    else if (!quote && (char === "'" || char === '"')) quote = char;
+    else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t]/.test(scalar[index - 1]!))
+    ) {
+      scalar = scalar.slice(0, index).trimEnd();
+      break;
+    }
+  }
+  if (scalar.startsWith('"') && scalar.endsWith('"')) {
+    try {
+      return JSON.parse(scalar);
+    } catch {
+      return scalar.slice(1, -1);
+    }
+  }
+  if (scalar.startsWith("'") && scalar.endsWith("'")) {
+    return scalar.slice(1, -1).replace(/''/g, "'");
+  }
+  return scalar;
+}
+
 function mergeWorkspaceYamlListItems(
   yaml: string,
   section: string,
@@ -3033,19 +3675,50 @@ function mergeWorkspaceYamlListItems(
 ): string {
   let result = yaml;
   for (const item of items) {
-    const rendered = `  - ${item}`;
-    if (result.includes(rendered)) continue;
-    const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
-    const match = sectionHeader.exec(result);
-    if (match) {
-      const insertAt = match.index + match[0].length;
+    const existingSection = findWorkspaceYamlSection(result, section);
+    if (existingSection?.kind === "flow") {
+      if (
+        existingSection.collection !== "sequence" ||
+        !Array.isArray(existingSection.value)
+      ) {
+        throw unsupportedWorkspaceYamlSection(section, "sequence");
+      }
+      const normalizedItem = normalizeYamlScalar(item);
+      const isPresent = existingSection.value.some(
+        (value) => normalizeYamlScalar(String(value)) === normalizedItem,
+      );
+      if (isPresent) continue;
+      result = appendWorkspaceYamlFlowEntry(
+        result,
+        existingSection,
+        formatWorkspaceYamlString(normalizedItem),
+      );
+      continue;
+    }
+    if (existingSection?.kind === "scalar") {
+      throw unsupportedWorkspaceYamlSection(section, "sequence");
+    }
+    const isPresent = existingSection?.body.split(/\r?\n/).some((line) => {
+      if (!line.startsWith(existingSection.indent)) return false;
+      const entry = line
+        .slice(existingSection.indent.length)
+        .match(/^-[ \t]+(.+)$/);
+      return (
+        entry !== null &&
+        normalizeYamlScalar(entry[1]!) === normalizeYamlScalar(item)
+      );
+    });
+    if (isPresent) continue;
+    if (existingSection) {
       result =
-        result.slice(0, insertAt) + `\n${rendered}` + result.slice(insertAt);
+        result.slice(0, existingSection.insertAt) +
+        `\n${existingSection.indent}- ${item}` +
+        result.slice(existingSection.insertAt);
     } else {
       result =
         result.trimEnd() +
         (result ? "\n" : "") +
-        `\n${section}:\n${rendered}\n`;
+        `\n${section}:\n  - ${item}\n`;
     }
   }
   return result;
@@ -3378,11 +4051,18 @@ function localRecapCliOverride(): string | null {
   return localRecapCli ? pathToFileURL(localRecapCli).href : null;
 }
 
-function applyLocalWorkspaceOverrides(targetDir: string): void {
-  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
-  const localRecapCli = localRecapCliOverride();
+interface PreparedWorkspaceOverrides {
+  path: string;
+  content: string;
+}
+
+function prepareLocalWorkspaceOverrides(
+  targetDir: string,
+  localFrameworkOverrides = getLocalFrameworkPackageOverrides(),
+  localRecapCli = localRecapCliOverride(),
+): PreparedWorkspaceOverrides | undefined {
   if (Object.keys(localFrameworkOverrides).length === 0 && !localRecapCli)
-    return;
+    return undefined;
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   const existing = fs.existsSync(wsPath)
@@ -3396,7 +4076,14 @@ function applyLocalWorkspaceOverrides(targetDir: string): void {
         : {}),
     },
   });
-  if (updated !== existing) fs.writeFileSync(wsPath, updated);
+  return updated === existing ? undefined : { path: wsPath, content: updated };
+}
+
+function applyLocalWorkspaceOverrides(
+  targetDir: string,
+  prepared = prepareLocalWorkspaceOverrides(targetDir),
+): void {
+  if (prepared) fs.writeFileSync(prepared.path, prepared.content);
 }
 
 function getCorePackageVersion(): string | undefined {

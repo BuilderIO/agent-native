@@ -660,9 +660,9 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "Voltar à lista",
     promoteMustContain: "A resposta deve conter…",
-    promoteMustContainOptional: "A resposta deve conter (opcional)",
+    promoteMustContainOptional: "Texto opcional a verificar na resposta…",
     promoteMustContainLabel:
-      "Texto que a resposta da avaliação promovida deve conter",
+      "Texto a verificar na resposta da avaliação promovida",
     promoteNeedsContains:
       "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",

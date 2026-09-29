@@ -659,9 +659,10 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "Zurück zur Liste",
     promoteMustContain: "Antwort muss enthalten…",
-    promoteMustContainOptional: "Antwort muss enthalten (optional)",
+    promoteMustContainOptional:
+      "Optionaler Text, nach dem in der Antwort gesucht wird…",
     promoteMustContainLabel:
-      "Text, den die übernommene Eval-Antwort enthalten muss",
+      "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
     promoteNeedsContains:
       "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, den die Antwort enthalten muss, bevor du sie in eine Eval überführst.",
     spans: "Spans",

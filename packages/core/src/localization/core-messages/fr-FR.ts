@@ -81,9 +81,9 @@ const messages: AgentChatTranslation = {
   "commands.plan": "Passer à la planification en lecture seule",
   "observability.promoteMustContain": "La réponse doit contenir…",
   "observability.promoteMustContainOptional":
-    "La réponse doit contenir (facultatif)",
+    "Texte facultatif à rechercher dans la réponse…",
   "observability.promoteMustContainLabel":
-    "Texte que la réponse de l’évaluation promue doit contenir",
+    "Texte à vérifier dans la réponse de l’évaluation promue",
   "observability.promoteNeedsContains":
     "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir.",
   "observability.viewDetails": "Afficher les détails",

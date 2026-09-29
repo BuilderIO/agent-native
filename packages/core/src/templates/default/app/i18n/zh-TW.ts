@@ -619,8 +619,8 @@ const messages = {
     failedCount: "（{{count}} 個失敗）",
     backToList: "返回清單",
     promoteMustContain: "回覆必須包含…",
-    promoteMustContainOptional: "回覆必須包含（選填）",
-    promoteMustContainLabel: "升級後的評測回覆必須包含的文字",
+    promoteMustContainOptional: "回覆中要檢查的選填文字…",
+    promoteMustContainLabel: "在升級後的評估回覆中檢查的文字",
     promoteNeedsContains:
       "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再將其升級為評測。",
     spans: "Spans",

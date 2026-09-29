@@ -77,9 +77,8 @@ const messages: AgentChatTranslation = {
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
   "observability.promoteMustContain": "답변에 포함할 내용…",
-  "observability.promoteMustContainOptional": "답변에 포함할 내용(선택 사항)",
-  "observability.promoteMustContainLabel":
-    "승격된 평가 답변에 포함되어야 하는 텍스트",
+  "observability.promoteMustContainOptional": "답변에서 확인할 선택적 텍스트…",
+  "observability.promoteMustContainLabel": "승격된 평가 답변에서 확인할 텍스트",
   "observability.promoteNeedsContains":
     "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.viewDetails": "세부 정보 보기",

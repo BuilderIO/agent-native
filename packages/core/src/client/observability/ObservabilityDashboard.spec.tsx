@@ -171,7 +171,12 @@ describe("ObservabilityDashboard promote control", () => {
     expect(promote).toBeTruthy();
     expect(
       container.querySelector<HTMLInputElement>("input")?.placeholder,
-    ).toBe("Reply must contain (optional)");
+    ).toBe("Optional text to check for in the reply…");
+    expect(
+      container
+        .querySelector<HTMLInputElement>("input")
+        ?.getAttribute("aria-label"),
+    ).toBe("Text to check for in the promoted eval reply");
     act(() => promote!.click());
 
     await vi.waitFor(() => {
