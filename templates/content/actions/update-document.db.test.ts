@@ -579,6 +579,69 @@ describe("update-document compare-and-swap", () => {
     ]);
   });
 
+  it("accepts an editor generation resent from a rebased base as the same delivery", async () => {
+    const base = "First passage\nSecond passage";
+    const id = await createDocument({ content: base });
+    const baseRevision = documentRevisionToken(0, base);
+    const editorSessionId = nextId("rebased-session");
+    const save = (args: {
+      content: string;
+      baseRevision: string;
+      authoredBaseContent: string;
+      editorEditGeneration: number;
+    }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id,
+            ...args,
+            authoredBaseRevision: args.baseRevision,
+            authoredCandidateContent: args.content,
+            editorSessionId,
+            browserSaveAttemptId: nextId("rebased-attempt"),
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    const first = "First passage edited\nSecond passage";
+    await save({
+      content: first,
+      baseRevision,
+      authoredBaseContent: base,
+      editorEditGeneration: 1,
+    });
+    const afterFirst = await documentRow(id);
+    const second = "First passage edited\nSecond passage edited";
+    // The page's draft journal replays generation 2 from the base it
+    // recorded before generation 1 landed...
+    const replayed = await save({
+      content: second,
+      baseRevision,
+      authoredBaseContent: base,
+      editorEditGeneration: 2,
+    });
+    // ...and the editor sends it rebased onto generation 1.
+    const rebased = await save({
+      content: second,
+      baseRevision: documentRevisionToken(
+        afterFirst.bodyRevision,
+        afterFirst.content,
+      ),
+      authoredBaseContent: afterFirst.content,
+      editorEditGeneration: 2,
+    });
+
+    expect(replayed.bodyIntentOutcome).toEqual({ status: "applied" });
+    expect(rebased.bodyIntentOutcome).toEqual(replayed.bodyIntentOutcome);
+    expect((await documentRow(id)).content).toBe(second);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, id)),
+    ).toHaveLength(2);
+  });
+
   it("replays a displaced editor generation through a new transport attempt", async () => {
     const base = "Shared passage\nOther passage";
     const id = await createDocument({ content: base });
