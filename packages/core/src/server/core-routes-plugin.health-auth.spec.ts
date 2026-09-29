@@ -36,8 +36,9 @@ describe("/_agent-native/debug/runtime auth block", () => {
   it("uses the shared production function predicate before exposing runtime diagnostics", () => {
     const body = runtimeDebugHandlerSource();
     expect(body).toContain("isProductionServerlessFunctionRuntime()");
+    expect(body).toContain('process.env.NODE_ENV?.trim() === "production"');
     expect(body).toContain("if (!session?.email && productionLike)");
-    expect(body).not.toMatch(/process\.env\.(NODE_ENV|NETLIFY|VERCEL)/);
+    expect(body).not.toMatch(/process\.env\.(NETLIFY|VERCEL)/);
     expect(body.indexOf("setResponseStatus(event, 401)")).toBeLessThan(
       body.indexOf("runDatabaseSchemaHealthCheck()"),
     );

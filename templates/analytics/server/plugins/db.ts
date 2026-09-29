@@ -6,6 +6,8 @@ import {
   getDatabaseUrl,
   MIGRATION_DEFERRED,
   runMigrations,
+  withMigrationExecutionRuntime,
+  withMigrationRuntime,
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
@@ -1502,30 +1504,40 @@ export default async (nitroApp: any): Promise<void> => {
     );
     return;
   }
-  const isNetlifyServerlessRuntime = isProductionServerlessRuntime();
-  if (isNetlifyServerlessRuntime) {
+  const isProductionServerless = isProductionServerlessRuntime();
+  if (isProductionServerless && !isScheduledRollupRuntime) {
     console.info(
       "[db] Skipping Analytics migrations in production serverless runtime",
     );
     return;
   }
-  // guard:allow-boot-data-work — long-lived local runtime owns the migration
-  await runAnalyticsMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
+  const runSchemaWork = async () => {
+    // guard:allow-boot-data-work — local servers and the scheduled rollup worker own schema setup
+    await runAnalyticsMigrations(nitroApp);
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
       console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
       );
     }
-  } catch (err) {
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
+  };
+  if (isProductionServerless) {
+    // guard:allow-boot-data-work — the scheduled rollup may be the first post-deploy schema caller
+    await withMigrationRuntime(() =>
+      withMigrationExecutionRuntime(runSchemaWork),
     );
+  } else {
+    await runSchemaWork();
   }
 };

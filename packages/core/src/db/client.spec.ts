@@ -334,6 +334,19 @@ describe("db/client Postgres URL handling", () => {
     expect(isProductionServerlessFunctionRuntime(vercelDevEnv)).toBe(false);
   });
 
+  it.each([
+    ["Netlify CLI", { NODE_ENV: "development", NETLIFY_DEV: "true" }],
+    ["AWS SAM", { NODE_ENV: "development", AWS_SAM_LOCAL: "true" }],
+  ])("keeps %s emulation on the local schema path", async (_name, env) => {
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime(env)).toBe(false);
+    expect(isProductionServerlessFunctionRuntime(env)).toBe(false);
+  });
+
   it("recognizes production Cloudflare Workers but excludes unmarked Wrangler dev", async () => {
     vi.stubGlobal("__env__", {});
     vi.stubEnv("NODE_ENV", "");

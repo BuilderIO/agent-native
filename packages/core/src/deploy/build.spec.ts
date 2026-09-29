@@ -817,15 +817,15 @@ export default {
     );
 
     configureCloudflareModuleWorkerOutput(serverDir);
+    const outputConfig = JSON.parse(
+      fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+    );
 
-    expect(
-      JSON.parse(
-        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
-      ),
-    ).toMatchObject({
+    expect(outputConfig).toMatchObject({
       main: "worker.mjs",
       assets: { binding: "ASSETS" },
     });
+    expect(outputConfig.compatibility_flags).toContain("nodejs_als");
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
     ).toContain('await import("./index.mjs")');

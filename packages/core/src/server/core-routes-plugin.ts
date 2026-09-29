@@ -3441,7 +3441,9 @@ export function createCoreRoutesPlugin(
         defineEventHandler(async (event) => {
           setResponseHeader(event, "cache-control", "no-store");
           const session = await getSession(event).catch(() => null);
-          const productionLike = isProductionServerlessFunctionRuntime();
+          const productionLike =
+            process.env.NODE_ENV?.trim() === "production" ||
+            isProductionServerlessFunctionRuntime();
           if (!session?.email && productionLike) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };

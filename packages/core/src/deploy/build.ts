@@ -574,7 +574,7 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
       )
     : [];
   config.compatibility_flags = [
-    ...new Set([...compatibilityFlags, "nodejs_compat"]),
+    ...new Set([...compatibilityFlags, "nodejs_compat", "nodejs_als"]),
   ];
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(

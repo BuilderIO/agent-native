@@ -5,6 +5,10 @@ const state = vi.hoisted(() => ({
   ensureAdditiveColumns: vi.fn(async () => ({ errors: [] })),
   getDbExec: vi.fn(),
   isProductionServerlessRuntime: vi.fn(() => true),
+  withMigrationExecutionRuntime: vi.fn(async (run: () => Promise<unknown>) =>
+    run(),
+  ),
+  withMigrationRuntime: vi.fn(async (run: () => Promise<unknown>) => run()),
 }));
 
 declare global {
@@ -17,6 +21,8 @@ vi.mock("@agent-native/core/db", () => ({
   ensureAdditiveColumns: state.ensureAdditiveColumns,
   getDbExec: state.getDbExec,
   runMigrations: vi.fn(() => state.migrationPlugin),
+  withMigrationExecutionRuntime: state.withMigrationExecutionRuntime,
+  withMigrationRuntime: state.withMigrationRuntime,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -40,6 +46,8 @@ describe("Analytics database plugin boot contract", () => {
     state.ensureAdditiveColumns.mockClear();
     state.getDbExec.mockReset();
     state.isProductionServerlessRuntime.mockReturnValue(true);
+    state.withMigrationExecutionRuntime.mockClear();
+    state.withMigrationRuntime.mockClear();
     vi.resetModules();
   });
 
@@ -59,15 +67,17 @@ describe("Analytics database plugin boot contract", () => {
     expect(state.getDbExec).not.toHaveBeenCalled();
   });
 
-  it("does not migrate during a scheduled production serverless invocation", async () => {
+  it("runs schema setup for the scheduled production rollup invocation", async () => {
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ = true;
     const register = (await import("./db")).default;
 
     await register({});
 
-    expect(state.migrationPlugin).not.toHaveBeenCalled();
-    expect(state.ensureAdditiveColumns).not.toHaveBeenCalled();
-    expect(state.getDbExec).not.toHaveBeenCalled();
+    expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
+    expect(state.ensureAdditiveColumns).toHaveBeenCalledTimes(1);
+    expect(state.getDbExec).toHaveBeenCalledTimes(1);
+    expect(state.withMigrationRuntime).toHaveBeenCalledTimes(1);
+    expect(state.withMigrationExecutionRuntime).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the migration path available to an explicitly long-lived runtime", async () => {

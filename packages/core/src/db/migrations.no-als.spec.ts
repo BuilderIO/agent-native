@@ -14,7 +14,12 @@ vi.mock("./client.js", async (importOriginal) => {
   };
 });
 
-import { createDbExec, getDbExec } from "./client.js";
+import {
+  assertSchemaMutationAllowed,
+  createDbExec,
+  getDbExec,
+} from "./client.js";
+import { withMigrationExecutionRuntime } from "./migration-runtime.js";
 import { runMigrations } from "./migrations.js";
 
 describe("runMigrations without AsyncLocalStorage", () => {
@@ -36,5 +41,43 @@ describe("runMigrations without AsyncLocalStorage", () => {
 
     expect(getDbExec).not.toHaveBeenCalled();
     expect(createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("loads isolated AsyncLocalStorage for legacy hosted migrations", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+
+    let migrationEntered!: () => void;
+    let finishMigration!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      migrationEntered = resolve;
+    });
+    const waitForFinish = new Promise<void>((resolve) => {
+      finishMigration = resolve;
+    });
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    const migration = withMigrationExecutionRuntime(async () => {
+      expect(() =>
+        assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+      ).not.toThrow();
+      migrationEntered();
+      await waitForFinish;
+    });
+    await entered;
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
+
+    finishMigration();
+    await migration;
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_migration (id TEXT)"),
+    ).toThrow(/release job/);
   });
 });

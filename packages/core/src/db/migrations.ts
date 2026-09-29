@@ -194,7 +194,10 @@ function appMigratesAtRelease(): boolean {
   );
 }
 
-export { withMigrationRuntime } from "./migration-runtime.js";
+export {
+  withMigrationExecutionRuntime,
+  withMigrationRuntime,
+} from "./migration-runtime.js";
 
 function validateMigrationNames(
   migrations: Array<MigrationEntry>,

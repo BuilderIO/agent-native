@@ -18,13 +18,32 @@ interface MigrationExecutionStorage {
 }
 
 const AsyncLocalStorage = getAsyncLocalStorageCtor();
-const migrationExecutionStorage: MigrationExecutionStorage | undefined =
+let migrationExecutionStorage: MigrationExecutionStorage | undefined =
   AsyncLocalStorage ? new AsyncLocalStorage<boolean>() : undefined;
+let migrationExecutionStoragePromise:
+  | Promise<MigrationExecutionStorage | undefined>
+  | undefined;
+
+function loadMigrationExecutionStorage(): Promise<
+  MigrationExecutionStorage | undefined
+> {
+  if (migrationExecutionStorage)
+    return Promise.resolve(migrationExecutionStorage);
+  migrationExecutionStoragePromise ??= import("node:async_hooks")
+    .then(({ AsyncLocalStorage }) => {
+      migrationExecutionStorage = new AsyncLocalStorage<boolean>();
+      return migrationExecutionStorage;
+    })
+    .catch(() => undefined);
+  return migrationExecutionStoragePromise;
+}
 
 function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
   return (
     env.NODE_ENV === "test" ||
     env.NETLIFY_LOCAL === "true" ||
+    env.NETLIFY_DEV === "true" ||
+    env.AWS_SAM_LOCAL === "true" ||
     env.VERCEL_ENV === "development"
   );
 }
@@ -107,10 +126,12 @@ export async function withMigrationRuntime<T>(
 export async function withMigrationExecutionRuntime<T>(
   run: () => Promise<T>,
 ): Promise<T> {
-  if (migrationExecutionStorage) {
-    return migrationExecutionStorage.run(true, run);
-  }
-  if (isHostedFunctionInvocationRuntime()) {
+  const isHosted = isHostedFunctionInvocationRuntime();
+  const storage =
+    migrationExecutionStorage ??
+    (isHosted ? await loadMigrationExecutionStorage() : undefined);
+  if (storage) return storage.run(true, run);
+  if (isHosted) {
     throw new Error(
       "AsyncLocalStorage is required to run hosted runtime migrations safely",
     );
