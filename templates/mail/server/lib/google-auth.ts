@@ -17,9 +17,7 @@ import {
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { decodeCommonHtmlEntities } from "@shared/markdown.js";
-import { and, eq, inArray } from "drizzle-orm";
 
-import { getDb, schema } from "../db/index.js";
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import { hasGmailScope } from "./gmail-scope.js";
 import {
