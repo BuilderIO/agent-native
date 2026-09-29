@@ -340,6 +340,16 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Annuler l’envoi programmé",
+      deliveryUnknownWarning:
+        "État de livraison inconnu ; vérifiez les messages envoyés dans Gmail avant de résoudre le problème.",
+      markSentAfterChecking:
+        "J’ai vérifié les messages envoyés ; marquer comme envoyé",
+      sendNewCopy: "Envoyer une nouvelle copie",
+      sendingStatus:
+        "L’envoi programmé est en cours. Les actions sont temporairement indisponibles.",
+      confirmSendNewCopyTitle: "Envoyer une autre copie ?",
+      confirmSendNewCopyDescription:
+        "L’original a peut-être déjà été remis. Vérifiez d’abord les messages envoyés dans Gmail. Un nouvel envoi peut créer un doublon.",
       dateInput: "Date et heure",
       noDateMatch: "Aucun horaire futur correspondant",
       inputPlaceholder: "Essayez : 8 h, 3 jours, 7 août",
@@ -450,6 +460,12 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programmé envoyé.",
       scheduledSendFailed: "Échec de l’envoi de l’email programmé",
+      uncertainScheduledMarkedSent: "Email programmé marqué comme envoyé.",
+      uncertainScheduledResolveFailed:
+        "Échec de la résolution de l’email programmé.",
+      uncertainScheduledRetryStarted:
+        "Une nouvelle copie est en cours d’envoi.",
+      uncertainScheduledRetryFailed: "Échec de l’envoi d’une nouvelle copie.",
       scheduledCancelled: "Email programmé annulé.",
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
