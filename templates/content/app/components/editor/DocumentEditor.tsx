@@ -2193,10 +2193,13 @@ function PageEditorSessionBody({
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
+  const liveSaveRevisionRef = useRef(0);
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
   }
-  useRegisterLiveEditorSession(editorSessionIdRef.current);
+  const reportLiveEditorDraft = useRegisterLiveEditorSession(
+    editorSessionIdRef.current,
+  );
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
     save: (draft, base) => reconcileSaveRef.current(draft, base),
@@ -3109,7 +3112,8 @@ function PageEditorSessionBody({
         editorSnapshotTitle: title,
         editorSnapshotContent: content,
       };
-      const confirmedTitleBase = lastSavedTitleRef.current.title;
+      const confirmedTitleBase =
+        options.titleBase ?? lastSavedTitleRef.current.title;
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
       const editorEditGeneration =
@@ -3570,7 +3574,9 @@ function PageEditorSessionBody({
         (authoredContentIntentRef.current?.editGeneration === editGeneration
           ? authoredContentIntentRef.current
           : undefined);
-      return enqueueDocumentSave(documentSaveQueueRef, () =>
+      const revision = ++liveSaveRevisionRef.current;
+      reportLiveEditorDraft({ title, content });
+      const queued = enqueueDocumentSave(documentSaveQueueRef, () =>
         savePageWithRecovery({
           save: () =>
             saveDocumentImmediately(title, content, {
@@ -3627,10 +3633,42 @@ function PageEditorSessionBody({
             ),
         }),
       );
+      return queued.then(
+        (result) => {
+          if (revision === liveSaveRevisionRef.current) {
+            const retryable = pendingSaveRetrySnapshot(
+              result,
+              { contentEditVersion, editGeneration, contentObservationEpoch },
+              {
+                canEdit: canEditRef.current,
+                contentEditVersion: contentEditVersionRef.current,
+                editGeneration: editorEditGenerationRef.current,
+                contentObservationEpoch: contentObservationEpochRef.current,
+                title: localTitleRef.current,
+                content: localContentRef.current,
+                contentBase: { ...lastSavedContentRef.current },
+                titleBase: lastSavedTitleRef.current.title,
+              },
+            );
+            reportLiveEditorDraft(
+              retryable
+                ? { title: retryable.title, content: retryable.content }
+                : null,
+            );
+          }
+          return result;
+        },
+        (error) => {
+          if (revision === liveSaveRevisionRef.current)
+            reportLiveEditorDraft(null);
+          throw error;
+        },
+      );
     },
     [
       clearRecoveryDraft,
       documentId,
+      reportLiveEditorDraft,
       retainRecoveryDraft,
       saveDocumentImmediately,
     ],

@@ -2039,12 +2039,19 @@ describe("document editor layout", () => {
       source.indexOf("const persistDocumentUpdates"),
       source.indexOf("const saveDocumentImmediately"),
     );
+    const saveImmediately = source.slice(
+      source.indexOf("const saveDocumentImmediately"),
+      source.indexOf("const retainRecoveryDraft"),
+    );
     const baseAwareReconcile = source.slice(
       source.indexOf("const handleBaseAwareReconcile"),
       source.indexOf("const handleResolveReconcile"),
     );
 
     expect(persistUpdates).toContain(
+      "options.titleBase ?? lastSavedTitleRef.current.title",
+    );
+    expect(saveImmediately).toContain(
       "options.titleBase ?? lastSavedTitleRef.current.title",
     );
     expect(baseAwareReconcile).toContain("title: documentTitleRef.current");

@@ -99,6 +99,11 @@ vi.mock("./document-save-rebase", () => ({
 vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
+vi.mock("./RecoveryComparison", () => ({
+  RecoveryComparison: ({ failure }: { failure: string }) => (
+    <div data-testid="recovery-comparison">{failure}</div>
+  ),
+}));
 
 import { useRegisterLiveEditorSession } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -462,31 +467,74 @@ describe("Page browser journal recovery", () => {
     const onMount = () => {
       mounts += 1;
     };
-    const renderLive = () =>
+    const renderLive = (
+      settleableDraft: { title: string; content: string } | null = null,
+    ) =>
       root.render(
         <PageDraftRecovery document={page}>
-          <LiveEditor onMount={onMount} sessionId="live-session" />
+          <LiveEditor
+            onMount={onMount}
+            sessionId="live-session"
+            settleableDraft={settleableDraft}
+          />
         </PageDraftRecovery>,
       );
-    await act(async () => renderLive());
-    for (let version = 1; version <= 3; version++) {
-      state.draft = {
-        version,
-        title: "Saved",
-        content: `Saved body ${version}`,
-        baseDocumentUpdatedAt: "v1",
-        editorSessionId: "live-session",
-        editGeneration: version,
-      };
-      await act(async () => renderLive());
-      expect(
-        container.querySelector('[data-testid="editor-skeleton"]'),
-      ).toBeNull();
-    }
+    await act(async () => renderLive(null));
+    const settleableDraft = { title: "Saved", content: "Saved body 1" };
+    await act(async () => renderLive(settleableDraft));
+    state.draft = {
+      version: 1,
+      ...settleableDraft,
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "live-session",
+      editGeneration: 1,
+    };
+    await act(async () => renderLive(settleableDraft));
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
 
     expect(mounts).toBe(1);
     expect(state.resolve).not.toHaveBeenCalled();
     expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it("shows a terminal same-session draft when it differs from the live queue", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const settleableDraft = { title: "Live title", content: "Visible edit" };
+    const renderLive = () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor
+            onMount={onMount}
+            sessionId="live-session"
+            settleableDraft={settleableDraft}
+          />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive());
+    state.entries = [entry("live-session", "Preserved conflict text", "v1")];
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Preserved conflict text",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "live-session",
+      editGeneration: 1,
+    };
+    await act(async () => renderLive());
+
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).not.toBeNull();
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(mounts).toBe(1);
   });
 
   it("still recovers a draft another editor session wrote", async () => {
@@ -520,11 +568,14 @@ describe("Page browser journal recovery", () => {
 function LiveEditor({
   onMount,
   sessionId = "live-writer",
+  settleableDraft = null,
 }: {
   onMount: () => void;
   sessionId?: string;
+  settleableDraft?: { title: string; content: string } | null;
 }) {
-  useRegisterLiveEditorSession(sessionId);
+  const report = useRegisterLiveEditorSession(sessionId);
+  useEffect(() => report(settleableDraft), [report, settleableDraft]);
   useEffect(() => {
     onMount();
   }, [onMount]);
