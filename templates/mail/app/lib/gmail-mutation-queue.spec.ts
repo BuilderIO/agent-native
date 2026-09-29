@@ -402,6 +402,50 @@ describe("gmailMutationQueue", () => {
     });
   });
 
+  it("continues archive batches while each response makes progress", async () => {
+    callAction.mockImplementation(async (_action, args) => {
+      const requested = String(args.id).split(",");
+      const succeeded = requested.slice(0, 50);
+      return {
+        requested,
+        succeeded,
+        failed: [],
+        remaining: requested.slice(succeeded.length),
+      };
+    });
+    const targets = Array.from({ length: 251 }, (_, index) =>
+      gmailMutationQueue.enqueue("archive", { id: "m" + index }),
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all(targets);
+
+    expect(callAction).toHaveBeenCalledTimes(6);
+    expect(
+      callAction.mock.calls.map(
+        ([, args]) => String(args.id).split(",").length,
+      ),
+    ).toEqual([251, 201, 151, 101, 51, 1]);
+  });
+
+  it("fails a deferred archive batch that makes no progress without a cooldown", async () => {
+    callAction.mockResolvedValueOnce({
+      requested: ["m1"],
+      succeeded: [],
+      failed: [],
+      remaining: ["m1"],
+    });
+    const pending = gmailMutationQueue.enqueue("archive", { id: "m1" });
+    const rejected = expect(pending).rejects.toThrow(
+      "Archive made no progress after retries",
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+    await rejected;
+
+    expect(callAction).toHaveBeenCalledTimes(1);
+  });
+
   it("does not fall back to individual archive calls for a quota error", async () => {
     const cooldown = Object.assign(new Error("quota cooldown"), {
       statusCode: 429,

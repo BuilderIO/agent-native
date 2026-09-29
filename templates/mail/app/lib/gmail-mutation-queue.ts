@@ -371,8 +371,9 @@ class GmailMutationQueue {
   private async flushArchive(ops: QueuedMutation[]): Promise<void> {
     let pending = [...ops];
     let firstError: unknown;
+    let quotaRetries = 0;
 
-    for (let attempt = 0; pending.length > 0; attempt += 1) {
+    while (pending.length > 0) {
       let result: unknown;
       try {
         result = await callAction("archive-email", {
@@ -381,7 +382,8 @@ class GmailMutationQueue {
         }).then(assertActionSuccess);
       } catch (error) {
         if (isGmailQuotaCooldown(error)) {
-          if (attempt + 1 < MAX_ARCHIVE_BATCH_ATTEMPTS) {
+          if (quotaRetries + 1 < MAX_ARCHIVE_BATCH_ATTEMPTS) {
+            quotaRetries += 1;
             await new Promise<void>((resolve) =>
               setTimeout(resolve, gmailQuotaRetryDelayMs(error)),
             );
@@ -440,6 +442,7 @@ class GmailMutationQueue {
       const failures = new Map(
         result.failed.map(({ id, error }) => [id, error]),
       );
+      const previousPendingCount = pending.length;
       const nextPending: QueuedMutation[] = [];
 
       for (const op of pending) {
@@ -464,8 +467,19 @@ class GmailMutationQueue {
       pending = nextPending;
       if (pending.length === 0) break;
 
-      if (attempt + 1 >= MAX_ARCHIVE_BATCH_ATTEMPTS) {
-        const error = new Error("Archive remains incomplete after retries");
+      const delayMs =
+        typeof result.retryAfterSeconds === "number" &&
+        result.retryAfterSeconds > 0
+          ? result.retryAfterSeconds * 1000
+          : 0;
+
+      if (pending.length < previousPendingCount) {
+        quotaRetries = 0;
+      } else if (
+        delayMs === 0 ||
+        quotaRetries + 1 >= MAX_ARCHIVE_BATCH_ATTEMPTS
+      ) {
+        const error = new Error("Archive made no progress after retries");
         firstError ??= error;
         for (const op of pending) {
           this.recordOutcome(op, "failure");
@@ -473,13 +487,10 @@ class GmailMutationQueue {
         }
         pending = [];
         break;
+      } else {
+        quotaRetries += 1;
       }
 
-      const delayMs =
-        typeof result.retryAfterSeconds === "number" &&
-        result.retryAfterSeconds > 0
-          ? result.retryAfterSeconds * 1000
-          : 0;
       if (delayMs > 0) {
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       }
