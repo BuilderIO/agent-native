@@ -508,6 +508,9 @@ describe("manage-draft call-shape guidance", () => {
     );
     expect(action.description).toContain("pass only `{id}`");
     expect(action.description).toContain(
+      "`delete` with only the raw compose ID (not the `compose-{id}` app-state key)",
+    );
+    expect(action.description).toContain(
       "`delete-saved` with `savedDraftId` for a saved mailbox draft",
     );
     expect(action.description).toMatch(/create.*update.*delete/i);

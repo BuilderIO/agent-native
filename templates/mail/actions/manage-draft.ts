@@ -160,9 +160,10 @@ export default defineAction({
     "compose draft is open; use `update` to revise a specific existing draft " +
     "with its raw compose ID (`compose-{id}` is the app-state key, so pass " +
     "only `{id}`; a prior create result also provides the ID). Use `delete` " +
-    "with a compose draft ID, `delete-saved` with `savedDraftId` for a saved " +
-    "mailbox draft, or `delete-all` to remove all compose drafts. To start a " +
-    "new reply, call `create` with mode=reply, replyToId, to, subject, and body.",
+    "with only the raw compose ID (not the `compose-{id}` app-state key), " +
+    "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
+    "`delete-all` to remove all compose drafts. To start a new reply, call " +
+    "`create` with mode=reply, replyToId, to, subject, and body.",
   schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,
