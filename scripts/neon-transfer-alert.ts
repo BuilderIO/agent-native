@@ -260,7 +260,8 @@ async function listProjects(): Promise<Map<string, string>> {
         throw new Error("Neon project list contained an invalid project row.");
       projects.set(project.id, project.name);
     }
-    if (payload.projects.length < PROJECT_PAGE_SIZE) return projects;
+    // Neon repeats the previous cursor on the terminal empty page.
+    if (payload.projects.length === 0) return projects;
     const pagination = object(payload.pagination);
     const nextCursor =
       typeof pagination?.cursor === "string" ? pagination.cursor : undefined;
