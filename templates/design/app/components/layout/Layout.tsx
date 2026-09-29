@@ -213,12 +213,15 @@ export function Layout({ children }: LayoutProps) {
     isSettingsRoute ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const designQuery = designScope
       ? `?designId=${encodeURIComponent(designScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${designQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${designQuery}`);
   }
 
   if (layoutMode === "host-bare") {

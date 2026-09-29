@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -264,16 +264,40 @@ export default defineAction({
           route: "list-decks",
           extra: { includePreview: true, paged: true },
         });
-        const rawRows = await db
-          .select({ ...pagedMeta, data: schema.decks.data })
+        const metaRows = await db
+          .select(pagedMeta)
           .from(schema.decks)
           .where(pagedWhere)
           .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
           .limit(pageSize + 1);
-        rows = rawRows.map(({ data, ...meta }) => ({
-          ...meta,
-          ...previewFromRawData(data, meta.id),
-        }));
+        // Only a row whose own projection fails pays for a full body read.
+        rows = await Promise.all(
+          metaRows.map(async (meta) => {
+            const rowWhere = eq(schema.decks.id, meta.id);
+            try {
+              const [preview] = await db
+                .select(previewProjection)
+                .from(schema.decks)
+                .where(rowWhere);
+              return {
+                ...meta,
+                previewSlide: preview?.previewSlide ?? null,
+                previewTooLarge: preview?.previewTooLarge ?? null,
+                aspectRatio: preview?.aspectRatio ?? null,
+              };
+            } catch (rowError) {
+              if (!isInvalidJsonCastError(rowError)) throw rowError;
+              const [raw] = await db
+                .select({ data: schema.decks.data })
+                .from(schema.decks)
+                .where(rowWhere);
+              return {
+                ...meta,
+                ...previewFromRawData(raw?.data ?? "", meta.id),
+              };
+            }
+          }),
+        );
       }
       const hasNextPage = rows.length > pageSize;
       const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
