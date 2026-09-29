@@ -5652,7 +5652,7 @@ export async function runAgentLoop(opts: {
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
-        settleRepeatedToolCall(event.id);
+        if (event.id) settleRepeatedToolCall(event.id);
         send(event);
         toolDoneEmitted = true;
       };
