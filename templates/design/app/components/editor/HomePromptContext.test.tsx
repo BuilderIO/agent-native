@@ -1,4 +1,4 @@
-import type { AssistantChatComposerContext } from "@agent-native/core/client/agent-chat";
+import type { AssistantChatComposerContext } from "@agent-native/toolkit/app/chat/chat";
 // @vitest-environment happy-dom
 import { snapshotComposerContextItems } from "@agent-native/toolkit/app/chat/composer/index";
 import { act, type ReactNode } from "react";
@@ -31,12 +31,15 @@ const mocks = vi.hoisted(() => ({
     authUserId: undefined as string | undefined,
   },
 }));
-vi.mock("@agent-native/core/client/composer", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/composer")
-  >()),
-  useAgentKitCapabilities: () => mocks.capabilities,
-}));
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    useAgentKitCapabilities: () => mocks.capabilities,
+  }),
+);
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => mocks.enabled,
 }));

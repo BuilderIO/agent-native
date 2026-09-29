@@ -1,6 +1,6 @@
-import type { AssistantChatComposerContextProviderProps } from "@agent-native/core/client/agent-chat";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type { AssistantChatComposerContextProviderProps } from "@agent-native/toolkit/app/chat/chat";
 import { useState } from "react";
 
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";

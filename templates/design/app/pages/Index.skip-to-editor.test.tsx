@@ -262,14 +262,17 @@ vi.mock("@/components/editor/PromptDialog", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/composer", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/composer")
-  >()),
-  useAgentKitCapabilities: () => ({
-    data: { sources: { figma: { available: true } }, integrations: [] },
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: true } }, integrations: [] },
+    }),
   }),
-}));
+);
 
 vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (

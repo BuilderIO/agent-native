@@ -1,10 +1,4 @@
 import {
-  useAgentKitCapabilities,
-  useAgentKitIntegrationMenu,
-  readAssistantChatComposerContextDraft,
-  writeAssistantChatComposerContextDraft,
-} from "@agent-native/core/client/composer";
-import {
   callAction,
   useChangeVersions,
   useSession,
@@ -12,6 +6,12 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { composerSourceListSchema } from "@agent-native/core/shared";
+import {
+  useAgentKitCapabilities,
+  useAgentKitIntegrationMenu,
+  readAssistantChatComposerContextDraft,
+  writeAssistantChatComposerContextDraft,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   snapshotComposerContextItems,
   type AgentChatContextItem,
