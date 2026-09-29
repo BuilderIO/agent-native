@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
+  defineAction,
   fail,
+  type ActionRunContext,
 } from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -8330,6 +8332,91 @@ describe("runAgentLoop", () => {
       }),
     );
   });
+
+  it.each([false, true])(
+    "passes each model tool-call ID to actions (defineAction: %s)",
+    async (wrapped) => {
+      const run = vi.fn(async (_args: unknown, _ctx?: ActionRunContext) => ({
+        ok: true,
+      }));
+      const action = wrapped
+        ? defineAction({
+            description: "Read a record",
+            parameters: {
+              id: { type: "string" },
+              toolCallId: { type: "string" },
+            },
+            readOnly: true,
+            run,
+          })
+        : { ...actionEntry({ readOnly: true }), run };
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: ["first", "second"].map((id) => ({
+                type: "tool-call" as const,
+                id: `model-${id}`,
+                name: "read-record",
+                input: { id, toolCallId: "untrusted-input" },
+              })),
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "text-delta", text: "Read both records." };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Read both records" }],
+          },
+        ],
+        actions: { "read-record": action },
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(2);
+      for (const id of ["first", "second"]) {
+        expect(run).toHaveBeenCalledWith(
+          { id, toolCallId: "untrusted-input" },
+          expect.objectContaining({
+            toolCallId: `model-${id}`,
+            caller: "tool",
+          }),
+        );
+      }
+      if (wrapped) {
+        await action.run(
+          { id: "direct", toolCallId: "untrusted-input" },
+          { caller: "cli" },
+        );
+        expect(run.mock.calls.at(-1)?.[1]).not.toHaveProperty("toolCallId");
+      }
+    },
+  );
 
   it("passes the turn's attachments into each tool action's run context", async () => {
     let receivedAttachments: unknown;
