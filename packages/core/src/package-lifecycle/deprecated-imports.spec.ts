@@ -494,6 +494,100 @@ describe("scanDeprecatedImports", () => {
       ]),
     );
   });
+
+  it("reports direct dynamic-import access to removed chat exports", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-dynamic-member-"),
+    );
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.mjs");
+    fs.writeFileSync(
+      file,
+      [
+        `(await import("${moduleName}")).createAgentChatAdapter();`,
+        `(await import("${moduleName}"))?.createAgentChatAdapter?.();`,
+        `(await import("${moduleName}"))["createAgentChatAdapter"]();`,
+        `object.import("${moduleName}").createAgentChatAdapter();`,
+        `notimport("${moduleName}").createAgentChatAdapter();`,
+        `import("${moduleName}").createAgentChatAdapter();`,
+        `await import("${moduleName}").createAgentChatAdapter();`,
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual(
+      [1, 2, 3].map((line) =>
+        expect.objectContaining({
+          file,
+          line,
+          from: moduleName,
+          symbols: ["createAgentChatAdapter"],
+          status: "removed",
+        }),
+      ),
+    );
+  });
+
+  it("ignores removed namespace members shadowed by local bindings", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-shadowed-"));
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.ts");
+    fs.writeFileSync(
+      file,
+      [
+        `import * as chat from "${moduleName}";`,
+        "function parameterShadow(chat: unknown) { chat.createAgentChatAdapter(); }",
+        "function localShadow() { const chat = {}; chat.createAgentChatAdapter(); }",
+        "function blockShadow() { { let chat = {}; chat.createAgentChatAdapter(); } }",
+        "function loopShadow() { for (const chat of []) { chat.createAgentChatAdapter(); } }",
+        "const arrowShadow = (chat: unknown) => { chat.createAgentChatAdapter(); };",
+        "chat.createAgentChatAdapter();",
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        file,
+        line: 7,
+        from: moduleName,
+        symbols: ["createAgentChatAdapter"],
+        status: "removed",
+      }),
+    ]);
+  });
 });
 
 describe("readMigrationManifest dependencies", () => {

@@ -168,6 +168,7 @@ function appendRemovedNamespaceFindings(
   removedExport: RemovedExportManifest | undefined,
 ): void {
   if (!removedExport) return;
+  const shadowedRanges = namespaceShadowedRanges(text, codeMask, namespace);
   const namespacePattern = `\\b${escapeRegExp(namespace)}`;
   for (const symbol of removedExport.symbols) {
     const symbolPattern = escapeRegExp(symbol);
@@ -178,10 +179,16 @@ function appendRemovedNamespaceFindings(
       "g",
     );
     for (const match of text.matchAll(memberAccess)) {
-      if (!codeMask[match.index ?? 0]) continue;
+      const index = match.index ?? 0;
+      if (
+        !codeMask[index] ||
+        shadowedRanges.some(({ start, end }) => index > start && index < end)
+      ) {
+        continue;
+      }
       findings.push({
         file,
-        line: lineAt(text, match.index ?? 0),
+        line: lineAt(text, index),
         from,
         to: [],
         symbols: [symbol],
@@ -190,6 +197,191 @@ function appendRemovedNamespaceFindings(
       });
     }
   }
+}
+
+type CodeRange = { start: number; end: number };
+
+// ponytail: block-bodied scopes only; add a parser if diagnostics need wider syntax coverage.
+function matchingCodePairs(
+  text: string,
+  codeMask: Uint8Array,
+  open: string,
+  close: string,
+): Map<number, number> {
+  const pairs = new Map<number, number>();
+  const stack: number[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    if (!codeMask[index]) continue;
+    if (text[index] === open) stack.push(index);
+    if (text[index] !== close) continue;
+    const start = stack.pop();
+    if (start !== undefined) pairs.set(start, index);
+  }
+  return pairs;
+}
+
+function topLevelParts(value: string): string[] {
+  const parts: string[] = [];
+  const stack: string[] = [];
+  let start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (
+      character === "(" ||
+      character === "[" ||
+      character === "{" ||
+      character === "<"
+    ) {
+      stack.push(character);
+    } else if (
+      (character === ")" && stack.at(-1) === "(") ||
+      (character === "]" && stack.at(-1) === "[") ||
+      (character === "}" && stack.at(-1) === "{") ||
+      (character === ">" && stack.at(-1) === "<")
+    ) {
+      stack.pop();
+    } else if (character === "," && stack.length === 0) {
+      parts.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts;
+}
+
+function bindingPatternHasName(pattern: string, name: string): boolean {
+  const value = pattern
+    .trim()
+    .replace(/^\.\.\./, "")
+    .split(/\s*=\s*/)[0]
+    .trim();
+  if (/^[\w$]+[!?]?(?:\s*:|$)/.test(value)) {
+    return value.match(/^[\w$]+/)?.[0] === name;
+  }
+  if (
+    (value.startsWith("{") && value.endsWith("}")) ||
+    (value.startsWith("[") && value.endsWith("]"))
+  ) {
+    const contents = value.slice(1, -1);
+    return topLevelParts(contents).some((part) => {
+      const binding = part.trim().replace(/^\.\.\./, "");
+      const [key, alias] = topLevelParts(binding.replace(":", ","));
+      const local = alias ?? key;
+      return local?.trim().match(/^[\w$]+/)?.[0] === name;
+    });
+  }
+  return false;
+}
+
+function namespaceShadowedRanges(
+  text: string,
+  codeMask: Uint8Array,
+  namespace: string,
+): CodeRange[] {
+  const bracePairs = matchingCodePairs(text, codeMask, "{", "}");
+  const parenPairs = matchingCodePairs(text, codeMask, "(", ")");
+  const functionScopes: CodeRange[] = [];
+  const shadowed: CodeRange[] = [];
+  const forHeaders: CodeRange[] = [];
+  const skipWhitespace = (index: number): number => {
+    while (/\s/.test(text[index] ?? "")) index += 1;
+    return index;
+  };
+
+  for (const [open, close] of parenPairs) {
+    const next = skipWhitespace(close + 1);
+    const arrow = text.startsWith("=>", next);
+    const body = arrow ? skipWhitespace(next + 2) : next;
+    const priorWord = text.slice(0, open).match(/([\w$]+)\s*$/)?.[1];
+    if (!arrow && priorWord === "for") {
+      forHeaders.push({ start: open, end: close });
+      const header = text.slice(open + 1, close);
+      const declaration =
+        header.match(/^\s*(const|let|var)\s+([\s\S]+?)\s+(?:of|in)\b/) ??
+        header.split(";", 1)[0]?.match(/^\s*(const|let|var)\s+([\s\S]+)$/);
+      const kind = declaration?.[1];
+      const binding = declaration?.[2];
+      const end = text[body] === "{" ? bracePairs.get(body) : undefined;
+      if (
+        end !== undefined &&
+        binding &&
+        bindingPatternHasName(binding, namespace)
+      ) {
+        const range = { start: body, end };
+        if (kind === "var") {
+          const functionScope = functionScopes
+            .filter(({ start, end }) => start < open && end > open)
+            .sort(
+              (left, right) =>
+                left.end - left.start - (right.end - right.start),
+            )[0];
+          if (functionScope) shadowed.push(functionScope);
+        } else {
+          shadowed.push(range);
+        }
+      }
+      continue;
+    }
+    if (text[body] !== "{") continue;
+    if (
+      !arrow &&
+      ["if", "for", "while", "switch", "with"].includes(priorWord ?? "")
+    ) {
+      continue;
+    }
+    const end = bracePairs.get(body);
+    if (end === undefined) continue;
+    const range = { start: body, end };
+    functionScopes.push(range);
+    if (bindingPatternHasName(text.slice(open + 1, close), namespace)) {
+      shadowed.push(range);
+    }
+  }
+
+  const singleParamArrow = new RegExp(
+    `\\b${escapeRegExp(namespace)}\\s*=>\\s*\\{`,
+    "g",
+  );
+  for (const match of text.matchAll(singleParamArrow)) {
+    const index = match.index ?? 0;
+    if (!codeMask[index]) continue;
+    const body = text.indexOf("{", index + match[0].indexOf("=>") + 2);
+    const end = bracePairs.get(body);
+    if (end === undefined) continue;
+    const range = { start: body, end };
+    functionScopes.push(range);
+    shadowed.push(range);
+  }
+
+  const declaration =
+    /\b(const|let|var)\s+([^=;\n]+?)(?=\s*=|\s+of\b|\s+in\b|;)/g;
+  for (const match of text.matchAll(declaration)) {
+    const index = match.index ?? 0;
+    if (
+      !codeMask[index] ||
+      forHeaders.some(({ start, end }) => index > start && index < end) ||
+      !bindingPatternHasName(match[2], namespace)
+    ) {
+      continue;
+    }
+    const containingScopes = [...bracePairs]
+      .filter(([start, end]) => start < index && end > index)
+      .sort((left, right) => left[1] - left[0] - (right[1] - right[0]));
+    const enclosingBlock = containingScopes[0];
+    if (!enclosingBlock) continue;
+    if (match[1] === "var") {
+      const functionScope = functionScopes
+        .filter(({ start, end }) => start < index && end > index)
+        .sort(
+          (left, right) => left.end - left.start - (right.end - right.start),
+        )[0];
+      if (functionScope) shadowed.push(functionScope);
+    } else {
+      shadowed.push({ start: enclosingBlock[0], end: enclosingBlock[1] });
+    }
+  }
+
+  return shadowed;
 }
 
 function lineAt(text: string, index: number): number {
@@ -490,6 +682,8 @@ export function scanDeprecatedImports(
     /\bimport\s+([\w$]+)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g;
   const commonJsMember =
     /\brequire\(\s*["']([^"']+)["']\s*\)\s*(?:\.\s*([\w$]+)|\[\s*["']([^"']+)["']\s*\])/g;
+  const dynamicImportMember =
+    /\(\s*await\s+import\(\s*["']([^"']+)["']\s*\)\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\[\s*["']([^"']+)["']\s*\])/g;
 
   for (const file of sourceFiles(root)) {
     const text = fs.readFileSync(file, "utf-8");
@@ -642,6 +836,20 @@ export function scanDeprecatedImports(
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       const symbol = match[2] ?? match[3];
+      appendRemovedImportFinding(
+        findings,
+        file,
+        text,
+        from,
+        removedExports[from],
+        symbol ? [symbol] : [],
+        match.index ?? 0,
+      );
+    }
+    for (const match of text.matchAll(dynamicImportMember)) {
+      if (!codeMask[match.index ?? 0]) continue;
+      const from = match[1];
+      const symbol = match[2] ?? match[3] ?? match[4];
       appendRemovedImportFinding(
         findings,
         file,

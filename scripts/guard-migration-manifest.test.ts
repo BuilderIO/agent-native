@@ -304,4 +304,21 @@ describe("migration manifest guard", () => {
       /marks createAgentChatAdapter removed/,
     );
   });
+
+  it("reports malformed removed-export symbol lists without throwing", () => {
+    for (const removed of [null, {}, { symbols: "not-an-array" }]) {
+      const violations = checkMigrationManifest(
+        manifest,
+        snapshot,
+        { removedExports: { "@agent-native/core": removed } },
+        undefined,
+        { "@agent-native/core": new Set() },
+      );
+      assert.ok(
+        violations.some((violation) =>
+          /removedExports\.symbols|symbols array/.test(violation.message),
+        ),
+      );
+    }
+  });
 });

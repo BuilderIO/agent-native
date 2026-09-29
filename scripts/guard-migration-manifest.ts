@@ -22,11 +22,9 @@ type MigrationMove = {
 };
 type MigrationManifest = {
   moves?: Record<string, MigrationMove>;
-  removedExports?: Record<
-    string,
-    { symbols: string[]; migrationGuide: string }
-  >;
+  removedExports?: Record<string, unknown>;
 };
+type RemovedExport = { symbols: string[]; migrationGuide: string };
 type ExportSnapshot = {
   exports?: Record<string, string[]>;
 };
@@ -328,6 +326,55 @@ export function checkMigrationManifest(
   const snapshotExports = snapshot.exports ?? {};
   const moves = migrationManifest.moves ?? {};
   const violations: MigrationManifestViolation[] = [];
+  const removedExports: Array<[string, RemovedExport]> = [];
+
+  for (const [specifier, value] of Object.entries(
+    migrationManifest.removedExports ?? {},
+  )) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      violations.push({
+        packageName,
+        message: `${specifier} must be an object with a symbols array and migrationGuide URL.`,
+      });
+      continue;
+    }
+    const candidate = value as { symbols?: unknown; migrationGuide?: unknown };
+    if (
+      !Array.isArray(candidate.symbols) ||
+      candidate.symbols.some((symbol) => typeof symbol !== "string")
+    ) {
+      violations.push({
+        packageName,
+        message: `${specifier} removedExports.symbols must be a string array.`,
+      });
+      continue;
+    }
+    if (candidate.symbols.length === 0) {
+      violations.push({
+        packageName,
+        message: `${specifier} must list at least one removed symbol in removedExports.`,
+      });
+    }
+    if (
+      typeof candidate.migrationGuide !== "string" ||
+      !/^https:\/\//.test(candidate.migrationGuide)
+    ) {
+      violations.push({
+        packageName,
+        message: `${specifier} removedExports must link to a migration guide.`,
+      });
+    }
+    removedExports.push([
+      specifier,
+      {
+        symbols: candidate.symbols as string[],
+        migrationGuide:
+          typeof candidate.migrationGuide === "string"
+            ? candidate.migrationGuide
+            : "",
+      },
+    ]);
+  }
 
   if (packageCatalog) {
     const checkedTargets = new Set<string>();
@@ -370,9 +417,7 @@ export function checkMigrationManifest(
         });
       }
     }
-    for (const [specifier, removed] of Object.entries(
-      migrationManifest.removedExports ?? {},
-    )) {
+    for (const [specifier, removed] of removedExports) {
       const sourceSymbols = exportedSymbols[specifier];
       for (const symbol of removed.symbols) {
         if (!sourceSymbols?.has(symbol)) continue;
@@ -384,25 +429,11 @@ export function checkMigrationManifest(
     }
   }
 
-  for (const [specifier, removed] of Object.entries(
-    migrationManifest.removedExports ?? {},
-  )) {
+  for (const [specifier] of removedExports) {
     if (packageCatalog && !targetIsExported(specifier, packageCatalog)) {
       violations.push({
         packageName,
         message: `${specifier} lists removed exports but is not a published package entrypoint.`,
-      });
-    }
-    if (!Array.isArray(removed.symbols) || removed.symbols.length === 0) {
-      violations.push({
-        packageName,
-        message: `${specifier} must list at least one removed symbol in removedExports.`,
-      });
-    }
-    if (!/^https:\/\//.test(removed.migrationGuide)) {
-      violations.push({
-        packageName,
-        message: `${specifier} removedExports must link to a migration guide.`,
       });
     }
   }
