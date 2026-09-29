@@ -271,6 +271,14 @@ function a2aProcessingLifetimeMaxMs(): number {
   return 30 * 60 * 1000;
 }
 
+export function getA2ATaskRecoveryLimits() {
+  return {
+    queuedLifetimeMaxMs: a2aQueuedLifetimeMaxMs(),
+    processingStuckAfterMs: A2A_PROCESSING_STUCK_AFTER_MS,
+    processingLifetimeMaxMs: a2aProcessingLifetimeMaxMs(),
+  };
+}
+
 async function fireProcessTaskDispatch(
   event: any,
   taskId: string,
@@ -396,10 +404,7 @@ export async function processA2ATaskFromQueue(
     try {
       await settleProcessingA2ATask(taskId, {
         state: "failed",
-        message: {
-          role: "agent",
-          parts: [{ type: "text", text: err?.message ?? "Handler crashed" }],
-        },
+        message: taskFailureMessage(err, "Handler crashed"),
       });
     } catch {}
   } finally {
@@ -632,12 +637,26 @@ async function runHandlerAndPersist(
   } catch (err: any) {
     await settleProcessingA2ATask(taskId, {
       state: "failed",
-      message: {
-        role: "agent",
-        parts: [{ type: "text", text: err?.message ?? "Handler failed" }],
-      },
+      message: taskFailureMessage(err, "Handler failed"),
     });
   }
+}
+
+function taskFailureMessage(error: unknown, fallback: string): Message {
+  const candidate = error as
+    | { message?: unknown; agentNativeErrorCode?: unknown }
+    | null
+    | undefined;
+  const text =
+    typeof candidate?.message === "string" ? candidate.message : fallback;
+  const rawErrorCode = candidate?.agentNativeErrorCode;
+  const errorCode =
+    typeof rawErrorCode === "string" ? rawErrorCode.trim().slice(0, 200) : "";
+  return {
+    role: "agent",
+    parts: [{ type: "text", text }],
+    ...(errorCode ? { metadata: { agentNativeErrorCode: errorCode } } : {}),
+  };
 }
 
 function verifiedTaskOwner(event?: any): {
@@ -857,15 +876,19 @@ async function handleSend(
       });
       return { ...jsonRpcResult(0, updated), _id: 0 };
     } catch (err: any) {
+      const failureMessage = taskFailureMessage(err, "Handler failed");
       await updateTask(task.id, {
         state: "failed",
-        message: {
-          role: "agent",
-          parts: [{ type: "text", text: err.message ?? "Handler failed" }],
-        },
+        message: failureMessage,
       });
       return {
-        ...jsonRpcError(0, -32000, err.message ?? "Handler failed"),
+        ...jsonRpcError(
+          0,
+          -32000,
+          failureMessage.parts[0]?.type === "text"
+            ? failureMessage.parts[0].text
+            : "Handler failed",
+        ),
         _id: 0,
       };
     }
@@ -954,9 +977,18 @@ async function handleStream(
       });
       res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
     } catch (err: any) {
-      await updateTask(task.id, { state: "failed" });
+      const failureMessage = taskFailureMessage(err, "Handler failed");
+      await updateTask(task.id, { state: "failed", message: failureMessage });
       res.write(
-        `data: ${JSON.stringify(jsonRpcError(0, -32000, err.message ?? "Handler failed"))}\n\n`,
+        `data: ${JSON.stringify(
+          jsonRpcError(
+            0,
+            -32000,
+            failureMessage.parts[0]?.type === "text"
+              ? failureMessage.parts[0].text
+              : "Handler failed",
+          ),
+        )}\n\n`,
       );
     }
 
