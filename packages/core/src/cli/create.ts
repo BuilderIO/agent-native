@@ -3994,7 +3994,12 @@ function getOwnPackageDependencyVersion(depName: string): string {
   try {
     const ownPkgPath = path.join(__dirname, "../../package.json");
     const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
-    const range = ownPkg.dependencies?.[depName];
+    const range = [
+      ownPkg.dependencies,
+      ownPkg.optionalDependencies,
+      ownPkg.peerDependencies,
+      ownPkg.devDependencies,
+    ].find((dependencies) => dependencies?.[depName])?.[depName];
     const isPublishedRange =
       typeof range === "string" &&
       range.length > 0 &&

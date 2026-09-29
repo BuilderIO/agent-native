@@ -80,13 +80,15 @@ const messages: AgentChatTranslation = {
   "observability.error": "Erro",
   "observability.metadata": "Metadados",
   "observability.notCaptured": "Não capturado",
+  "observability.openFullConversation": "Abrir conversa completa",
+  "observability.learnAboutTab": "Saiba mais sobre esta guia",
   "observability.promoteMustContain": "A resposta deve conter…",
   "observability.promoteMustContainLabel":
     "Texto que a resposta da avaliação promovida deve conter",
+  "observability.promoteMustContainOptional":
+    "A resposta deve conter (opcional)",
   "observability.promoteNeedsContains":
-    "Esta execução não teve nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promover.",
-  "observability.openFullConversation": "Abrir conversa completa",
-  "observability.learnAboutTab": "Saiba mais sobre esta guia",
+    "Esta execução não tem nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promovê-la.",
   "observability.summarizeWithAgent": "Resumir com o agente",
   "observability.regenerateSummary": "Gerar resumo novamente",
   "observability.summarizeWithAgentHelp":
@@ -393,6 +395,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecte as ferramentas que seu agente pode usar.",
   "mcpIntegrations.menuLabel": "Integrações",
+  "mcpApps.optionalPeerRequired":
+    "Este app MCP requer o pacote {{packageName}}. Instale-o com {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Conectar ferramentas e serviços ao agente",
   "mcpIntegrations.title": "Conectar integrações",

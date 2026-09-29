@@ -80,13 +80,14 @@ const messages: AgentChatTranslation = {
   "observability.error": "त्रुटि",
   "observability.metadata": "मेटाडेटा",
   "observability.notCaptured": "कैप्चर नहीं किया गया",
-  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
-  "observability.promoteMustContainLabel":
-    "प्रमोट किए गए मूल्यांकन के जवाब में शामिल होने वाला टेक्स्ट",
-  "observability.promoteNeedsContains":
-    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले जवाब में शामिल होने वाला टेक्स्ट दर्ज करें।",
   "observability.openFullConversation": "पूरी बातचीत खोलें",
   "observability.learnAboutTab": "इस टैब के बारे में जानें",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainLabel":
+    "प्रमोट किए गए मूल्यांकन के जवाब में शामिल किया जाने वाला टेक्स्ट",
+  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.summarizeWithAgent": "एजेंट से सारांश बनवाएँ",
   "observability.regenerateSummary": "सारांश फिर से बनाएँ",
   "observability.summarizeWithAgentHelp":
@@ -632,6 +633,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "अनुशंसित",
   "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "mcpIntegrations.menuLabel": "इंटीग्रेशन",
+  "mcpApps.optionalPeerRequired":
+    "इस MCP ऐप के लिए {{packageName}} पैकेज ज़रूरी है। इसे {{installCommand}} से इंस्टॉल करें।",
   "mcpIntegrations.menuDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
   "mcpIntegrations.title": "इंटीग्रेशन कनेक्ट करें",
   "mcpIntegrations.description":

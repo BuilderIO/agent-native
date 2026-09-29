@@ -1,3 +1,4 @@
+import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
 import englishMessages from "./core-messages/en-US.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
@@ -150,11 +151,8 @@ function nestAgentChatMessages(
   return messages;
 }
 
-function observabilityMessages(messages: AgentChatTranslation) {
+function observabilitySummaryMessages(messages: AgentChatTranslation) {
   return {
-    promoteMustContain: messages["observability.promoteMustContain"],
-    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
-    promoteNeedsContains: messages["observability.promoteNeedsContains"],
     summarizeWithAgent: messages["observability.summarizeWithAgent"],
     regenerateSummary: messages["observability.regenerateSummary"],
     summarizeWithAgentHelp: messages["observability.summarizeWithAgentHelp"],
@@ -163,6 +161,11 @@ function observabilityMessages(messages: AgentChatTranslation) {
     summaryQueued: messages["observability.summaryQueued"],
     summaryFailed: messages["observability.summaryFailed"],
     summaryExpired: messages["observability.summaryExpired"],
+    promoteMustContain: messages["observability.promoteMustContain"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
+    promoteMustContainOptional:
+      messages["observability.promoteMustContainOptional"],
+    promoteNeedsContains: messages["observability.promoteNeedsContains"],
   };
 }
 
@@ -221,7 +224,8 @@ export async function loadCoreMessagesForLocale(
   ]);
   return {
     ...nestAgentChatMessages(agentChatMessages),
-    observability: observabilityMessages(agentChatMessages),
+    agentResources: agentResourcePackMessagesForLocale(locale),
+    observability: observabilitySummaryMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
     iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
@@ -233,7 +237,8 @@ export async function loadCoreMessagesForLocale(
 
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
-  observability: observabilityMessages(englishAgentChatMessages),
+  agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
+  observability: observabilitySummaryMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {

@@ -716,6 +716,10 @@ async function ensureLocalMembership(
 
 export async function provisionFederatedOrganization(
   identity: FederatedOrganizationIdentity,
+  options: {
+    /** The signing-in caller's request; see `setActiveOrgId`. */
+    event?: H3Event;
+  } = {},
 ): Promise<FederatedOrganizationProvisionResult> {
   const rollout = await federationRolloutState(identity.email, identity.id);
   if (rollout === "unavailable") {
@@ -748,6 +752,7 @@ export async function provisionFederatedOrganization(
       identity.email,
       localOrgId,
       "signed cross-app organization context",
+      options.event,
     );
     return "linked";
   }
@@ -777,6 +782,7 @@ export async function provisionFederatedOrganization(
         identity.email,
         identity.id,
         "signed cross-app organization context",
+        options.event,
       );
       return "linked";
     }
@@ -791,6 +797,7 @@ export async function provisionFederatedOrganization(
     id: identity.id,
     identityAuthority: identity.authority,
     identityId: identity.id,
+    event: options.event,
   });
   await applyFederatedVisualIdentity(identity.id, identity);
   return "created";
