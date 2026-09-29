@@ -903,8 +903,9 @@ Respond to the event.`,
     });
 
     const staleEmittedAt = new Date(now - 2 * 60 * 60_000).toISOString();
-    const staleTriggerIds = Array.from({ length: 100 }, (_, index) =>
-      `a-stale-trigger-${String(index).padStart(3, "0")}`,
+    const staleTriggerIds = Array.from(
+      { length: 100 },
+      (_, index) => `a-stale-trigger-${String(index).padStart(3, "0")}`,
     );
     for (let index = 0; index < 2_000; index += 1) {
       const triggerId = staleTriggerIds[index % staleTriggerIds.length]!;
