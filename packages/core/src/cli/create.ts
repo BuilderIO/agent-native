@@ -208,12 +208,14 @@ export async function runCreateCommand(
     (parsed.includes(COMMUNITY_OPTION.name)
       ? COMMUNITY_OPTION.name
       : undefined);
+  const isTTY = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const hasInteractiveConfig =
     !name ||
     !opts?.template ||
-    parsed.includes(COMMUNITY_OPTION.name) ||
+    requestedCommunityTemplate === COMMUNITY_OPTION.name ||
+    (isTTY && Boolean(requestedCommunityTemplate)) ||
     Boolean(workspace && parsed.length > 1);
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!isTTY) {
     if (hasInteractiveConfig) {
       console.error(
         "An interactive terminal is needed to choose a project type. Pass a project name and --template, or run `agent-native create --help`.",
@@ -276,15 +278,17 @@ export async function runCreateCommand(
           : parsed.includes("headless")
             ? "headless"
             : "standalone"
-        : parsed.includes("headless")
-          ? "headless"
-          : parsed.length > 1
-            ? "first-party"
-            : parsed.length === 1
-              ? Boolean(requestedCommunityTemplate)
-                ? "community"
-                : "standalone"
-              : undefined;
+        : parsed.includes("dispatch")
+          ? "first-party"
+          : parsed.includes("headless")
+            ? "headless"
+            : parsed.length > 1
+              ? "first-party"
+              : parsed.length === 1
+                ? Boolean(requestedCommunityTemplate)
+                  ? "community"
+                  : "standalone"
+                : undefined;
   const initialCommunityTemplate =
     initialKind === "community"
       ? requestedCommunityTemplate === COMMUNITY_OPTION.name
@@ -1001,6 +1005,7 @@ async function scaffoldOneAppIntoWorkspace(
   showOutro = true,
   appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
   scaffoldTemplate: typeof scaffoldAppTemplate = scaffoldAppTemplate,
+  prepareWorkspaceOverrides: typeof prepareLocalWorkspaceOverrides = prepareLocalWorkspaceOverrides,
 ): Promise<boolean> {
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
@@ -1074,8 +1079,11 @@ async function scaffoldOneAppIntoWorkspace(
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
+    const workspaceOverrides = prepareWorkspaceOverrides(
+      workspace.workspaceRoot,
+    );
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
-    applyLocalWorkspaceOverrides(workspace.workspaceRoot);
+    applyLocalWorkspaceOverrides(workspace.workspaceRoot, workspaceOverrides);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     if (err instanceof CreateWizardCancelledError) {
@@ -2440,6 +2448,7 @@ export {
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
+  prepareLocalWorkspaceOverrides as _prepareLocalWorkspaceOverrides,
   ensureLocalPackageBuildOutputs as _ensureLocalPackageBuildOutputs,
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
@@ -4042,11 +4051,18 @@ function localRecapCliOverride(): string | null {
   return localRecapCli ? pathToFileURL(localRecapCli).href : null;
 }
 
-function applyLocalWorkspaceOverrides(targetDir: string): void {
-  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
-  const localRecapCli = localRecapCliOverride();
+interface PreparedWorkspaceOverrides {
+  path: string;
+  content: string;
+}
+
+function prepareLocalWorkspaceOverrides(
+  targetDir: string,
+  localFrameworkOverrides = getLocalFrameworkPackageOverrides(),
+  localRecapCli = localRecapCliOverride(),
+): PreparedWorkspaceOverrides | undefined {
   if (Object.keys(localFrameworkOverrides).length === 0 && !localRecapCli)
-    return;
+    return undefined;
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   const existing = fs.existsSync(wsPath)
@@ -4060,7 +4076,14 @@ function applyLocalWorkspaceOverrides(targetDir: string): void {
         : {}),
     },
   });
-  if (updated !== existing) fs.writeFileSync(wsPath, updated);
+  return updated === existing ? undefined : { path: wsPath, content: updated };
+}
+
+function applyLocalWorkspaceOverrides(
+  targetDir: string,
+  prepared = prepareLocalWorkspaceOverrides(targetDir),
+): void {
+  if (prepared) fs.writeFileSync(prepared.path, prepared.content);
 }
 
 function getCorePackageVersion(): string | undefined {

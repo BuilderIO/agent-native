@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 
 import {
@@ -22,6 +22,7 @@ import {
   _mergeWorkspaceYamlListItems,
   _mergeWorkspaceYamlSections,
   _postProcessStandalone,
+  _prepareLocalWorkspaceOverrides,
   _scaffoldOneAppIntoWorkspace,
   _CreateWizardCancelledError,
   _parseCommunityTemplateSelection,
@@ -54,6 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 describe("createApp", { timeout: 30000 }, () => {
@@ -231,6 +233,78 @@ describe("createApp", { timeout: 30000 }, () => {
         process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previousLocalCore;
       }
     }
+  });
+
+  it("validates local overrides before mutating an existing workspace", async () => {
+    const workspaceRoot = path.join(tmpDir, "merge-failure-workspace");
+    const workspaceYaml = [
+      'packages:\n  - "apps/*"',
+      'overrides: { nf3: "0.3.17", # keep this pin documented',
+      "  }",
+      "",
+    ].join("\n");
+    const rootPackageJson = JSON.stringify({
+      name: "merge-failure-workspace",
+      scripts: { test: "vitest" },
+    });
+    fs.mkdirSync(path.join(workspaceRoot, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      workspaceYaml,
+    );
+    fs.writeFileSync(path.join(workspaceRoot, "package.json"), rootPackageJson);
+    const clack = {
+      cancel: vi.fn(),
+      note: vi.fn(),
+      outro: vi.fn(),
+      spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
+    } as unknown as typeof import("@clack/prompts");
+    const scaffoldTemplate: typeof _scaffoldAppTemplate = async (appDir) => {
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({ name: "calendar", dependencies: {} }),
+      );
+      return {};
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${code ?? 0})`);
+    });
+
+    await expect(
+      _scaffoldOneAppIntoWorkspace(
+        { workspaceRoot, workspaceCoreName: "@test/shared" },
+        "calendar",
+        "calendar",
+        clack,
+        false,
+        undefined,
+        scaffoldTemplate,
+        (targetDir) =>
+          _prepareLocalWorkspaceOverrides(
+            targetDir,
+            { '"@agent-native/toolkit"': '"file:./toolkit.tgz"' },
+            null,
+          ),
+      ),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(clack.cancel).toHaveBeenCalledWith(
+      expect.stringMatching(/Convert it to block style before scaffolding/),
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, "apps/calendar"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, "packages/scheduling"))).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8"),
+    ).toBe(rootPackageJson);
+    expect(
+      fs.readFileSync(path.join(workspaceRoot, "pnpm-workspace.yaml"), "utf-8"),
+    ).toBe(workspaceYaml);
   });
 
   it("does not treat commented release-age items as configured exceptions", () => {

@@ -71,6 +71,7 @@ afterEach(() => {
   } else {
     Reflect.deleteProperty(process.stdout, "isTTY");
   }
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -87,5 +88,55 @@ describe("create command wizard routing", () => {
     expect(
       fs.existsSync(path.join(workspaceRoot, "apps", "forms", "package.json")),
     ).toBe(true);
+  });
+
+  it("preserves a nameless Dispatch selection as a first-party workspace", async () => {
+    const standaloneCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-create-command-standalone-"),
+    );
+    process.chdir(standaloneCwd);
+    runCreateWizard.mockResolvedValueOnce(null);
+
+    try {
+      await runCreateCommand(undefined, { template: "dispatch" });
+
+      expect(runCreateWizard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialKind: "first-party",
+          initialTemplates: ["dispatch"],
+        }),
+      );
+    } finally {
+      process.chdir(workspaceRoot);
+      fs.rmSync(standaloneCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("allows a fully specified community template through the non-TTY path", async () => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    fs.mkdirSync(path.join(workspaceRoot, "apps", "sample-app"));
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${code ?? 0})`);
+    });
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      runCreateCommand("sample-app", {
+        template: "community:acme/portal",
+      }),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(stderr).not.toHaveBeenCalledWith(
+      expect.stringContaining("An interactive terminal is needed"),
+    );
+    expect(runCreateWizard).not.toHaveBeenCalled();
   });
 });
