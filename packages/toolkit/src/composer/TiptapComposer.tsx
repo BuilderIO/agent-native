@@ -215,6 +215,17 @@ export function resolveContextChipBackspaceAction(options: {
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
+function isSameComposerAttachment(
+  current: { id: string; file?: unknown },
+  submitted: { id: string; file?: unknown },
+) {
+  return (
+    current.id === submitted.id &&
+    (current === submitted ||
+      (submitted.file != null && current.file === submitted.file))
+  );
+}
+
 function composerReferenceFromMentionItem(
   item: MentionItem,
 ): AgentComposerReference {
@@ -2633,10 +2644,36 @@ export function TiptapComposer({
   >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
+  const [
+    failedAttachmentCleanupSnapshots,
+    setFailedAttachmentCleanupSnapshots,
+  ] = useState<typeof composerAttachments>([]);
   const [contextSubmissionError, setContextSubmissionError] = useState<
     string | null
   >(null);
-  useEffect(() => setContextSubmissionError(null), [providedContextItems]);
+  useEffect(() => {
+    if (failedAttachmentCleanupSnapshots.length > 0) return;
+    setContextSubmissionError(null);
+  }, [failedAttachmentCleanupSnapshots.length, providedContextItems]);
+  useEffect(() => {
+    if (failedAttachmentCleanupSnapshots.length === 0) return;
+    const remainingFailedAttachments = failedAttachmentCleanupSnapshots.filter(
+      (submitted) =>
+        composerAttachments.some((current) =>
+          isSameComposerAttachment(current, submitted),
+        ),
+    );
+    if (
+      remainingFailedAttachments.length ===
+      failedAttachmentCleanupSnapshots.length
+    ) {
+      return;
+    }
+    setFailedAttachmentCleanupSnapshots(remainingFailedAttachments);
+    if (remainingFailedAttachments.length === 0) {
+      setContextSubmissionError(null);
+    }
+  }, [composerAttachments, failedAttachmentCleanupSnapshots]);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
@@ -2644,7 +2681,12 @@ export function TiptapComposer({
       disabled ||
       submissionDisabled ||
       submitting ||
-      !areComposerContextItemsReady(contextItems),
+      !areComposerContextItemsReady(contextItems) ||
+      composerAttachments.some((current) =>
+        failedAttachmentCleanupSnapshots.some((submitted) =>
+          isSameComposerAttachment(current, submitted),
+        ),
+      ),
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -3843,7 +3885,12 @@ export function TiptapComposer({
     if (signature === referencesSignatureRef.current) return;
     referencesSignatureRef.current = signature;
     onReferencesChange(references);
-  }, [referenceRevision, extractComposerPayload, onReferencesChange]);
+  }, [
+    referenceRevision,
+    slotReferences,
+    extractComposerPayload,
+    onReferencesChange,
+  ]);
 
   const syncComposerRuntimeState = useCallback(
     (text: string, references: Reference[]) => {
@@ -3951,6 +3998,23 @@ export function TiptapComposer({
         !areComposerContextItemsReady(contextItemsRef.current)
       )
         return false;
+      if (
+        composerRuntime
+          .getState()
+          .attachments.some((current) =>
+            failedAttachmentCleanupSnapshots.some((submitted) =>
+              isSameComposerAttachment(current, submitted),
+            ),
+          )
+      ) {
+        setContextSubmissionError(
+          t("agentChat.composer.attachmentsRemainAfterSubmit", {
+            defaultValue:
+              "The message was sent, but some attachments remain. Remove them before sending again.",
+          }),
+        );
+        return false;
+      }
       setContextSubmissionError(null);
       let contextSnapshot: ComposerContextSnapshot | undefined;
 
@@ -4248,12 +4312,8 @@ export function TiptapComposer({
               for (const attachment of submittedAttachments) {
                 const index = composerRuntime
                   .getState()
-                  .attachments.findIndex(
-                    (item) =>
-                      item.id === attachment.id &&
-                      (item === attachment ||
-                        (attachment.file != null &&
-                          item.file === attachment.file)),
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
                   );
                 if (index === -1) continue;
                 await composerRuntime.getAttachmentByIndex(index).remove();
@@ -4275,6 +4335,15 @@ export function TiptapComposer({
           try {
             await clearSubmittedAttachments;
           } catch {
+            const remainingAttachments = composerRuntime.getState().attachments;
+            setFailedAttachmentCleanupSnapshots((failed) => [
+              ...failed,
+              ...submittedAttachments.filter((submitted) =>
+                remainingAttachments.some((current) =>
+                  isSameComposerAttachment(current, submitted),
+                ),
+              ),
+            ]);
             setContextSubmissionError(
               t("agentChat.composer.attachmentsRemainAfterSubmit", {
                 defaultValue:
@@ -4307,6 +4376,7 @@ export function TiptapComposer({
       composerRuntime,
       draftKey,
       editor,
+      failedAttachmentCleanupSnapshots,
       flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,

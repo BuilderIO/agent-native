@@ -1837,6 +1837,64 @@ describe("TiptapComposer paste handling", () => {
   });
 });
 
+describe("TiptapComposer references", () => {
+  it("reports slot reference insertions and removals to the host", async () => {
+    const onReferencesChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onReferencesChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    onReferencesChange.mockClear();
+
+    await act(async () => {
+      focusRef.current?.insertReference({
+        label: "Document",
+        refType: "file",
+        refId: "document-reference",
+        slotKey: "document",
+      });
+    });
+
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        type: "file",
+        name: "Document",
+        refId: "document-reference",
+        slotKey: "document",
+      }),
+    ]);
+
+    const removeButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="context-row"] button',
+    );
+    expect(removeButton).not.toBeNull();
+    await act(async () => removeButton!.click());
+
+    expect(onReferencesChange).toHaveBeenLastCalledWith([]);
+  });
+});
+
 describe("TiptapComposer slash commands", () => {
   it("locks submission without blurring the editable surface", () => {
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -2195,8 +2253,9 @@ describe("TiptapComposer slash commands", () => {
   });
 
   it("reports attachment cleanup failure after a successful submit", async () => {
+    let failRemoval = true;
     const removeAttachment = vi.fn(async () => {
-      throw new Error("storage unavailable");
+      if (failRemoval) throw new Error("storage unavailable");
     });
     const attachmentAdapter: AttachmentAdapter = {
       accept: "*",
@@ -2280,6 +2339,50 @@ describe("TiptapComposer slash commands", () => {
     expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
       1,
     );
+
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Send message"]',
+    )!;
+    expect(sendButton.disabled).toBe(true);
+    act(() => focusRef.current?.setText("retry after cleanup failure"));
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "The message was sent, but some attachments remain. Remove them before sending again.",
+    );
+
+    failRemoval = false;
+    await act(async () => {
+      await localRuntime!.thread.composer.getAttachmentByIndex(0).remove();
+    });
+    expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+    expect(sendButton.disabled).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit.mock.calls[1][0]).toBe("retry after cleanup failure");
+    expect(onSubmit.mock.calls[1][2]).toEqual([]);
   });
 
   it("acknowledges an executed slash command", async () => {
