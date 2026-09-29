@@ -6,17 +6,17 @@ on:
     branches:
       - main
     paths:
+      # desktop-app plus its workspace dependency closure.
       - "packages/desktop-app/**"
       - "packages/code-agents-ui/**"
+      - "packages/core/**"
       - "packages/shared-app-config/**"
-      - "packages/core/src/assets/branding/**"
+      - "packages/toolkit/**"
+      - "packages/agentkit/**"
+      - "packages/recap-cli/**"
       - "scripts/build-branding-assets.mjs"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-canary.yml"
-  # core, toolkit, agentkit, and recap-cli change on most main pushes; their
-  # effect on the signed desktop build is covered daily instead of per push.
-  schedule:
-    - cron: "17 7 * * *"
 
 concurrency:
   group: desktop-sso-canary-${{ github.ref }}
