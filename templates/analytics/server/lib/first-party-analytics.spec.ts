@@ -604,6 +604,29 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).toThrow("cannot call set-returning function unnest");
   });
 
+  it("rejects unapproved SQL functions that can escape tenant scoping", () => {
+    for (const sql of [
+      "SELECT table_to_xml('analytics_events'::regclass, false, true, '') AS leaked FROM analytics_events LIMIT 1",
+      "SELECT table_to_xml(('analytics_' || 'events')::regclass, false, true, '') FROM session_recordings LIMIT 1",
+      "SELECT query_to_xml('SELECT analytics_' || 'events', false, true, '') FROM session_recordings LIMIT 1",
+      "SELECT ts_stat('SELECT * FROM analytics_events') FROM session_recordings LIMIT 1",
+      "SELECT pg_sleep(1) FROM analytics_events",
+      "SELECT public.sum(event_count) FROM analytics_event_daily_rollups",
+    ]) {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
+        "cannot call unapproved SQL function",
+      );
+    }
+  });
+
+  it("allows approved scalar functions and parenthesized SQL conditions", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT pg_catalog /* split */ . date_trunc('day', event_date), COALESCE(SUM(event_count), 0) FROM analytics_event_daily_rollups WHERE (event_date IS NOT NULL) GROUP BY event_date",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects direct replay chunk queries", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
@@ -859,6 +882,35 @@ describe("queryFirstPartyAnalytics", () => {
         { userEmail: "alice@example.com", orgId: "org_123" },
       ),
     ).rejects.toThrow("Cross-backend joins are not supported");
+  });
+
+  it("rejects unapproved functions before executing SQL-store queries", async () => {
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT table_to_xml(('analytics_' || 'events')::regclass, false, true, '') FROM session_recordings LIMIT 1",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toThrow("cannot call unapproved SQL function table_to_xml");
+
+    expect(backendMocks.get).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("keeps BigQuery-specific functions available after cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await queryFirstPartyAnalytics(
+      "SELECT SAFE_DIVIDE(COUNT(*), 2) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+    );
+
+    expect(backendMocks.query).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("keeps ad-hoc first-party reads uncached", async () => {

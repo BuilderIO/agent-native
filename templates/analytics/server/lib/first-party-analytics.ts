@@ -94,6 +94,58 @@ const POSTGRES_SET_RETURNING_FUNCTIONS = new Set([
   "string_to_table",
   "unnest",
 ]);
+const SAFE_ANALYTICS_SQL_FUNCTIONS = new Set([
+  "chr",
+  "coalesce",
+  "count",
+  "date_trunc",
+  "first_value",
+  "floor",
+  "greatest",
+  "least",
+  "lower",
+  "max",
+  "min",
+  "nullif",
+  "round",
+  "row_number",
+  "split_part",
+  "string_to_array",
+  "substr",
+  "sum",
+  "to_char",
+  "trim",
+  "upper",
+]);
+const SQL_PARENTHESIS_KEYWORDS = new Set([
+  "all",
+  "and",
+  "any",
+  "as",
+  "by",
+  "cast",
+  "distinct",
+  "else",
+  "exists",
+  "extract",
+  "filter",
+  "from",
+  "group",
+  "having",
+  "in",
+  "join",
+  "not",
+  "on",
+  "order",
+  "or",
+  "over",
+  "select",
+  "some",
+  "then",
+  "using",
+  "values",
+  "where",
+]);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
@@ -1076,21 +1128,42 @@ function collectAnalyticsSqlSources(sql: string): {
   return { cteNames, sources };
 }
 
-function validateAnalyticsSqlSetReturningFunctions(sql: string): void {
+function validateAnalyticsSqlFunctions(sql: string): void {
   const tokens = tokenizeAnalyticsSql(sql);
   for (let i = 0; i + 1 < tokens.length; i++) {
+    const token = tokens[i];
+    if (tokens[i + 1].value !== "(") continue;
+    if (!token.quoted && !/^[A-Za-z_][A-Za-z0-9_$]*$/.test(token.value)) {
+      continue;
+    }
+    const name = token.value.toLowerCase();
+    if (!token.quoted && SQL_PARENTHESIS_KEYWORDS.has(name)) continue;
+    if (POSTGRES_SET_RETURNING_FUNCTIONS.has(name)) {
+      throw new Error(
+        `First-party analytics queries cannot call set-returning function ${token.value}`,
+      );
+    }
+
+    const schemaQualified = tokens[i - 1]?.value === ".";
+    const schema = schemaQualified ? tokens[i - 2] : undefined;
+    const allowedSchema =
+      !schemaQualified ||
+      (schema?.quoted === false &&
+        schema.value.toLowerCase() === "pg_catalog" &&
+        tokens[i - 3]?.value !== ".");
     if (
-      POSTGRES_SET_RETURNING_FUNCTIONS.has(tokens[i].value.toLowerCase()) &&
-      tokens[i + 1].value === "("
+      (token.quoted && token.value !== name) ||
+      !SAFE_ANALYTICS_SQL_FUNCTIONS.has(name) ||
+      !allowedSchema
     ) {
       throw new Error(
-        `First-party analytics queries cannot call set-returning function ${tokens[i].value}`,
+        `First-party analytics queries cannot call unapproved SQL function ${token.value}`,
       );
     }
   }
 }
 
-export function validateFirstPartyAnalyticsSql(sql: string): void {
+function validateFirstPartyAnalyticsSqlShape(sql: string): void {
   const stripped = stripSqlLiterals(sql).trim();
   const lowered = stripped.toLowerCase();
   if (!/^(select|with)\b/.test(lowered)) {
@@ -1152,10 +1225,14 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${source.ref})`,
     );
   }
-  validateAnalyticsSqlSetReturningFunctions(sql);
   if (!usesAllowedTable) {
     throw new Error(`Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`);
   }
+}
+
+export function validateFirstPartyAnalyticsSql(sql: string): void {
+  validateFirstPartyAnalyticsSqlShape(sql);
+  validateAnalyticsSqlFunctions(sql);
 }
 
 function scopedTableSource(
@@ -1300,9 +1377,12 @@ export async function validateFirstPartyAnalyticsSqlForScope(
   sql: string,
   scope: AnalyticsScope,
 ): Promise<void> {
-  validateFirstPartyAnalyticsSql(sql);
+  validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
-  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") return;
+  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+    validateAnalyticsSqlFunctions(sql);
+    return;
+  }
   assertFirstPartyAnalyticsBigQuerySql(sql);
 }
 
@@ -1311,13 +1391,14 @@ export async function queryFirstPartyAnalytics(
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
-  validateFirstPartyAnalyticsSql(sql);
+  validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
   if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
     const table = await getFirstPartyAnalyticsTable(backend.table);
     const scoped = scopedAnalyticsSql(sql, scope);
     return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
+  validateAnalyticsSqlFunctions(sql);
   const scoped = scopedAnalyticsSql(sql, scope);
   const scopedSql = scoped.sql;
   const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
