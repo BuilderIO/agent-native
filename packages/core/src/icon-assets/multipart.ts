@@ -1,7 +1,7 @@
 export const MAX_ICON_MULTIPART_BYTES = 5 * 1024 * 1024 + 64 * 1024;
 
 export class IconUploadBodyError extends Error {
-  readonly cause?: unknown;
+  declare readonly cause?: unknown;
 
   constructor(
     public readonly statusCode: 400 | 413,
@@ -14,6 +14,7 @@ export class IconUploadBodyError extends Error {
     if (options && "cause" in options) {
       Object.defineProperty(this, "cause", {
         value: options.cause,
+        enumerable: false,
         configurable: true,
         writable: true,
       });
