@@ -6694,7 +6694,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html>
-<html><body>
+<html><body style="margin:0;background:#f4f5f7">
   <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
   <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
@@ -6706,6 +6706,12 @@ it(
 </body></html>`);
       const pageErrors: string[] = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.evaluate(() => {
+        (window as any).__anEditorBridgeThemeVars = {
+          "--design-editor-accent-color": "hsl(205 100% 53%)",
+          "--design-editor-accent-contrast-color": "#ffffff",
+        };
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
@@ -6755,6 +6761,15 @@ it(
           const before = await handle.boundingBox();
           if (!before)
             throw new Error("rectangle radius handle is not visible");
+          const handleStyle = await handle.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return {
+              borderColor: style.borderColor,
+              backgroundColor: style.backgroundColor,
+            };
+          });
+          expect(handleStyle.backgroundColor).toBe("rgb(255, 255, 255)");
+          expect(handleStyle.borderColor).not.toBe("rgba(0, 0, 0, 0)");
           await page.mouse.move(
             before.x + before.width / 2,
             before.y + before.height / 2,
