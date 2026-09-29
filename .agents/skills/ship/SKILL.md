@@ -23,12 +23,12 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 
 - Ship all nonignored changes belonging to the requested work on the current
   branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
-- An explicit ship request authorizes a new PR for this task, but not a push to
-  an existing PR authored by someone else. Require explicit authorization to
-  push to that exact PR in the current request; a PR link or general ship
-  request is insufficient. Before an authorized push, verify the live author,
-  head repository, ref, head OID, and base, then recheck the head before each
-  normal fast-forward push.
+- A ship request authorizes publishing a new PR. Pushing to someone else's PR
+  needs explicit current authorization for that exact PR; links and inherited
+  ship authority don't count. It permits a normal fast-forward push, not a
+  merge. Merge with separate current authorization; otherwise use
+  `ship_mode=ready-only` and leave the PR open. Before every push, verify the
+  live author, head repository, branch, head OID, and base; recheck the head.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized`: merge once the gates below

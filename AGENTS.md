@@ -70,7 +70,8 @@ contract.
 - When shipping from a worktree, commit, push, and open or update the PR there;
   leave the shared checkout untouched.
 - Never push to someone else's PR without explicit authorization for that exact
-  PR in the current request. See `ship` and `babysit-pr` for the verification gate.
+  PR in the current request; this does not authorize merging. See `ship` and
+  `babysit-pr` for the verification gate.
 - Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.

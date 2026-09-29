@@ -531,12 +531,13 @@ Use this worktree's branch. Batch fixes with one
 `origin/main` only for GitHub conflicts; prefer normal merges on shared
 branches. Behind/pending never justify syncing.
 
-A ship request authorizes a new PR. Push to someone else's PR only with
-explicit authorization for that exact PR in the current request; a link or
-inherited ship authority is insufficient. If authorized, continue through
-`ship`; otherwise prepare the handoff and mark publishing pending authorization.
-Carry each channel's start cursor, grouped reports, evidence, owning seam,
-sibling results, and dispositions into the PR body.
+Ship requests authorize new PRs. Push to someone else's PR requires explicit
+authorization for that exact PR in the current request; links or inherited
+authority don't count. Push authorization doesn't authorize merging; use
+`ship_mode=ready-only` and leave the PR open pending separate merge
+authorization. Without push authorization, hand off and mark publishing
+pending. Carry channel cursors, reports, evidence, owning seams, sibling
+results, and dispositions into the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
 If a tracker was supplied, carry its exact row ids and the reproduction ledger
