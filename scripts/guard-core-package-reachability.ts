@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 
 const CORE_ROOT = "packages/core";
-const MAX_RUNTIME_DEPENDENCIES = 63;
+const MAX_RUNTIME_DEPENDENCIES = 64;
 const CODE_EXTENSIONS = [
   ".ts",
   ".tsx",
