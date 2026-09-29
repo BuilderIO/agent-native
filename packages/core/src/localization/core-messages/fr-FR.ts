@@ -46,6 +46,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "l’action demandée",
   "approval.moreOptions": "Plus d’options d’approbation",
   "approval.question": "Approuver l’exécution de {{tool}} ?",
+  "approval.releaseSummary": "Publier {{release}} sur {{environment}}",
+  "approval.releaseSummaryWithoutEnvironment": "Publier {{release}}",
   "approval.edit": "Modifier",
   "approval.editPrompt":
     "Demande-moi comment modifier cette action avant de réessayer.",
@@ -84,6 +86,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "Non capturé",
   "observability.openFullConversation": "Ouvrir la conversation complète",
   "observability.learnAboutTab": "En savoir plus sur cet onglet",
+  "observability.promoteMustContain": "La réponse doit contenir…",
+  "observability.promoteMustContainLabel":
+    "Texte que la réponse de l’évaluation promue doit contenir",
+  "observability.promoteMustContainOptional":
+    "La réponse doit contenir (facultatif)",
+  "observability.promoteNeedsContains":
+    "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir l’évaluation.",
   "observability.summarizeWithAgent": "Résumer avec l’agent",
   "observability.regenerateSummary": "Régénérer le résumé",
   "observability.summarizeWithAgentHelp":
@@ -394,6 +403,8 @@ const messages: AgentChatTranslation = {
   "integrations.subtitle":
     "Connectez les outils que votre agent peut utiliser.",
   "mcpIntegrations.menuLabel": "Intégrations",
+  "mcpApps.optionalPeerRequired":
+    "Cette application MCP nécessite le paquet {{packageName}}. Installez-le avec {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Connecter les outils et services à l’agent",
   "mcpIntegrations.title": "Connecter des intégrations",
@@ -1377,14 +1388,17 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Nouvelle adresse e-mail",
   "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
   "usage.builderCredits": "Crédits Builder",
+  "featureFlags.builderCreditReferrals.name": "Parrainages de crédits Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "Afficher les détails de parrainage de l’espace de travail Builder connecté dans Utilisation.",
   "usage.inviteFriends": "Inviter des amis",
   "usage.inviteCredits":
     "Gagnez {{amount}} crédits Builder lorsqu’un ami s’abonne.",
   "usage.copyInviteLink": "Copier le lien d’invitation",
   "usage.inviteLinkCopied": "Lien d’invitation copié",
   "usage.creditBalance": "Solde de l’espace de travail",
-  "usage.monthlyPlan": "Forfait mensuel",
-  "usage.dailyFreeLimit": "Limite quotidienne gratuite",
+  "usage.monthlyLimit": "Limite mensuelle",
+  "usage.dailyDefaultLimit": "Limite quotidien par défaut",
   "usage.creditUsedOfLimit": "{{used}} sur {{limit}} utilisés",
   "usage.creditRemaining": "{{amount}} restants",
   "usage.creditUsageUnavailable":

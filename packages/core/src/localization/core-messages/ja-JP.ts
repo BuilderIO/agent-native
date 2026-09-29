@@ -46,6 +46,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "依頼された操作",
   "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
+  "approval.releaseSummary": "{{release}} を {{environment}} にリリース",
+  "approval.releaseSummaryWithoutEnvironment": "{{release}} をリリース",
   "approval.edit": "編集",
   "approval.editPrompt":
     "再試行する前に、この操作をどう変更したいか確認してください。",
@@ -82,6 +84,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未取得",
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
+  "observability.promoteMustContain": "返信に含めるテキスト…",
+  "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
+  "observability.promoteMustContainOptional": "返信に含めるテキスト（任意）",
+  "observability.promoteNeedsContains":
+    "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.summarizeWithAgent": "エージェントで要約",
   "observability.regenerateSummary": "要約を再生成",
   "observability.summarizeWithAgentHelp":
@@ -649,6 +656,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
   "mcpIntegrations.menuLabel": "連携",
+  "mcpApps.optionalPeerRequired":
+    "この MCP アプリには {{packageName}} が必要です。{{installCommand}} でインストールしてください。",
   "mcpIntegrations.menuDescription": "ツールやサービスをエージェントに接続",
   "mcpIntegrations.title": "連携を接続",
   "mcpIntegrations.description":
@@ -1318,14 +1327,17 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
+  "featureFlags.builderCreditReferrals.description":
+    "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
   "usage.copyInviteLink": "招待リンクをコピー",
   "usage.inviteLinkCopied": "招待リンクをコピーしました",
   "usage.creditBalance": "ワークスペース残高",
-  "usage.monthlyPlan": "月間プラン",
-  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.monthlyLimit": "月間上限",
+  "usage.dailyDefaultLimit": "デフォルトの日次上限",
   "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
   "usage.creditRemaining": "残り {{amount}}",
   "usage.creditUsageUnavailable":

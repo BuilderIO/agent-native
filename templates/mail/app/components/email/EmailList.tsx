@@ -42,6 +42,16 @@ import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -88,7 +98,9 @@ import {
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
+  useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
+  useRetryUncertainScheduledEmail,
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
@@ -394,11 +406,9 @@ function EmailErrorState({
     ? getRateLimitRetryMs({ message, retryAfterMs })
     : 0;
   const [cooldownRemaining, setCooldownRemaining] = useState(rateLimitRetryMs);
-  const autoRetryFired = useRef(false);
 
   useEffect(() => {
     setCooldownRemaining(rateLimitRetryMs);
-    autoRetryFired.current = false;
   }, [rateLimitRetryMs]);
 
   const isCoolingDown = cooldownRemaining > 0;
@@ -410,18 +420,9 @@ function EmailErrorState({
     return () => clearInterval(handle);
   }, [isCoolingDown]);
 
-  useEffect(() => {
-    if (!isQuotaError) return;
-    if (autoRetryFired.current) return;
-    if (cooldownRemaining > 0) return;
-    autoRetryFired.current = true;
-    void onRetry();
-  }, [cooldownRemaining, isQuotaError, onRetry]);
-
   const handleClick = useCallback(() => {
     if (cooldownRemaining > 0 || isFetching) return;
     setCooldownRemaining(rateLimitRetryMs);
-    autoRetryFired.current = true;
     void onRetry();
   }, [cooldownRemaining, isFetching, onRetry, rateLimitRetryMs]);
 
@@ -592,6 +593,11 @@ export function EmailList({
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
+  const confirmUncertainScheduled = useConfirmUncertainScheduledEmail();
+  const retryUncertainScheduled = useRetryUncertainScheduledEmail();
+  const [retryUncertainJobId, setRetryUncertainJobId] = useState<string | null>(
+    null,
+  );
   const queryClient = useQueryClient();
   const movableLabels = useMemo(
     () =>
@@ -2100,6 +2106,55 @@ export function EmailList({
     [getScheduledJobId, cancelScheduledJob, t],
   );
 
+  const handleConfirmUncertainScheduled = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const jobId = getScheduledJobId(thread.latestMessage);
+      if (!jobId) return;
+      confirmUncertainScheduled.mutate(
+        { id: jobId },
+        {
+          onSuccess: () => toast(t("mail.toasts.uncertainScheduledMarkedSent")),
+          onError: (error) =>
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("mail.toasts.uncertainScheduledResolveFailed"),
+            ),
+        },
+      );
+    },
+    [getScheduledJobId, confirmUncertainScheduled, t],
+  );
+
+  const handleRetryUncertainScheduled = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const jobId = getScheduledJobId(thread.latestMessage);
+      if (jobId) setRetryUncertainJobId(jobId);
+    },
+    [getScheduledJobId],
+  );
+
+  const handleConfirmRetryUncertainScheduled = useCallback(() => {
+    if (!retryUncertainJobId) return;
+    retryUncertainScheduled.mutate(
+      { id: retryUncertainJobId },
+      {
+        onSuccess: () => {
+          setRetryUncertainJobId(null);
+          toast(t("mail.toasts.uncertainScheduledRetryStarted"));
+        },
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("mail.toasts.uncertainScheduledRetryFailed"),
+          ),
+      },
+    );
+  }, [retryUncertainJobId, retryUncertainScheduled, t]);
+
   const handleSwipeArchive = useCallback(
     (thread: ThreadSummary) => {
       const id = thread.latestMessage.id;
@@ -2711,6 +2766,8 @@ export function EmailList({
                   }
                   onSendNow={handleSendScheduledNow}
                   onCancelSchedule={handleCancelScheduled}
+                  onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
+                  onRetryUncertainScheduled={handleRetryUncertainScheduled}
                   onHover={handleHoverThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}
@@ -2720,6 +2777,27 @@ export function EmailList({
             );
           })}
         </div>
+        <AlertDialog
+          open={retryUncertainJobId !== null}
+          onOpenChange={(open) => !open && setRetryUncertainJobId(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("mail.sendLater.confirmSendNewCopyTitle")}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("mail.sendLater.confirmSendNewCopyDescription")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("mail.compose.cancel")}</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmRetryUncertainScheduled}>
+                {t("mail.sendLater.sendNewCopy")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {/* Sentinel for infinite scroll + loading indicator — lives after the
             virtualizer's sized inner container so it still sits at the true
             end of scrollable content and the IntersectionObserver above

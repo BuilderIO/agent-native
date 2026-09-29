@@ -1162,6 +1162,24 @@ function isRetryableEmailsError(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+export function emailListRefetchInterval(
+  state: { status: string; fetchFailureCount: number; error: unknown },
+  search?: string,
+): number | false {
+  if (
+    search ||
+    isAuthFailure(state.error) ||
+    (state.error as { status?: unknown } | undefined)?.status === 429
+  ) {
+    return false;
+  }
+  const base = 2 * 60_000;
+  if (state.status === "error") {
+    return Math.min(base * (1 + state.fetchFailureCount), 5 * 60_000);
+  }
+  return base;
+}
+
 type EmailQueryKey = readonly [
   "emails" | "email-prefetch",
   string,
@@ -1277,17 +1295,7 @@ export function useEmails(
   const q = useInfiniteQuery({
     ...emailQueryOptions(qc, view, search, label),
     placeholderData: keepPreviousData,
-    refetchInterval: (query: {
-      state: { status: string; fetchFailureCount: number; error: unknown };
-    }) => {
-      if (search) return false;
-      if (isAuthFailure(query.state.error)) return false;
-      const base = 2 * 60_000;
-      if (query.state.status === "error") {
-        return Math.min(base * (1 + query.state.fetchFailureCount), 5 * 60_000);
-      }
-      return base;
-    },
+    refetchInterval: (query) => emailListRefetchInterval(query.state, search),
     refetchOnWindowFocus: false,
     enabled: options?.enabled ?? true,
   });
@@ -1353,6 +1361,7 @@ export function useEmails(
     isLoading: q.isLoading,
     isFetching: q.isFetching,
     isRefetching: q.isRefetching,
+    isPlaceholderData: q.isPlaceholderData,
     isError: q.isError && !hasCurrentQueryData,
     error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,

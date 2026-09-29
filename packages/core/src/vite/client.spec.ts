@@ -13,6 +13,7 @@ import { signEmbedSessionToken } from "../server/embed-session.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
+  _clientOptionalPeerStubPlugin,
   _devActionBridgeOrigin,
   _devActionBridgePlugin,
   _findCorePackageRoot,
@@ -432,6 +433,90 @@ describe("Nitro dev startup recovery", () => {
     expect(recoveryIndex).toBeGreaterThan(nitroIndex);
     expect(plugins[recoveryIndex]?.enforce).toBeUndefined();
     expect(plugins[nitroIndex]?.configureServer?.order).toBeUndefined();
+  });
+});
+
+describe("client optional peer stubs", () => {
+  it("stubs only absent optional client packages and throws typed errors on use", () => {
+    const cwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "core-vite-optional-peer-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({ name: "external-app", dependencies: {} }),
+      );
+      const plugin = _clientOptionalPeerStubPlugin(cwd);
+      const resolveId = plugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      const load = plugin?.load as ((id: string) => string | null) | undefined;
+      const id = resolveId?.("@rrweb/record");
+      expect(id).toBe("\0agent-native-client-optional-peer-stub:@rrweb/record");
+      expect(load?.(String(id))).toContain(
+        'new OptionalPeerDependencyError("@rrweb/record")',
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          dependencies: { "@rrweb/record": "^2.1.0" },
+        }),
+      );
+      const presentPlugin = _clientOptionalPeerStubPlugin(cwd);
+      const presentResolveId = presentPlugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(presentResolveId?.("@rrweb/record")).toBe(null);
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          optionalDependencies: { "@rrweb/record": "^2.1.0" },
+        }),
+      );
+      const optionalPlugin = _clientOptionalPeerStubPlugin(cwd);
+      const optionalResolveId = optionalPlugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(optionalResolveId?.("@rrweb/record")).toBe(null);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves linkedom/worker available to external Core consumers", async () => {
+    const cwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "core-vite-linkedom-consumer-"),
+    );
+    try {
+      const corePackagePath = path.resolve(
+        import.meta.dirname,
+        "../../package.json",
+      );
+      const corePackage = JSON.parse(fs.readFileSync(corePackagePath, "utf-8"));
+      expect(corePackage.dependencies?.linkedom).toBeTruthy();
+      await expect(import("linkedom/worker")).resolves.toHaveProperty(
+        "parseHTML",
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          dependencies: { "@agent-native/core": "^0.0.0" },
+        }),
+      );
+      const plugin = _clientOptionalPeerStubPlugin(cwd);
+      const resolveId = plugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(resolveId?.("linkedom/worker")).toBe(null);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -2349,16 +2434,34 @@ describe("agentNative Vite plugin preset", () => {
   });
 
   it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
-    const plugins = flatPlugins(agentNative());
-    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const previous = {
+      SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+      SENTRY_ORG: process.env.SENTRY_ORG,
+      SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+    };
+    try {
+      delete process.env.SENTRY_AUTH_TOKEN;
+      delete process.env.SENTRY_ORG;
+      delete process.env.SENTRY_PROJECT;
 
-    const config = (await configPlugin.config(
-      {},
-      { command: "build", mode: "production" },
-    )) as any;
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (p) => p?.name === "agent-native-config",
+      );
 
-    expect(config.build.sourcemap).toBe(false);
-    expect(plugins.map((p) => p?.name)).not.toContain("sentry-vite-plugin");
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
+
+      expect(config.build.sourcemap).toBe(false);
+      expect(plugins.map((p) => p?.name)).not.toContain("sentry-vite-plugin");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("emits hidden sourcemaps and adds the Sentry upload plugin when configured", async () => {
@@ -3400,6 +3503,25 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("lets toolkit keep its pinned Tabler copy when the app declares another", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@tabler/icons-react": "^3.46.0",
+          "@tanstack/react-query": "^5.101.2",
+        },
+      }),
+    );
+
+    const dedupe = _getClientDedupe(tmpDir);
+    expect(dedupe).toContain("@tanstack/react-query");
+    expect(dedupe).not.toContain("@tabler/icons-react");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it("pre-optimizes core client deps when core is source-aliased", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
     const coreRoot = path.resolve(import.meta.dirname, "../..");
@@ -3437,7 +3559,7 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain("@agent-native/core/client/widgets");
     expect(deps).toContain("@agent-native/core > @assistant-ui/react");
     expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
-    expect(deps).toContain("@agent-native/core > @sentry/browser");
+    expect(deps).not.toContain("@agent-native/core > @sentry/browser");
     expect(deps).toContain(
       "@agent-native/core > @shadcn/react/message-scroller",
     );
@@ -3932,10 +4054,10 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/core > highlight.js/lib/languages/javascript",
     );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
       "@agent-native/core > @excalidraw/excalidraw",
     );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
       "@agent-native/core > mermaid",
     );
 

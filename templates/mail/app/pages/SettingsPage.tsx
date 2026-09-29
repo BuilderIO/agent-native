@@ -441,7 +441,7 @@ function ActionBadge({ action }: { action: AutomationAction }) {
         ? t("settings.notify")
         : action.type;
   return (
-    <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
+    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
       {label}
     </span>
   );
@@ -527,7 +527,7 @@ function ActionBuilder({
       ))}
       <button
         onClick={addAction}
-        className="text-[12px] text-indigo-400 hover:text-indigo-300"
+        className="text-[12px] text-muted-foreground hover:text-foreground transition-colors"
       >
         {t("settings.addAction")}
       </button>
@@ -567,7 +567,7 @@ function AutomationEditRow({
   };
 
   return (
-    <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4 space-y-3">
+    <div className="rounded-lg border border-border/40 bg-muted/20 p-4 space-y-3">
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
           {t("settings.ruleName")}
@@ -2011,14 +2011,6 @@ function LegacyMailSettings() {
         keywords: "snippets templates canned responses shortcuts",
       },
       {
-        id: "automations",
-        label: t("settings.automations"),
-        icon: IconBolt,
-        group: "automation",
-        content: <AutomationsSection />,
-        keywords: "automations rules triggers events labels model",
-      },
-      {
         id: "ai-filter",
         label: t("settings.aiFilter"),
         icon: IconFilter,
@@ -2026,6 +2018,14 @@ function LegacyMailSettings() {
         content: <AiFilterSection />,
         keywords:
           "ai filter spam auto label unwanted mail suggestions feedback",
+      },
+      {
+        id: "automations",
+        label: t("settings.automations"),
+        icon: IconBolt,
+        group: "automation",
+        content: <AutomationsSection />,
+        keywords: "automations rules triggers events labels model",
       },
       {
         id: "gmail-filters",

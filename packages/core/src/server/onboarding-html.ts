@@ -1,14 +1,4 @@
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
-
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
-import {
-  AuthPage,
-  isVerificationLinkInvalid,
-  type AuthPageProps,
-  type AuthView,
-} from "../client/auth/AuthPage.js";
-import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -19,6 +9,11 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
+import type {
+  AuthPageProps,
+  AuthView,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
   BETA_FORCE_QUERY_PARAM,
@@ -32,7 +27,10 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
-import { signInJourney } from "../shared/sign-in-journey.js";
+import {
+  isVerificationLinkInvalid,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -1114,6 +1112,24 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
+  renderSignInPage?: (props: AuthPageProps) => string;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
 }
 
 function initialAuthView(
@@ -1779,8 +1795,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 2.75rem;
-    padding: 0.75rem;
     text-align: center;
     text-decoration: none;
   }
@@ -2084,7 +2098,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     overflow: hidden;
     padding: 3rem 3.5rem;
   }
-  .auth-marketing-visual > [data-agent-native-starfield] {
+  .auth-marketing-visual > [data-agent-native-marketing-background] {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -2115,6 +2129,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .auth-marketing-home .form-panel > .card { margin-block: auto; }
   @media not all and (min-width: 901px) {
+    .auth-marketing-home .auth-marketing-screenshot-wrap { display: none; }
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
@@ -2208,8 +2223,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     max-width: none;
     max-height: none;
     filter: none;
+    background:
+      radial-gradient(ellipse 82% 72% at 80% 64%, color-mix(in srgb, var(--auth-marketing-foreground) 16%, transparent), transparent 72%),
+      radial-gradient(ellipse 48% 36% at 24% 26%, color-mix(in srgb, var(--auth-marketing-foreground) 8%, transparent), transparent 82%);
   }
-  .auth-marketing-home [data-agent-native-starfield] {
+  .auth-marketing-home [data-agent-native-marketing-background] {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -2260,7 +2278,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
   }
   .auth-marketing-home .auth-marketing-description-link {
-    color: inherit;
+    color: var(--auth-marketing-muted);
     text-decoration: underline;
     text-underline-offset: 0.15em;
     white-space: nowrap;
@@ -2367,6 +2385,23 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .form-panel {
       background: Canvas;
     }
+    .auth-marketing-home .card input {
+      color: var(--auth-marketing-foreground);
+      border-color: var(--auth-marketing-border);
+    }
+    .auth-marketing-home .card input:focus {
+      border-color: color-mix(in srgb, var(--auth-marketing-foreground) 45%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--auth-marketing-foreground) 15%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder {
+      color: var(--auth-marketing-muted);
+      opacity: 1;
+    }
+    .auth-marketing-home .card .btn-google,
+    .auth-marketing-home .card .btn-primary,
+    .auth-marketing-home .card button[type="submit"] {
+      border: 1px solid var(--auth-marketing-border);
+    }
     .auth-marketing-home .app-name img.brand-mark {
       filter: grayscale(1) brightness(0);
     }
@@ -2428,173 +2463,48 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const title = hasMarketing
     ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
     : t("pageTitleWelcome");
-  const authDocumentMarkup = renderToString(
-    createElement(
-      "html",
-      { lang: DEFAULT_LOCALE, dir: "ltr" },
-      createElement(
-        "head",
-        null,
-        createElement("meta", { charSet: "UTF-8" }),
-        createElement("script", {
-          "data-agent-native-locale-init": "",
-          dangerouslySetInnerHTML: { __html: localeInitScript },
-        }),
-        createElement("script", {
-          "data-agent-native-embedded-init": "",
-          dangerouslySetInnerHTML: { __html: embeddedAuthInitScript },
-        }),
-        createElement("meta", {
-          name: "viewport",
-          content:
-            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
-        }),
-        hasMarketing
-          ? [
-              createElement("link", {
-                key: "geist-preconnect",
-                rel: "preconnect",
-                href: "https://fonts.googleapis.com",
-              }),
-              createElement("link", {
-                key: "geist-preconnect-static",
-                rel: "preconnect",
-                href: "https://fonts.gstatic.com",
-                crossOrigin: "anonymous",
-              }),
-              createElement("link", {
-                key: "geist-stylesheet",
-                rel: "stylesheet",
-                href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap",
-              }),
-            ]
-          : null,
-        createElement("title", null, title),
-        createElement("link", {
-          rel: "icon",
-          type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg", appBasePath),
-        }),
-        createElement("link", {
-          rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg", appBasePath),
-        }),
-        hasMarketing
-          ? [
-              createElement("meta", {
-                key: "description",
-                name: "description",
-                content: marketing!.tagline,
-              }),
-              createElement("meta", {
-                key: "og-type",
-                property: "og:type",
-                content: "website",
-              }),
-              socialSiteName
-                ? createElement("meta", {
-                    key: "og-site-name",
-                    property: "og:site_name",
-                    content: socialSiteName,
-                  })
-                : null,
-              socialPageUrl
-                ? createElement("meta", {
-                    key: "og-url",
-                    property: "og:url",
-                    content: socialPageUrl,
-                  })
-                : null,
-              createElement("meta", {
-                key: "og-title",
-                property: "og:title",
-                content: socialAppName,
-              }),
-              createElement("meta", {
-                key: "og-description",
-                property: "og:description",
-                content: marketing!.tagline,
-              }),
-              createElement("meta", {
-                key: "og-image",
-                property: "og:image",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "og-image-secure",
-                property: "og:image:secure_url",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "og-image-type",
-                property: "og:image:type",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-              }),
-              createElement("meta", {
-                key: "og-image-width",
-                property: "og:image:width",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-              }),
-              createElement("meta", {
-                key: "og-image-height",
-                property: "og:image:height",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-              }),
-              createElement("meta", {
-                key: "og-image-alt",
-                property: "og:image:alt",
-                content: socialImageAlt,
-              }),
-              createElement("meta", {
-                key: "twitter-card",
-                name: "twitter:card",
-                content: "summary_large_image",
-              }),
-              createElement("meta", {
-                key: "twitter-image",
-                name: "twitter:image",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "twitter-image-alt",
-                name: "twitter:image:alt",
-                content: socialImageAlt,
-              }),
-            ]
-          : null,
-        createElement("style", {
-          dangerouslySetInnerHTML: {
-            __html: authDocumentStyles + authPageLayoutStyles,
-          },
-        }),
-        createElement("script", {
-          type: "module",
-          src: authClientScriptPath,
-        }),
-      ),
-      createElement(
-        "body",
-        {
-          className: simplifiedAuth
-            ? "simplified-auth"
-            : hasMarketing
-              ? "has-marketing"
-              : undefined,
-        },
-        createElement(
-          "div",
-          { id: "agent-native-auth-root", className: "auth-root" },
-          createElement(AuthPage, authPageProps),
-        ),
-        createElement("script", {
-          type: "application/json",
-          id: "agent-native-auth-data",
-          dangerouslySetInnerHTML: { __html: authPageData },
-        }),
-      ),
-    ),
-  );
-  return `<!DOCTYPE html>${authDocumentMarkup}`;
+  const authPageMarkup = opts.renderSignInPage?.(authPageProps);
+  const fallbackTitle = googleOnly
+    ? t("pageTitleSignIn")
+    : t("pageTitleWelcome");
+  const fallbackDescription = googleOnly
+    ? t("googleOnlySubtitle")
+    : t("createAccountSubtitle");
+  const pageMarkup =
+    authPageMarkup ??
+    `<main class="auth-fallback" aria-live="polite"><h1>${escapeHtml(fallbackTitle)}</h1><p>${escapeHtml(fallbackDescription)}</p></main>`;
+  const fontLinks = hasMarketing
+    ? '<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap"/>'
+    : "";
+  const marketingMeta = hasMarketing
+    ? [
+        `<meta name="description" content="${escapeHtml(marketing!.tagline)}"/>`,
+        '<meta property="og:type" content="website"/>',
+        socialSiteName
+          ? `<meta property="og:site_name" content="${escapeHtml(socialSiteName)}"/>`
+          : "",
+        socialPageUrl
+          ? `<meta property="og:url" content="${escapeHtml(socialPageUrl)}"/>`
+          : "",
+        `<meta property="og:title" content="${escapeHtml(socialAppName ?? "")}"/>`,
+        `<meta property="og:description" content="${escapeHtml(marketing!.tagline)}"/>`,
+        `<meta property="og:image" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta property="og:image:secure_url" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}"/>`,
+        `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}"/>`,
+        `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}"/>`,
+        `<meta property="og:image:alt" content="${escapeHtml(socialImageAlt)}"/>`,
+        '<meta name="twitter:card" content="summary_large_image"/>',
+        `<meta name="twitter:image" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta name="twitter:image:alt" content="${escapeHtml(socialImageAlt)}"/>`,
+      ].join("")
+    : "";
+  const bodyClass = simplifiedAuth
+    ? "simplified-auth"
+    : hasMarketing
+      ? "has-marketing"
+      : "";
+  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/><script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style><script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
 }
 
 const RESET_PASSWORD_STYLES = `
@@ -2619,7 +2529,10 @@ const RESET_PASSWORD_STYLES = `
   .back:hover { color: #bbb; }
 `;
 
-export function getResetPasswordHtml(requestPath?: string): string {
+export function getResetPasswordHtml(
+  requestPath?: string,
+  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(requestPath);
@@ -2629,54 +2542,9 @@ export function getResetPasswordHtml(requestPath?: string): string {
     passwordMinLength: PASSWORD_MIN_LENGTH,
     passwordMaxLength: PASSWORD_MAX_LENGTH,
   };
-  const resetDocumentMarkup = renderToString(
-    createElement(
-      "html",
-      { lang: "en", dir: "ltr" },
-      createElement(
-        "head",
-        null,
-        createElement("meta", { charSet: "UTF-8" }),
-        createElement("meta", {
-          name: "viewport",
-          content:
-            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
-        }),
-        createElement("title", null, "Reset password"),
-        createElement("link", {
-          rel: "icon",
-          type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg", appBasePath),
-        }),
-        createElement("link", {
-          rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg", appBasePath),
-        }),
-        createElement("style", {
-          dangerouslySetInnerHTML: { __html: RESET_PASSWORD_STYLES },
-        }),
-        createElement("script", {
-          type: "module",
-          src: authClientAssetPath(appBasePath),
-        }),
-      ),
-      createElement(
-        "body",
-        null,
-        createElement(
-          "div",
-          { id: "agent-native-auth-root" },
-          createElement(ResetPasswordPage, resetPageProps),
-        ),
-        createElement("script", {
-          type: "application/json",
-          id: "agent-native-auth-data",
-          dangerouslySetInnerHTML: {
-            __html: serializeAuthPageData(resetPageProps),
-          },
-        }),
-      ),
-    ),
-  );
-  return `<!DOCTYPE html>${resetDocumentMarkup}`;
+  const pageMarkup = renderResetPasswordPage?.(resetPageProps);
+  const resetMarkup =
+    pageMarkup ??
+    '<main class="card"><h1>Reset password</h1><p class="subtitle">Reset your password</p></main>';
+  return `<!DOCTYPE html><html lang="en" dir="ltr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><title>Reset password</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/><style>${RESET_PASSWORD_STYLES}</style><script type="module" src="${escapeHtml(authClientAssetPath(appBasePath))}"></script></head><body><div id="agent-native-auth-root"${pageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${resetMarkup}</div><script type="application/json" id="agent-native-auth-data">${serializeAuthPageData(resetPageProps)}</script></body></html>`;
 }

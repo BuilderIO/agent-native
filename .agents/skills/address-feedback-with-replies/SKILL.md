@@ -79,10 +79,12 @@ it over.
   exhausted; do not ask for evidence already present in Slack or the app.
 - Search recent Slack history, local Git history, and merged PRs for repeat
   reports and existing fixes before editing.
-- Re-read dirty files before edits. In task-owned worktrees, make safe task
-  branch changes without asking; preserve peer changes and never move peer
-  branches. Do not reset, stash, or overwrite peer work. Ask before branch
-  changes in shared checkouts.
+- Re-read dirty files. In task worktrees, make needed branch changes without
+  asking; preserve peer work and branches. Keep shared checkouts on their
+  current branch. Explicit ship/PR requests authorize a managed task worktree
+  from the base selected by `new-branch` when needed; carry only this task's
+  changes there.
+  Never reset, stash, or overwrite peer work.
 
 ## Slack identity
 

@@ -732,7 +732,8 @@ function hasDep(pkg: string, cwd: string): boolean {
     return !!(
       pkgJson.dependencies?.[pkg] ||
       pkgJson.devDependencies?.[pkg] ||
-      pkgJson.peerDependencies?.[pkg]
+      pkgJson.peerDependencies?.[pkg] ||
+      pkgJson.optionalDependencies?.[pkg]
     );
   } catch {
     return false;
@@ -746,7 +747,10 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
     const pkgJson = JSON.parse(
       fs.readFileSync(path.join(coreRoot, "package.json"), "utf-8"),
     );
-    return !!(pkgJson.dependencies?.[pkg] || pkgJson.devDependencies?.[pkg]);
+    return !!(
+      pkgJson.dependencies?.[pkg] ||
+      (findCoreSrcDir(cwd) && pkgJson.devDependencies?.[pkg])
+    );
   } catch {
     return false;
   }
@@ -784,6 +788,11 @@ function getClientDedupe(cwd: string): string[] {
     "@tailwindcss/vite",
   ]);
 
+  // Stateless, so one copy is not required. Forcing the app's copy breaks
+  // toolkit's generated icon catalog, which imports every export of the exact
+  // Tabler version toolkit pins; newer Tabler releases rename icons.
+  const versionPinnedByDependents = new Set(["@tabler/icons-react"]);
+
   try {
     const corePkgPath = path.resolve(__dirname, "../../package.json");
     const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
@@ -802,7 +811,7 @@ function getClientDedupe(cwd: string): string[] {
     ]);
 
     for (const dep of coreDeps) {
-      if (serverOnly.has(dep)) continue;
+      if (serverOnly.has(dep) || versionPinnedByDependents.has(dep)) continue;
       if (
         appDeps.has(dep) ||
         dep.startsWith("@radix-ui/") ||
@@ -1045,7 +1054,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           // imports. Eagerly including every leaf would rebuild the old
           // all-app prebundle under a different set of entry names.
         ] as Array<{ specifier: string; packageName?: string }>)),
-    { specifier: "@amplitude/analytics-browser" },
+    ...(hasDep("@amplitude/analytics-browser", cwd)
+      ? [{ specifier: "@amplitude/analytics-browser" }]
+      : []),
     { specifier: "@assistant-ui/react" },
     { specifier: "@assistant-ui/react-markdown" },
     { specifier: "@assistant-ui/store" },
@@ -1108,7 +1119,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-toggle" },
     { specifier: "@radix-ui/react-toggle-group" },
     { specifier: "@radix-ui/react-tooltip" },
-    { specifier: "@sentry/browser" },
+    ...(hasDep("@sentry/browser", cwd)
+      ? [{ specifier: "@sentry/browser" }]
+      : []),
     {
       specifier: "@shadcn/react/message-scroller",
       packageName: "@shadcn/react",
@@ -1174,7 +1187,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "input-otp" },
     { specifier: "lowlight" },
     { specifier: "mermaid" },
-    { specifier: "nanoid" },
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },
@@ -2448,6 +2460,69 @@ const ALWAYS_SSR_STUBBED = [
   "@xterm/addon-fit",
   "@xterm/addon-web-links",
 ];
+
+const CLIENT_OPTIONAL_PEER_EXPORTS: Record<string, string[]> = {
+  "@amplitude/analytics-browser": ["init", "track"],
+  "@excalidraw/excalidraw": ["convertToExcalidrawElements", "exportToSvg"],
+  "@excalidraw/mermaid-to-excalidraw": ["parseMermaidToExcalidraw"],
+  "@rrweb/record": ["record"],
+  "@sentry/browser": [
+    "captureException",
+    "init",
+    "setTag",
+    "setUser",
+    "withScope",
+  ],
+  "@xterm/addon-fit": ["FitAddon"],
+  "@xterm/addon-web-links": ["WebLinksAddon"],
+  "@xterm/xterm": ["Terminal"],
+  mermaid: [],
+};
+
+function clientOptionalPeerStubPlugin(cwd: string): Plugin | null {
+  const missing = new Set(
+    Object.keys(CLIENT_OPTIONAL_PEER_EXPORTS).filter(
+      (packageName) =>
+        !hasDep(packageName, cwd) &&
+        !(findCoreSrcDir(cwd) && hasCoreDep(packageName, cwd)),
+    ),
+  );
+  if (!missing.size) return null;
+
+  const stubIdPrefix = "\0agent-native-client-optional-peer-stub:";
+  const coreSourceDir = findCoreSrcDir(cwd);
+  const errorModule = coreSourceDir
+    ? path.join(coreSourceDir, "shared/optional-peer.ts").replaceAll("\\", "/")
+    : "@agent-native/core/shared/optional-peer";
+
+  return {
+    name: "agent-native-client-optional-peer-stub",
+    enforce: "pre",
+    resolveId(id) {
+      const packageName = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return missing.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    },
+    load(id) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      const packageName = id.slice(stubIdPrefix.length);
+      const exports = CLIENT_OPTIONAL_PEER_EXPORTS[packageName] ?? [];
+      return [
+        `import { OptionalPeerDependencyError } from ${JSON.stringify(errorModule)};`,
+        `function missingOptionalPeer() { throw new OptionalPeerDependencyError(${JSON.stringify(packageName)}); }`,
+        ...exports.map((name) => `export const ${name} = missingOptionalPeer;`),
+        ...(packageName === "mermaid"
+          ? [
+              "const mermaid = new Proxy({}, { get: () => missingOptionalPeer });",
+              "export default mermaid;",
+            ]
+          : []),
+      ].join("\n");
+    },
+  };
+}
 
 function ssrStubPlugin(packages: string[]): Plugin | null {
   if (!packages.length) return null;
@@ -3747,12 +3822,13 @@ function createAgentNativePlugins(
     userPlugins?: any[];
   },
 ): any[] {
+  const cwd = process.cwd();
   const { appBasePath } = getConfiguredAppBasePath();
-  const nitroPlugin = createNitroDevPlugin(options, appBasePath, process.cwd());
+  const nitroPlugin = createNitroDevPlugin(options, appBasePath, cwd);
   const includeNitro = !isBuildCommand(command);
   const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
   const runtimeEnv = resolveAgentNativeRuntimeEnv(
-    process.cwd(),
+    cwd,
     process.env.NODE_ENV === "production" ? "production" : "development",
   );
   const enterpriseAuthAdaptersEnabled = [
@@ -3775,6 +3851,7 @@ function createAgentNativePlugins(
       ...(options.ssrStubs ?? []),
     ]),
     enterpriseAuthAdapterStubPlugin(enterpriseAuthAdaptersEnabled),
+    clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
     appChangelogRawPlugin(),
@@ -4313,6 +4390,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 }
 
 export {
+  clientOptionalPeerStubPlugin as _clientOptionalPeerStubPlugin,
   devActionBridgePlugin as _devActionBridgePlugin,
   devActionBridgeOrigin as _devActionBridgeOrigin,
   getClientDedupe as _getClientDedupe,

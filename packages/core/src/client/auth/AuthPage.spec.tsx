@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { getOnboardingHtml } from "../../server/onboarding-html.js";
+import { getOnboardingHtml as getCoreOnboardingHtml } from "../../server/onboarding-html.js";
 import {
   AuthPage,
   isAuthenticatedAuthSession,
@@ -17,6 +17,14 @@ import {
   shouldStartWithLocalDev,
   type AuthPageProps,
 } from "./AuthPage.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(<AuthPage {...props} />)),
+  });
 
 function propsFromHtml(html: string): AuthPageProps {
   const match = html.match(
@@ -202,14 +210,25 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("offers the existing federation flow when identity SSO is available", () => {
+  it("offers manual federation only when silent sign-in is unavailable", () => {
     const props = propsFromHtml(getOnboardingHtml());
-    const html = renderToString(<AuthPage {...props} identitySsoEnabled />);
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto={false} />,
+    );
 
     expect(html).toContain('id="identity-sso-btn"');
     expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
     expect(html).toContain("Continue with Agent-Native");
     expect(html).toContain("Use the same verified email");
+  });
+
+  it("keeps the manual federation CTA off canonical pages with silent sign-in", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
   });
 
   it("keeps the federation CTA off auth pages without an available hub", () => {

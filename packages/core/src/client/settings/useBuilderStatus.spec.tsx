@@ -1013,7 +1013,8 @@ describe("useBuilderConnectFlow", () => {
       envManaged: true,
       credentialSource: "env",
     };
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(deploymentManagedStatus));
+    const fetchMock = vi.fn(async () => jsonResponse(deploymentManagedStatus));
+    vi.stubGlobal("fetch", fetchMock);
     const onConnected = vi.fn();
 
     await act(async () => {
@@ -1054,7 +1055,7 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured connecting resolved");
     expect(onConnected).not.toHaveBeenCalled();
 
-    vi.mocked(fetch).mockResolvedValue(
+    fetchMock.mockResolvedValue(
       jsonResponse({
         ...deploymentManagedStatus,
         credentialSource: "user",
@@ -1608,6 +1609,48 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).not.toContain(
       "Couldn't start Builder connect",
     );
+  });
+
+  it("backs off Builder status polling after failed reads", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...connectedBuilderStatus,
+          configured: false,
+          connectUrl: signedConnectUrl,
+        }),
+      )
+      .mockResolvedValue(new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => popup.fireLoad());
+
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(3999));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await act(async () => vi.advanceTimersByTimeAsync(7999));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("ignores duplicate callback success messages", async () => {

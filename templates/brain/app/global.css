@@ -122,8 +122,7 @@
   display: grid;
   width: 100%;
   max-width: min(684px, 90%);
-  gap: 0.5rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 
@@ -132,8 +131,7 @@
   display: grid;
   width: 100%;
   max-width: min(684px, 90%);
-  gap: 0.5rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 
@@ -144,13 +142,6 @@
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.12;
-}
-
-.brain-chat-intro p {
-  margin: 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.9375rem;
-  line-height: 1.5;
 }
 
 .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
@@ -198,7 +189,6 @@
   .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .brain-chat-intro {
     width: 100%;
-    margin-bottom: 0.875rem;
   }
 
   .brain-chat-intro h1 {

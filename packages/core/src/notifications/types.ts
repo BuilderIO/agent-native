@@ -19,6 +19,7 @@ export interface NotificationInput {
   body?: string;
   metadata?: Record<string, unknown>;
   channels?: string[];
+  idempotencyKey?: string;
 }
 
 export interface NotificationMeta {
@@ -30,5 +31,6 @@ export interface NotificationChannel {
   deliver(
     input: NotificationInput,
     meta: NotificationMeta,
+    options?: { signal?: AbortSignal },
   ): void | boolean | Promise<void | boolean>;
 }

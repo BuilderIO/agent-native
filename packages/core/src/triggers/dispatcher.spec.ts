@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { startIntervalJob } from "../server/interval-job.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -38,14 +39,33 @@ const startRunMock = vi.hoisted(() => vi.fn());
 const triggerQueueMocks = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
   let sequence = 0;
+  let sweepCursor: string | null = null;
   return {
     rows,
+    get sweepCursor() {
+      return sweepCursor;
+    },
     reset() {
       rows.length = 0;
       sequence = 0;
+      sweepCursor = null;
     },
     ensure: vi.fn(async () => {}),
     purge: vi.fn(async () => 0),
+    expire: vi.fn(async (input: Record<string, any>) => {
+      const staleRows = rows.filter(
+        (row) =>
+          row.appId === input.appId &&
+          row.eventName === input.eventName &&
+          row.status === "pending" &&
+          Date.parse(row.emittedAt) < Date.parse(input.emittedBefore),
+      );
+      for (const row of staleRows.slice(0, input.limit ?? 1_000)) {
+        row.status = "completed";
+        row.lastError = input.reason;
+      }
+      return Math.min(staleRows.length, input.limit ?? 1_000);
+    }),
     enqueue: vi.fn(async (input: Record<string, any>) => {
       const existing = rows.find(
         (row) =>
@@ -65,19 +85,42 @@ const triggerQueueMocks = vi.hoisted(() => {
       });
       return { id, inserted: true };
     }),
-    ready: vi.fn(async (appId?: string | null) => [
-      ...new Set(
-        rows
+    ready: vi.fn(
+      async (
+        appId?: string | null,
+        limit = 100,
+        cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
+      ) =>
+        [
+          ...new Set(
+            rows
+              .filter(
+                (row) =>
+                  row.status === "pending" &&
+                  row.availableAt <= Date.now() &&
+                  row.appId === (appId ?? null),
+              )
+              .sort((a, b) => a.triggerId.localeCompare(b.triggerId))
+              .map((row) => row.triggerId),
+          ),
+        ]
           .filter(
-            (row) =>
-              row.status === "pending" &&
-              row.availableAt <= Date.now() &&
-              row.appId === (appId ?? null),
+            (triggerId) =>
+              (cursor.afterTriggerId === undefined ||
+                triggerId > cursor.afterTriggerId) &&
+              (cursor.throughTriggerId === undefined ||
+                triggerId <= cursor.throughTriggerId),
           )
-          .sort((a, b) => a.sequenceId - b.sequenceId)
-          .map((row) => row.triggerId),
-      ),
-    ]),
+          .slice(0, limit),
+    ),
+    getSweepCursor: vi.fn(async () => sweepCursor),
+    setSweepCursor: vi.fn(
+      async (_appId: string | null, triggerId: string | null) => {
+        sweepCursor = triggerId;
+      },
+    ),
+    reservePurge: vi.fn(async () => false),
+    schedulePurge: vi.fn(async () => {}),
     claim: vi.fn(async (triggerId: string, appId?: string | null) => {
       const row = rows
         .filter(
@@ -159,6 +202,8 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
+const isProductionServerlessRuntimeMock = vi.hoisted(() => vi.fn(() => false));
+const registerRecurringSweepHandlerMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   organizationIdFromResourceOwner: (owner: string) =>
@@ -180,7 +225,11 @@ vi.mock("../event-bus/index.js", () => ({
 vi.mock("../server/interval-job.js", () => ({
   startIntervalJob: vi.fn(() => ({ stop: vi.fn() })),
 }));
+vi.mock("../jobs/sweep-hooks.js", () => ({
+  registerRecurringSweepHandler: registerRecurringSweepHandlerMock,
+}));
 vi.mock("./event-queue.js", () => ({
+  AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE: 1_000,
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE: 1_000,
   MAX_AUTOMATION_TRIGGER_EVENT_FAILURES: 8,
   claimNextAutomationTriggerEvent: triggerQueueMocks.claim,
@@ -188,9 +237,29 @@ vi.mock("./event-queue.js", () => ({
   enqueueAutomationTriggerEvent: triggerQueueMocks.enqueue,
   ensureAutomationTriggerEventQueue: triggerQueueMocks.ensure,
   failAutomationTriggerEvent: triggerQueueMocks.fail,
+  expireAutomationTriggerEvent: vi.fn(
+    async (id: string, claimedAt: number, attempts: number, reason: string) => {
+      const row = triggerQueueMocks.rows.find(
+        (candidate) => candidate.id === id,
+      );
+      if (
+        row?.status === "processing" &&
+        row.claimedAt === claimedAt &&
+        row.attempts === attempts
+      ) {
+        row.status = "completed";
+        row.lastError = reason;
+      }
+    },
+  ),
+  expireStaleAutomationTriggerEvents: triggerQueueMocks.expire,
+  getAutomationTriggerSweepCursor: triggerQueueMocks.getSweepCursor,
   listReadyAutomationTriggerIds: triggerQueueMocks.ready,
   purgeExpiredAutomationTriggerEvents: triggerQueueMocks.purge,
+  reserveAutomationTriggerEventPurge: triggerQueueMocks.reservePurge,
   retryAutomationTriggerEvent: triggerQueueMocks.retry,
+  scheduleAutomationTriggerEventPurge: triggerQueueMocks.schedulePurge,
+  setAutomationTriggerSweepCursor: triggerQueueMocks.setSweepCursor,
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
@@ -265,6 +334,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   return {
     ...actual,
     getDbExec: getDbExecMock,
+    isProductionServerlessFunctionRuntime: isProductionServerlessRuntimeMock,
   };
 });
 
@@ -295,6 +365,7 @@ describe("trigger dispatcher", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
@@ -383,6 +454,575 @@ Respond to the event.`,
       ).toBe(status);
     });
   }
+
+  it("drains queued events within the durable sweep without starting request intervals", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.event.fired";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    expect(startIntervalJob).not.toHaveBeenCalled();
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    expect(eventHandler).toBeTypeOf("function");
+    for (let index = 0; index < 6; index += 1) {
+      await eventHandler(
+        { messageId: `message-${index}` },
+        {
+          owner: "alice+triggers@agent-native.test",
+          eventId: `event-${index}`,
+          emittedAt: new Date().toISOString(),
+        },
+      );
+    }
+
+    expect(triggerQueueMocks.rows).toHaveLength(6);
+    expect(
+      triggerQueueMocks.rows.every((row) => row.status === "pending"),
+    ).toBe(true);
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    const runner = await import("../jobs/background-automation-runner.js");
+    const runSpy = vi.spyOn(runner, "runBackgroundAutomation");
+    try {
+      const deadlineAt = Date.now() + 90_000;
+      await sweep?.({ deadlineAt });
+      await waitForEvent("event-1");
+      await waitForEvent("event-5");
+      expect(triggerQueueMocks.ready).toHaveBeenCalledWith(
+        "mail",
+        100,
+        expect.any(Object),
+      );
+      expect(
+        triggerQueueMocks.rows.every((row) => row.status === "completed"),
+      ).toBe(true);
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(6);
+      expect(runSpy).toHaveBeenCalledTimes(6);
+      for (const [options] of runSpy.mock.calls) {
+        expect(options.hardDeadlineAt).toBeTypeOf("number");
+        expect(options.hardDeadlineAt).toBeGreaterThan(Date.now());
+        expect(options.hardDeadlineAt).toBeLessThanOrEqual(deadlineAt - 30_000);
+      }
+    } finally {
+      runSpy.mockRestore();
+    }
+  });
+
+  it("keeps five rolling workers busy fairly across five FIFO trigger queues", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.hot.fired";
+    const triggerIds = Array.from(
+      { length: 5 },
+      (_, index) => `trigger-${String(index).padStart(2, "0")}`,
+    );
+    resourceListAllOwnersMock.mockResolvedValue(
+      triggerIds.map((id) => ({
+        id,
+        owner: "alice+triggers@agent-native.test",
+        path: `jobs/${id}.md`,
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      })),
+    );
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    for (const eventId of ["first-event", "second-event"]) {
+      await eventHandler?.(
+        { messageId: eventId },
+        {
+          owner: "alice+triggers@agent-native.test",
+          eventId,
+          emittedAt: new Date().toISOString(),
+        },
+      );
+    }
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    const starts: Array<{ triggerId: string; eventId: string }> = [];
+    const pending: Array<{
+      triggerId: string;
+      settled: boolean;
+      finish: () => void;
+    }> = [];
+    const activeByTrigger = new Set<string>();
+    let activeRuns = 0;
+    let maxActiveRuns = 0;
+    let concurrentSameTrigger = false;
+    runAgentLoopMock.mockImplementation((rawOptions: unknown) => {
+      const options = rawOptions as {
+        messages: Array<{ content: Array<{ text: string }> }>;
+        automation: { triggerName: string };
+      };
+      const prompt = options.messages[0]?.content[0]?.text ?? "";
+      const eventId = prompt.match(/^Event ID: (.+)$/m)?.[1] ?? "unknown";
+      const triggerId = options.automation.triggerName;
+      if (activeByTrigger.has(triggerId)) concurrentSameTrigger = true;
+      activeByTrigger.add(triggerId);
+      activeRuns += 1;
+      maxActiveRuns = Math.max(maxActiveRuns, activeRuns);
+      starts.push({ triggerId, eventId });
+      return new Promise((resolve) => {
+        const run = {
+          triggerId,
+          settled: false,
+          finish: () => {
+            if (run.settled) return;
+            run.settled = true;
+            activeRuns -= 1;
+            activeByTrigger.delete(triggerId);
+            resolve({
+              inputTokens: 200,
+              outputTokens: 50,
+              cacheReadTokens: 20,
+              cacheWriteTokens: 10,
+              engineName: "test-engine",
+              model: "test-model",
+            });
+          },
+        };
+        pending.push(run);
+      });
+    });
+
+    const deadlineAt = Date.now() + 90_000;
+    const sweepPromise = sweep?.({ deadlineAt });
+    await vi.waitFor(() => expect(starts).toHaveLength(5));
+    expect(starts.map(({ triggerId }) => triggerId)).toEqual(triggerIds);
+    expect(maxActiveRuns).toBe(5);
+    expect(activeRuns).toBe(5);
+    expect(triggerQueueMocks.sweepCursor).toBe("trigger-04");
+
+    pending.find((run) => run.triggerId === "trigger-00")?.finish();
+    await vi.waitFor(() => expect(starts).toHaveLength(6));
+    expect(starts[5]).toEqual({
+      triggerId: "trigger-00",
+      eventId: "second-event",
+    });
+    expect(triggerQueueMocks.sweepCursor).toBe("trigger-00");
+    expect(maxActiveRuns).toBe(5);
+    expect(concurrentSameTrigger).toBe(false);
+
+    while (starts.length < 10) {
+      const before = starts.length;
+      pending
+        .find((run) => !run.settled && activeByTrigger.has(run.triggerId))
+        ?.finish();
+      await vi.waitFor(() => expect(starts.length).toBeGreaterThan(before));
+    }
+    for (const run of pending) {
+      if (!run.settled && activeByTrigger.has(run.triggerId)) run.finish();
+    }
+    await sweepPromise;
+
+    for (const triggerId of triggerIds) {
+      expect(
+        starts
+          .filter((run) => run.triggerId === triggerId)
+          .map((run) => run.eventId),
+      ).toEqual(["first-event", "second-event"]);
+    }
+    expect(maxActiveRuns).toBe(5);
+    expect(concurrentSameTrigger).toBe(false);
+    expect(
+      triggerQueueMocks.rows.every((row) => row.status === "completed"),
+    ).toBe(true);
+  });
+
+  it("stops refilling trigger drains when less than the minimum run window remains", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.deadline.fired";
+    const triggerIds = Array.from(
+      { length: 6 },
+      (_, index) => `trigger-${String(index).padStart(2, "0")}`,
+    );
+    resourceListAllOwnersMock.mockResolvedValue(
+      triggerIds.map((id) => ({
+        id,
+        owner: "alice+triggers@agent-native.test",
+        path: `jobs/${id}.md`,
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      })),
+    );
+
+    await initTriggerDispatcher({
+      appId: "calendar",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    await eventHandler?.(
+      { messageId: "deadline-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "deadline-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    const starts: string[] = [];
+    const pending: Array<() => void> = [];
+    runAgentLoopMock.mockImplementation((rawOptions: unknown) => {
+      const options = rawOptions as {
+        automation: { triggerName: string };
+      };
+      starts.push(options.automation.triggerName);
+      return new Promise((resolve) => {
+        pending.push(() =>
+          resolve({
+            inputTokens: 200,
+            outputTokens: 50,
+            cacheReadTokens: 20,
+            cacheWriteTokens: 10,
+            engineName: "test-engine",
+            model: "test-model",
+          }),
+        );
+      });
+    });
+
+    let now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const deadlineAt = now + 90_000;
+    const sweepPromise = sweep?.({ deadlineAt });
+    try {
+      await vi.waitFor(() => expect(starts).toHaveLength(5));
+      now = deadlineAt - 40_000;
+      pending[0]?.();
+      await vi.waitFor(() =>
+        expect(
+          triggerQueueMocks.rows.find((row) => row.eventId === "deadline-event")
+            ?.status,
+        ).toBe("completed"),
+      );
+      expect(starts).toHaveLength(5);
+      for (const finish of pending) finish();
+      await sweepPromise;
+      expect(starts).toHaveLength(5);
+      expect(
+        triggerQueueMocks.rows.filter((row) => row.status === "completed"),
+      ).toHaveLength(5);
+      expect(
+        triggerQueueMocks.rows.filter((row) => row.status === "pending"),
+      ).toHaveLength(1);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("continues across bounded trigger pages without starving later triggers", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.bulk.fired";
+    const resources = Array.from({ length: 101 }, (_, index) => {
+      const id = `resource-${String(index).padStart(3, "0")}`;
+      return {
+        id,
+        owner: "alice+triggers@agent-native.test",
+        path: `jobs/${id}.md`,
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      };
+    });
+    resourceListAllOwnersMock.mockResolvedValue(resources);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    await eventHandler?.(
+      { messageId: "bulk-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "bulk-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+      expect(triggerQueueMocks.rows).toHaveLength(101);
+      expect(
+        triggerQueueMocks.rows.every((row) => row.status === "completed"),
+      ).toBe(true);
+      expect(triggerQueueMocks.ready.mock.calls.length).toBeGreaterThan(2);
+      expect(
+        triggerQueueMocks.ready.mock.calls.some(
+          ([, , cursor]) => cursor?.afterTriggerId !== undefined,
+        ),
+      ).toBe(true);
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(101);
+      expect(info).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "claimed=101, completed=101, retried=0, failed=0, expired=0",
+        ),
+      );
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("expires stale mail events in in-process and durable drains", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: mail.message.received\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === "mail.message.received",
+    )?.[1];
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    await eventHandler?.(
+      { messageId: "stale-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "stale-in-process-event",
+        emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(triggerQueueMocks.rows[0]?.status).toBe("completed"),
+    );
+
+    expect(triggerQueueMocks.rows[0]).toMatchObject({
+      status: "completed",
+      lastError: "Expired because the mail event was older than 60 minutes.",
+    });
+    await vi.waitFor(() =>
+      expect(info).toHaveBeenCalledWith(
+        "[triggers] Expired 1 stale mail.message.received events from in-process drain.",
+      ),
+    );
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+
+    triggerQueueMocks.reset();
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await eventHandler?.(
+      { messageId: "stale-serverless-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "stale-serverless-event",
+        emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      },
+    );
+    expect(triggerQueueMocks.rows[0]?.status).toBe("pending");
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.rows[0]).toMatchObject({
+      status: "completed",
+      lastError: "Expired because the mail event was older than 60 minutes.",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      "[triggers] Expired 1 stale mail.message.received events during durable queue drain.",
+    );
+    info.mockRestore();
+  });
+
+  it("drains stale mail events inline while fresh triggers run in the same sweep", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "mail.message.received";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "fresh-trigger",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/z-fresh-trigger.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const now = Date.now();
+    await triggerQueueMocks.enqueue({
+      appId: "mail",
+      triggerId: "fresh-trigger",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/z-fresh-trigger.md",
+      eventName,
+      eventId: "fresh-event",
+      payload: { messageId: "fresh-message" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date(now).toISOString(),
+    });
+
+    const staleEmittedAt = new Date(now - 2 * 60 * 60_000).toISOString();
+    const staleTriggerIds = Array.from(
+      { length: 100 },
+      (_, index) => `a-stale-trigger-${String(index).padStart(3, "0")}`,
+    );
+    for (let index = 0; index < 2_000; index += 1) {
+      const triggerId = staleTriggerIds[index % staleTriggerIds.length]!;
+      triggerQueueMocks.rows.push({
+        appId: "mail",
+        id: `stale-${index}`,
+        sequenceId: index + 2,
+        triggerId,
+        triggerOwner: "alice+triggers@agent-native.test",
+        triggerPath: `jobs/${triggerId}.md`,
+        eventName,
+        eventId: `stale-event-${index}`,
+        payload: {},
+        eventOwner: "alice+triggers@agent-native.test",
+        emittedAt: staleEmittedAt,
+        status: "pending",
+        attempts: 0,
+        failureAttempts: 0,
+        availableAt: 0,
+      });
+    }
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    await sweep?.({ deadlineAt: now + 90_000 });
+
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(3);
+    expect(
+      triggerQueueMocks.expire.mock.invocationCallOrder.at(-1),
+    ).toBeLessThan(triggerQueueMocks.ready.mock.invocationCallOrder[0]!);
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const prompt =
+      runAgentLoopMock.mock.calls[0]?.[0].messages[0]?.content[0]?.text;
+    expect(prompt).toContain("Event ID: fresh-event");
+    expect(prompt).not.toContain("stale-event-");
+    expect(
+      triggerQueueMocks.rows.find((row) => row.eventId === "fresh-event")
+        ?.status,
+    ).toBe("completed");
+    expect(
+      triggerQueueMocks.rows.some(
+        (row) =>
+          row.triggerId.startsWith("a-stale-trigger-") &&
+          row.status === "completed" &&
+          row.lastError ===
+            "Expired because the mail event was older than 60 minutes.",
+      ),
+    ).toBe(true);
+    expect(
+      triggerQueueMocks.rows.filter(
+        (row) =>
+          row.triggerId.startsWith("a-stale-trigger-") &&
+          row.status === "completed",
+      ),
+    ).toHaveLength(2_000);
+  });
+
+  it("skips queue purging when the sweep has less than three query budgets left", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "calendar",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    await sweep?.({ deadlineAt: Date.now() + 30_000 });
+
+    expect(triggerQueueMocks.reservePurge).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.purge).not.toHaveBeenCalled();
+  });
+
+  it("surfaces durable trigger queue failures to the sweep", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.event.failed";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    expect(sweep).toBeTypeOf("function");
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    expect(eventHandler).toBeTypeOf("function");
+    await eventHandler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-failed",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    const queueError = new Error("queue claim failed");
+    triggerQueueMocks.claim.mockRejectedValueOnce(queueError);
+    await expect(sweep?.({ deadlineAt: Date.now() + 90_000 })).rejects.toBe(
+      queueError,
+    );
+    expect(triggerQueueMocks.rows[0]?.status).toBe("pending");
+  });
 
   it("queues a second event while the prior run is active and drains it FIFO", async () => {
     let releaseFirstRun!: () => void;

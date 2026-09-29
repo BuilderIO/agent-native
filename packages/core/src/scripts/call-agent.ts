@@ -50,6 +50,7 @@ import {
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
+import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
@@ -597,7 +598,7 @@ function stringifyManagedAgentApprovalInput(
 
 export const tool: ActionTool = {
   description:
-    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Ask a DIFFERENT, separately-deployed app's agent over A2A. ONLY use it when the user's requested outcome depends on data or a capability only that app can provide, or the user explicitly asks you to involve it; availability alone is not a reason. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
@@ -720,6 +721,19 @@ export async function run(
       selfAppId,
       buildDelegationCorrelation(context, selfAppId),
       action ? "direct_action" : taskId ? "task_poll" : "message",
+    );
+  }
+  const targetHandle =
+    normalizeAppHandle((agent as { id?: string }).id) ||
+    normalizeAppHandle(agent.name) ||
+    normalizeAppHandle(agentIdOrName);
+  const blockedReason = context?.blockedA2ATargets?.get(targetHandle);
+  if (blockedReason !== undefined) {
+    throw new A2AInvocationError(
+      `Not calling ${agent.name} again this turn: its earlier delegated call ` +
+        "hit a permanent precondition. Continue with other sources.\n\nRemote detail:\n" +
+        wrapDiagnosticSnippet(blockedReason),
+      { errorCode: "a2a_target_blocked_this_turn" },
     );
   }
 
@@ -1102,16 +1116,31 @@ export async function run(
           terminalStatus = "error";
           const terminal = terminalTaskError(pollErr)!;
           invocationTaskId = terminal.taskId;
-          invocationTerminalCode = terminal.errorCode ?? terminal.state;
+          const childPermanentPrecondition =
+            terminal.errorCode === "permanent_precondition";
+          invocationTerminalCode = childPermanentPrecondition
+            ? "a2a_child_permanent_precondition"
+            : (terminal.errorCode ?? terminal.state);
           const detail = expandRelativeUrls(
             terminal.responseText ?? pollErr?.message ?? "unknown failure",
             agent.url,
           );
-          responseText =
-            `Error: The ${agent.name} agent ended ${terminal.state}` +
-            (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-            (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-            (detail ? `: ${detail}` : "");
+          if (childPermanentPrecondition) {
+            context.blockedA2ATargets?.set(targetHandle, detail);
+            responseText =
+              `The ${agent.name} agent could not complete this delegated request because one of its actions hit a permanent precondition. ` +
+              `Do not call ${agent.name} again this turn; continue with other sources.` +
+              (detail
+                ? `\n\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
+                : "");
+          } else {
+            responseText =
+              `Error: The ${agent.name} agent ended ${terminal.state}` +
+              (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+              (detail
+                ? `\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
+                : "");
+          }
         } else {
           terminalStatus = "error";
           const authFailure = remoteAgentAuthFailure(
@@ -1257,15 +1286,30 @@ export async function run(
     if (terminal) {
       invocationStatus = "error";
       invocationTaskId = terminal.taskId;
-      invocationTerminalCode = terminal.errorCode ?? terminal.state;
+      const childPermanentPrecondition =
+        terminal.errorCode === "permanent_precondition";
+      invocationTerminalCode = childPermanentPrecondition
+        ? "a2a_child_permanent_precondition"
+        : (terminal.errorCode ?? terminal.state);
+      const detail = terminal.responseText
+        ? `\nRemote detail:\n${wrapDiagnosticSnippet(terminal.responseText)}`
+        : "";
+      if (childPermanentPrecondition) {
+        context?.blockedA2ATargets?.set(
+          targetHandle,
+          terminal.responseText ?? "",
+        );
+      }
       throw new A2AInvocationError(
-        `Error calling ${agent.name}: remote task ${terminal.state}` +
-          (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-          (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-          (terminal.responseText ? `: ${terminal.responseText}` : ""),
+        childPermanentPrecondition
+          ? `The ${agent.name} agent could not complete this delegated request because one of its actions hit a permanent precondition. ` +
+              `Do not call ${agent.name} again this turn; continue with other sources.${detail}`
+          : `Error calling ${agent.name}: remote task ${terminal.state}` +
+              (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+              detail,
         {
           taskId: terminal.taskId,
-          errorCode: terminal.errorCode ?? terminal.state,
+          errorCode: invocationTerminalCode,
         },
       );
     }

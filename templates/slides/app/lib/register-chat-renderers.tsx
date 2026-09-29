@@ -2,7 +2,10 @@ import {
   registerActionChatRenderer,
   type ToolRendererProps,
 } from "@agent-native/core/client/agentkit-chat";
-import { ActionCard } from "@agent-native/core/client/chat";
+import {
+  ActionCard,
+  compactOutlineButtonClassName,
+} from "@agent-native/core/client/chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   projectSlidesDeckResult,
@@ -21,19 +24,19 @@ export function SlidesDeckResultCard({ context }: ToolRendererProps) {
   if (!deck) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm">
+    <div className="space-y-3">
       <ActionCard
         icon={<IconPresentation aria-hidden="true" />}
         title={deck.title}
         detail={t("history.slideCount", { count: deck.slideCount })}
         status={t("deckResult.saved")}
-        className="border-0 bg-transparent p-0 shadow-none"
+        className="rounded-none border-0 bg-transparent p-0 shadow-none"
         action={
           <Button
             asChild
             size="sm"
             variant="outline"
-            className="transition-none active:scale-100"
+            className={`${compactOutlineButtonClassName} transition-none active:scale-100`}
           >
             <Link to={`/deck/${encodeURIComponent(deck.id)}`}>
               {t("deckEditor.accessApprovalOpenDeck")}

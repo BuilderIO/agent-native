@@ -55,8 +55,8 @@ export const CONNECT_APPS_FLAG = defineFeatureFlag({
 
 export const BUILDER_CREDIT_USAGE_REPORTING_FLAG = defineFeatureFlag({
   key: "billing.builder-credit-usage-reporting",
-  displayName: "Builder credit usage reporting",
-  description: "Use Builder-reported credit usage and account limits in Usage.",
+  displayName: "Builder credit referrals",
+  description: "Show connected Builder workspace referral details in Usage.",
 });
 
 /**

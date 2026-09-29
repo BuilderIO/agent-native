@@ -2552,7 +2552,7 @@ export function createAgentNativeChatRuntime(
     }
   };
 
-  return createHttpAgentChatRuntime({
+  const nativeRuntime = createHttpAgentChatRuntime({
     id: runtimeId,
     kind: "agent-native",
     label: options.label ?? "Agent-Native",
@@ -2633,6 +2633,9 @@ export function createAgentNativeChatRuntime(
         ...(turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
         true
           ? { internalContinuation: true }
+          : {}),
+        ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
+          ? { skipPendingSelectionContext: true }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
@@ -2776,6 +2779,49 @@ export function createAgentNativeChatRuntime(
         ? `${apiUrl}/runs/${encodeURIComponent(input.runId)}/events?after=${input.after ?? 0}`
         : null,
   });
+
+  return {
+    ...nativeRuntime,
+    resume: async (input) => {
+      const threadId = input.sessionId ?? options.threadId;
+      if (!threadId || !input.turnId || !input.runId) {
+        return nativeRuntime.resume!(input);
+      }
+
+      const query = new URLSearchParams({ threadId, turnId: input.turnId });
+      const headers = await resolveHeaders(options.headers, input);
+      headers.set("x-agent-native-surface", options.surface ?? "app");
+      const response = await runtimeFetch(
+        `${apiUrl.replace(/\/+$/, "")}/runs/latest?${query}`,
+        {
+          headers,
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: input.abortSignal,
+        },
+      );
+      if (!response.ok) throw await readHttpRuntimeError(response);
+
+      const latestRun = asRecord(await response.json());
+      const runId = latestRun?.runId;
+      if (typeof runId !== "string" || !runId.trim()) {
+        throw new TypeError(
+          "Agent chat latest-run response must include a run ID.",
+        );
+      }
+      const events = await nativeRuntime.subscribe!({
+        ...input,
+        runId,
+        after: runId === input.runId ? input.after : 0,
+      });
+      return {
+        id: input.turnId,
+        sessionId: threadId,
+        runId,
+        events,
+      };
+    },
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

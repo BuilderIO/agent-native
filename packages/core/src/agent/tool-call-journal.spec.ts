@@ -19,6 +19,7 @@ function done(
     input?: AgentToolInput;
     isError?: boolean;
     completedSideEffect?: boolean;
+    replayed?: true;
   },
 ): AgentChatEvent {
   return { type: "tool_done", tool, result, ...options };
@@ -197,6 +198,18 @@ describe("classifyToolCallJournal", () => {
 
     expect(journal.completed).toHaveLength(0);
     expect(journal.interrupted).toHaveLength(0);
+  });
+
+  it("keeps replay provenance out of the completed side-effect journal", () => {
+    const events: AgentChatEvent[] = [
+      start("sendEmail", { to: "a@example.com" }),
+      done("sendEmail", "(Already completed) Email sent", {
+        completedSideEffect: true,
+        replayed: true,
+      }),
+    ];
+
+    expect(classifyToolCallJournal(events).completed).toHaveLength(0);
   });
 });
 

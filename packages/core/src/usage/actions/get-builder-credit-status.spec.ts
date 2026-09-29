@@ -48,31 +48,44 @@ describe("get-builder-credit-status action", () => {
     expect(mocks.clearBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
-  it("reports exhausted when either live balance or quota remaining is zero", async () => {
+  it("does not report exhaustion when the wallet is empty but quota remains", async () => {
     mocks.getBuilderCreditUsage.mockResolvedValueOnce({
       plan: "free",
       balance: 0,
-      quota: { period: "daily", limit: 10, used: 0, remaining: 10 },
+      quota: { period: "daily", limit: 10, used: 8, remaining: 2 },
     });
     await expect(
       getBuilderCreditStatus.run({ orgId: "org-1" }, context),
-    ).resolves.toEqual({ exhausted: true });
+    ).resolves.toEqual({ exhausted: false, period: "daily" });
+    expect(mocks.clearBuilderCreditLimitNotice).toHaveBeenCalledWith(
+      "person@example.com",
+      "org-1",
+    );
+  });
 
-    mocks.getBuilderCreditUsage.mockResolvedValueOnce({
+  it.each([
+    {
+      plan: "free",
+      balance: 0,
+      quota: { period: "daily", limit: 10, used: 10, remaining: 0 },
+    },
+    {
       plan: "paid",
       balance: 50,
       quota: { period: "monthly", limit: 100, used: 100, remaining: 0 },
-    });
+    },
+  ] as const)("reports an exhausted $quota.period quota", async (usage) => {
+    mocks.getBuilderCreditUsage.mockResolvedValueOnce(usage);
     await expect(
       getBuilderCreditStatus.run({ orgId: "org-1" }, context),
-    ).resolves.toEqual({ exhausted: true });
+    ).resolves.toEqual({ exhausted: true, period: usage.quota.period });
     expect(mocks.clearBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
   it("clears the dedupe latch only after a readable balance is available", async () => {
     await expect(
       getBuilderCreditStatus.run({ orgId: "org-1" }, context),
-    ).resolves.toEqual({ exhausted: false });
+    ).resolves.toEqual({ exhausted: false, period: "monthly" });
     expect(mocks.clearBuilderCreditLimitNotice).toHaveBeenCalledWith(
       "person@example.com",
       "org-1",

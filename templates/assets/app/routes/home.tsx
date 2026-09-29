@@ -5,7 +5,10 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
+import {
+  AgentSuggestionBar,
+  agentSuggestionPrompt,
+} from "@agent-native/toolkit/agentkit";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -17,17 +20,13 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 const CHAT_STARTERS = [
   {
     key: "image",
-    Icon: IconPhoto,
-    label: "image",
     prompt: "Create an image of ",
   },
   {
     key: "video",
-    Icon: IconVideo,
-    label: "video",
     prompt: "Create a video of ",
   },
-  { key: "refine", Icon: IconSparkles, label: "refine", prompt: "Refine " },
+  { key: "refine", prompt: "Refine " },
 ] as const;
 
 const SEO_TITLE =
@@ -99,28 +98,27 @@ export default function CreatePage() {
       centerComposerWhenEmpty
       composerLayoutVariant="hero"
       composerPlaceholder={t("create.composerPlaceholder")}
+      afterComposerSlot={
+        <AgentSuggestionBar
+          ariaLabel={t("create.heroTitle")}
+          suggestions={CHAT_STARTERS.map(({ key, prompt }) => ({
+            id: key,
+            label: t(`create.starters.${key}`),
+            prompt,
+          }))}
+          onSelect={(suggestion) =>
+            sendToAgentChat({
+              message: agentSuggestionPrompt(suggestion),
+              submit: false,
+              openSidebar: false,
+            })
+          }
+          className="px-0 py-0"
+        />
+      }
       homeIntroSlot={
         <div className="assets-create-chat-intro">
           <h1>{t("create.heroTitle")}</h1>
-          <p>{t("create.heroDescription")}</p>
-          <div className="assets-create-chat-pill-row">
-            {CHAT_STARTERS.map(({ key, Icon, prompt }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() =>
-                  sendToAgentChat({
-                    message: prompt,
-                    submit: false,
-                    openSidebar: false,
-                  })
-                }
-              >
-                <Icon className="size-3.5" />
-                {t(`create.starters.${key}`)}
-              </button>
-            ))}
-          </div>
           <div className="mt-8 w-[min(100vw-2rem,64rem)] px-4 text-left sm:px-6">
             <RecentDraftsSection />
           </div>

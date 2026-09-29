@@ -2553,7 +2553,9 @@ function AgentPanelInner({
                 onMessageCountChange={onMessageCountChange}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement="context-chips"
+                suggestionPlacement={
+                  assistantChatProps.suggestionPlacement ?? "context-chips"
+                }
                 onSwitchToCli={() => switchMode("cli")}
                 execMode={execMode}
                 onExecModeChange={switchExecMode}

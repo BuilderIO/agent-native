@@ -42,6 +42,8 @@ const messages = {
   "approval.action": "the requested action",
   "approval.moreOptions": "More approval options",
   "approval.question": "Approve to run {{tool}}?",
+  "approval.releaseSummary": "Release {{release}} to {{environment}}",
+  "approval.releaseSummaryWithoutEnvironment": "Release {{release}}",
   "approval.edit": "Edit",
   "approval.editPrompt":
     "Ask me how I want to revise this action before trying again.",
@@ -78,6 +80,12 @@ const messages = {
   "observability.notCaptured": "Not captured",
   "observability.openFullConversation": "Open full conversation",
   "observability.learnAboutTab": "Learn about this tab",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteMustContainOptional": "Reply must contain (optional)",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.summarizeWithAgent": "Summarize with agent",
   "observability.regenerateSummary": "Regenerate summary",
   "observability.summarizeWithAgentHelp":
@@ -632,6 +640,8 @@ const messages = {
   "integrations.recommended": "Recommended",
   "integrations.subtitle": "Connect the tools your agent can use.",
   "mcpIntegrations.menuLabel": "Integrations",
+  "mcpApps.optionalPeerRequired":
+    "This MCP App requires {{packageName}}. Install it with {{installCommand}}.",
   "mcpIntegrations.menuDescription": "Connect tools and services to the agent",
   "mcpIntegrations.title": "Connect integrations",
   "mcpIntegrations.description":
@@ -1303,14 +1313,17 @@ const messages = {
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
   "usage.builderCredits": "Builder credits",
+  "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
+  "featureFlags.builderCreditReferrals.description":
+    "Show connected Builder workspace referral details in Usage.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",
   "usage.copyInviteLink": "Copy invite link",
   "usage.inviteLinkCopied": "Invite link copied",
   "usage.creditBalance": "Workspace balance",
-  "usage.monthlyPlan": "Monthly plan",
-  "usage.dailyFreeLimit": "Free daily limit",
+  "usage.monthlyLimit": "Monthly limit",
+  "usage.dailyDefaultLimit": "Default daily limit",
   "usage.creditUsedOfLimit": "{{used}} of {{limit}} used",
   "usage.creditRemaining": "{{amount}} remaining",
   "usage.creditUsageUnavailable": "Builder credit usage couldn’t be loaded.",

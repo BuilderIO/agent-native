@@ -456,11 +456,29 @@ export async function resolveScope(
   };
 }
 
+function usageEngineNameSql(legacyRowsUseBuilder: boolean): string {
+  const storedEngine = "NULLIF(engine_name, '')";
+  return legacyRowsUseBuilder
+    ? `COALESCE(${storedEngine}, 'builder')`
+    : storedEngine;
+}
+
 /** The spend sums every usage aggregate selects, split by how each row bills. */
-const USAGE_AMOUNT_COLUMNS = `COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+function usageAmountColumns(legacyRowsUseBuilder: boolean): string {
+  const engineName = usageEngineNameSql(legacyRowsUseBuilder);
+  return `COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
         COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
-        COALESCE(SUM(CASE WHEN engine_name = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
-        COALESCE(SUM(CASE WHEN engine_name IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS other_cost_x100`;
+        COALESCE(SUM(CASE WHEN ${engineName} = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
+        COALESCE(SUM(CASE WHEN ${engineName} IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS other_cost_x100`;
+}
+
+function isBuilderUsageRow(
+  row: Record<string, unknown>,
+  legacyRowsUseBuilder: boolean,
+): boolean {
+  const engineName = nullableStringField(row, "engine_name");
+  return engineName === "builder" || (legacyRowsUseBuilder && !engineName);
+}
 
 function usageAmountOrder(builderCreditsEnabled: boolean): string {
   return builderCreditsEnabled
@@ -472,7 +490,7 @@ function buildUsageCost(row: Record<string, unknown>): number {
   return numberField(row, "cost_x100") / 100;
 }
 
-/** The spend fields of a row that selected `USAGE_AMOUNT_COLUMNS`. */
+/** The spend fields of a row selected with {@link usageAmountColumns}. */
 function amountFieldsFromRow(
   row: Record<string, unknown>,
   builderCreditsEnabled: boolean,
@@ -528,12 +546,13 @@ async function usageBuckets(
   sinceMs: number,
   limit: number | null,
   builderCreditsEnabled: boolean,
+  legacyRowsUseBuilder: boolean,
 ): Promise<UsageMetricBucket[]> {
   // GROUP BY 1, not the expression: a parameterized expression repeated in
   // GROUP BY gets new placeholder numbers and no longer matches the SELECT.
   const result = await getDbExec().execute({
     sql: `SELECT ${column.sql} AS k,
-        ${USAGE_AMOUNT_COLUMNS},
+        ${usageAmountColumns(legacyRowsUseBuilder)},
         COUNT(*) AS calls,
         COALESCE(SUM(input_tokens), 0) AS input_tokens,
         COALESCE(SUM(output_tokens), 0) AS output_tokens,
@@ -601,10 +620,11 @@ async function usageDailyBreakdown(
   sinceMs: number,
   keyLimit: number | null,
   builderCreditsEnabled: boolean,
+  legacyRowsUseBuilder: boolean,
 ): Promise<UsageDailyBreakdownRow[]> {
   const result = await getDbExec().execute({
     sql: `SELECT (created_at / ${DAY_MS}) AS d, ${column.sql} AS k,
-        ${USAGE_AMOUNT_COLUMNS},
+        ${usageAmountColumns(legacyRowsUseBuilder)},
         COUNT(*) AS calls,
         COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens
       FROM token_usage
@@ -722,12 +742,13 @@ async function topUsageChats(
   filter: QueryScope,
   sinceMs: number,
   builderCreditsEnabled: boolean,
+  legacyRowsUseBuilder: boolean,
 ): Promise<UsageChatMetric[]> {
   const result = await getDbExec().execute({
     sql: `SELECT thread_id AS k,
         MIN(LOWER(owner_email)) AS owner_email,
         MIN(${appKeyColumn.sql}) AS app,
-        ${USAGE_AMOUNT_COLUMNS},
+        ${usageAmountColumns(legacyRowsUseBuilder)},
         COUNT(*) AS calls,
         MAX(created_at) AS last_active_at
       FROM token_usage
@@ -1084,6 +1105,7 @@ function replyForTurn(threadData: unknown, taskId: string): string | null {
 async function hydrateRecentPrompts(
   rows: Array<Record<string, unknown>>,
   builderCreditsEnabled: boolean,
+  legacyRowsUseBuilder: boolean,
 ): Promise<UsageRecentMetric[]> {
   const recentLimit = 12;
   const threadIds = [
@@ -1158,7 +1180,7 @@ async function hydrateRecentPrompts(
         ? {
             ...(row.builder_credits_used != null
               ? { builderCredits: numberField(row, "builder_credits_used") }
-              : row.engine_name === "builder"
+              : isBuilderUsageRow(row, legacyRowsUseBuilder)
                 ? {
                     estimatedBuilderCredits: builderCreditsFromCostCents(
                       numberField(row, "cost_cents_x100") / 100,
@@ -1166,7 +1188,8 @@ async function hydrateRecentPrompts(
                   }
                 : {}),
             otherCostCents:
-              row.engine_name === "builder" || row.builder_credits_used != null
+              isBuilderUsageRow(row, legacyRowsUseBuilder) ||
+              row.builder_credits_used != null
                 ? 0
                 : numberField(row, "cost_cents_x100") / 100,
             engineName: nullableStringField(row, "engine_name"),
@@ -1186,19 +1209,13 @@ async function hydrateRecentPrompts(
 }
 
 async function detectUsageEngineName(): Promise<string | null> {
-  try {
-    const { readDefaultAgentEngineSetting } =
-      await import("../agent/default-agent-engine.js");
-    const stored = (await readDefaultAgentEngineSetting()) as {
-      engine?: unknown;
-    } | null;
-    if (typeof stored?.engine === "string" && stored.engine.trim()) {
-      return stored.engine;
-    }
-  } catch {
-    // coercion-ok: engine settings are optional; raw usage rows remain authoritative.
-    // The metrics action can still render USD estimates when engine settings
-    // are unavailable; the underlying usage rows remain authoritative.
+  const { readDefaultAgentEngineSetting } =
+    await import("../agent/default-agent-engine.js");
+  const stored = (await readDefaultAgentEngineSetting()) as {
+    engine?: unknown;
+  } | null;
+  if (typeof stored?.engine === "string" && stored.engine.trim()) {
+    return stored.engine;
   }
   return getAppConfig().agent.engine ?? null;
 }
@@ -1229,6 +1246,10 @@ export async function listAppUsageMetrics(
     : null;
   const appScope = allApps ? NO_APP_FILTER : usageAppScope(appId);
   const resolved = await resolveScope(accessInput, scope, input.userEmail);
+  const defaultEngineName = await detectUsageEngineName();
+  const legacyRowsUseBuilder =
+    builderCreditsEnabled && defaultEngineName === "builder";
+  const engineNameSql = usageEngineNameSql(legacyRowsUseBuilder);
   const filter = andScopes(appScope, resolved.ownerScope);
   const appKeyColumn = usageAppKeyExpression();
 
@@ -1239,6 +1260,7 @@ export async function listAppUsageMetrics(
     sinceMs,
     null,
     builderCreditsEnabled,
+    legacyRowsUseBuilder,
   );
   const [
     totalsResult,
@@ -1253,10 +1275,10 @@ export async function listAppUsageMetrics(
       sql: `SELECT
             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
             COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
-            COALESCE(SUM(CASE WHEN engine_name = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
-            COALESCE(SUM(CASE WHEN engine_name IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS other_cost_x100,
-            COUNT(*) FILTER (WHERE engine_name = 'builder' OR builder_credits_used IS NOT NULL) AS builder_calls,
-            COUNT(*) FILTER (WHERE engine_name IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL) AS other_calls,
+            COALESCE(SUM(CASE WHEN ${engineNameSql} = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
+            COALESCE(SUM(CASE WHEN ${engineNameSql} IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS other_cost_x100,
+            COUNT(*) FILTER (WHERE ${engineNameSql} = 'builder' OR builder_credits_used IS NOT NULL) AS builder_calls,
+            COUNT(*) FILTER (WHERE ${engineNameSql} IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL) AS other_calls,
             COUNT(*) AS calls,
             COALESCE(SUM(input_tokens), 0) AS input_tokens,
             COALESCE(SUM(output_tokens), 0) AS output_tokens,
@@ -1273,6 +1295,7 @@ export async function listAppUsageMetrics(
       sinceMs,
       6,
       builderCreditsEnabled,
+      legacyRowsUseBuilder,
     ),
     usageBuckets(
       { sql: "COALESCE(NULLIF(model, ''), 'unknown')", args: [] },
@@ -1280,6 +1303,7 @@ export async function listAppUsageMetrics(
       sinceMs,
       4,
       builderCreditsEnabled,
+      legacyRowsUseBuilder,
     ),
     allApps
       ? everyAppBuckets
@@ -1289,6 +1313,7 @@ export async function listAppUsageMetrics(
           sinceMs,
           null,
           builderCreditsEnabled,
+          legacyRowsUseBuilder,
         ),
     everyAppBuckets,
     getDbExec().execute({
@@ -1329,6 +1354,7 @@ export async function listAppUsageMetrics(
           sinceMs,
           BREAKDOWN_KEY_LIMIT,
           builderCreditsEnabled,
+          legacyRowsUseBuilder,
         )
       : Promise.resolve([]),
     usageDailyBreakdown(
@@ -1337,6 +1363,7 @@ export async function listAppUsageMetrics(
       sinceMs,
       BREAKDOWN_KEY_LIMIT,
       builderCreditsEnabled,
+      legacyRowsUseBuilder,
     ),
     usageDailyBreakdown(
       appKeyColumn,
@@ -1344,6 +1371,7 @@ export async function listAppUsageMetrics(
       sinceMs,
       null,
       builderCreditsEnabled,
+      legacyRowsUseBuilder,
     ),
     usageDailyBreakdown(
       { sql: MODEL_KEY_SQL, args: [] },
@@ -1351,6 +1379,7 @@ export async function listAppUsageMetrics(
       sinceMs,
       BREAKDOWN_KEY_LIMIT,
       builderCreditsEnabled,
+      legacyRowsUseBuilder,
     ),
     usageDailyBreakdown(
       { sql: SURFACE_KEY_SQL, args: [] },
@@ -1358,8 +1387,15 @@ export async function listAppUsageMetrics(
       sinceMs,
       BREAKDOWN_KEY_LIMIT,
       builderCreditsEnabled,
+      legacyRowsUseBuilder,
     ),
-    topUsageChats(appKeyColumn, filter, sinceMs, builderCreditsEnabled),
+    topUsageChats(
+      appKeyColumn,
+      filter,
+      sinceMs,
+      builderCreditsEnabled,
+      legacyRowsUseBuilder,
+    ),
     usageToolCalls(resolved, appScope, sinceMs),
   ]);
 
@@ -1392,7 +1428,7 @@ export async function listAppUsageMetrics(
     current.costX100 += numberField(row, "cost_cents_x100");
     if (row.builder_credits_used != null) {
       current.builderCredits += numberField(row, "builder_credits_used");
-    } else if (row.engine_name === "builder") {
+    } else if (isBuilderUsageRow(row, legacyRowsUseBuilder)) {
       current.estimatedBuilderCostX100 += numberField(row, "cost_cents_x100");
     } else {
       current.otherCostX100 += numberField(row, "cost_cents_x100");
@@ -1448,11 +1484,12 @@ export async function listAppUsageMetrics(
         ? usageBillingForEngine("builder")
         : otherCalls
           ? usageBillingForEngine(null)
-          : usageBillingForEngine(await detectUsageEngineName())
-    : usageBillingForEngine(await detectUsageEngineName());
+          : usageBillingForEngine(defaultEngineName)
+    : usageBillingForEngine(defaultEngineName);
   const recent = await hydrateRecentPrompts(
     recentResult.rows as Array<Record<string, unknown>>,
     builderCreditsEnabled,
+    legacyRowsUseBuilder,
   );
 
   return {

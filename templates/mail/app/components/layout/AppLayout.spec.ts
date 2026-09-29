@@ -109,6 +109,60 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain("labelThreadCounts");
   });
 
+  it("scopes mailbox actions to the active search and label", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("isMailboxView ? shellQueryScope.emailView");
+    expect(source).toContain("shellQueryScope.effectiveLabel");
+  });
+
+  it("keeps inbox action targets inside the active pinned-label or Other tab", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+    const targetStart = source.indexOf("const targetEmail = useMemo(() => {");
+    const targetEnd = source.indexOf("const dismissEmail", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(source).toContain("pinnedTriageLabels(pinnedLabels).includes(");
+    expect(source).toContain("filterInboxTabEmails(");
+    expect(source).toContain(
+      "actionTargetTab === OTHER_INBOX_TAB_PARAM ? null : actionTargetTab",
+    );
+    expect(targetSelection).toContain("actionTargetEmails.find(");
+    expect(targetSelection).toContain(
+      "return actionTargetEmails[0] ?? undefined",
+    );
+    expect(targetSelection).not.toContain("currentViewEmails");
+  });
+
+  it("keys the shell mailbox query to the active saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toMatch(
+      /const activeSavedFilterQuery = savedFilters\.find\(\s*\(filter\) => filter\.id === activeFilterId,\s*\)\?\.query;/,
+    );
+    expect(source).toContain(
+      "activeSavedFilterQuery ?? activeSearchQuery ?? undefined",
+    );
+  });
+
+  it("does not target previous-query rows while filters change", () => {
+    const source = appLayoutSource();
+    const hookSource = readFileSync(
+      new URL("../../hooks/use-emails.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(hookSource).toContain("isPlaceholderData: q.isPlaceholderData");
+    const targetStart = source.indexOf("const actionTargetEmails = useMemo(");
+    const targetEnd = source.indexOf("const reportSpam", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(targetSelection).toContain("currentViewEmailsArePlaceholder");
+    expect(targetSelection).toContain("filterInboxTabEmails(");
+    expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
+  });
+
   it("keeps Mail navigation in a hamburger-controlled drawer", () => {
     const source = appLayoutSource();
 
@@ -201,6 +255,23 @@ describe("AppLayout inbox tab bar", () => {
       'onSearch={() => document.getElementById("mail-search")?.focus()}',
     );
     expect(source).toContain("onFocus={() => setSearchFocused(true)}");
+  });
+
+  it("opens the current agent chat in the full-page chat route", () => {
+    const source = appLayoutSource();
+    const chatRoute = readFileSync(
+      new URL("../../routes/chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'onFullscreenRequest={() => void navigate("/chat")}',
+    );
+    expect(source).toContain("enabled={!isAgentChatRoute}");
+    expect(source).toContain('pathname === "/chat"');
+    expect(chatRoute).toContain("<AgentChatSurface");
+    expect(chatRoute).toContain("browserTabId={TAB_ID}");
+    expect(chatRoute).toContain("showTabBar");
   });
 
   it("accepts Shift when an international layout types the Search slash", () => {

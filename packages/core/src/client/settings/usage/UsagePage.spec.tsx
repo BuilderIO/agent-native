@@ -10,6 +10,7 @@ import type { UsageMetricsData } from "./usage-model.js";
 
 const state = vi.hoisted(() => ({
   metrics: undefined as unknown,
+  creditUsage: null as unknown,
   alerts: [] as unknown[],
   calls: [] as Array<{ name: string; params: unknown }>,
   mutations: [] as Array<{ name: string; input: unknown }>,
@@ -25,6 +26,16 @@ vi.mock("../../use-action.js", () => ({
         isLoading: false,
         isFetching: false,
         isPlaceholderData: false,
+        refetch: vi.fn(),
+      };
+    }
+    if (name === "get-builder-credit-usage") {
+      return {
+        data: state.creditUsage,
+        isError: false,
+        isLoading: false,
+        isFetching: false,
+        isSuccess: true,
         refetch: vi.fn(),
       };
     }
@@ -74,7 +85,6 @@ const NOW = Date.UTC(2026, 8, 25, 12);
 
 function metrics(overrides: Partial<UsageMetricsData> = {}): UsageMetricsData {
   return {
-    builderCreditUsageEnabled: false,
     billing: { unit: "usd" },
     appScope: "all",
     appKey: null,
@@ -169,6 +179,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.calls = [];
   state.alerts = [];
+  state.creditUsage = null;
   state.mutations = [];
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -243,6 +254,36 @@ describe("UsagePage", () => {
     expect(container.textContent).toContain("Active people");
     expect(container.textContent).toContain("Top people");
     expect(container.textContent).toContain("member@example.com");
+  });
+
+  it("shows the connected Builder workspace balance to admins", () => {
+    state.metrics = metrics({
+      access: { viewerEmail: "admin@example.com", canViewWorkspace: true },
+    });
+    state.creditUsage = {
+      plan: "paid",
+      balance: 50,
+      quota: { period: "monthly", limit: 100, used: 50, remaining: 50 },
+    };
+    render(admin);
+
+    expect(
+      state.calls.some((call) => call.name === "get-builder-credit-usage"),
+    ).toBe(true);
+    expect(container.textContent).toContain("Workspace balance");
+    expect(container.textContent).toContain("50");
+  });
+
+  it("hides the Builder balance panel when the workspace is not connected", () => {
+    state.metrics = metrics({
+      access: { viewerEmail: "admin@example.com", canViewWorkspace: true },
+    });
+    render(admin);
+
+    expect(container.textContent).not.toContain("Workspace balance");
+    expect(container.textContent).not.toContain(
+      "Builder credit usage couldn’t be loaded.",
+    );
   });
 
   it("shows Builder.io credits when the agent runs on Builder.io", () => {

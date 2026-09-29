@@ -10,15 +10,18 @@ import {
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 
 const TABLE = "automation_trigger_event_queue";
+const SWEEP_STATE_TABLE = "automation_trigger_event_queue_sweep_state";
 const COMPLETED_PAYLOAD = '{"kind":"completed"}';
 const UNIQUE_INDEX = "idx_automation_trigger_event_queue_dedupe";
 const ORDER_INDEX = "idx_automation_trigger_event_queue_order";
 const READY_INDEX = "idx_automation_trigger_event_queue_ready";
 const COMPLETED_INDEX = "idx_automation_trigger_event_queue_completed";
 const FAILED_INDEX = "idx_automation_trigger_event_queue_failed";
+const STALE_EVENT_INDEX = "idx_automation_trigger_event_queue_stale_event";
 export const AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS =
   7 * 24 * 60 * 60_000;
 export const AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE = 1_000;
+export const AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE = 1_000;
 export const MAX_AUTOMATION_TRIGGER_EVENT_FAILURES = 8;
 const CLAIM_LEASE_MS = () =>
   Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
@@ -45,6 +48,13 @@ const CREATE_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ${TABLE} (
   last_error TEXT
 )`;
 
+const CREATE_SWEEP_STATE_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ${SWEEP_STATE_TABLE} (
+  scope_key TEXT PRIMARY KEY,
+  last_trigger_id TEXT,
+  purge_after BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL
+)`;
+
 export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -69,6 +79,18 @@ export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
       CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
         ON ${TABLE} (completed_at) WHERE status = 'failed'`,
   },
+  {
+    version: 3,
+    name: "automation-trigger-event-stale-mail-index",
+    sql: `CREATE INDEX IF NOT EXISTS ${STALE_EVENT_INDEX}
+      ON ${TABLE} (app_id, event_name, emitted_at)
+      WHERE status = 'pending'`,
+  },
+  {
+    version: 4,
+    name: "automation-trigger-event-queue-sweep-state",
+    sql: CREATE_SWEEP_STATE_TABLE_SQL,
+  },
 ];
 
 export async function runAutomationTriggerEventMigrations(
@@ -85,6 +107,7 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       await ensureTableExists(TABLE, CREATE_TABLE_SQL);
+      await ensureTableExists(SWEEP_STATE_TABLE, CREATE_SWEEP_STATE_TABLE_SQL);
       await ensureColumnExists(
         TABLE,
         "failure_attempts",
@@ -110,6 +133,12 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
         FAILED_INDEX,
         `CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
           ON ${TABLE} (completed_at) WHERE status = 'failed'`,
+      );
+      await ensureIndexExists(
+        STALE_EVENT_INDEX,
+        `CREATE INDEX IF NOT EXISTS ${STALE_EVENT_INDEX}
+          ON ${TABLE} (app_id, event_name, emitted_at)
+          WHERE status = 'pending'`,
       );
       await ensureIndexExists(
         COMPLETED_INDEX,
@@ -255,28 +284,106 @@ function appScopePredicate(appId: string | null | undefined): {
 export async function listReadyAutomationTriggerIds(
   appId?: string | null,
   limit = 100,
+  cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
 ): Promise<string[]> {
   await ensureAutomationTriggerEventQueue();
   const now = Date.now();
   const scope = appScopePredicate(appId);
+  const afterClause =
+    cursor.afterTriggerId === undefined ? "" : "AND trigger_id > ?";
+  const throughClause =
+    cursor.throughTriggerId === undefined ? "" : "AND trigger_id <= ?";
+  const args = [
+    ...scope.args,
+    now,
+    now - CLAIM_LEASE_MS(),
+    ...(cursor.afterTriggerId === undefined ? [] : [cursor.afterTriggerId]),
+    ...(cursor.throughTriggerId === undefined ? [] : [cursor.throughTriggerId]),
+    Math.max(1, Math.min(limit, 500)),
+  ];
   const { rows } = await getDbExec().execute({
-    sql: `SELECT trigger_id, MIN(sequence_id) AS first_sequence
+    sql: `SELECT DISTINCT trigger_id
           FROM ${TABLE}
           WHERE ${scope.sql}
             AND ((status = 'pending' AND available_at <= ?)
               OR (status = 'processing' AND
                 (claimed_at IS NULL OR claimed_at <= ?)))
-          GROUP BY trigger_id
-          ORDER BY first_sequence ASC
+            ${afterClause}
+            ${throughClause}
+          ORDER BY trigger_id ASC
           LIMIT ?`,
-    args: [
-      ...scope.args,
-      now,
-      now - CLAIM_LEASE_MS(),
-      Math.max(1, Math.min(limit, 500)),
-    ],
+    args,
   });
   return rows.map((row) => String((row as Record<string, unknown>).trigger_id));
+}
+
+export async function reserveAutomationTriggerEventPurge(
+  appId?: string | null,
+  now = Date.now(),
+): Promise<boolean> {
+  await ensureAutomationTriggerEventQueue();
+  const { rows } = await getDbExec().execute({
+    sql: `INSERT INTO ${SWEEP_STATE_TABLE}
+            (scope_key, last_trigger_id, purge_after, updated_at)
+          VALUES (?, NULL, ?, ?)
+          ON CONFLICT (scope_key) DO UPDATE
+            SET purge_after = excluded.purge_after,
+                updated_at = excluded.updated_at
+            WHERE ${SWEEP_STATE_TABLE}.purge_after <= ?
+          RETURNING scope_key`,
+    args: [appId?.trim() ?? "", now + 60_000, now, now],
+  });
+  return rows.length > 0;
+}
+
+export async function scheduleAutomationTriggerEventPurge(
+  appId: string | null | undefined,
+  nextAt: number,
+): Promise<void> {
+  await ensureAutomationTriggerEventQueue();
+  await getDbExec().execute({
+    sql: `UPDATE ${SWEEP_STATE_TABLE}
+          SET purge_after = ?, updated_at = ?
+          WHERE scope_key = ?`,
+    args: [nextAt, Date.now(), appId?.trim() ?? ""],
+  });
+}
+
+export async function getAutomationTriggerSweepCursor(
+  appId?: string | null,
+): Promise<string | null> {
+  await ensureAutomationTriggerEventQueue();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT last_trigger_id FROM ${SWEEP_STATE_TABLE} WHERE scope_key = ?`,
+    args: [appId?.trim() ?? ""],
+  });
+  const cursor = (rows[0] as Record<string, unknown> | undefined)
+    ?.last_trigger_id;
+  return cursor == null ? null : String(cursor);
+}
+
+export async function setAutomationTriggerSweepCursor(
+  appId: string | null | undefined,
+  triggerId: string | null,
+): Promise<void> {
+  await ensureAutomationTriggerEventQueue();
+  const scopeKey = appId?.trim() ?? "";
+  if (triggerId === null) {
+    await getDbExec().execute({
+      sql: `DELETE FROM ${SWEEP_STATE_TABLE} WHERE scope_key = ?`,
+      args: [scopeKey],
+    });
+    return;
+  }
+  await getDbExec().execute({
+    sql: `INSERT INTO ${SWEEP_STATE_TABLE}
+            (scope_key, last_trigger_id, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT (scope_key) DO UPDATE
+            SET last_trigger_id = excluded.last_trigger_id,
+                updated_at = excluded.updated_at`,
+    args: [scopeKey, triggerId, Date.now()],
+  });
 }
 
 export async function claimNextAutomationTriggerEvent(
@@ -336,6 +443,69 @@ export async function completeAutomationTriggerEvent(
             AND claimed_at = ? AND attempts = ?`,
     args: [COMPLETED_PAYLOAD, Date.now(), id, claimedAt, attempts],
   });
+}
+
+export async function expireAutomationTriggerEvent(
+  id: string,
+  claimedAt: number,
+  attempts: number,
+  reason: string,
+): Promise<void> {
+  await ensureAutomationTriggerEventQueue();
+  await getDbExec().execute({
+    sql: `UPDATE ${TABLE}
+          SET status = 'completed', payload = ?, claimed_at = NULL,
+              completed_at = ?, last_error = ?
+          WHERE id = ? AND status = 'processing'
+            AND claimed_at = ? AND attempts = ?`,
+    args: [
+      COMPLETED_PAYLOAD,
+      Date.now(),
+      reason.slice(0, 500),
+      id,
+      claimedAt,
+      attempts,
+    ],
+  });
+}
+
+export async function expireStaleAutomationTriggerEvents(input: {
+  appId: string;
+  eventName: string;
+  emittedBefore: string;
+  reason: string;
+  limit?: number;
+}): Promise<number> {
+  await ensureAutomationTriggerEventQueue();
+  const limit = Math.max(
+    1,
+    Math.min(input.limit ?? AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE, 10_000),
+  );
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `WITH expired AS (
+            SELECT id FROM ${TABLE}
+            WHERE app_id = ? AND event_name = ? AND status = 'pending'
+              AND emitted_at < ?
+            ORDER BY emitted_at ASC
+            LIMIT ?
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE ${TABLE} AS queued
+          SET status = 'completed', payload = ?, claimed_at = NULL,
+              completed_at = ?, last_error = ?
+          FROM expired
+          WHERE queued.id = expired.id`,
+    args: [
+      input.appId,
+      input.eventName,
+      input.emittedBefore,
+      limit,
+      COMPLETED_PAYLOAD,
+      Date.now(),
+      input.reason.slice(0, 500),
+    ],
+  });
+  return rowsAffected;
 }
 
 export async function retryAutomationTriggerEvent(
@@ -428,5 +598,6 @@ export async function purgeExpiredAutomationTriggerEvents(
 
 export const __automationTriggerEventQueue = {
   table: TABLE,
+  sweepStateTable: SWEEP_STATE_TABLE,
   claimLeaseMs: CLAIM_LEASE_MS,
 };

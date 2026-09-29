@@ -116,7 +116,7 @@ for (const site of sites) {
         .toBe(0);
     });
 
-    test("renders the shared auth surface without a separate marketing layout", async ({
+    test("renders the shared auth form in its configured layout", async ({
       page,
     }) => {
       await page.goto(`${origin}/sign-in?cb=${Date.now()}`, {
@@ -124,7 +124,11 @@ for (const site of sites) {
       });
       await renderedText(page, `${site.host} auth layout`);
 
-      await expect(page.locator(".auth-centered > .card")).toBeVisible();
+      const authCard = page.locator(
+        ".auth-centered > .card, .auth-marketing-home .form-panel > .card",
+      );
+      await expect(authCard).toHaveCount(1);
+      await expect(authCard).toBeVisible();
       await expect(page.locator("#heading")).toBeVisible();
       await expect(page.locator("#google-btn")).toBeVisible();
 

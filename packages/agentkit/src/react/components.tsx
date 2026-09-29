@@ -13,7 +13,12 @@ import {
   splitMarkdownBlocks,
   writeClipboardText,
 } from "@agent-native/toolkit/agentkit";
-import { Dialog, Popover, TextArea } from "@agent-native/toolkit/design-system";
+import {
+  Dialog,
+  Menu,
+  Popover,
+  TextArea,
+} from "@agent-native/toolkit/design-system";
 import {
   IconActivity,
   IconAlertCircle,
@@ -82,6 +87,8 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import type { AgentThreadState } from "../client/state.js";
+import { hasActiveAgentRuns } from "../client/state.js";
 import {
   inferAgentActivityKind,
   type AgentActivity,
@@ -972,6 +979,14 @@ export function AgentActivityGroup({
       : undefined;
   const completedRunSummary =
     throughSequence !== undefined ||
+    (items.length > 0 && !running) ||
+    runEvents.some(
+      (event) =>
+        event.runId === runId &&
+        (event.type === "run.completed" ||
+          event.type === "run.failed" ||
+          event.type === "run.cancelled"),
+    ) ||
     (afterSequence === undefined &&
       run !== undefined &&
       ["completed", "failed", "cancelled"].includes(run.status));
@@ -1007,11 +1022,6 @@ export function AgentActivityGroup({
       displayGroups.push([activity]);
     }
   }
-  const labelsSummary = Array.from(
-    new Set(activityItems.map((item) => item.label.trim()).filter(Boolean)),
-  );
-  const remaining = Math.max(0, labelsSummary.length - 2);
-  const summary = `${labelsSummary.slice(0, 2).join(", ")}${remaining ? ` +${remaining}` : ""}`;
   const formatDuration = (ms: number) =>
     formatAgentKitDuration(ms, {
       hour: labels.durationHourShort,
@@ -1029,7 +1039,7 @@ export function AgentActivityGroup({
       ? durationMs !== undefined && durationMs >= 1_000
         ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
         : labels.worked
-      : summary || labels.activities;
+      : labels.activities;
   return (
     <>
       {durableToolResults.length ? (
@@ -2394,7 +2404,7 @@ export function AgentMessageActions({
                 pending={regenerateAction.pending}
                 disabled={
                   regenerateAction.pending ||
-                  thread.activeRunIds.length > 0 ||
+                  hasActiveAgentRuns(thread) ||
                   !forkingCapability.enabled
                 }
                 title={forkingCapability.reason}
@@ -2462,7 +2472,7 @@ export function AgentMessageActions({
                 threadId={threadId}
               />
             ) : null}
-            <Popover
+            <Menu
               open={actionsMenuOpen}
               onOpenChange={(open) => {
                 setActionsMenuOpen(open);
@@ -2470,7 +2480,7 @@ export function AgentMessageActions({
               }}
               placement="bottom"
               align="end"
-              className="agentkit-message-menu"
+              className="agentkit-message-menu w-48"
               trigger={
                 <IconButton
                   label={labels.messageActions}
@@ -2480,56 +2490,45 @@ export function AgentMessageActions({
                   title={labels.messageActions}
                 />
               }
-            >
-              <div className="agentkit-message-menu-items" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="agentkit-message-menu-item"
-                  disabled={!requestId || requestIdAction.pending}
-                  title={
-                    requestId
-                      ? requestIdCopied
-                        ? labels.copied
-                        : labels.copyRequestId
-                      : labels.requestIdUnavailable
-                  }
-                  onClick={() => {
-                    setActionsMenuOpen(false);
-                    void requestIdAction.execute().catch(() => undefined);
-                  }}
-                >
-                  {requestIdCopied ? (
-                    <IconCircleCheck aria-hidden="true" />
+              items={[
+                {
+                  id: "copy-request-id",
+                  label: requestIdCopied
+                    ? labels.copied
+                    : requestId
+                      ? labels.copyRequestId
+                      : labels.requestIdUnavailable,
+                  icon: requestIdCopied ? (
+                    <IconCircleCheck size={14} aria-hidden="true" />
                   ) : (
-                    <IconId aria-hidden="true" />
-                  )}
-                  <span>
-                    {requestIdCopied
-                      ? labels.copied
-                      : requestId
-                        ? labels.copyRequestId
-                        : labels.requestIdUnavailable}
-                  </span>
-                </button>
-                {forkingCapability.visible && onThreadForked ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="agentkit-message-menu-item"
-                    disabled={!forkingCapability.enabled || forkAction.pending}
-                    title={forkingCapability.reason}
-                    onClick={() => {
-                      setActionsMenuOpen(false);
-                      void forkAction.execute().catch(() => undefined);
-                    }}
-                  >
-                    <IconGitBranch aria-hidden="true" />
-                    <span>{labels.fork}</span>
-                  </button>
-                ) : null}
-              </div>
-            </Popover>
+                    <IconId size={14} aria-hidden="true" />
+                  ),
+                  disabled: !requestId || requestIdAction.pending,
+                },
+                ...(forkingCapability.visible && onThreadForked
+                  ? [
+                      {
+                        id: "fork-chat",
+                        label: (
+                          <span title={forkingCapability.reason}>
+                            {labels.fork}
+                          </span>
+                        ),
+                        icon: <IconGitBranch size={14} aria-hidden="true" />,
+                        disabled:
+                          !forkingCapability.enabled || forkAction.pending,
+                      },
+                    ]
+                  : []),
+              ]}
+              onAction={(id) => {
+                if (id === "copy-request-id") {
+                  void requestIdAction.execute().catch(() => undefined);
+                } else if (id === "fork-chat") {
+                  void forkAction.execute().catch(() => undefined);
+                }
+              }}
+            />
           </div>
         </>
       ) : (
@@ -2556,7 +2555,7 @@ export function AgentMessageActions({
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
                 disabled={
-                  thread.activeRunIds.length > 0 || !forkingCapability.enabled
+                  hasActiveAgentRuns(thread) || !forkingCapability.enabled
                 }
                 title={forkingCapability.reason}
                 aria-pressed={editContext.message?.id === message.id}
@@ -2789,6 +2788,10 @@ export interface AgentKitComposerProps extends Omit<
   toolbarSlot?: ReactNode;
 }
 
+function hasActiveRuns(thread: AgentThreadState): boolean {
+  return hasActiveAgentRuns(thread);
+}
+
 export function AgentKitComposer({
   threadId: requestedThreadId,
   className,
@@ -2882,7 +2885,7 @@ export function AgentKitComposer({
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const executionMode = mode ?? uncontrolledMode;
-  const active = thread.activeRunIds.length > 0;
+  const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
     ? messageText(editingMessage)
     : initialText;
@@ -3059,11 +3062,13 @@ export function AgentKitComposer({
       return;
     }
 
+    const submissionThread = controller.getThread(threadId);
+    const activeAtSubmit = hasActiveRuns(submissionThread);
     const draft = createAgentKitComposerSubmission({
       threadId,
       intent:
         canQueue &&
-        (options.intent === "queued" || (active && queueWhileRunning))
+        (options.intent === "queued" || (activeAtSubmit && queueWhileRunning))
           ? "queued"
           : "immediate",
       text,
@@ -3144,7 +3149,11 @@ export function AgentKitComposer({
         if (!(await prepareHostSubmit())) return;
         await submitMessage(agentSuggestionPrompt(suggestion), [], [], {
           intent:
-            active && queueWhileRunning && canQueue ? "queued" : "immediate",
+            hasActiveRuns(controller.getThread(threadId)) &&
+            queueWhileRunning &&
+            canQueue
+              ? "queued"
+              : "immediate",
           contextItems,
         });
       })

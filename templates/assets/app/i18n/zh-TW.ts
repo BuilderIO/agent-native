@@ -653,7 +653,7 @@ const messages = {
     reference: "參考",
     saved: "已儲存",
     save: "儲存",
-    addToReferences: "新增到參考",
+    addToReferences: "作為參考使用",
     removeFromReferences: "從參考中移除",
     close: "關閉",
     generated: "已生成",
@@ -825,7 +825,7 @@ const messages = {
     addAssets: "新增資產",
     addAssetsDescription:
       "上傳來源素材或生成候選項，然後只將應指導未來產生的資產標記為參考。",
-    addToReferences: "新增到參考",
+    addToReferences: "作為參考使用",
     addGenerationKey: "在設定中新增生成金鑰。",
     allAssets: "所有資產",
     allAssetsDescription: "每個可存取的套件",

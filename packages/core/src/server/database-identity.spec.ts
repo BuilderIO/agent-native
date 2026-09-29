@@ -25,7 +25,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../app-config/index.js", () => ({ getAppConfig: mocks.getAppConfig }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   mutateSetting: mocks.mutateSetting,
   getSetting: mocks.getSetting,
 }));

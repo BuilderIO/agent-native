@@ -181,6 +181,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
+import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import {
   McpClientManager,
   mcpToolsToActionEntries,
@@ -546,6 +547,22 @@ export async function runPreAgentTurnAutosave(
     });
     console.error("[agent-chat] pre-agent-turn autosave failed:", error);
   }
+}
+
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1],
+  run: Pick<
+    ActiveRun,
+    "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+  >,
+) {
+  return foldAssistantTurn(repo, assistantMsg, {
+    runId: run.runId,
+    turnId: run.turnId,
+    parentId: run.parentId,
+    agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+  });
 }
 
 /**
@@ -3415,14 +3432,7 @@ export function createAgentChatPlugin(
           }
           if (!Array.isArray(repo.messages)) repo.messages = [];
 
-          repo = foldAssistantTurn(repo, assistantMsg, {
-            runId: run.runId,
-            turnId:
-              typeof run.turnId === "string" && run.turnId
-                ? run.turnId
-                : undefined,
-            parentId: run.parentId,
-          });
+          repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
 
           // Store debug metadata so we can inspect what the LLM actually
           // received (system prompt, model, engine) when diagnosing issues.
@@ -5358,16 +5368,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             source: "codebase" | "resource";
           }> = [];
           const seenNames = new Set<string>();
+          const skillLabVisibility = new Map<string, Promise<boolean>>();
+          const isSkillLabEnabled = (labKey: string): Promise<boolean> => {
+            let available = skillLabVisibility.get(labKey);
+            if (!available) {
+              available = import("./agents-bundle.js").then(
+                async ({ getEnabledSkillLabsForUser }) =>
+                  (
+                    await getEnabledSkillLabsForUser(
+                      [labKey],
+                      getRequestUserEmail(),
+                    )
+                  ).has(labKey),
+              );
+              skillLabVisibility.set(labKey, available);
+            }
+            return available;
+          };
 
           // Bundled template skills are available in production via the
           // virtual agents bundle, not the runtime filesystem. Surface them in
           // the slash/skill picker so production users can explicitly invoke
           // the same skills that are present in the prompt and docs-search.
           try {
-            const { loadAgentsBundle, getRuntimeSkills } =
+            const { loadAgentsBundle, getRuntimeSkillsForUser } =
               await import("./agents-bundle.js");
             const bundle = await loadAgentsBundle();
-            for (const skill of getRuntimeSkills(bundle)) {
+            for (const skill of await getRuntimeSkillsForUser(
+              bundle,
+              getRequestUserEmail(),
+            )) {
               const fm = parseSkillFrontmatter(skill.content);
               if (fm.userInvocable === false) continue;
               const skillName = skill.meta.name || fm.name;
@@ -5439,6 +5469,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
                     if (!isRuntimeVisibleScope(fm.scope)) continue;
+                    if (
+                      fm.requiresLab &&
+                      !(await isSkillLabEnabled(fm.requiresLab))
+                    ) {
+                      continue;
+                    }
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -5470,9 +5506,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             event,
             options?.resolveOrgId,
           );
+          let resourceSkills: Awaited<
+            ReturnType<typeof resourceListAccessible>
+          > = [];
           try {
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
-            const resourceSkills = skillsOwner
+            resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/", {
                   userEmail: skillsOwner,
                   orgId: skillsOrgId,
@@ -5485,62 +5524,60 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     orgId: skillsOrgId,
                   })),
                 ];
-            resourceSkills.sort((a, b) => {
-              const ownerOrder =
-                (a.owner === skillsOwner
-                  ? 0
-                  : a.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(a.owner)
-                      ? 2
-                      : 3) -
-                (b.owner === skillsOwner
-                  ? 0
-                  : b.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(b.owner)
-                      ? 2
-                      : 3);
-              if (ownerOrder !== 0) return ownerOrder;
-              const pathOrder =
-                (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-                (b.path.endsWith("/SKILL.md") ? 0 : 1);
-              if (pathOrder !== 0) return pathOrder;
-              return a.path.localeCompare(b.path);
-            });
-            for (const r of resourceSkills) {
-              // Try to get content to parse frontmatter
-              let skillName = getSkillNameFromPath(r.path);
-              let description: string | undefined;
-              let userInvocable: boolean | undefined;
-              try {
-                const full = await resourceGet(r.id, {
-                  userEmail: skillsOwner,
-                  orgId: skillsOrgId,
-                });
-                if (full) {
-                  const fm = parseSkillFrontmatter(full.content);
-                  if (!isRuntimeVisibleScope(fm.scope)) continue;
-                  if (fm.name) skillName = fm.name;
-                  description = fm.description;
-                  userInvocable = fm.userInvocable;
-                }
-              } catch {
-                // Could not read resource content — use path-based name
-              }
-              if (userInvocable === false) continue;
-              if (!seenNames.has(skillName)) {
-                seenNames.add(skillName);
-                skills.push({
-                  name: skillName,
-                  description,
-                  path: r.path,
-                  source: "resource",
-                });
-              }
-            }
           } catch {
             // Resources not available — skip
+          }
+
+          resourceSkills.sort((a, b) => {
+            const ownerOrder =
+              (a.owner === skillsOwner
+                ? 0
+                : a.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(a.owner)
+                    ? 2
+                    : 3) -
+              (b.owner === skillsOwner
+                ? 0
+                : b.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(b.owner)
+                    ? 2
+                    : 3);
+            if (ownerOrder !== 0) return ownerOrder;
+            const pathOrder =
+              (a.path.endsWith("/SKILL.md") ? 0 : 1) -
+              (b.path.endsWith("/SKILL.md") ? 0 : 1);
+            if (pathOrder !== 0) return pathOrder;
+            return a.path.localeCompare(b.path);
+          });
+          for (const r of resourceSkills) {
+            let full;
+            try {
+              full = await resourceGet(r.id, {
+                userEmail: skillsOwner,
+                orgId: skillsOrgId,
+              });
+            } catch {
+              // Unreadable skill metadata cannot establish runtime access.
+              continue;
+            }
+            if (!full) continue;
+            const fm = parseSkillFrontmatter(full.content);
+            if (!isRuntimeVisibleScope(fm.scope)) continue;
+            if (fm.requiresLab && !(await isSkillLabEnabled(fm.requiresLab))) {
+              continue;
+            }
+            const skillName = fm.name || getSkillNameFromPath(r.path);
+            if (fm.userInvocable === false || seenNames.has(skillName))
+              continue;
+            seenNames.add(skillName);
+            skills.push({
+              name: skillName,
+              description: fm.description,
+              path: r.path,
+              source: "resource",
+            });
           }
 
           const result: {
@@ -6472,6 +6509,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           title: typeof r.title === "string" ? r.title : "",
           preview: typeof r.preview === "string" ? r.preview : "",
           messageCount,
+          ...(typeof r.fromMessageId === "string"
+            ? { fromMessageId: r.fromMessageId }
+            : {}),
           ...(Object.prototype.hasOwnProperty.call(r, "scope")
             ? { scope: parseScopeFromBody(r.scope) }
             : {}),
@@ -7612,6 +7652,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { runRecurringSweepHandlers } =
+              await import("../jobs/sweep-hooks.js");
+            const sweepContext = {
+              deadlineAt: Date.now() + RECURRING_SWEEP_BUDGET_MS,
+            };
+            const appSweepHandlers =
+              await runRecurringSweepHandlers(sweepContext);
             // Rides the same site-tick as the reap above, for the same reason:
             // it is the only durable driver on serverless. Never fatal to the
             // job sweep, and its own failure is a distinguishable outcome
@@ -7643,9 +7690,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               return null;
             });
-            const { runRecurringSweepHandlers } =
-              await import("../jobs/sweep-hooks.js");
-            const appSweepHandlers = await runRecurringSweepHandlers();
             const triggerAvailability = scheduledTriggerAvailability();
             if (unclaimedBackgroundRuns === null) {
               setResponseStatus(event, 500);

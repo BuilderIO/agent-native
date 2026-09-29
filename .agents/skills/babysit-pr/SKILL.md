@@ -19,23 +19,52 @@ A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
 to the shared checkout or require that an agent publish from the root checkout.
 
+In a shared checkout, keep its branch unchanged. When the user explicitly asks
+to update this PR and the checkout cannot safely serve as its source, follow
+`new-branch` to isolate the PR work in a managed task-owned worktree without
+asking. Carry only changes belonging to this PR. If they cannot be isolated
+safely, preserve state and report the exact paths or commits without asking
+for branch or worktree permission.
+
+For an existing PR update, record `headRepository.nameWithOwner`, `headRefName`,
+and `headRefOid`, then base the isolated task branch on that exact head. Resolve
+a remote for that exact head repository; `origin` is correct only when its URL
+matches. If needed, add a uniquely named remote for the verified head
+repository. Never infer the push target from the base repository or a matching
+branch name. If no writable head repository is available, preserve state and
+report the blocker.
+
+`ship:push` always commits publishable paths and pushes `origin/<local branch>`.
+Use it for an existing PR only when `origin` matches the recorded head
+repository and the local branch name equals `headRefName`. Otherwise, stage
+only this task's paths, commit with a specific subject, and push
+`HEAD:refs/heads/$headRefName` to `head_remote` after rechecking the live OID.
+Before each push, inspect any worktree using that head branch for unpublished
+PR commits. If the head moved, follow Setup's non-fast-forward recovery: fetch
+the refreshed head and merge it into the clean task branch, resolve and test,
+then recheck before pushing. Preserve state and report only when peer or
+unpublished work, or conflicts that cannot be safely resolved, block recovery.
+Never replace an existing PR's history, rebase, or force-push.
+
 ## Branch-wide Snapshot Rule
 
 During `/babysit-pr`, the PR remains the unit of review and the shared checkout
 is the branch snapshot. At the first tick, record dirty paths and unpushed
 commits; publish the requested initial work only after verifying that every
 candidate belongs to this PR's requested fix. If unrelated or incomplete
-concurrent work is present, preserve it for its owner and wait. On later ticks,
-inspect the tree before every push. Publish only a complete, coherent set of
-currently known fixes for failing CI, PR feedback, a real merge conflict, or
-an explicit user request. Batch multiple feedback items and delegate changes
-into one update; do not create a commit for each finding, checkpoint, or timer
-tick. Every new head reruns affected checks and resets the soak. Use
-`corepack pnpm ship:push -m` with a subject naming the actual fix (for example,
-`fix: deduplicate chat start checkpoints`); the helper rejects an omitted or
-generic subject. A clean tree, `origin/main` drift, queued checks, or a timer
-tick is not a reason to commit or push. Never publish unrelated concurrent
-work, and never revert, stash, or overwrite it.
+concurrent work is present in a shared checkout, continue in the managed
+worktree using the existing PR's live head and carry only this task's fixes.
+Preserve the shared checkout. If safe isolation is impossible, report exact
+paths or commits without asking. On later ticks, inspect the tree before every
+push. Publish only a complete, coherent set of currently known fixes for
+failing CI, PR feedback, a real merge conflict, or an explicit user request.
+Batch multiple feedback items and delegate changes into one update; do not
+create a commit for each finding, checkpoint, or timer tick. Every new head
+reruns affected checks and resets the soak. Publish to the verified PR target
+as described above; `ship:push` rejects an omitted or generic subject. A clean
+tree, `origin/main` drift, queued checks, or a timer tick is not a reason to
+commit or push. Never publish unrelated concurrent work, and never revert,
+stash, or overwrite it.
 
 When an actionable fix is changing, collect all known related CI and review
 findings, validate the combined fix, then publish one coherent snapshot to the
@@ -51,7 +80,7 @@ invokes `/ship-now`.
 At the start and on every resumed tick, query the PR:
 
 ```bash
-gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit
+gh pr view <number> --json state,mergedAt,closedAt,headRepository,headRepositoryOwner,headRefName,headRefOid,mergeCommit
 ```
 
 If the query fails or is ambiguous, stay foreground-only until its state is
@@ -63,11 +92,19 @@ an unexpected merge without rotating.
 1. Run one foreground tick immediately and continue until this mode's endpoint.
    Do not create or mutate automations for this workflow.
 2. Before each PR write, reread the live state. Push normally (never force).
-   On a non-fast-forward rejection, fetch and verify the remote PR head. If it
-   does not already contain the local commits, confirm the tree is clean and
-   those commits belong to this PR, merge the refreshed `origin/<branch>` into
-   the current branch, resolve and test, then recheck the live head before
-   pushing. Never retry the same stale push, rebase, or force-push. Never
+   Query and record `headRepository.nameWithOwner`, `headRefName`, and
+   `headRefOid`. Resolve the writable push remote by matching its URL to that
+   exact repository; `origin` is valid only when it matches. If none exists,
+   add a uniquely named remote for the exact head repository. Fetch the PR
+   head from that remote at setup and on each tick. On a non-fast-forward
+   rejection or changed `headRefOid`, verify the fetched head against live PR
+   metadata. If it already contains the local commits, do not push them again.
+   Otherwise confirm the tree is clean and those commits belong to this PR,
+   merge the refreshed `<head_remote>/<headRefName>` into the current branch,
+   resolve and test, then recheck the live head before pushing normally to the
+   same remote and ref. Never retry the same stale push, rebase, or force-push.
+   If peer or unpublished work or unresolvable conflicts block recovery,
+   preserve state and report exact blockers. Never
    update from `origin/main` unless GitHub reports a confirmed `CONFLICTING`
    PR; then use a normal merge, never a rebase. A behind count or pending
    checks are not conflicts. Guard PR merges with
@@ -110,7 +147,7 @@ fi
 ```
 
 Immediately query the live PR state with
-`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
+`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRepository,headRepositoryOwner,headRefName,headRefOid,mergeCommit`.
 If the query fails, do not run branch, review, or CI checks; retry on the next
 foreground tick. A closed but unmerged PR ends babysitting and is reported as
 unsuccessful. A merged PR is a
@@ -119,24 +156,34 @@ terminal state for standalone `/babysit-pr` and inherited `ship_mode=ready-only`
 `ship_mode=merge-authorized`, continue the `/ship` post-merge path below before
 cleanup. Never treat PR merge alone as completion of the parent ship goal.
 
+For an open PR, resolve `head_remote` by matching a configured remote URL to
+`headRepository.nameWithOwner`; `origin` is valid only when it matches. If no
+remote exists, add a uniquely named one for the exact head repository. Fetch
+the live head with an explicit refspec into
+`refs/remotes/$head_remote/$headRefName`, then verify that ref's OID matches
+live PR metadata before using it as the task branch base, comparison ref, or
+push target. If no writable head repository is available, preserve state and
+report that blocker.
+
 For an open PR, inspect the branch snapshot:
 
 ```bash
+git fetch "$head_remote" "refs/heads/$headRefName:refs/remotes/$head_remote/$headRefName"
 git status --short
 git diff --name-only
-if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
-  git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+if git show-ref --verify --quiet "refs/remotes/$head_remote/$headRefName"; then
+  git log --oneline --decorate "refs/remotes/$head_remote/$headRefName"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
 else
-  git log --oneline --decorate HEAD --not --remotes=origin -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+  git log --oneline --decorate HEAD --not --remotes="$head_remote" -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
 fi
 ```
 
-After the status check, run `corepack pnpm ship:push -m` with a subject naming the actual fix, and only when the dirty or
-unpushed work is the intentional fix for a concrete CI failure, PR feedback,
-merge conflict, or explicit user request. If the tree is clean and already
-pushed, do nothing. If it is clean with unpushed commits, push them directly
-only when those commits are already an intentional actionable fix; never create
-a new maintenance commit merely to make the branch look current.
+After the status check, publish only an intentional fix for a concrete CI
+failure, PR feedback, merge conflict, or explicit user request, using the
+verified target path above. If the tree is clean and already pushed, do nothing.
+If it is clean with unpushed commits, push them directly only when those
+commits are already an intentional actionable fix; never create a maintenance
+commit merely to make the branch look current.
 
 Every tick starts here, no exceptions: on an active shared branch local files
 can change within minutes, so re-check before every actionable push.
@@ -247,7 +294,7 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Read the relevant files
    - Fix the issues
    - Run `pnpm run prep` to verify locally
-   - Run `corepack pnpm ship:push -m` with a subject naming the actual fix to publish the complete fix snapshot
+   - Publish the complete fix snapshot to the verified PR head using the target path above
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
    - Reset the applicable clock described above
 
@@ -255,7 +302,7 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
-   - Run `corepack pnpm ship:push -m` with a subject naming the actual fix to publish the complete fix snapshot
+   - Publish the complete fix snapshot to the verified PR head using the target path above
    - Reset the applicable clock described above
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:

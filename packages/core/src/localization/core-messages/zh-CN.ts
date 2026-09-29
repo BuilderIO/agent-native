@@ -43,6 +43,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "请求的操作",
   "approval.moreOptions": "更多批准选项",
   "approval.question": "批准运行 {{tool}}？",
+  "approval.releaseSummary": "将 {{release}} 发布到 {{environment}}",
+  "approval.releaseSummaryWithoutEnvironment": "发布 {{release}}",
   "approval.edit": "编辑",
   "approval.editPrompt": "请先询问我想如何修改此操作，然后再重试。",
   "approval.pending": "需要批准",
@@ -77,6 +79,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未捕获",
   "observability.openFullConversation": "打开完整对话",
   "observability.learnAboutTab": "了解此选项卡",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainLabel": "晋升后的评估回复必须包含的文本",
+  "observability.promoteMustContainOptional": "回复必须包含（可选）",
+  "observability.promoteNeedsContains":
+    "此运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.summarizeWithAgent": "让智能体总结",
   "observability.regenerateSummary": "重新生成摘要",
   "observability.summarizeWithAgentHelp":
@@ -603,6 +610,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推荐",
   "integrations.subtitle": "连接您的智能体可以使用的工具。",
   "mcpIntegrations.menuLabel": "集成",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 应用需要 {{packageName}}。请使用 {{installCommand}} 安装。",
   "mcpIntegrations.menuDescription": "将工具和服务连接到智能体",
   "mcpIntegrations.title": "连接集成",
   "mcpIntegrations.description":
@@ -1231,13 +1240,16 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新电子邮件",
   "settings.emailNewPlaceholder": "输入新电子邮件",
   "usage.builderCredits": "Builder 积分",
+  "featureFlags.builderCreditReferrals.name": "Builder 积分推荐",
+  "featureFlags.builderCreditReferrals.description":
+    "在用量中显示已连接 Builder 工作区的推荐详情。",
   "usage.inviteFriends": "邀请好友",
   "usage.inviteCredits": "好友订阅后可获得 {{amount}} 个 Builder 积分。",
   "usage.copyInviteLink": "复制邀请链接",
   "usage.inviteLinkCopied": "邀请链接已复制",
   "usage.creditBalance": "工作区余额",
-  "usage.monthlyPlan": "月度套餐",
-  "usage.dailyFreeLimit": "免费每日上限",
+  "usage.monthlyLimit": "月度限额",
+  "usage.dailyDefaultLimit": "默认每日限额",
   "usage.creditUsedOfLimit": "已使用 {{used}} / {{limit}}",
   "usage.creditRemaining": "剩余 {{amount}}",
   "usage.creditUsageUnavailable": "无法加载 Builder 积分使用情况。",
