@@ -212,6 +212,7 @@ export function sweepLegacyRetainedPageDraftMarkers(): void {
     }
     for (const itemKey of keys) store.removeItem(itemKey);
   } catch {
+    // coercion-ok: Only obsolete notice markers are being cleaned up.
     // The markers only drove a notice, so a failed sweep is harmless.
   }
 }
