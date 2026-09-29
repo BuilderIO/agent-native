@@ -879,6 +879,44 @@ function mergeSelectionColorRanges(
   return merged;
 }
 
+// Selection colors re-read the same file on every render, and tokenizing a
+// large imported screen costs hundreds of ms. Callers only read the spans.
+const COLOR_TOKEN_CACHE_MAX_CHARS = 8_000_000;
+const colorTokenCache = new Map<string, Map<string, ColorTokenSpan[]>>();
+let colorTokenCacheChars = 0;
+
+function cachedColorTokenSpansInHtml(
+  content: string,
+  properties: ReadonlySet<string> | undefined,
+  options: { includeStyleBlocks?: boolean },
+): ColorTokenSpan[] {
+  const key = `${options.includeStyleBlocks !== false}|${
+    properties ? [...properties].sort().join(",") : "*"
+  }`;
+  let byKey = colorTokenCache.get(content);
+  if (byKey) {
+    colorTokenCache.delete(content);
+  } else {
+    byKey = new Map();
+    colorTokenCacheChars += content.length;
+  }
+  colorTokenCache.set(content, byKey);
+  let tokens = byKey.get(key);
+  if (!tokens) {
+    tokens = colorTokenSpansInHtml(content, properties, options);
+    byKey.set(key, tokens);
+  }
+  while (
+    colorTokenCacheChars > COLOR_TOKEN_CACHE_MAX_CHARS &&
+    colorTokenCache.size > 1
+  ) {
+    const oldest = colorTokenCache.keys().next().value!;
+    colorTokenCache.delete(oldest);
+    colorTokenCacheChars -= oldest.length;
+  }
+  return tokens;
+}
+
 function colorTokenSpansWithinRanges(
   content: string,
   ranges: SelectionColorRange[],
@@ -887,16 +925,18 @@ function colorTokenSpansWithinRanges(
 ): ColorTokenSpan[] {
   const mergedRanges = mergeSelectionColorRanges(ranges);
   let rangeIndex = 0;
-  return colorTokenSpansInHtml(content, properties, options).filter((token) => {
-    while (
-      rangeIndex < mergedRanges.length &&
-      (mergedRanges[rangeIndex]?.end ?? 0) <= token.start
-    ) {
-      rangeIndex += 1;
-    }
-    const range = mergedRanges[rangeIndex];
-    return !!range && token.start >= range.start && token.end <= range.end;
-  });
+  return cachedColorTokenSpansInHtml(content, properties, options).filter(
+    (token) => {
+      while (
+        rangeIndex < mergedRanges.length &&
+        (mergedRanges[rangeIndex]?.end ?? 0) <= token.start
+      ) {
+        rangeIndex += 1;
+      }
+      const range = mergedRanges[rangeIndex];
+      return !!range && token.start >= range.start && token.end <= range.end;
+    },
+  );
 }
 
 export function selectionColorScopeRanges(
