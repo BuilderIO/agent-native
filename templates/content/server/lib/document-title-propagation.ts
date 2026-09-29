@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -16,7 +17,7 @@ export async function propagateDocumentTitle(args: {
 }): Promise<void> {
   const userEmail = getRequestUserEmail();
   const memberships = userEmail
-    ? await listContentOrganizationMemberships(userEmail)
+    ? await listContentOrganizationMemberships(userEmail, getDbExec())
     : [];
   const orgIds = new Set([
     ...memberships.map((membership) => membership.orgId),
