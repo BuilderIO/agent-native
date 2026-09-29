@@ -7462,6 +7462,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastHandleGeometryTargetEl = null;
     var hoveredRadiusHandleKey = "";
     var activeRadiusHandleKey = "";
+    var activeRadiusPointerId = null;
     function radiusPathData(el) {
       if (!el || el.nodeType !== 1 || el.tagName.toLowerCase() !== "svg") {
         return null;
@@ -17772,6 +17773,32 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keydown", onRotateKeyDown, true);
       setActiveDragCancel(cancelRotateDrag);
     }
+    function listenForRadiusDragCancellation(pointerId, cancel) {
+      if (pointerId === null) return function() {
+      };
+      var pointerEndedNormally = false;
+      function onPointerUp(ev) {
+        if (ev.pointerId === pointerId) pointerEndedNormally = true;
+      }
+      function onPointerCancel(ev) {
+        if (ev.pointerId === pointerId && !pointerEndedNormally) cancel();
+      }
+      function onLostPointerCapture(ev) {
+        if (ev.pointerId === pointerId && !pointerEndedNormally) cancel();
+      }
+      document.addEventListener("pointerup", onPointerUp, true);
+      document.addEventListener("pointercancel", onPointerCancel, true);
+      document.addEventListener("lostpointercapture", onLostPointerCapture, true);
+      return function() {
+        document.removeEventListener("pointerup", onPointerUp, true);
+        document.removeEventListener("pointercancel", onPointerCancel, true);
+        document.removeEventListener(
+          "lostpointercapture",
+          onLostPointerCapture,
+          true
+        );
+      };
+    }
     function startRadiusDrag(corner, e) {
       if (readOnly) return;
       if (!selectedEl) return;
@@ -17783,6 +17810,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       var events = dragEventNames(e);
+      var radiusPointerId = activeRadiusPointerId;
       var radiusEl = selectedEl;
       var cs = window.getComputedStyle(radiusEl);
       var cornerProperty = CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
@@ -17824,6 +17852,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var radiusMoved = false;
+      var removePointerCancelListeners = function() {
+      };
       activeRadiusHandleKey = String(corner);
       applySelectionHandleHitGeometry(radiusEl);
       var signX = corner.indexOf("w") !== -1 ? 1 : -1;
@@ -17869,6 +17899,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onRadiusKeyDown, true);
+        removePointerCancelListeners();
+        if (activeRadiusPointerId === radiusPointerId) {
+          activeRadiusPointerId = null;
+        }
         clearActiveDragCancel(cancelRadiusDrag);
         hoveredRadiusHandleKey = activeRadiusHandleKey;
         activeRadiusHandleKey = "";
@@ -17934,6 +17968,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onRadiusKeyDown, true);
+      removePointerCancelListeners = listenForRadiusDragCancellation(
+        radiusPointerId,
+        cancelRadiusDrag
+      );
       setActiveDragCancel(cancelRadiusDrag);
     }
     function startVectorRadiusDrag(handle, e) {
@@ -17952,6 +17990,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       var events = dragEventNames(e);
+      var radiusPointerId = activeRadiusPointerId;
       var originalD = originalPath.getAttribute("d") || "";
       var originalRadiusAttribute = radiusEl.getAttribute(
         "data-an-corner-radius"
@@ -17964,6 +18003,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var radiusMoved = false;
+      var removePointerCancelListeners = function() {
+      };
       activeRadiusHandleKey = String(handle);
       applySelectionHandleHitGeometry(radiusEl);
       refreshLiveVisualEditOriginalStyles(radiusEl);
@@ -17977,6 +18018,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onRadiusKeyDown, true);
+        removePointerCancelListeners();
+        if (activeRadiusPointerId === radiusPointerId) {
+          activeRadiusPointerId = null;
+        }
         clearActiveDragCancel(cancelVectorRadiusDrag);
         hoveredRadiusHandleKey = activeRadiusHandleKey;
         activeRadiusHandleKey = "";
@@ -18050,6 +18095,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onRadiusKeyDown, true);
+      removePointerCancelListeners = listenForRadiusDragCancellation(
+        radiusPointerId,
+        cancelVectorRadiusDrag
+      );
       setActiveDragCancel(cancelVectorRadiusDrag);
     }
     function clearPendingShieldDrag() {
@@ -18331,6 +18380,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       function(e) {
         if (readOnly || e.button !== 0) return;
         if (rerouteStaleSelectionHandleHitToMove(e)) return;
+        if (e.pointerId !== void 0 && e.target && e.target.getAttribute && e.target.getAttribute("data-agent-native-radius-handle")) {
+          activeRadiusPointerId = e.pointerId;
+        }
         if (e.pointerId !== void 0 && selectionOverlay.setPointerCapture) {
           selectionOverlay.setPointerCapture(e.pointerId);
         }
