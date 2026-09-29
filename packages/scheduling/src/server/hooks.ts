@@ -1,27 +1,37 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { addMinutes } from "../core/time.js";
 import type { Booking, Workflow, WorkflowStep } from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
 
+interface BookingPrincipal {
+  ownerEmail: string;
+  orgId: string | null;
+  teamId: string | null;
+}
+
 export async function onBookingCreated(booking: Booking): Promise<void> {
+  const principal = getBookingPrincipal(booking);
   await materializeReminders(booking, "new-booking");
   await materializeRemindersBefore(booking);
-  await enqueueWebhooks(booking, "BOOKING_CREATED");
+  await enqueueWebhooks(booking, "BOOKING_CREATED", principal);
 }
 
 export async function onBookingRescheduled(
-  _original: Booking,
+  original: Booking,
   next: Booking,
 ): Promise<void> {
+  const principal = getBookingPrincipal(original);
   await materializeReminders(next, "reschedule");
-  await enqueueWebhooks(next, "BOOKING_RESCHEDULED");
+  await enqueueWebhooks(next, "BOOKING_RESCHEDULED", principal);
 }
 
 export async function onBookingCancelled(booking: Booking): Promise<void> {
+  const principal = getBookingPrincipal(booking);
   await materializeReminders(booking, "cancellation");
-  await enqueueWebhooks(booking, "BOOKING_CANCELLED");
+  await enqueueWebhooks(booking, "BOOKING_CANCELLED", principal);
   const { getDb, schema } = getSchedulingContext();
   await getDb()
     .update(schema.scheduledReminders)
@@ -35,15 +45,24 @@ export async function onBookingCancelled(booking: Booking): Promise<void> {
 }
 
 export async function onBookingNoShow(booking: Booking): Promise<void> {
+  const principal = getBookingPrincipal(booking);
   await materializeReminders(booking, "no-show");
-  await enqueueWebhooks(booking, "BOOKING_NO_SHOW");
+  await enqueueWebhooks(booking, "BOOKING_NO_SHOW", principal);
+}
+
+function getBookingPrincipal(booking: Booking): BookingPrincipal {
+  return {
+    ownerEmail: (booking.ownerEmail ?? booking.hostEmail).trim().toLowerCase(),
+    orgId: booking.orgId ?? null,
+    teamId: booking.teamId ?? null,
+  };
 }
 
 async function materializeReminders(
   booking: Booking,
   trigger: "new-booking" | "reschedule" | "cancellation" | "no-show",
 ): Promise<void> {
-  const workflows = await activeWorkflowsForEvent(booking.eventTypeId, trigger);
+  const workflows = await activeWorkflowsForEvent(booking, trigger);
   const now = new Date();
   for (const wf of workflows) {
     for (const step of wf.steps) {
@@ -57,10 +76,7 @@ async function materializeReminders(
 }
 
 async function materializeRemindersBefore(booking: Booking): Promise<void> {
-  const workflows = await activeWorkflowsForEvent(
-    booking.eventTypeId,
-    "before-event",
-  );
+  const workflows = await activeWorkflowsForEvent(booking, "before-event");
   const start = new Date(booking.startTime);
   for (const wf of workflows) {
     for (const step of wf.steps) {
@@ -69,10 +85,7 @@ async function materializeRemindersBefore(booking: Booking): Promise<void> {
       await writeReminder(booking, step, scheduledFor);
     }
   }
-  const afterWorkflows = await activeWorkflowsForEvent(
-    booking.eventTypeId,
-    "after-event",
-  );
+  const afterWorkflows = await activeWorkflowsForEvent(booking, "after-event");
   const end = new Date(booking.endTime);
   for (const wf of afterWorkflows) {
     for (const step of wf.steps) {
@@ -112,11 +125,21 @@ function methodForAction(
 }
 
 async function activeWorkflowsForEvent(
-  eventTypeId: string,
+  booking: Booking,
   trigger: string,
 ): Promise<Workflow[]> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
+  const unteamedAccessScope = and(
+    isNull(schema.workflows.teamId),
+    accessFilter(schema.workflows, schema.workflowShares, {
+      userEmail: booking.ownerEmail ?? booking.hostEmail,
+      orgId: booking.orgId ?? undefined,
+    }),
+  );
+  const accessScope = booking.teamId
+    ? or(eq(schema.workflows.teamId, booking.teamId), unteamedAccessScope)
+    : unteamedAccessScope;
   const wfRows = await db
     .select()
     .from(schema.workflows)
@@ -124,11 +147,16 @@ async function activeWorkflowsForEvent(
       and(
         eq(schema.workflows.trigger, trigger as any),
         eq(schema.workflows.disabled, false),
+        like(
+          schema.workflows.activeOnEventTypeIds,
+          `%"${booking.eventTypeId}"%`,
+        ),
+        accessScope,
       ),
     );
   const active = wfRows.filter((w: any) => {
     const ids = safeJson<string[]>(w.activeOnEventTypeIds) ?? [];
-    return ids.includes(eventTypeId);
+    return ids.includes(booking.eventTypeId);
   });
   if (active.length === 0) return [];
   const stepRows = await db
@@ -143,21 +171,70 @@ async function activeWorkflowsForEvent(
   return active.map((w: any) => hydrateWorkflow(w, stepRows));
 }
 
-async function enqueueWebhooks(booking: Booking, event: string): Promise<void> {
+async function enqueueWebhooks(
+  booking: Booking,
+  event: string,
+  principal: BookingPrincipal,
+): Promise<void> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
-  const webhooks = await db.select().from(schema.webhooks);
+  const teamScope = principal.teamId
+    ? or(
+        eq(schema.webhooks.teamId, principal.teamId),
+        isNull(schema.webhooks.teamId),
+      )
+    : isNull(schema.webhooks.teamId);
+  const webhookScopes = [
+    and(
+      sql`lower(${schema.webhooks.ownerEmail}) = ${principal.ownerEmail.trim().toLowerCase()}`,
+      principal.orgId
+        ? or(
+            eq(schema.webhooks.orgId, principal.orgId),
+            isNull(schema.webhooks.orgId),
+          )
+        : isNull(schema.webhooks.orgId),
+      teamScope,
+    )!,
+  ];
+  if (principal.orgId) {
+    webhookScopes.push(
+      and(
+        eq(schema.webhooks.orgId, principal.orgId),
+        eq(schema.webhooks.visibility, "org"),
+        teamScope,
+      )!,
+    );
+  }
+  const webhooks = await db
+    .select()
+    .from(schema.webhooks)
+    .where(
+      and(
+        eq(schema.webhooks.active, true),
+        or(...webhookScopes),
+        like(schema.webhooks.eventTriggers, `%"${event}"%`),
+        or(
+          isNull(schema.webhooks.eventTypeId),
+          eq(schema.webhooks.eventTypeId, booking.eventTypeId),
+        ),
+      ),
+    );
   const now = new Date().toISOString();
+  const {
+    cancelToken: _cancelToken,
+    rescheduleToken: _rescheduleToken,
+    ...webhookBooking
+  } = booking;
+  void _cancelToken;
+  void _rescheduleToken;
   for (const wh of webhooks) {
-    if (!wh.active) continue;
     const triggers = safeJson<string[]>(wh.eventTriggers) ?? [];
     if (!triggers.includes(event)) continue;
-    if (wh.eventTypeId && wh.eventTypeId !== booking.eventTypeId) continue;
     await db.insert(schema.webhookDeliveries).values({
       id: nanoid(),
       webhookId: wh.id,
       triggeredAt: now,
-      payload: JSON.stringify({ event, booking }),
+      payload: JSON.stringify({ event, booking: webhookBooking }),
       success: false,
       attempts: 0,
     });

@@ -1506,6 +1506,11 @@ export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
   scripts?: Record<string, ActionEntry>;
+  resolveAdditionalActions?: (details: {
+    event: any;
+    ownerEmail: string | null;
+    orgId: string | null;
+  }) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   systemPrompt: string | ((event: any) => string | Promise<string>);
   apiKey?: string;
   engine?:
@@ -8391,6 +8396,24 @@ export function createProductionAgentHandler(
       runContext.hostedHarnessRuntime = requestedHostedHarness;
     }
     let availableRequestActions = getRequestActions();
+    if (
+      options.resolveAdditionalActions &&
+      ownerEmail &&
+      getRequestContext()?.agentRunAnonymous !== true
+    ) {
+      const additionalActions = await options.resolveAdditionalActions({
+        event,
+        ownerEmail,
+        orgId: getRequestOrgId() ?? null,
+      });
+      const requestActions = { ...resolvedActions, ...additionalActions };
+      if (requestActions[TOOL_SEARCH_ACTION_NAME]) {
+        requestActions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() =>
+          getRequestActions(requestActions),
+        );
+      }
+      availableRequestActions = getRequestActions(requestActions);
+    }
     if (requestedHostedHarness) {
       availableRequestActions = filterActionsByAllowedNames(
         availableRequestActions,

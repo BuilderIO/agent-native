@@ -455,6 +455,82 @@ Respond to the event.`,
     });
   }
 
+  it("stops the durable drain after a claim returns no claimable head", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    triggerQueueMocks.rows.push({
+      id: "queue-blocked-head",
+      triggerId: "resource-1",
+      appId: "mail",
+      eventName: "test.event.fired",
+      eventId: "blocked-head-event",
+      payload: {},
+      emittedAt: new Date().toISOString(),
+      sequenceId: 1,
+      status: "pending",
+      attempts: 0,
+      failureAttempts: 0,
+      availableAt: Date.now(),
+    });
+    triggerQueueMocks.claim.mockResolvedValueOnce(null);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.retry).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.fail).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.rows[0]).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      failureAttempts: 0,
+    });
+
+    const readyScans = triggerQueueMocks.ready.mock.calls.length;
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(readyScans);
+    expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+  });
+
+  it("backs off the interval worker when no trigger is claimable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+
+    try {
+      await initTriggerDispatcher({
+        appId: "mail",
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+
+      const worker = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      expect(worker).toBeTypeOf("function");
+      const signal = new AbortController().signal;
+
+      await worker?.(signal);
+      expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(1);
+
+      await worker?.(signal);
+      expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await worker?.(signal);
+      expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drains queued events within the durable sweep without starting request intervals", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "serverless.event.fired";

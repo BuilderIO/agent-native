@@ -1374,6 +1374,7 @@ function incidentsOwnerWhere(ctx: AccessCtx) {
 
 export async function listMonitors(ctx: AccessCtx): Promise<MonitorSummary[]> {
   const db = getDb() as any;
+  // guard:allow-unscoped — ownerWhere adds the caller's owner_email and org_id predicates
   const rows = await db
     .select()
     .from(schema.monitors)
@@ -1403,6 +1404,7 @@ export async function getMonitor(
   incidents: MonitorIncident[];
 } | null> {
   const db = getDb() as any;
+  // guard:allow-unscoped — ownerWhere adds the caller's owner_email and org_id predicates
   const [row] = await db
     .select()
     .from(schema.monitors)
@@ -1411,6 +1413,7 @@ export async function getMonitor(
   const monitor = rowToMonitor(row);
 
   const [resultRows, incidentRows, uptime] = await Promise.all([
+    // guard:allow-unscoped — resultsOwnerWhere adds the caller's owner_email and org_id predicates
     db
       .select()
       .from(schema.monitorCheckResults)
@@ -1422,6 +1425,7 @@ export async function getMonitor(
       )
       .orderBy(desc(schema.monitorCheckResults.checkedAt))
       .limit(100),
+    // guard:allow-unscoped — incidentsOwnerWhere adds the caller's owner_email and org_id predicates
     db
       .select()
       .from(schema.monitorIncidents)
@@ -1818,6 +1822,7 @@ async function getOpenIncident(
   ctx: AccessCtx,
 ): Promise<MonitorIncident | null> {
   const db = getDb() as any;
+  // guard:allow-unscoped — incidentsOwnerWhere adds the caller's owner_email and org_id predicates
   const [row] = await db
     .select()
     .from(schema.monitorIncidents)
@@ -1840,6 +1845,7 @@ async function recentlyResolvedWithinCooldown(
 ): Promise<boolean> {
   if (monitor.cooldownMinutes <= 0) return false;
   const db = getDb() as any;
+  // guard:allow-unscoped — incidentsOwnerWhere adds the caller's owner_email and org_id predicates
   const [row] = await db
     .select({ resolvedAt: schema.monitorIncidents.resolvedAt })
     .from(schema.monitorIncidents)
@@ -1985,7 +1991,12 @@ export async function evaluateAndNotifyMonitor(
           cause,
           status: nextStatus,
         })
-        .where(eq(schema.monitorIncidents.id, open.id));
+        .where(
+          and(
+            eq(schema.monitorIncidents.id, open.id),
+            incidentsOwnerWhere(ctx),
+          ),
+        );
       return { status: outcome.status, incidentId: open.id, notified: false };
     }
 
@@ -2038,10 +2049,13 @@ export async function evaluateAndNotifyMonitor(
   }
 
   if (open) {
+    // guard:allow-unscoped — incidentsOwnerWhere scopes this update to the monitor caller's owner_email and org_id
     await db
       .update(schema.monitorIncidents)
       .set({ resolvedAt: outcome.checkedAt })
-      .where(eq(schema.monitorIncidents.id, open.id));
+      .where(
+        and(eq(schema.monitorIncidents.id, open.id), incidentsOwnerWhere(ctx)),
+      );
     let notified = false;
     if (open.notificationDelivered) {
       try {
@@ -2074,6 +2088,7 @@ export async function runMonitorNow(
   id: string,
   ctx: AccessCtx,
 ): Promise<CheckOutcome> {
+  // guard:allow-unscoped — ownerWhere adds the caller's owner_email and org_id predicates
   const [row] = await (getDb() as any)
     .select()
     .from(schema.monitors)
@@ -2098,6 +2113,7 @@ export async function pruneOldCheckResults(
     now.getTime() - resultRetentionDays() * 24 * 60 * 60 * 1000,
   ).toISOString();
   const db = getDb() as any;
+  // guard:allow-unscoped — scheduled global retention job deletes only expired check history across tenants
   const deleted = await db
     .delete(schema.monitorCheckResults)
     .where(lte(schema.monitorCheckResults.checkedAt, cutoff))

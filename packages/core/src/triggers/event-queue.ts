@@ -15,6 +15,7 @@ const COMPLETED_PAYLOAD = '{"kind":"completed"}';
 const UNIQUE_INDEX = "idx_automation_trigger_event_queue_dedupe";
 const ORDER_INDEX = "idx_automation_trigger_event_queue_order";
 const READY_INDEX = "idx_automation_trigger_event_queue_ready";
+const ACTIVE_HEAD_INDEX = "idx_automation_trigger_event_queue_active_head";
 const COMPLETED_INDEX = "idx_automation_trigger_event_queue_completed";
 const FAILED_INDEX = "idx_automation_trigger_event_queue_failed";
 const STALE_EVENT_INDEX = "idx_automation_trigger_event_queue_stale_event";
@@ -91,6 +92,13 @@ export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
     name: "automation-trigger-event-queue-sweep-state",
     sql: CREATE_SWEEP_STATE_TABLE_SQL,
   },
+  {
+    version: 5,
+    name: "automation-trigger-event-active-head-index",
+    sql: `CREATE INDEX IF NOT EXISTS ${ACTIVE_HEAD_INDEX}
+      ON ${TABLE} (app_id, trigger_id, sequence_id)
+      WHERE status IN ('pending', 'processing')`,
+  },
 ];
 
 export async function runAutomationTriggerEventMigrations(
@@ -128,6 +136,12 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
         READY_INDEX,
         `CREATE INDEX IF NOT EXISTS ${READY_INDEX}
           ON ${TABLE} (app_id, status, available_at, claimed_at)`,
+      );
+      await ensureIndexExists(
+        ACTIVE_HEAD_INDEX,
+        `CREATE INDEX IF NOT EXISTS ${ACTIVE_HEAD_INDEX}
+          ON ${TABLE} (app_id, trigger_id, sequence_id)
+          WHERE status IN ('pending', 'processing')`,
       );
       await ensureIndexExists(
         FAILED_INDEX,
@@ -401,22 +415,14 @@ export async function claimNextAutomationTriggerEvent(
                 CASE WHEN claimed.status = 'processing' THEN 1 ELSE 0 END,
               claimed_at = ?, last_error = NULL
           WHERE claimed.id = (
-            SELECT candidate.id
-            FROM ${TABLE} AS candidate
-            WHERE candidate.trigger_id = ? AND candidate.${scope.sql}
-              AND ((candidate.status = 'pending' AND candidate.available_at <= ?)
-                OR (candidate.status = 'processing' AND
-                  (candidate.claimed_at IS NULL OR candidate.claimed_at <= ?)))
-              AND NOT EXISTS (
-                SELECT 1 FROM ${TABLE} AS earlier
-                WHERE earlier.trigger_id = candidate.trigger_id
-                  AND earlier.sequence_id < candidate.sequence_id
-                  AND earlier.status IN ('pending', 'processing')
-              )
-            ORDER BY candidate.sequence_id ASC
+            SELECT head.id
+            FROM ${TABLE} AS head
+            WHERE head.trigger_id = ? AND head.${scope.sql}
+              AND head.status IN ('pending', 'processing')
+            ORDER BY head.sequence_id ASC
             LIMIT 1
           )
-          AND (claimed.status = 'pending' OR
+          AND ((claimed.status = 'pending' AND claimed.available_at <= ?) OR
             (claimed.status = 'processing' AND
               (claimed.claimed_at IS NULL OR claimed.claimed_at <= ?)))
           RETURNING claimed.id, claimed.sequence_id, claimed.trigger_id,
@@ -424,7 +430,7 @@ export async function claimNextAutomationTriggerEvent(
             claimed.event_name, claimed.event_id, claimed.payload,
             claimed.event_owner, claimed.emitted_at, claimed.attempts,
             claimed.failure_attempts, claimed.claimed_at`,
-    args: [now, triggerId, ...scope.args, now, cutoff, cutoff],
+    args: [now, triggerId, ...scope.args, now, cutoff],
   });
   return rows[0] ? rowToEvent(rows[0] as Record<string, unknown>) : null;
 }

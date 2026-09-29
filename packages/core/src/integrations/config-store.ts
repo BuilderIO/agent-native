@@ -127,24 +127,67 @@ export async function deleteIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
-export async function listIntegrationConfigs(
-  platform?: string,
-): Promise<IntegrationConfig[]> {
+export async function listIntegrationConfigPage(
+  options: {
+    platform?: string;
+    limit?: number;
+    after?: { platform: string; configKey: string };
+  } = {},
+): Promise<{
+  configs: IntegrationConfig[];
+  nextCursor: { platform: string; configKey: string } | null;
+}> {
   await ensureTable();
   const client = getDbExec();
-  const { rows } = platform
-    ? await client.execute({
-        sql: `SELECT platform, config_key, config_data, owner, updated_at FROM integration_configs WHERE platform = ?`,
-        args: [platform],
-      })
-    : await client.execute(
-        `SELECT platform, config_key, config_data, owner, updated_at FROM integration_configs`,
-      );
-  return rows.map((row) => ({
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (options.platform) {
+    conditions.push("platform = ?");
+    args.push(options.platform);
+  }
+  if (options.after) {
+    conditions.push("(platform > ? OR (platform = ? AND config_key > ?))");
+    args.push(
+      options.after.platform,
+      options.after.platform,
+      options.after.configKey,
+    );
+  }
+  const limit = Number.isFinite(options.limit)
+    ? Math.min(100, Math.max(1, Math.floor(options.limit!)))
+    : 100;
+  const { rows } = await client.execute({
+    sql: `SELECT platform, config_key, config_data, owner, updated_at
+      FROM integration_configs
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      ORDER BY platform ASC, config_key ASC
+      LIMIT ?`,
+    args: [...args, limit + 1],
+  });
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const configs = pageRows.map((row) => ({
     platform: row.platform as string,
     configKey: row.config_key as string,
     configData: JSON.parse(row.config_data as string),
     owner: (row.owner as string) ?? null,
     updatedAt: row.updated_at as number,
   }));
+  const last = pageRows.at(-1);
+  return {
+    configs,
+    nextCursor:
+      hasMore && last
+        ? {
+            platform: String(last.platform),
+            configKey: String(last.config_key),
+          }
+        : null,
+  };
+}
+
+export async function listIntegrationConfigs(
+  platform?: string,
+): Promise<IntegrationConfig[]> {
+  return (await listIntegrationConfigPage({ platform })).configs;
 }

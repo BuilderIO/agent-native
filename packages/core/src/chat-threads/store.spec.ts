@@ -1444,19 +1444,18 @@ describe("adoptThreadScopeIfUnscoped", () => {
   it("claims an unscoped thread and reports the scope it won", async () => {
     const row = mockRow(null, null);
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
-      designA,
-    );
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designA),
+    ).toEqual(designA);
     expect(row.scope_id).toBe("design-a");
   });
 
   it("reports the winner's scope instead of retagging when another worker won", async () => {
     const row = mockRow("design", "design-a");
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
-      type: "design",
-      id: "design-a",
-    });
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designB),
+    ).toEqual({ type: "design", id: "design-a" });
     expect(row.scope_id).toBe("design-a");
   });
 });

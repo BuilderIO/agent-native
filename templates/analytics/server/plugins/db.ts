@@ -1042,6 +1042,7 @@ export const runAnalyticsMigrations = runMigrations(
       version: 115,
       name: "uptime-monitors-timeout-10s",
       sql: {
+        // guard:allow-unscoped — this versioned migration normalizes existing monitor timeouts.
         postgres: `
         ALTER TABLE monitors ALTER COLUMN timeout_ms SET DEFAULT 10000;
         UPDATE monitors

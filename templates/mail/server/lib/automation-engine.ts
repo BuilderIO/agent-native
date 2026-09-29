@@ -62,7 +62,6 @@ import {
 } from "./automation-model.js";
 import {
   createOAuth2Client,
-  gmailListMessages,
   gmailGetMessage,
   gmailBatchGetMessages,
   gmailListHistory,
@@ -92,7 +91,6 @@ interface Watermark {
   lastHistoryId?: string;
   pageToken?: string;
   pendingHistoryId?: string;
-  fallbackPageToken?: string;
   pendingMessageIds?: string[];
   lastTimestamp: number;
 }
@@ -461,16 +459,24 @@ async function refreshReceivedEventCursor(
   signal?: AbortSignal,
 ): Promise<void> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
+  const historyId = await getCurrentHistoryId(accessToken, signal);
+  await putUserSetting(ownerEmail, watermarkKey, {
+    lastHistoryId: historyId,
+    lastTimestamp: Date.now(),
+  } as any);
+  throwIfAborted(signal);
+}
+
+async function getCurrentHistoryId(
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const profile = await gmailGetProfile(accessToken, signal);
   throwIfAborted(signal);
   if (typeof profile.historyId !== "string" || !profile.historyId) {
     throw new Error("Gmail did not return a history cursor for Mail events.");
   }
-  await putUserSetting(ownerEmail, watermarkKey, {
-    lastHistoryId: profile.historyId,
-    lastTimestamp: Date.now(),
-  } as any);
-  throwIfAborted(signal);
+  return profile.historyId;
 }
 
 async function emitNewReceivedEvents(
@@ -504,9 +510,6 @@ async function emitNewReceivedEvents(
     ((storedWatermark as any).pendingHistoryId !== undefined &&
       (typeof (storedWatermark as any).pendingHistoryId !== "string" ||
         !(storedWatermark as any).pendingHistoryId)) ||
-    ((storedWatermark as any).fallbackPageToken !== undefined &&
-      (typeof (storedWatermark as any).fallbackPageToken !== "string" ||
-        !(storedWatermark as any).fallbackPageToken)) ||
     ((storedWatermark as any).pendingMessageIds !== undefined &&
       (!Array.isArray((storedWatermark as any).pendingMessageIds) ||
         !(storedWatermark as any).pendingMessageIds.every(
@@ -632,16 +635,14 @@ async function fetchNewInboxMessages(
     ...(watermark.lastHistoryId
       ? { lastHistoryId: watermark.lastHistoryId }
       : {}),
-    ...(watermark.fallbackPageToken
-      ? { fallbackPageToken: watermark.fallbackPageToken }
-      : {}),
     lastTimestamp: Date.now(),
   };
-  let fallbackToList = !watermark.lastHistoryId;
+  let pageToken = watermark.lastHistoryId ? watermark.pageToken : undefined;
+  let historyId = watermark.lastHistoryId
+    ? watermark.pendingHistoryId
+    : undefined;
 
   if (watermark.lastHistoryId) {
-    let pageToken = watermark.pageToken;
-    let historyId = watermark.pendingHistoryId;
     while (messageIds.length < MAX_EMAILS_PER_RUN) {
       let history: any;
       try {
@@ -660,20 +661,19 @@ async function fetchNewInboxMessages(
       } catch (err: any) {
         if (signal?.aborted) signal.throwIfAborted();
         if (err instanceof Error && err.name === "AbortError") throw err;
-        if (pageToken) throw err;
-        console.warn(
-          "[automation-engine] History list failed, falling back to message list:",
-          err.message,
-        );
-        if (watermark.fallbackPageToken) {
-          // Keep the original cursor until the fallback pages are drained.
+        if (
+          err instanceof Error &&
+          /^Google API error \(404\):/.test(err.message)
+        ) {
+          historyId = await getCurrentHistoryId(accessToken, signal);
+          pageToken = undefined;
+          nextWatermark = {
+            lastHistoryId: historyId,
+            lastTimestamp: Date.now(),
+          };
           break;
         }
-        nextWatermark = {
-          lastTimestamp: Date.now(),
-        };
-        fallbackToList = true;
-        break;
+        throw err;
       }
 
       historyId = history.historyId || historyId;
@@ -698,9 +698,6 @@ async function fetchNewInboxMessages(
       if (!pageToken) {
         nextWatermark = {
           lastHistoryId: historyId || watermark.lastHistoryId,
-          ...(watermark.fallbackPageToken
-            ? { fallbackPageToken: watermark.fallbackPageToken }
-            : {}),
           lastTimestamp: Date.now(),
         };
         historyId = undefined;
@@ -717,81 +714,21 @@ async function fetchNewInboxMessages(
           : historyId || watermark.lastHistoryId,
         ...(pageToken ? { pageToken } : {}),
         ...(pageToken && historyId ? { pendingHistoryId: historyId } : {}),
-        ...(watermark.fallbackPageToken
-          ? { fallbackPageToken: watermark.fallbackPageToken }
-          : {}),
         ...(pendingMessageIds.length ? { pendingMessageIds } : {}),
         lastTimestamp: Date.now(),
       };
     } else if (historyId) {
       nextWatermark = {
         lastHistoryId: historyId,
-        ...(watermark.fallbackPageToken
-          ? { fallbackPageToken: watermark.fallbackPageToken }
-          : {}),
         lastTimestamp: Date.now(),
       };
     }
-  }
-
-  if (fallbackToList || watermark.fallbackPageToken) {
-    try {
-      if (fallbackToList) {
-        const profile = await gmailGetProfile(accessToken, signal);
-        throwIfAborted(signal);
-        if (typeof profile.historyId !== "string" || !profile.historyId) {
-          throw new Error(
-            "Gmail did not return a history cursor before listing.",
-          );
-        }
-        nextWatermark = {
-          ...nextWatermark,
-          lastHistoryId: profile.historyId,
-          lastTimestamp: Date.now(),
-        };
-      }
-      const res = await gmailListMessages(
-        accessToken,
-        {
-          q: "in:inbox newer_than:3d",
-          maxResults: MAX_EMAILS_PER_RUN,
-          ...(watermark.fallbackPageToken
-            ? { pageToken: watermark.fallbackPageToken }
-            : {}),
-        },
-        signal,
-      );
-      throwIfAborted(signal);
-      const listedMessageIds = new Set<string>();
-      for (const message of res.messages || []) {
-        if (typeof message?.id === "string") {
-          listedMessageIds.add(message.id);
-        }
-      }
-      messageIds = [...new Set([...messageIds, ...listedMessageIds])];
-      if (
-        res.nextPageToken != null &&
-        (typeof res.nextPageToken !== "string" || !res.nextPageToken)
-      ) {
-        throw new Error("Gmail returned an invalid fallback page cursor.");
-      }
-      if (typeof res.nextPageToken === "string") {
-        nextWatermark.fallbackPageToken = res.nextPageToken;
-      } else {
-        delete nextWatermark.fallbackPageToken;
-      }
-      nextWatermark.lastTimestamp = Date.now();
-    } catch (err: any) {
-      if (signal?.aborted) signal.throwIfAborted();
-      if (err instanceof Error && err.name === "AbortError") throw err;
-      console.error(
-        "[automation-engine] Failed to list inbox messages or refresh history cursor:",
-        err.message,
-      );
-      throw new Error(
-        `Could not establish a Mail history cursor: ${err?.message || String(err)}`,
-      );
-    }
+  } else {
+    historyId = await getCurrentHistoryId(accessToken, signal);
+    nextWatermark = {
+      lastHistoryId: historyId,
+      lastTimestamp: Date.now(),
+    };
   }
 
   messageIds = messageIds.filter((id) => !processedIds.has(id));

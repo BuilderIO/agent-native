@@ -74,8 +74,12 @@ const {
   getObservabilityOverview,
   insertTraceSpan,
   insertEvalResult,
+  listEvalDatasets,
+  listExperiments,
+  listExperimentsPage,
   insertFeedback,
   insertEvalDataset,
+  listEvalDatasetsPage,
   getEvalDatasetByName,
   findPromotedEvalDataset,
   savePromotedEvalDataset,
@@ -1485,5 +1489,119 @@ describe("observability store: per-user isolation", () => {
       expect(call!.sql).toMatch(/idempotency_key/);
       expect(call!.sql).toMatch(/ON CONFLICT DO NOTHING/);
     });
+  });
+});
+
+describe("observability list bounds", () => {
+  beforeEach(() => {
+    execCalls.length = 0;
+    selectedRows = [];
+    vi.clearAllMocks();
+  });
+
+  it("pages eval datasets by update time and id", async () => {
+    await listEvalDatasetsPage({
+      limit: 500,
+      before: { updatedAt: 20, id: "dataset-b" },
+    });
+    const call = lastSelect();
+    expect(call.sql).toContain("FROM agent_eval_datasets");
+    expect(call.sql).toContain("updated_at < ? OR (updated_at = ? AND id < ?)");
+    expect(call.sql).toContain("LIMIT ?");
+    expect(call.sql).not.toContain("SELECT *");
+    expect(call.args).toEqual([20, 20, "dataset-b", 100]);
+  });
+
+  it("maps dataset ownership and idempotency fields from its bounded projection", async () => {
+    selectedRows = [
+      {
+        id: "dataset-a",
+        name: "A",
+        description: "",
+        entries: "[]",
+        created_at: 10,
+        updated_at: 20,
+        user_id: "alice",
+        idempotency_key: "promoted-run-a",
+      },
+    ];
+
+    const [dataset] = await listEvalDatasetsPage();
+
+    expect(dataset).toMatchObject({
+      id: "dataset-a",
+      userId: "alice",
+      idempotencyKey: "promoted-run-a",
+    });
+    expect(lastSelect().sql).toContain("user_id, idempotency_key");
+  });
+
+  it("bounds the legacy dataset list to its first page", async () => {
+    const row = (id: number) => ({
+      id: `dataset-${id}`,
+      name: `Dataset ${id}`,
+      description: "",
+      entries: "[]",
+      created_at: id,
+      updated_at: id,
+      user_id: null,
+      idempotency_key: null,
+    });
+    executeResults.push({
+      rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+      rowsAffected: 0,
+    });
+
+    const datasets = await listEvalDatasets();
+
+    expect(datasets).toHaveLength(100);
+    const selects = execCalls.filter((call) =>
+      /FROM agent_eval_datasets/.test(call.sql),
+    );
+    expect(selects).toHaveLength(1);
+    expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
+    expect(selects[0]?.args).toEqual([100]);
+  });
+
+  it("filters running experiments in SQL and pages the admin list", async () => {
+    await listExperimentsPage({
+      status: "running",
+      limit: 25,
+      before: { createdAt: 30, id: "experiment-c" },
+    });
+    const call = lastSelect();
+    expect(call.sql).toContain("status = ?");
+    expect(call.sql).toContain("created_at < ? OR (created_at = ? AND id < ?)");
+    expect(call.sql).toContain("LIMIT ?");
+    expect(call.sql).not.toContain("SELECT *");
+    expect(call.args).toEqual(["running", 30, 30, "experiment-c", 25]);
+  });
+
+  it("bounds the legacy experiment list to its first page", async () => {
+    const row = (id: number) => ({
+      id: `experiment-${id}`,
+      name: `Experiment ${id}`,
+      status: "paused",
+      variants: "[]",
+      metrics: "[]",
+      assignment_level: "user",
+      started_at: null,
+      ended_at: null,
+      created_at: id,
+      owner_email: null,
+    });
+    executeResults.push({
+      rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+      rowsAffected: 0,
+    });
+
+    const experiments = await listExperiments();
+
+    expect(experiments).toHaveLength(100);
+    const selects = execCalls.filter((call) =>
+      /FROM agent_experiments/.test(call.sql),
+    );
+    expect(selects).toHaveLength(1);
+    expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
   });
 });

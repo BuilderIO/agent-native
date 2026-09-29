@@ -1,23 +1,45 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mockEvent } from "h3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../request-context.js";
+
+const authMocks = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  getOrgContext: vi.fn(),
+}));
 const mockedMcp = vi.hoisted(() => {
-  class TestMcpConfigUnreadableError extends Error {
-    constructor() {
-      super("Could not read MCP configuration from settings: unavailable");
-      this.name = "McpConfigUnreadableError";
-    }
-  }
+  const managers: Array<{
+    config: unknown;
+    reconfigure: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  }> = [];
   return {
+    managers,
     buildMergedConfig: vi.fn(),
-    TestMcpConfigUnreadableError,
   };
 });
 
+vi.mock("../auth.js", () => ({ getSession: authMocks.getSession }));
+vi.mock("../../org/context.js", () => ({
+  getOrgContext: authMocks.getOrgContext,
+}));
 vi.mock("../../mcp-client/index.js", () => ({
   buildMergedConfig: mockedMcp.buildMergedConfig,
   getHubStatus: vi.fn(),
-  McpClientManager: class {},
-  McpConfigUnreadableError: mockedMcp.TestMcpConfigUnreadableError,
+  McpClientManager: class {
+    config: unknown;
+    reconfigure = vi.fn(async (config: unknown) => {
+      this.config = config;
+    });
+    getStatus = vi.fn(() => ({ principal: (this.config as any)?.source }));
+    stop = vi.fn(async () => {});
+
+    constructor(config: unknown) {
+      this.config = config;
+      mockedMcp.managers.push(this);
+    }
+  },
+  McpConfigUnreadableError: class extends Error {},
 }));
 
 vi.mock("../framework-request-handler.js", () => ({
@@ -25,157 +47,196 @@ vi.mock("../framework-request-handler.js", () => ({
 }));
 
 import {
-  refreshGlobalMcpManager,
-  setGlobalMcpManager,
-  waitForGlobalMcpManager,
+  invalidateMcpManagersForScope,
+  _resetMcpManagerRegistryForTests,
+  getMcpManagerForCurrentRequest,
+  getMcpManagerForPrincipal,
 } from "./mcp-glue.js";
 
-describe("refreshGlobalMcpManager", () => {
-  beforeEach(() => {
+describe("principal-scoped MCP managers", () => {
+  beforeEach(async () => {
+    await _resetMcpManagerRegistryForTests();
+    authMocks.getSession.mockReset();
+    authMocks.getOrgContext.mockReset();
+    mockedMcp.managers.length = 0;
     mockedMcp.buildMergedConfig.mockReset();
-    setGlobalMcpManager(null as never);
-  });
-
-  it("returns false when settings cannot be read", async () => {
-    const manager = { reconfigure: vi.fn() };
-    setGlobalMcpManager(manager as never);
-    mockedMcp.buildMergedConfig.mockRejectedValue(
-      new mockedMcp.TestMcpConfigUnreadableError(),
+    mockedMcp.buildMergedConfig.mockImplementation(
+      async (principal: { userEmail: string; orgId: string | null }) => ({
+        source: principal.userEmail,
+        servers: {},
+      }),
     );
-
-    await expect(refreshGlobalMcpManager()).resolves.toBe(false);
-    expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
-  it("reconfigures and reports success for a readable config", async () => {
-    const manager = { reconfigure: vi.fn().mockResolvedValue(undefined) };
-    const config = { source: "settings", servers: {} };
-    setGlobalMcpManager(manager as never);
-    mockedMcp.buildMergedConfig.mockResolvedValue(config);
-
-    await expect(refreshGlobalMcpManager()).resolves.toBe(true);
-    expect(manager.reconfigure).toHaveBeenCalledWith(config);
+  afterEach(async () => {
+    await _resetMcpManagerRegistryForTests();
   });
 
-  it("waits for lazy initialization before refreshing", async () => {
-    let releaseReady!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      releaseReady = resolve;
+  it("caches managers by caller and organization, never merging another user's config", async () => {
+    const alice = await getMcpManagerForPrincipal({
+      userEmail: "alice@example.com",
+      orgId: "acme",
     });
-    const manager = { reconfigure: vi.fn().mockResolvedValue(undefined) };
-    const config = { source: "settings", servers: {} };
-    setGlobalMcpManager(manager as never, () => ready);
-    mockedMcp.buildMergedConfig.mockResolvedValue(config);
-
-    const refresh = refreshGlobalMcpManager();
-    await Promise.resolve();
-    expect(mockedMcp.buildMergedConfig).not.toHaveBeenCalled();
-
-    releaseReady();
-    await expect(refresh).resolves.toBe(true);
-    expect(manager.reconfigure).toHaveBeenCalledWith(config);
-  });
-
-  it("serializes concurrent refresh snapshots", async () => {
-    let releaseFirst!: () => void;
-    const firstConfig = new Promise((resolve) => {
-      releaseFirst = () => resolve({ source: "first", servers: {} });
+    const aliceAgain = await getMcpManagerForPrincipal({
+      userEmail: "alice@example.com",
+      orgId: "acme",
     });
-    const secondConfig = { source: "second", servers: {} };
-    const manager = { reconfigure: vi.fn().mockResolvedValue(undefined) };
-    setGlobalMcpManager(manager as never);
-    mockedMcp.buildMergedConfig
-      .mockReturnValueOnce(firstConfig)
-      .mockResolvedValueOnce(secondConfig);
+    const bob = await getMcpManagerForPrincipal({
+      userEmail: "bob@example.com",
+      orgId: "acme",
+    });
 
-    const first = refreshGlobalMcpManager();
-    await Promise.resolve();
-    const second = refreshGlobalMcpManager();
-    await Promise.resolve();
-    expect(mockedMcp.buildMergedConfig).toHaveBeenCalledTimes(1);
-
-    releaseFirst();
-    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
-    expect(manager.reconfigure.mock.calls).toEqual([
-      [{ source: "first", servers: {} }],
-      [secondConfig],
+    expect(aliceAgain).toBe(alice);
+    expect(bob).not.toBe(alice);
+    expect(mockedMcp.buildMergedConfig.mock.calls).toEqual([
+      [{ userEmail: "alice@example.com", orgId: "acme" }],
+      [{ userEmail: "bob@example.com", orgId: "acme" }],
     ]);
   });
 
-  it("returns the current manager after readiness completes", async () => {
-    let releaseReady!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      releaseReady = resolve;
+  it("invalidates same-org managers after an org server is changed", async () => {
+    const alice = await getMcpManagerForPrincipal({
+      userEmail: "alice@example.com",
+      orgId: "acme",
     });
-    const initialManager = {};
-    const currentManager = {};
-    setGlobalMcpManager(initialManager as never, () => ready);
+    const bob = await getMcpManagerForPrincipal({
+      userEmail: "bob@example.com",
+      orgId: "acme",
+    });
+    const otherOrg = await getMcpManagerForPrincipal({
+      userEmail: "bob@example.com",
+      orgId: "other",
+    });
 
-    const waiting = waitForGlobalMcpManager();
-    setGlobalMcpManager(currentManager as never);
-    releaseReady();
+    await invalidateMcpManagersForScope("org", "acme", alice);
 
-    await expect(waiting).resolves.toBe(currentManager);
+    expect(alice.stop).not.toHaveBeenCalled();
+    expect(bob.stop).toHaveBeenCalledOnce();
+    expect(otherOrg.stop).not.toHaveBeenCalled();
+    expect(
+      await getMcpManagerForPrincipal({
+        userEmail: "bob@example.com",
+        orgId: "acme",
+      }),
+    ).not.toBe(bob);
   });
 
-  it("waits for the replacement manager's readiness", async () => {
-    let releaseReady!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      releaseReady = resolve;
-    });
-    const initialManager = {};
-    const currentManager = {};
-    setGlobalMcpManager(initialManager as never, () => Promise.resolve());
-
-    const waiting = waitForGlobalMcpManager();
-    setGlobalMcpManager(currentManager as never, () => ready);
-    await Promise.resolve();
-    let settled = false;
-    void waiting.then(() => {
-      settled = true;
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    releaseReady();
-    await expect(waiting).resolves.toBe(currentManager);
+  it("requires an authenticated non-anonymous principal", async () => {
+    await expect(
+      getMcpManagerForPrincipal({
+        userEmail: "anon-viewer@agent-native.com",
+        orgId: "acme",
+      }),
+    ).rejects.toThrow("Authenticated MCP principal required");
+    expect(mockedMcp.buildMergedConfig).not.toHaveBeenCalled();
+    expect(mockedMcp.managers).toHaveLength(0);
   });
 
-  it("does not refresh a replacement manager with stale state", async () => {
-    let releaseInitialReady!: () => void;
-    const initialReady = new Promise<void>((resolve) => {
-      releaseInitialReady = resolve;
-    });
-    let releaseCurrentReady!: () => void;
-    const currentReady = new Promise<void>((resolve) => {
-      releaseCurrentReady = resolve;
-    });
-    const initialManager = { reconfigure: vi.fn() };
-    const currentManager = { reconfigure: vi.fn() };
-    setGlobalMcpManager(initialManager as never, () => initialReady);
+  it("does not hydrate MCP for an anonymous chat request context", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "anon-viewer@agent-native.com",
+          agentRunAnonymous: true,
+        },
+        () => getMcpManagerForCurrentRequest(),
+      ),
+    ).rejects.toThrow("Authenticated MCP principal required");
 
-    const initialRefresh = refreshGlobalMcpManager();
-    await Promise.resolve();
-    setGlobalMcpManager(currentManager as never, () => currentReady);
-    releaseInitialReady();
-    await expect(initialRefresh).resolves.toBe(false);
     expect(mockedMcp.buildMergedConfig).not.toHaveBeenCalled();
-    expect(initialManager.reconfigure).not.toHaveBeenCalled();
-    expect(currentManager.reconfigure).not.toHaveBeenCalled();
+    expect(mockedMcp.managers).toHaveLength(0);
+  });
 
-    mockedMcp.buildMergedConfig.mockResolvedValue({
-      source: "current",
-      servers: {},
+  it("hydrates a due job from its owner and organization request context", async () => {
+    const manager = await runWithRequestContext(
+      { userEmail: "job-owner@example.com", orgId: "job-org" },
+      () => getMcpManagerForCurrentRequest(),
+    );
+
+    expect(manager).toBe(mockedMcp.managers[0]);
+    expect(mockedMcp.buildMergedConfig).toHaveBeenCalledWith({
+      userEmail: "job-owner@example.com",
+      orgId: "job-org",
     });
-    const currentRefresh = refreshGlobalMcpManager();
-    await Promise.resolve();
+  });
+
+  it("rejects anonymous status requests before hydrating an MCP manager", async () => {
+    authMocks.getSession.mockResolvedValue(null);
+    const routes: Array<(event: any) => unknown> = [];
+    const nitroApp = {
+      h3: {
+        use: (_path: string, handler: (event: any) => unknown) => {
+          routes.push(handler);
+        },
+      },
+    };
+    const { mountMcpStatusRoute } = await import("./mcp-glue.js");
+    mountMcpStatusRoute(nitroApp);
+
+    const event = mockEvent(
+      new Request("https://app.example.com/_agent-native/mcp/status"),
+    );
+    await routes[0]!(event);
+
+    expect(event.res.status).toBe(401);
+    expect(event.res.headers.get("cache-control")).toBe("private, no-store");
+    expect(authMocks.getOrgContext).not.toHaveBeenCalled();
     expect(mockedMcp.buildMergedConfig).not.toHaveBeenCalled();
+  });
 
-    releaseCurrentReady();
-    await expect(currentRefresh).resolves.toBe(true);
-    expect(currentManager.reconfigure).toHaveBeenCalledWith({
-      source: "current",
-      servers: {},
+  it("returns only the authenticated caller's manager status", async () => {
+    authMocks.getSession.mockResolvedValue({ email: "alice@example.com" });
+    authMocks.getOrgContext.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
     });
+    const routes: Array<(event: any) => unknown> = [];
+    const nitroApp = {
+      h3: {
+        use: (_path: string, handler: (event: any) => unknown) => {
+          routes.push(handler);
+        },
+      },
+    };
+    const { mountMcpStatusRoute } = await import("./mcp-glue.js");
+    mountMcpStatusRoute(nitroApp);
+
+    const event = mockEvent(
+      new Request("https://app.example.com/_agent-native/mcp/status"),
+    );
+    await expect(routes[0]!(event)).resolves.toEqual({
+      principal: "alice@example.com",
+    });
+    expect(mockedMcp.buildMergedConfig).toHaveBeenCalledWith({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
+  });
+
+  it("evicts least-recently-used managers when the cache reaches its bound", async () => {
+    const first = await getMcpManagerForPrincipal({
+      userEmail: "user-0@example.com",
+      orgId: null,
+    });
+    for (let i = 1; i < 32; i++) {
+      await getMcpManagerForPrincipal({
+        userEmail: `user-${i}@example.com`,
+        orgId: null,
+      });
+    }
+    await getMcpManagerForPrincipal({
+      userEmail: "user-32@example.com",
+      orgId: null,
+    });
+
+    expect(mockedMcp.managers).toHaveLength(33);
+    expect(mockedMcp.managers[0].stop).toHaveBeenCalledOnce();
+    expect(
+      await getMcpManagerForPrincipal({
+        userEmail: "user-0@example.com",
+        orgId: null,
+      }),
+    ).not.toBe(first);
   });
 });

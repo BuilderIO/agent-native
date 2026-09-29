@@ -16,6 +16,7 @@ export async function loadPublicDesignMeta(
   id: string | undefined,
   requestUrl: string,
 ): Promise<PublicDesignMetaData> {
+  // guard:allow-unscoped — this anonymous metadata loader returns rows only when the requested design is explicitly public.
   const [resource] = id
     ? await getDb()
         .select({

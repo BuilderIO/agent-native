@@ -15,6 +15,7 @@ import {
 } from "./booking-service.js";
 import { getBookingByUid, insertBooking } from "./bookings-repo.js";
 import { setSchedulingContext } from "./context.js";
+import { onBookingCreated } from "./hooks.js";
 import {
   registerCalendarProvider,
   registerVideoProvider,
@@ -219,6 +220,34 @@ beforeEach(async () => {
     );
   `);
   await execute(`
+    CREATE TABLE workflow_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
+  `);
+  await execute(`
+    CREATE TABLE workflow_steps (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      "order" INTEGER NOT NULL DEFAULT 0,
+      action TEXT NOT NULL,
+      offset_minutes INTEGER NOT NULL DEFAULT 0,
+      send_to TEXT,
+      email_subject TEXT,
+      email_body TEXT,
+      sms_body TEXT,
+      webhook_url TEXT,
+      template TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+  await execute(`
     CREATE TABLE webhooks (
       id TEXT PRIMARY KEY,
       name TEXT,
@@ -233,6 +262,18 @@ beforeEach(async () => {
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
+    );
+  `);
+  await execute(`
+    CREATE TABLE webhook_deliveries (
+      id TEXT PRIMARY KEY,
+      webhook_id TEXT NOT NULL,
+      triggered_at TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      response_status INTEGER,
+      response_body TEXT,
+      success BOOLEAN NOT NULL DEFAULT false,
+      attempts INTEGER NOT NULL DEFAULT 0
     );
   `);
   await execute(`
@@ -354,7 +395,7 @@ async function seedEventType(eventType: EventType): Promise<void> {
       eventType.createdAt,
       eventType.updatedAt,
       eventType.ownerEmail ?? "local@localhost",
-      null,
+      eventType.orgId ?? null,
       "private",
     ],
   });
@@ -416,6 +457,320 @@ describe("insertBooking", () => {
       "SELECT * FROM booking_attendees",
     );
     expect(attendeeRows).toHaveLength(0);
+  });
+});
+
+describe("booking webhook dispatch", () => {
+  it("runs private workflows scoped to the booking team", async () => {
+    const now = new Date().toISOString();
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, team_id, disabled, active_on_event_type_ids,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-team-private",
+        "Team booking workflow",
+        "new-booking",
+        "team-b",
+        false,
+        '["event-type-1"]',
+        now,
+        now,
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-step-team",
+        "workflow-team-private",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+
+    await createBooking({
+      eventType: makeEventType({
+        schedulingType: "round-robin",
+        teamId: "team-b",
+        orgId: "org-b",
+      }),
+      hostEmail: "team-host@example.com",
+      startTime: "2026-08-03T11:00:00.000Z",
+      endTime: "2026-08-03T11:30:00.000Z",
+      timezone: "UTC",
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    const { rows } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders",
+    );
+    expect(rows.map((row) => row.workflow_step_id)).toEqual([
+      "workflow-step-team",
+    ]);
+  });
+
+  it("excludes another member's private webhook but preserves org-visible webhooks", async () => {
+    const now = new Date().toISOString();
+    const eventTypes = JSON.stringify(["event-type-1"]);
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, disabled, active_on_event_type_ids,
+        created_at, updated_at, owner_email, org_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-user-a",
+        "Booking workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-a@example.com",
+        "org-a",
+        "workflow-user-b",
+        "Booking workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-step-user-a",
+        "workflow-user-a",
+        "email-host",
+        0,
+        now,
+        "workflow-step-user-b",
+        "workflow-user-b",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?),
+        (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "webhook-user-a-private",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "private",
+        "webhook-user-a-org",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "org",
+        "webhook-user-b",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+      ],
+    });
+
+    const booking = await insertBooking({
+      eventTypeId: "event-type-1",
+      hostEmail: "user-b@example.com",
+      ownerEmail: "user-b@example.com",
+      orgId: "org-b",
+      title: "Private booking",
+      startTime: "2026-08-03T10:00:00.000Z",
+      endTime: "2026-08-03T10:30:00.000Z",
+      timezone: "UTC",
+      attendees: [{ email: ATTENDEE_EMAIL, name: "Attendee One" }],
+    });
+    expect(booking.cancelToken).toBeTruthy();
+    expect(booking.rescheduleToken).toBeTruthy();
+
+    await onBookingCreated(booking);
+
+    const { rows } = await execute(
+      "SELECT webhook_id FROM webhook_deliveries ORDER BY webhook_id",
+    );
+    expect(rows.map((row) => row.webhook_id)).toEqual([
+      "webhook-user-a-org",
+      "webhook-user-b",
+    ]);
+    const { rows: deliveries } = await execute(
+      "SELECT payload FROM webhook_deliveries",
+    );
+    for (const delivery of deliveries) {
+      const payload = JSON.parse(String(delivery.payload));
+      expect(payload.booking).not.toHaveProperty("cancelToken");
+      expect(payload.booking).not.toHaveProperty("rescheduleToken");
+    }
+    const { rows: reminders } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders ORDER BY workflow_step_id",
+    );
+    expect(reminders.map((row) => row.workflow_step_id)).toEqual([
+      "workflow-step-user-b",
+    ]);
+  });
+
+  it("keeps a booking in its event type org and excludes another member's private hooks", async () => {
+    const now = new Date().toISOString();
+    const eventTypes = JSON.stringify(["event-type-1"]);
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, disabled, active_on_event_type_ids,
+        created_at, updated_at, owner_email, org_id, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?),
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-user-a-private",
+        "Private workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "private",
+        "workflow-user-a-org",
+        "Org workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "org",
+        "workflow-user-b",
+        "User B workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-step-user-a-private",
+        "workflow-user-a-private",
+        "email-host",
+        0,
+        now,
+        "workflow-step-user-a-org",
+        "workflow-user-a-org",
+        "email-host",
+        0,
+        now,
+        "workflow-step-user-b",
+        "workflow-user-b",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?),
+        (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "webhook-user-a-private",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "private",
+        "webhook-user-a-other-org",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-a",
+        "org",
+        "webhook-user-b",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility, team_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "webhook-user-b-other-team",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+        "team-a",
+      ],
+    });
+
+    await createBooking({
+      eventType: makeEventType({ orgId: "org-b", teamId: "team-b" }),
+      hostEmail: "user-b@example.com",
+      startTime: "2026-08-03T10:00:00.000Z",
+      endTime: "2026-08-03T10:30:00.000Z",
+      timezone: "UTC",
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    const { rows: bookingRows } = await execute(
+      "SELECT org_id FROM bookings WHERE host_email = 'user-b@example.com'",
+    );
+    expect(bookingRows.map((row) => row.org_id)).toEqual(["org-b"]);
+    const { rows: deliveries } = await execute(
+      "SELECT webhook_id FROM webhook_deliveries ORDER BY webhook_id",
+    );
+    expect(deliveries.map((row) => row.webhook_id)).toEqual(["webhook-user-b"]);
+    const { rows: reminders } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders ORDER BY workflow_step_id",
+    );
+    expect(reminders.map((row) => row.workflow_step_id)).toEqual([
+      "workflow-step-user-a-org",
+      "workflow-step-user-b",
+    ]);
   });
 });
 

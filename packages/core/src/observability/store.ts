@@ -123,8 +123,18 @@ const USER_SCOPED_TABLES = [
 
 const MAX_REVIEW_THREAD_BYTES = 1_000_000;
 const MAX_REVIEW_FEEDBACK_THREAD_SCOPES = 600;
+const MAX_OBSERVABILITY_LIST_PAGE_SIZE = 100;
 export const MAX_REVIEW_TOOL_SPANS = 20;
 const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
+
+function boundedListLimit(requested?: number): number {
+  return Number.isFinite(requested)
+    ? Math.min(
+        MAX_OBSERVABILITY_LIST_PAGE_SIZE,
+        Math.max(1, Math.floor(requested!)),
+      )
+    : MAX_OBSERVABILITY_LIST_PAGE_SIZE;
+}
 
 function withUserFilter(
   baseWhere: string,
@@ -1618,13 +1628,34 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   });
 }
 
-export async function listEvalDatasets(): Promise<EvalDataset[]> {
+export async function listEvalDatasetsPage(
+  options: {
+    limit?: number;
+    before?: { updatedAt: number; id: string };
+  } = {},
+): Promise<EvalDataset[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { rows } = await client.execute(
-    `SELECT * FROM agent_eval_datasets ORDER BY updated_at DESC`,
-  );
+  const args: unknown[] = [];
+  const cursor = options.before;
+  const where = cursor
+    ? "WHERE updated_at < ? OR (updated_at = ? AND id < ?)"
+    : "";
+  if (cursor) args.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+  const limit = boundedListLimit(options.limit);
+  const { rows } = await client.execute({
+    sql: `SELECT id, name, description, entries, created_at, updated_at,
+        user_id, idempotency_key
+      FROM agent_eval_datasets ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit],
+  });
   return (rows as any[]).map(rowToDataset);
+}
+
+export async function listEvalDatasets(): Promise<EvalDataset[]> {
+  return listEvalDatasetsPage();
 }
 
 export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
@@ -1883,13 +1914,45 @@ export async function updateExperiment(
   });
 }
 
-export async function listExperiments(): Promise<Experiment[]> {
+export async function listExperimentsPage(
+  options: {
+    status?: Experiment["status"];
+    limit?: number;
+    before?: { createdAt: number; id: string };
+  } = {},
+): Promise<Experiment[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { rows } = await client.execute(
-    `SELECT * FROM agent_experiments ORDER BY created_at DESC`,
-  );
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (options.status) {
+    conditions.push("status = ?");
+    args.push(options.status);
+  }
+  if (options.before) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    args.push(
+      options.before.createdAt,
+      options.before.createdAt,
+      options.before.id,
+    );
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = boundedListLimit(options.limit);
+  const { rows } = await client.execute({
+    sql: `SELECT id, name, status, variants, metrics, assignment_level,
+        started_at, ended_at, created_at, owner_email
+      FROM agent_experiments ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit],
+  });
   return (rows as any[]).map(rowToExperiment);
+}
+
+export async function listExperiments(): Promise<Experiment[]> {
+  return listExperimentsPage();
 }
 
 export async function getExperiment(id: string): Promise<Experiment | null> {

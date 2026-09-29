@@ -16,39 +16,58 @@ describe("agent chat startup", () => {
     expect(startup).not.toContain("reapAllStaleRuns");
   });
 
-  it("hydrates MCP connections after building the base action routes", () => {
+  it("keeps MCP managers out of startup and static action registries", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
       "utf8",
     );
-    const mcpSetup = source.slice(
-      source.indexOf("// Route readiness must not wait"),
-      source.indexOf("// Resolve actions"),
+    expect(source).not.toContain("new McpClientManager(");
+    expect(source).not.toContain("ensureMcpInitialized");
+    expect(source).toContain(
+      "resolveAdditionalActions: ({ ownerEmail, orgId })",
     );
-
-    expect(mcpSetup).toContain("new McpClientManager(null)");
-    expect(mcpSetup).not.toContain("await mcpManager.start()");
-    expect(
-      source.indexOf("if (!isProductionServerlessFunctionRuntime()) {"),
-    ).toBeGreaterThan(source.lastIndexOf("mcpManager.onChange"));
   });
 
-  it("does not eagerly hydrate MCP on a serverless cold start", () => {
+  it("resolves MCP only from authenticated chat or a due job that requests tools", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
       "utf8",
     );
 
-    expect(source).toContain(
-      "if (!isProductionServerlessFunctionRuntime()) {\n        void ensureMcpInitialized().catch",
+    expect(source).toContain("if (requested.length === 0) return {};");
+    const jobResolver = source.slice(
+      source.indexOf("const getJobMcpActionEntries"),
+      source.indexOf("// Mount status + management routes"),
     );
-    expect(source).toContain("waitUntilReady: ensureMcpInitialized,");
+    expect(jobResolver).toContain("principalFromRequestContext()");
+    expect(jobResolver).toContain("principal.userEmail");
+    expect(jobResolver).toContain("principal.orgId");
     expect(
       source.slice(
         source.indexOf("const invokeAgentChatHandler"),
         source.indexOf("const ownerContext = await resolveOwnerContext(event)"),
       ),
-    ).toContain("await ensureMcpInitialized();");
+    ).not.toContain("getMcpManager");
+  });
+
+  it("routes anonymous chat through the read-only handler without MCP actions", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const anonymousHandler = source.slice(
+      source.indexOf("const anonymousHandler ="),
+      source.indexOf("// Build the dev handler"),
+    );
+    const invocation = source.slice(
+      source.indexOf("const invokeAgentChatHandler ="),
+      source.indexOf("// A Function URL is a separate origin"),
+    );
+
+    expect(invocation).toContain("ownerContext.anonymous && anonymousHandler");
+    expect(invocation).not.toContain("getMcpManager");
+    expect(anonymousHandler).toContain("actions: anonymousReadOnlyActions");
+    expect(anonymousHandler).not.toContain("resolveAdditionalActions");
   });
 
   it("keeps transient database failures structured on the stream route", () => {

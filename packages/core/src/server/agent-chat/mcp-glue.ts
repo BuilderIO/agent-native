@@ -11,91 +11,148 @@ import {
   McpClientManager,
   McpConfigUnreadableError,
 } from "../../mcp-client/index.js";
+import {
+  normalizeMcpPrincipal,
+  principalFromRequestContext,
+  resolveMcpPrincipalForEvent,
+  type McpPrincipal,
+} from "../../mcp-client/principal.js";
 import { getH3App } from "../framework-request-handler.js";
 
-let _globalMcpManager: McpClientManager | null = null;
-let _globalMcpManagerReady: (() => Promise<void>) | null = null;
-let _globalMcpManagerGeneration = 0;
-let _resolveGlobalMcpManagerChange: (() => void) | null = null;
-let _globalMcpManagerChange = new Promise<void>((resolve) => {
-  _resolveGlobalMcpManagerChange = resolve;
-});
-let _globalMcpRefreshQueue: Promise<void> = Promise.resolve();
+const MCP_MANAGER_CACHE_LIMIT = 32;
+const MCP_MANAGER_IDLE_TTL_MS = 15 * 60_000;
+const MCP_CONFIG_TTL_MS = 60_000;
 
-export function setGlobalMcpManager(
-  manager: McpClientManager | null,
-  ready?: (() => Promise<void>) | null,
-): void {
-  _globalMcpManagerGeneration += 1;
-  _resolveGlobalMcpManagerChange?.();
-  _globalMcpManagerChange = new Promise<void>((resolve) => {
-    _resolveGlobalMcpManagerChange = resolve;
-  });
-  _globalMcpManager = manager;
-  _globalMcpManagerReady = manager ? (ready ?? null) : null;
+interface McpManagerEntry {
+  manager: McpClientManager;
+  principal: McpPrincipal;
+  lastAccessedAt: number;
+  configuredAt: number;
+  ready: Promise<void> | null;
 }
 
-export function getGlobalMcpManager(): McpClientManager | null {
-  return _globalMcpManager;
+const managers = new Map<string, McpManagerEntry>();
+
+function principalKey(principal: McpPrincipal): string {
+  return JSON.stringify([principal.userEmail, principal.orgId]);
 }
 
-export async function waitForGlobalMcpManager(): Promise<McpClientManager | null> {
-  while (true) {
-    const manager = getGlobalMcpManager();
-    if (!manager) return null;
-    const generation = _globalMcpManagerGeneration;
-    const ready = _globalMcpManagerReady;
-    const change = _globalMcpManagerChange;
-    if (ready) await Promise.race([ready(), change]);
-    if (
-      generation === _globalMcpManagerGeneration &&
-      manager === _globalMcpManager &&
-      ready === _globalMcpManagerReady
-    ) {
-      return manager;
-    }
+async function stopEntry(entry: McpManagerEntry): Promise<void> {
+  try {
+    await entry.manager.stop();
+  } catch (error) {
+    console.warn("[mcp-client] manager cleanup failed:", error);
   }
 }
 
-export async function refreshGlobalMcpManager(): Promise<boolean> {
-  const refresh = _globalMcpRefreshQueue.then(async () => {
-    const manager = getGlobalMcpManager();
-    if (!manager) return false;
-    const generation = _globalMcpManagerGeneration;
-    const ready = _globalMcpManagerReady;
-    const change = _globalMcpManagerChange;
-    try {
-      if (ready) await Promise.race([ready(), change]);
-      if (
-        generation !== _globalMcpManagerGeneration ||
-        manager !== _globalMcpManager ||
-        ready !== _globalMcpManagerReady
-      ) {
-        return false;
-      }
-      const config = await buildMergedConfig();
-      if (
-        generation !== _globalMcpManagerGeneration ||
-        manager !== _globalMcpManager ||
-        ready !== _globalMcpManagerReady
-      ) {
-        return false;
-      }
-      await manager.reconfigure(config);
-      return true;
-    } catch (err) {
-      if (err instanceof McpConfigUnreadableError) {
-        console.warn(`[mcp-client] global refresh skipped: ${err.message}`);
-        return false;
-      }
-      throw err;
+function evictExpiredManagers(now: number): void {
+  for (const [key, entry] of managers) {
+    if (now - entry.lastAccessedAt <= MCP_MANAGER_IDLE_TTL_MS) continue;
+    managers.delete(key);
+    void stopEntry(entry);
+  }
+}
+
+function evictLeastRecentlyUsedManager(): void {
+  const oldest = [...managers.entries()].sort(
+    ([, left], [, right]) => left.lastAccessedAt - right.lastAccessedAt,
+  )[0];
+  if (!oldest) return;
+  managers.delete(oldest[0]);
+  void stopEntry(oldest[1]);
+}
+
+async function hydrateEntry(entry: McpManagerEntry): Promise<void> {
+  const config = await buildMergedConfig(entry.principal);
+  await entry.manager.reconfigure(config);
+  entry.configuredAt = Date.now();
+}
+
+/** Lazily hydrate one bounded manager for one authenticated user/org pair. */
+export async function getMcpManagerForPrincipal(
+  rawPrincipal: McpPrincipal,
+  forceRefresh = false,
+): Promise<McpClientManager> {
+  const principal = normalizeMcpPrincipal(rawPrincipal);
+  if (!principal) throw new Error("Authenticated MCP principal required");
+  const now = Date.now();
+  evictExpiredManagers(now);
+  const key = principalKey(principal);
+  let entry = managers.get(key);
+  if (!entry) {
+    while (managers.size >= MCP_MANAGER_CACHE_LIMIT) {
+      evictLeastRecentlyUsedManager();
     }
-  });
-  _globalMcpRefreshQueue = refresh.then(
-    () => undefined,
-    () => undefined,
-  );
-  return refresh;
+    entry = {
+      manager: new McpClientManager(null),
+      principal,
+      lastAccessedAt: now,
+      configuredAt: 0,
+      ready: null,
+    };
+    managers.set(key, entry);
+  }
+  entry.lastAccessedAt = now;
+
+  if (forceRefresh || now - entry.configuredAt >= MCP_CONFIG_TTL_MS) {
+    if (!entry.ready) {
+      entry.ready = hydrateEntry(entry).catch(async (error) => {
+        if (managers.get(key) === entry) managers.delete(key);
+        await stopEntry(entry!);
+        throw error;
+      });
+    }
+    try {
+      await entry.ready;
+    } finally {
+      entry.ready = null;
+    }
+  } else if (entry.ready) {
+    await entry.ready;
+  }
+
+  if (entry.configuredAt === 0) {
+    throw new McpConfigUnreadableError(
+      new Error("MCP manager did not finish configuration"),
+    );
+  }
+  return entry.manager;
+}
+
+export async function getMcpManagerForCurrentRequest(
+  forceRefresh = false,
+): Promise<McpClientManager> {
+  const principal = principalFromRequestContext();
+  if (!principal) throw new Error("Authenticated MCP principal required");
+  return getMcpManagerForPrincipal(principal, forceRefresh);
+}
+
+export async function invalidateMcpManagersForScope(
+  scope: "user" | "org",
+  scopeId: string,
+  keep?: McpClientManager,
+): Promise<void> {
+  const stale: McpManagerEntry[] = [];
+  for (const [key, entry] of managers) {
+    const matches =
+      scope === "user"
+        ? entry.principal.userEmail === scopeId
+        : entry.principal.orgId === scopeId;
+    if (!matches || entry.manager === keep) continue;
+    managers.delete(key);
+    stale.push(entry);
+  }
+  await Promise.all(stale.map(stopEntry));
+}
+
+export async function stopAllMcpManagers(): Promise<void> {
+  const entries = [...managers.values()];
+  managers.clear();
+  await Promise.all(entries.map(stopEntry));
+}
+
+export function _resetMcpManagerRegistryForTests(): Promise<void> {
+  return stopAllMcpManagers();
 }
 
 export function mountMcpHubStatusRoute(nitroApp: any): void {
@@ -112,8 +169,15 @@ export function mountMcpHubStatusRoute(nitroApp: any): void {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        setResponseHeader(event, "Cache-Control", "private, no-store");
+        const principal = await resolveMcpPrincipalForEvent(event);
+        if (!principal) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
         setResponseHeader(event, "Content-Type", "application/json");
-        return getHubStatus();
+        const status = getHubStatus();
+        return { ...status, hubUrl: principal.orgId ? status.hubUrl : null };
       }),
     );
   } catch (err: any) {
@@ -123,10 +187,7 @@ export function mountMcpHubStatusRoute(nitroApp: any): void {
   }
 }
 
-export function mountMcpStatusRoute(
-  nitroApp: any,
-  manager: McpClientManager,
-): void {
+export function mountMcpStatusRoute(nitroApp: any): void {
   const mountedApps: WeakSet<object> = ((
     globalThis as any
   ).__agentNativeMcpStatusMountedApps ??= new WeakSet<object>());
@@ -140,7 +201,14 @@ export function mountMcpStatusRoute(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        setResponseHeader(event, "Cache-Control", "private, no-store");
+        const principal = await resolveMcpPrincipalForEvent(event);
+        if (!principal) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
         setResponseHeader(event, "Content-Type", "application/json");
+        const manager = await getMcpManagerForPrincipal(principal);
         return manager.getStatus();
       }),
     );

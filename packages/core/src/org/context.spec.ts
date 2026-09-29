@@ -770,6 +770,23 @@ describe("getOrgContext", () => {
       delete process.env.ORG_CREATION;
     });
 
+    it("does not resolve or auto-create an org for anonymous waitlist identities", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "anon-visitor@agent-native.com",
+        emailVerified: true,
+      });
+
+      await expect(getOrgContext(EVENT)).resolves.toEqual({
+        email: "anon-visitor@agent-native.com",
+        orgId: null,
+        orgName: null,
+        role: null,
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+      expect(mockPutUserSetting).not.toHaveBeenCalled();
+      expect(mockAppStatePut).not.toHaveBeenCalled();
+    });
+
     it("provisions a default org for a zero-membership user by default", async () => {
       mockGetSession.mockResolvedValue({
         email: "jane@startup.dev",

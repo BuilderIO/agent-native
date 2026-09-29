@@ -359,7 +359,28 @@ export interface Experiment {
 export function useExperiments() {
   return useQuery({
     queryKey: ["observability", "experiments"],
-    queryFn: () => fetchJson<Experiment[]>(`${BASE}/experiments`),
+    queryFn: async () => {
+      const experiments: Experiment[] = [];
+      let before: { createdAt: number; id: string } | undefined;
+      for (;;) {
+        const query = new URLSearchParams({ limit: "100" });
+        if (before) {
+          query.set("beforeCreatedAt", String(before.createdAt));
+          query.set("beforeId", before.id);
+        }
+        const page = await fetchJson<Experiment[]>(
+          `${BASE}/experiments?${query}`,
+        );
+        experiments.push(...page);
+        if (page.length < 100) return experiments;
+        const last = page.at(-1)!;
+        const next = { createdAt: last.createdAt, id: last.id };
+        if (before?.createdAt === next.createdAt && before.id === next.id) {
+          return experiments;
+        }
+        before = next;
+      }
+    },
     refetchInterval: 30_000,
   });
 }

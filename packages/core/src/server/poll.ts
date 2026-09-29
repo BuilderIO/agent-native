@@ -1644,20 +1644,14 @@ export class AppSyncState {
       const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
       if (extensionsTs > this.lastExtensionsTs) {
         const since = this.lastExtensionsUpdatedAt;
-        const extensionResult =
-          since === undefined
-            ? await db.execute({
-                sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
-                args: [],
-              })
-            : await db.execute({
-                sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
-                args: [since],
-              });
-        const changedExtensionRows = extensionResult.rows.filter(
-          (row) => timestampValue(row.updated_at) > this.lastExtensionsTs,
-        );
-        if (this.lastExtensionsTs > 0) {
+        if (this.lastExtensionsTs > 0 && since !== undefined) {
+          const extensionResult = await db.execute({
+            sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
+            args: [since],
+          });
+          const changedExtensionRows = extensionResult.rows.filter(
+            (row) => timestampValue(row.updated_at) > this.lastExtensionsTs,
+          );
           const targetsByRow = await readExtensionTargetsForRows(
             db,
             changedExtensionRows,
