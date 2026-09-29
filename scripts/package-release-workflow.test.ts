@@ -51,10 +51,12 @@ describe("npm package release workflow", () => {
     );
     assert(publishStep);
 
-    assert.match(String(nightly.if), /github\.event_name == 'push'/);
+    assert.match(String(nightly.if), /github\.event_name == 'schedule'/);
+    assert.doesNotMatch(String(nightly.if), /github\.event_name == 'push'/);
+    assert.deepEqual(nightly.needs, ["detect-nightly-changes"]);
     assert.match(
       String(nightly.if),
-      /needs\.verify-stable-merge\.outputs\.verified != 'true'/,
+      /needs\.detect-nightly-changes\.outputs\.changed == 'true'/,
     );
     assert.doesNotMatch(
       String(nightly.if),
@@ -67,6 +69,39 @@ describe("npm package release workflow", () => {
     );
     assert.doesNotMatch(source, /--snapshot beta/);
     assert.doesNotMatch(source, /AGENT_NATIVE_NPM_DIST_TAG: beta/);
+  });
+
+  it("publishes nightly snapshots on a three-hour schedule, not per merge", () => {
+    assert.deepEqual(trigger.schedule, [{ cron: "17 */3 * * *" }]);
+
+    const detect = jobs["detect-nightly-changes"] as Workflow;
+    assert.match(String(detect.if), /github\.event_name == 'schedule'/);
+    const detectStep = (detect.steps as Workflow[]).find(
+      (step) => step.id === "detect",
+    );
+    assert(detectStep);
+    const detectSource = String(detectStep.run);
+    assert.match(detectSource, /event=schedule&branch=main&status=success/);
+    assert.match(detectSource, /git diff --quiet "\$last_sha" HEAD/);
+
+    const nightlyPaths = String((detectStep.env as Workflow).NIGHTLY_PATHS)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const push = trigger.push as { paths: string[] };
+    assert.deepEqual(nightlyPaths, push.paths);
+  });
+
+  it("skips the stable verifier on ordinary pushes", () => {
+    const verifier = jobs["verify-stable-merge"] as Workflow;
+    assert.match(
+      String(verifier.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String(verifier.if),
+      /contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
   });
 
   it("rejects a marked ordinary push from the stable lane", () => {
