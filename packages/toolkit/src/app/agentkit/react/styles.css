@@ -967,7 +967,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   opacity: 1;
 }
 
-@media (hover: none) {
+@media (hover: none), (any-pointer: coarse) {
   .agentkit-message-actions[data-role="user"] {
     opacity: 1;
   }
