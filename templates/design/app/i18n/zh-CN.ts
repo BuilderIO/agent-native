@@ -313,6 +313,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "边框",
       outline: "轮廓",
       inside: "内侧",

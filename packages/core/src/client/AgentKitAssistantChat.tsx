@@ -63,6 +63,7 @@ import React, {
 } from "react";
 
 import type { AgentChatAttachment } from "../agent/types.js";
+import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "../package-lifecycle/migration-message.js";
 import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   appendAgentChatContextToMessage,
@@ -165,6 +166,11 @@ export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */
   onForkedThread?: (threadId: string) => void;
   branchNavigation?: AgentKitBranchNavigation;
+  /**
+   * @deprecated Removed in Core 0.194.0. Pass `runtime` or `createTransport`.
+   * @see https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md
+   */
+  createAdapter?: "Removed. See https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
 }
 
 const reportIntegrity = (report: AgentStreamIntegrityReport) => {
@@ -523,6 +529,11 @@ export const AgentKitAssistantChat = forwardRef<
   AssistantChatHandle,
   AgentKitAssistantChatProps
 >(function AgentKitAssistantChat(props, ref) {
+  if ((props as { createAdapter?: unknown }).createAdapter !== undefined) {
+    throw new Error(
+      `AssistantChat's createAdapter prop was removed. Pass runtime or createTransport instead. Migration guide: ${AGENTKIT_CHAT_MIGRATION_GUIDE_URL}`,
+    );
+  }
   const t = useT();
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;

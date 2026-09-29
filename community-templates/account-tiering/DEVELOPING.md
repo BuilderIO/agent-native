@@ -109,16 +109,16 @@ imports. Install the generated manifest as written.
 
 ### Migrate an older Core chat surface
 
-Migrate the presentation boundary while keeping application contracts stable:
+Core's `AssistantChat` remains supported as the AgentKit-backed surface, as do
+`AgentPanel`, `AgentSidebar`, `AgentChatSurface`, `AgentChatHome`, and
+`MultiTabAssistantChat`. Apps that only mount these components do not need to
+replace their chat UI.
 
-1. Keep actions, application-state keys, thread routes, auth, access checks,
-   and the Core agent runtime.
-2. Create one `createAgentNativeAgentKitTransport()` and pass it to
-   `AgentKitRoot` or `AgentChat`.
-3. Replace the old Core transcript component. Move visual overrides to AgentKit
-   slots and kind registries, and move commands to `useAgentKitControl()`.
-4. Remove the old controller, queue, approval store, and stream subscription.
-   One conversation must have one behavioral owner.
+If your app used the removed `AssistantChat.createAdapter`, adapter helpers, or
+assistant-ui transcript/runtime APIs, follow the version-matched guide at
+`node_modules/@agent-native/core/docs/migrations/agentkit-chat.md`. It maps each
+removed API to `runtime`, `createTransport`, AgentKit slots, or a custom
+`AgentTransport`. Keep one conversation controller and stream owner.
 
 Widgets invoke stable action ids through the transport. Map them to the same
 `defineAction` surface used by the app and agent. Smart objects and client

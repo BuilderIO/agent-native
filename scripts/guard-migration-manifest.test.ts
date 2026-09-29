@@ -275,4 +275,50 @@ describe("migration manifest guard", () => {
       [],
     );
   });
+
+  it("checks removed export inventories against the current public symbols", () => {
+    const removedExports = {
+      "@agent-native/core": {
+        symbols: ["createAgentChatAdapter"],
+        migrationGuide: "https://example.test/migrations/chat.md",
+      },
+    };
+    const clean = checkMigrationManifest(
+      manifest,
+      snapshot,
+      { removedExports },
+      undefined,
+      { "@agent-native/core": new Set() },
+    );
+    assert.deepEqual(clean, []);
+
+    const stale = checkMigrationManifest(
+      manifest,
+      snapshot,
+      { removedExports },
+      undefined,
+      { "@agent-native/core": new Set(["createAgentChatAdapter"]) },
+    );
+    assert.match(
+      stale[0]?.message ?? "",
+      /marks createAgentChatAdapter removed/,
+    );
+  });
+
+  it("reports malformed removed-export symbol lists without throwing", () => {
+    for (const removed of [null, {}, { symbols: "not-an-array" }]) {
+      const violations = checkMigrationManifest(
+        manifest,
+        snapshot,
+        { removedExports: { "@agent-native/core": removed } },
+        undefined,
+        { "@agent-native/core": new Set() },
+      );
+      assert.ok(
+        violations.some((violation) =>
+          /removedExports\.symbols|symbols array/.test(violation.message),
+        ),
+      );
+    }
+  });
 });
