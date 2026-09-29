@@ -1327,7 +1327,7 @@ const messages: AgentChatTranslation = {
   "observability.insights.typicalTime": "सामान्य समय",
   "observability.insights.median": "मीडियन",
   "observability.insights.sampleNote":
-    "नीचे के आँकड़े {{total}} में से नवीनतम {{shown}} प्रॉम्प्ट पर आधारित हैं।",
+    "पूरा होने की दर, सामान्य समय, Agent-Native ने क्या संभाला और निष्कर्ष, {{total}} में से नवीनतम {{shown}} प्रॉम्प्ट पर आधारित हैं।",
   "observability.insights.changeSame": "पिछली अवधि जैसा ही",
   "observability.insights.changeUp": "↑ {{percent}}% पिछली अवधि की तुलना में",
   "observability.insights.changeDown": "↓ {{percent}}% पिछली अवधि की तुलना में",

@@ -1285,7 +1285,7 @@ const messages: AgentChatTranslation = {
   "observability.insights.typicalTime": "典型耗時",
   "observability.insights.median": "中位數",
   "observability.insights.sampleNote":
-    "以下數據根據 {{total}} 則提示中最新的 {{shown}} 則。",
+    "完成率、典型耗時、Agent-Native 處理的內容與發現均根據 {{total}} 則提示中最新的 {{shown}} 則。",
   "observability.insights.changeSame": "與上一週期相同",
   "observability.insights.changeUp": "↑ 較上一週期 {{percent}}%",
   "observability.insights.changeDown": "↓ 較上一週期 {{percent}}%",

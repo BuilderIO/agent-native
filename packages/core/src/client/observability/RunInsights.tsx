@@ -1246,12 +1246,23 @@ export interface RunFilter {
   openRunId?: string;
 }
 
-function LoadFailed() {
+function LoadFailed({
+  retrying,
+  onRetry,
+}: {
+  retrying: boolean;
+  onRetry: () => void;
+}) {
   const t = useT();
   return (
-    <p role="alert" className="text-sm text-muted-foreground">
-      {t("agentChat.common.chunkLoadFailed")}
-    </p>
+    <div className="flex items-center gap-3">
+      <p role="alert" className="text-sm text-muted-foreground">
+        {t("agentChat.common.chunkLoadFailed")}
+      </p>
+      <Button size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+        {t("agentChat.common.retry")}
+      </Button>
+    </div>
   );
 }
 
@@ -1272,11 +1283,13 @@ export function RunInsightsOverview({
   onShowRuns: (filter: RunFilter) => void;
 }) {
   const t = useT();
-  const { data, isError } = useRunInsights(days);
+  const { data, isError, isFetching, refetch } = useRunInsights(days);
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const insights = useMemo(() => buildInsights(t, runs), [t, runs]);
 
-  if (isError) return <LoadFailed />;
+  if (isError) {
+    return <LoadFailed retrying={isFetching} onRetry={() => void refetch()} />;
+  }
   if (!data) {
     return (
       <div className="space-y-3">
@@ -1428,7 +1441,7 @@ export function RunInsightsConversations({
   renderRawTrace: (runId: string) => ReactNode;
 }) {
   const t = useT();
-  const { data, isError } = useRunInsights(days);
+  const { data, isError, isFetching, refetch } = useRunInsights(days);
   const runs = useMemo(() => data?.runs ?? [], [data]);
   const [sort, setSort] = useState<"newest" | "cost">("newest");
   const [openRunId, setOpenRunId] = useState<string | null>(
@@ -1471,7 +1484,9 @@ export function RunInsightsConversations({
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (isError) return <LoadFailed />;
+  if (isError) {
+    return <LoadFailed retrying={isFetching} onRetry={() => void refetch()} />;
+  }
   if (!data) {
     return (
       <div className="space-y-2">

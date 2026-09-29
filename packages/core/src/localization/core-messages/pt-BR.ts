@@ -1421,7 +1421,7 @@ const messages: AgentChatTranslation = {
   "observability.insights.typicalTime": "Tempo típico",
   "observability.insights.median": "mediana",
   "observability.insights.sampleNote":
-    "Os números abaixo usam os últimos {{shown}} de {{total}} prompts.",
+    "A conclusão, o tempo típico, o que o Agent-Native resolveu e os achados usam os últimos {{shown}} de {{total}} prompts.",
   "observability.insights.changeSame": "igual ao período anterior",
   "observability.insights.changeUp":
     "↑ {{percent}}% em relação ao período anterior",

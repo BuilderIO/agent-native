@@ -1350,7 +1350,7 @@ const messages: AgentChatTranslation = {
   "observability.insights.typicalTime": "일반적인 소요 시간",
   "observability.insights.median": "중앙값",
   "observability.insights.sampleNote":
-    "아래 수치는 전체 {{total}}개 중 최근 {{shown}}개 프롬프트 기준입니다.",
+    "완료율, 일반 소요 시간, Agent-Native가 처리한 내용, 발견 사항은 전체 {{total}}개 중 최근 {{shown}}개 프롬프트 기준입니다.",
   "observability.insights.changeSame": "이전 기간과 동일",
   "observability.insights.changeUp": "↑ {{percent}}%(이전 기간 대비)",
   "observability.insights.changeDown": "↓ {{percent}}%(이전 기간 대비)",

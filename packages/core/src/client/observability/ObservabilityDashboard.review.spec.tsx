@@ -586,10 +586,17 @@ describe("ObservabilityDashboard human review", () => {
     expect(buttonWithText("Open full conversation")).toBeUndefined();
   });
 
-  it("reports a failed insights load instead of loading forever", async () => {
+  it("reports a failed insights load with a retry instead of loading forever", async () => {
+    const refetch = vi.fn();
     mockUseActionQuery.mockImplementation((actionName) =>
       actionName === "get-usage-insights"
-        ? { data: undefined, isError: true, isSuccess: false }
+        ? {
+            data: undefined,
+            isError: true,
+            isSuccess: false,
+            isFetching: false,
+            refetch,
+          }
         : { data: undefined, isError: false, isSuccess: false },
     );
 
@@ -606,13 +613,18 @@ describe("ObservabilityDashboard human review", () => {
       "Couldn't load this. Please try again.",
     );
 
-    const conversations = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Conversations"),
-    );
-    await act(async () => conversations?.click());
+    const buttonWithText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes(text),
+      );
+    await act(async () => buttonWithText("Retry")?.click());
+    expect(refetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => buttonWithText("Conversations")?.click());
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "Couldn't load this. Please try again.",
     );
+    expect(buttonWithText("Retry")).toBeTruthy();
   });
 
   it("says the overview stats cover only the latest prompts when the period has more", async () => {
@@ -682,7 +694,7 @@ describe("ObservabilityDashboard human review", () => {
     });
 
     expect(container.textContent).toContain(
-      "Stats below use the latest 1 of 30 prompts.",
+      "Completion, typical time, what Agent-Native handled and the findings use the latest 1 of 30 prompts.",
     );
   });
 

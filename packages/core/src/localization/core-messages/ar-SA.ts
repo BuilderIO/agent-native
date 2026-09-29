@@ -1377,7 +1377,7 @@ const messages: AgentChatTranslation = {
   "observability.insights.typicalTime": "الوقت المعتاد",
   "observability.insights.median": "الوسيط",
   "observability.insights.sampleNote":
-    "تعتمد الأرقام أدناه على أحدث {{shown}} من أصل {{total}} من المطالبات.",
+    "تعتمد نسبة الإكمال والوقت المعتاد وما تولّاه Agent-Native والملاحظات على أحدث {{shown}} من أصل {{total}} من المطالبات.",
   "observability.insights.changeSame": "نفس الفترة السابقة",
   "observability.insights.changeUp": "↑ {{percent}}% مقارنة بالفترة السابقة",
   "observability.insights.changeDown": "↓ {{percent}}% مقارنة بالفترة السابقة",
