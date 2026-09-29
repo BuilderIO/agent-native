@@ -154,6 +154,11 @@ describe("SettingsShell", () => {
         pages: ["profile", "preferences", "security"],
       },
       {
+        id: "app",
+        label: "Clips",
+        pages: ["app", "automations", "channels", "mcp"],
+      },
+      {
         id: "connections",
         label: "Connections",
         pages: ["integrations", "api-keys"],
@@ -175,11 +180,6 @@ describe("SettingsShell", () => {
         id: "organization",
         label: "Organization",
         pages: ["org", "members", "usage"],
-      },
-      {
-        id: "app",
-        label: "Clips",
-        pages: ["app", "automations", "channels", "mcp"],
       },
       { id: "footer", label: null, pages: ["labs"] },
     ]);

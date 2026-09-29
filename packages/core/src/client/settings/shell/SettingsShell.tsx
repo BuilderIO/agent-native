@@ -67,6 +67,7 @@ import {
 import { BridgedTabSettingsPage, CORE_SETTINGS_PAGES } from "./core-pages.js";
 import {
   DEFAULT_SETTINGS_PAGE_ID,
+  SETTINGS_PAGE_GROUPS,
   getSettingsPages,
   isSettingsPageVisible,
   sortSettingsPages,
@@ -1079,7 +1080,7 @@ function SettingsNav({
           aria-label={t("agentChat.settingsShell.navLabel")}
           className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3"
         >
-          {(["account", "connections", "agent", "organization", "app"] as const)
+          {SETTINGS_PAGE_GROUPS.filter((group) => group !== "footer")
             .filter((group) => (groups.get(group) ?? []).length > 0)
             .map((group) => (
               <div

@@ -276,19 +276,23 @@ function RuleBackfillStatus({
   status,
   loading,
   starting,
-  failed,
   undoing,
   reviewHref,
   onUndo,
+  onRetry,
+  retrying,
+  canRetry,
 }: {
   ruleId: string;
   status: AiFilterBackfillStatus | undefined;
   loading: boolean;
   starting: boolean;
-  failed: boolean;
   undoing: boolean;
   reviewHref: string | null;
   onUndo: (runId: string, undoToken: string) => void;
+  onRetry: () => void;
+  retrying: boolean;
+  canRetry: boolean;
 }) {
   const t = useT();
   const working =
@@ -299,7 +303,7 @@ function RuleBackfillStatus({
     status?.status === "undoing" ||
     undoing;
 
-  if (!starting && !loading && !failed && !status && !undoing) return null;
+  if (!starting && !loading && !status && !undoing) return null;
 
   if (working) {
     const percent =
@@ -334,13 +338,21 @@ function RuleBackfillStatus({
     );
   }
 
-  if (failed || status?.status === "failed") {
+  const ruleStatus = status?.perRule.find((item) => item.ruleId === ruleId);
+  if (status?.status === "failed") {
     return (
       <div
         role="alert"
         className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5"
       >
         <div className="min-w-0">
+          {ruleStatus && ruleStatus.matchedCount > 0 && (
+            <p className="mb-1 text-xs font-medium text-foreground">
+              {t("mail.aiFilter.ruleBackfillMatches", {
+                count: ruleStatus.matchedCount,
+              })}
+            </p>
+          )}
           <p className="text-xs text-destructive">
             {t("mail.aiFilter.ruleBackfillFailed")}
           </p>
@@ -350,17 +362,30 @@ function RuleBackfillStatus({
             </p>
           )}
         </div>
-        {status?.undoToken && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7"
-            onClick={() => onUndo(status.runId, status.undoToken!)}
-            disabled={undoing}
-          >
-            {t("mail.actions.undo")}
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {status.undoToken && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={() => onUndo(status.runId, status.undoToken!)}
+              disabled={undoing}
+            >
+              {t("mail.actions.undo")}
+            </Button>
+          )}
+          {canRetry && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={onRetry}
+              disabled={retrying || undoing}
+            >
+              {t("mail.error.tryAgain")}
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -375,8 +400,10 @@ function RuleBackfillStatus({
     );
   }
 
-  const ruleStatus = status.perRule.find((item) => item.ruleId === ruleId);
-  if (!ruleStatus) {
+  const completedRuleStatus = status.perRule.find(
+    (item) => item.ruleId === ruleId,
+  );
+  if (!completedRuleStatus) {
     return status.failedThreads > 0 ? (
       <p
         role="alert"
@@ -393,14 +420,14 @@ function RuleBackfillStatus({
     <div className="space-y-2 border-t border-border/40 px-3 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium text-foreground">
-          {ruleStatus.matchedCount > 0
+          {completedRuleStatus.matchedCount > 0
             ? t("mail.aiFilter.ruleBackfillMatches", {
-                count: ruleStatus.matchedCount,
+                count: completedRuleStatus.matchedCount,
               })
             : t("mail.aiFilter.ruleBackfillNoMatches")}
         </p>
         <div className="flex items-center gap-1">
-          {reviewHref && ruleStatus.matchedCount > 0 && (
+          {reviewHref && completedRuleStatus.matchedCount > 0 && (
             <Button variant="ghost" size="sm" className="h-7" asChild>
               <Link to={reviewHref}>
                 {t("mail.aiFilter.ruleBackfillReview")}
@@ -427,9 +454,9 @@ function RuleBackfillStatus({
           })}
         </p>
       )}
-      {ruleStatus.previews.length > 0 && (
+      {completedRuleStatus.previews.length > 0 && (
         <ul className="divide-y divide-border/40">
-          {ruleStatus.previews.slice(0, 3).map((preview) => (
+          {completedRuleStatus.previews.slice(0, 3).map((preview) => (
             <li
               key={preview.id}
               className="min-w-0 py-1.5 first:pt-0 last:pb-0"
@@ -1134,12 +1161,20 @@ export function AiFilterSection() {
                               status={status}
                               loading={!status && recentBackfills.isLoading}
                               starting={queueingBackfillRuleId === rule.id}
-                              failed={!status && recentBackfills.isError}
                               undoing={undoingBackfill}
                               reviewHref={reviewHrefForRule(rule)}
+                              retrying={queueingBackfillRuleId === rule.id}
+                              canRetry={
+                                jevConfigured &&
+                                rule.enabled &&
+                                status?.status === "failed" &&
+                                (!status.undoToken ||
+                                  status.appliedThreads === 0)
+                              }
                               onUndo={(runId, undoToken) =>
                                 void undoRuleBackfill(runId, undoToken)
                               }
+                              onRetry={() => void queueRuleBackfill(rule.id)}
                             />
                           )}
                         </div>

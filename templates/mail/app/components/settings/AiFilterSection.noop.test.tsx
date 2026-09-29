@@ -779,13 +779,19 @@ describe("AiFilterSection", () => {
           previews: [],
         },
       ],
+      error: "Email service is briefly busy.",
       undoToken: "undo-token",
     };
     renderSection();
 
     expect(
-      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+      await screen.findByText("mail.aiFilter.ruleBackfillMatches 1"),
     ).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.ruleBackfillFailed")).not.toBeNull();
+    expect(screen.getByText("Email service is briefly busy.")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
 
     await waitFor(() => {
@@ -794,6 +800,43 @@ describe("AiFilterSection", () => {
         runId: "backfill-run",
         undoToken: "undo-token",
       });
+    });
+  });
+
+  it("retries a failed backfill when there are no applied changes to undo", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 0,
+      processedThreads: 0,
+      matchedThreads: 0,
+      appliedThreads: 0,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "fetch failed",
+    };
+    renderSection();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule"],
+      });
+      expect(mocks.refetchBackfill).toHaveBeenCalled();
     });
   });
 
