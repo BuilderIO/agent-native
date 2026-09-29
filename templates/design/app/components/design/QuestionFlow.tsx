@@ -1,15 +1,15 @@
+import { type AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  GuidedQuestionProviderGate,
   getOtherGuidedAnswerText,
   hasGuidedAnswer,
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
-  type AgentEngineConfiguredState,
   type GuidedQuestion,
   type GuidedQuestionOption,
-} from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { GuidedQuestionProviderGate } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

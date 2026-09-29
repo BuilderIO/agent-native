@@ -1,7 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import { docsUrl } from "@agent-native/core/shared";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
 

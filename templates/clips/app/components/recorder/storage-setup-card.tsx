@@ -3,7 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   hasBuilderOAuthCredential,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconCheck,
   IconCloud,

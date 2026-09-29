@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { AssistantChatHandle } from "@agent-native/core/client/agent-chat";
+import type { AssistantChatHandle } from "@agent-native/toolkit/app/chat";
 import {
   act,
   createElement,
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload?: unknown }) => void>(),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentKitAssistantChat: forwardRef<
     AssistantChatHandle,
     Record<string, unknown>
@@ -49,6 +49,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
         : null,
     );
   }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   generateTabId: () => "test-thread",
 }));
 

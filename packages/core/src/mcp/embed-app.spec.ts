@@ -20,6 +20,11 @@ describe("embedApp", () => {
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
     expect(html).toContain('return await rpcRequest("ui/message"');
+    expect(html).toContain(
+      'return await wrapperRpcRequest("ui/update-model-context", params)',
+    );
+    expect(html).toContain("await updateHostModelContext(modelContext)");
+    expect(html).toContain('annotations: { audience: ["assistant"] }');
     expect(html).not.toContain('rpcNotify("ui/message"');
     expect(html).toContain("window.openai");
     expect(html).toContain('"openai:set_globals"');
@@ -30,9 +35,18 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
-    expect(html).toContain("prompt: message");
+    expect(html).toContain("function openAiFollowUpPrompt(chat)");
+    expect(html).toContain(
+      "if (context || chat.structuredContent !== undefined) return null;",
+    );
+    expect(html).toContain("prompt: fallbackPrompt");
+    expect(html).toContain("let hostChatQueue = Promise.resolve();");
+    expect(html).toContain(
+      "const result = hostChatQueue.then(() => sendHostChatNow(chat));",
+    );
+    expect(html).toContain("function sendHostChatNow(chat)");
     expect(html).toContain("const modelContext = {");
-    expect(html).toContain("agentNativeModelContext: modelContext");
+    expect(html).not.toContain("agentNativeModelContext");
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
@@ -481,7 +495,17 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("openAiBridge.openExternal");
     expect(fixture.html).toContain("openAiBridge.setOpenInAppUrl");
     expect(fixture.html).toContain("openAiBridge.sendFollowUpMessage");
-    expect(fixture.html).toContain("prompt: message");
+    expect(fixture.html).toContain("function openAiFollowUpPrompt(chat)");
+    expect(fixture.html).toContain(
+      "if (context || chat.structuredContent !== undefined) return null;",
+    );
+    expect(fixture.html).toContain("prompt: fallbackPrompt");
+    expect(fixture.html).toContain("let hostChatQueue = Promise.resolve();");
+    expect(fixture.html).toContain(
+      "const result = hostChatQueue.then(() => sendHostChatNow(chat));",
+    );
+    expect(fixture.html).toContain("function sendHostChatNow(chat)");
+    expect(fixture.html).toContain("MCP host rejected model context update.");
     expect(fixture.html).not.toContain(
       'context.trim() + "\\\\n\\\\n" + message',
     );

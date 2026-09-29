@@ -5,6 +5,8 @@ import { describe, it } from "node:test";
 import {
   extractConsumptionRows,
   findTransferAlerts,
+  hasUnavailableProjects,
+  liveBacktestRange,
   publishDailyTransferAlerts,
   type TransferPoint,
 } from "./neon-transfer-alert.js";
@@ -12,6 +14,25 @@ import {
 const projectNames = new Map([["quiet-project", "Quiet Project"]]);
 
 describe("Neon transfer alert", () => {
+  it("uses the last 28 complete UTC days for live backtests", () => {
+    assert.deepEqual(liveBacktestRange(new Date("2026-10-01T12:00:00Z")), {
+      from: "2026-09-03",
+      to: "2026-09-30",
+    });
+  });
+
+  it("rejects either documented Neon unavailable-project field", () => {
+    assert.equal(
+      hasUnavailableProjects({ unavailable_project_ids: ["p1"] }),
+      true,
+    );
+    assert.equal(hasUnavailableProjects({ unavailable: ["p1"] }), true);
+    assert.equal(
+      hasUnavailableProjects({ unavailable_project_ids: [] }),
+      false,
+    );
+  });
+
   it("parses the documented project-period-consumption response shape", () => {
     const points = extractConsumptionRows(
       {
@@ -142,7 +163,11 @@ describe("Neon transfer alert", () => {
   it("runs the full synthetic September scenario backtest without posting", () => {
     const result = spawnSync(
       process.execPath,
-      ["--import", "tsx", "scripts/neon-transfer-alert.ts", "--backtest"],
+      [
+        "--experimental-strip-types",
+        "scripts/neon-transfer-alert.ts",
+        "--backtest",
+      ],
       {
         encoding: "utf8",
         env: {
@@ -162,7 +187,11 @@ describe("Neon transfer alert", () => {
   it("returns could-not-run for a missing API key", () => {
     const result = spawnSync(
       process.execPath,
-      ["--import", "tsx", "scripts/neon-transfer-alert.ts", "--dry-run"],
+      [
+        "--experimental-strip-types",
+        "scripts/neon-transfer-alert.ts",
+        "--dry-run",
+      ],
       {
         encoding: "utf8",
         env: {
@@ -179,7 +208,11 @@ describe("Neon transfer alert", () => {
   it("returns could-not-run when the Slack webhook is missing for a send", () => {
     const result = spawnSync(
       process.execPath,
-      ["--import", "tsx", "scripts/neon-transfer-alert.ts", "--send"],
+      [
+        "--experimental-strip-types",
+        "scripts/neon-transfer-alert.ts",
+        "--send",
+      ],
       {
         encoding: "utf8",
         env: {
@@ -191,5 +224,42 @@ describe("Neon transfer alert", () => {
     );
     assert.equal(result.status, 2);
     assert.match(result.stderr, /SLACK_NEON_TRANSFER_WEBHOOK_URL is required/);
+  });
+
+  it("returns could-not-run for a live backtest without the Neon API key", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "scripts/neon-transfer-alert.ts",
+        "--backtest-live",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NEON_API_KEY: "",
+          NEON_ORG_ID: "",
+          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+        },
+      },
+    );
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /NEON_API_KEY required for the live backtest/);
+  });
+
+  it("rejects Slack sending for either backtest mode", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "scripts/neon-transfer-alert.ts",
+        "--backtest-live",
+        "--send",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Backtests never send Slack alerts/);
   });
 });

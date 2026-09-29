@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "Wird getrennt…",
   },
   settings: {
+    backHome: "Zur Startseite",
+    title: "Einstellungen",
+    description: "Verwalte die App- und Spracheinstellungen.",
+    languageTitle: "Sprache der Benutzeroberfläche",
+    languageDescription: "Wähle die Sprache für diese App.",
+    languageLabel: "Sprache",
     agentTitle: "Agent-Einstellungen",
     agentDescription:
       "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",

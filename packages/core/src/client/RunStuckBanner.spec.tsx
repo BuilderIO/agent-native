@@ -4,19 +4,19 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RunStuckBanner } from "../../../toolkit/src/app/chat/RunStuckBanner.js";
 import {
   clearActiveRun,
   setActiveRun,
   updateActiveRunSeq,
 } from "./active-run-state.js";
-import { RunStuckBanner } from "./RunStuckBanner.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
 
-vi.mock("./analytics.js", () => ({
+vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
 }));
 
-vi.mock("./api-path.js", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 

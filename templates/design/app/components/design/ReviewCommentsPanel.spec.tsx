@@ -1,7 +1,6 @@
-// @vitest-environment happy-dom
-
-import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+// @vitest-environment happy-dom
+import type { ReviewThread } from "@agent-native/toolkit/app/review";
 import { act } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { createRoot } from "react-dom/client";

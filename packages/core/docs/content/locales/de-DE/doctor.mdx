@@ -7,7 +7,27 @@ description: Sicherheits- und Migrationsprüfungen.
 
 Generierte Apps und Workspaces enthalten Quellcode, der im Entwicklungsworkflow des Repositorys geändert werden kann, auch durch einen Agenten-Frame, dem bewusst Workspace- und Schreibwerkzeuge gewährt wurden. `agent-native doctor` prüft den Quellcode auf sicherheitskritische Code-Invarianten. Doctor arbeitet nur lesend: Es ändert den Code nie, sondern meldet lediglich Ergebnisse.
 
-`agent-native doctor` führt neun Guards aus: acht Sicherheits-Guards und `migration-manifest`. Dieser findet Imports aus installiertem `migration-manifest.json` und hat kein Opt-out. Nutzen Sie `agent-native doctor --only migration-manifest`, prüfen Sie mit `npx @agent-native/core@latest upgrade --codemods` vor und wenden Sie mit `--yes` an. JSON listet alle neun Namen in `guardsRun`.
+`agent-native doctor` prüft Sicherheits- und Migrationsprobleme. `migration-manifest` findet Imports aus dem installierten `migration-manifest.json` und kann nicht deaktiviert werden. `feature-dependencies` meldet konfigurierte Features, deren optionales Peer-Paket nicht auflösbar ist.
+
+Führen Sie die Migrationsprüfung aus:
+
+```bash
+agent-native doctor --only migration-manifest
+```
+
+Upgrade und Codemod-Diff ohne Dateischreibvorgänge anzeigen:
+
+```bash
+npx agent-native upgrade --codemods --dry-run
+```
+
+Unterstützte Import-Umschreibungen anwenden:
+
+```bash
+npx agent-native upgrade --codemods
+```
+
+`--codemods` wendet unterstützte Umschreibungen standardmäßig an. Fügen Sie `--dry-run` hinzu, um nur eine Vorschau ohne Dateischreibvorgänge zu sehen. Prüfen Sie Diff und Warnungen vor der Anwendung. `--yes` wird aus Kompatibilitätsgründen akzeptiert und ändert das Verhalten nicht. `migration-manifest` kann nicht deaktiviert werden. `planned`-Einträge sind nur Warnungen und werden nicht umgeschrieben. Aktive Einträge sind Findings; der Codemod schreibt sie nur um, wenn der Ziel-Export installiert ist. Entfernte Exporte müssen manuell migriert werden. Folgen Sie dem im Finding verlinkten Leitfaden oder dem [Core-0.198.0-Migrationsleitfaden](/docs/upgrading-core-ui), der `ts-morph` und optionale Feature-Pakete auflistet. JSON listet die tatsächlich ausgeführten Guards in `guardsRun` auf.
 
 Der CLI-Scaffold gibt jeder neuen App und jedem Workspace die Befehle `pnpm doctor` und `pnpm agent-native:doctor`. Vom Workspace-Root aus werden alle Apps unter `apps/<name>` geprüft. Builds schlagen bei Findings standardmäßig fehl; `failOnBuild: false` ist nur als geprüfte Ausnahme gedacht.
 

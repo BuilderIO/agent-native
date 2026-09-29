@@ -1,4 +1,4 @@
-import { ExtensionViewerPage } from "@agent-native/core/client/extensions";
+import { ExtensionViewerPage } from "@agent-native/toolkit/app/extensions";
 import { useMemo } from "react";
 
 import { useAppHeaderControls } from "@/components/layout/AppLayout";

@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({ data: undefined, isLoading: false }),
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: (props: Record<string, unknown>) => {
     mocks.promptComposerProps = props;
     return <div data-testid="prompt-composer" />;

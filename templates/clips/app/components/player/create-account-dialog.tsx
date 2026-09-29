@@ -2,7 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { isQaTestEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {

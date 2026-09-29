@@ -448,6 +448,67 @@ describe("LayoutContextProperties interactions", () => {
     container.remove();
   });
 
+  it("emits an edit for the selected mixed padding side", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStylesChange = vi.fn();
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "flex",
+        flexDirection: "row",
+        flexWrap: "nowrap",
+        width: "200px",
+        height: "100px",
+        paddingTop: "Mixed",
+        paddingRight: "Mixed",
+        paddingBottom: "Mixed",
+        paddingLeft: "Mixed",
+      },
+      boundingRect: { x: 0, y: 0, width: 200, height: 100 },
+      isFlexChild: false,
+      isFlexContainer: true,
+      childElementCount: 1,
+      sourceId: "frame-mixed-padding",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+
+    const topPadding = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top"]',
+    );
+    expect(topPadding).not.toBeNull();
+    await act(async () => {
+      topPadding?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+
+    expect(onStylesChange).toHaveBeenCalledOnce();
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { paddingTop: "1px" },
+      expect.objectContaining({
+        source: "keyboard",
+        phase: "commit",
+        relativeDelta: 1,
+        relativeDeltaProperties: ["paddingTop"],
+      }),
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it.each(["container", "leaf"] as const)(
     "only writes the edited margin side for a %s",
     async (kind) => {

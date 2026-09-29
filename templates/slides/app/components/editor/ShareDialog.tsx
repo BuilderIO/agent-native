@@ -2,10 +2,8 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  ShareDialog as CoreShareDialog,
-  withShareLinkAttribution,
-} from "@agent-native/core/client/sharing";
+import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
+import { ShareDialog as CoreShareDialog } from "@agent-native/toolkit/app/sharing";
 import {
   cloneElement,
   isValidElement,

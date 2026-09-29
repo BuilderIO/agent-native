@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      backtest_live:
+        description: Backtest the last 28 complete days with Neon history, without posting to Slack
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -37,10 +42,14 @@ jobs:
       - name: Verify alert parser and offline backtest
         run: pnpm test:neon-transfer-alert
 
+      - name: Backtest recent days with live Neon history (no Slack)
+        if: github.event_name == 'workflow_dispatch' && inputs.backtest_live
+        run: pnpm ops:neon-transfer-alert --backtest-live
+
       - name: Send scheduled or requested alerts
-        if: github.event_name == 'schedule' || inputs.send_alerts
-        run: pnpm ops:neon-transfer-alert -- --send
+        if: github.event_name == 'schedule' || (inputs.send_alerts && !inputs.backtest_live)
+        run: pnpm ops:neon-transfer-alert --send
 
       - name: Dry-run manual checks
-        if: github.event_name == 'workflow_dispatch' && !inputs.send_alerts
-        run: pnpm ops:neon-transfer-alert -- --dry-run
+        if: github.event_name == 'workflow_dispatch' && !inputs.send_alerts && !inputs.backtest_live
+        run: pnpm ops:neon-transfer-alert --dry-run
