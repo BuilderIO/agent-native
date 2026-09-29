@@ -245,6 +245,12 @@ export interface IntegrationsPluginOptions {
    * `initialToolNames` says, and each call would answer 401.
    */
   callAgent?: boolean;
+  /**
+   * Tools whose schemas go on a messaging turn's first request. Default: every
+   * action in `actions`. Everything else stays registered and reachable through
+   * `tool-search`, as with agent-chat's `initialToolNames`.
+   */
+  initialToolNames?: readonly string[];
   adapters?: PlatformAdapter[];
   adapterOverrides?: PlatformAdapter[];
   systemPrompt?: string;
