@@ -22,6 +22,7 @@ jobs:
       lint: ${{ steps.scope.outputs.lint }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       workspace_filters: ${{ steps.scope.outputs.workspace_filters }}
+      test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
@@ -35,6 +36,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -128,7 +130,7 @@ jobs:
       - name: Typecheck affected workspaces
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
         run: |
           if [ "$CI_FULL" = "true" ]; then
             pnpm typecheck
@@ -170,21 +172,25 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_tests: ${{ steps.plan.outputs.has_tests }}
+      core_test_files: ${{ steps.plan.outputs.core_test_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          fetch-depth: 2
+          filter: blob:none
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Partition affected test packages into sharded lanes
         id: plan
         env:
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
           LANES: 5
-        run: node --experimental-strip-types scripts/ci-test-lanes.ts
+        run: |
+          set -euo pipefail
+          CI_BASE_SHA="$(git rev-parse HEAD^1)" node --experimental-strip-types scripts/ci-test-lanes.ts
 
   test-rest:
     name: Fast tests ${{ matrix.lane }}
@@ -277,20 +283,40 @@ jobs:
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
-        run: >-
-          pnpm --filter @agent-native/core exec vitest run --dir src
-          --shard=${{ matrix.coreShard }}
-          --exclude "**/*.db.test.ts"
-          --exclude "**/*.integration.spec.ts"
-          --exclude "**/*.integration.test.ts"
-          --exclude "**/*.e2e.spec.ts"
-          --exclude "**/*.e2e.test.ts"
-          --exclude "**/e2e/**"
-          --exclude "**/*.live.spec.ts"
-          --exclude "**/*.live.test.ts"
-          --exclude "**/*.perf.spec.ts"
-          --exclude "**/*.perf.test.ts"
-          --exclude "**/create-e2e.spec.ts"
+        env:
+          CORE_SHARD: ${{ matrix.coreShard }}
+          CORE_TEST_MODE: ${{ matrix.coreMode }}
+          CORE_TEST_FILES: ${{ needs.discover-targeted-lanes.outputs.core_test_files }}
+        run: |
+          set -euo pipefail
+          args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
+          if [ "$CORE_TEST_MODE" = changed ]; then
+            core_test_files=()
+            while IFS= read -r -d '' file; do
+              core_test_files+=("$file")
+            done < <(
+              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(`${file}\0`)'
+            )
+            if ((${#core_test_files[@]} == 0)); then
+              echo "::error::Planner emitted a changed Core shard with no test files"
+              exit 1
+            fi
+            args+=("${core_test_files[@]}")
+          fi
+          args+=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          pnpm --filter @agent-native/core exec vitest "${args[@]}"
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -529,6 +555,45 @@ jobs:
       - name: Run Plan action E2E tests
         run: pnpm test:plan-e2e
 
+  slides-chat-e2e:
+    name: Slides chat caret in Chromium
+    needs: change-scope
+    if: >-
+      needs.change-scope.outputs.full == 'true' ||
+      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check selection direction and chat typing while slide text editing remains active
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+      - name: Check IME Escape preserves inline slide text editing
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check typing fidelity across Slides text surfaces
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
   brain-evals:
     name: Brain evals
     needs: change-scope
@@ -587,6 +652,72 @@ jobs:
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
+
+  neon-query-budget:
+    name: Cold-request query budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AUTH_DISABLED: "true"
+      BETTER_AUTH_SECRET: neon-query-budget-test-secret
+      DATABASE_URL: pglite:memory
+      NETLIFY: "true"
+      NODE_ENV: production
+      RUN_BACKGROUND_JOBS: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Build and measure every active first-party template
+        run: |
+          set -euo pipefail
+          for app in analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides tasks; do
+            app_dir="templates/$app"
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            NITRO_PRESET=netlify pnpm --filter "$app" build
+            pnpm ops:neon-query-budget --app "$app" --mode check
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+          done
+
+  neon-connection-budget:
+    name: Serverless Postgres connection budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: neon-budget
+          POSTGRES_DB: neon_budget
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d neon_budget"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # guard:allow-secret-literal — local ephemeral CI Postgres service only.
+      DATABASE_URL: postgresql://postgres:neon-budget@127.0.0.1:5432/neon_budget
+      NETLIFY: "true"
+      NETLIFY_FUNCTION_NAME: neon-query-budget
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Measure one cold and five warm requests against local Postgres
+        run: pnpm ops:neon-connection-budget
 
   trusted-acceptance:
     name: Trusted acceptance substrate
@@ -782,6 +913,9 @@ jobs:
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
 
+      - name: Test Neon transfer alert and offline backtest
+        run: pnpm test:neon-transfer-alert
+
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
@@ -789,6 +923,13 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
+
+      - name: Test unbounded read guards
+        run: >-
+          pnpm exec tsx --test
+          scripts/guard-no-unbounded-table-reads.test.ts
+          scripts/guard-no-unscoped-queries.test.ts
+          scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
       - name: Run security guards
         run: pnpm guards

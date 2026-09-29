@@ -23,6 +23,7 @@ import {
   IconFolderOpen,
   IconPlus,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useRef,
@@ -67,6 +68,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { filesNavigationPageParams } from "@/lib/files-navigation";
+import {
+  SIDEBAR_FILES_ROW_ELEMENT_TIMING,
+  SIDEBAR_FILES_ROWS_DOM_MARK,
+  markStartupMilestone,
+} from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
@@ -193,15 +200,25 @@ export function PagedContentFilesSidebarView({
   );
 }
 
+// A branch reloads itself after an expired cursor at most this often; any
+// further expiry in the window shows Retry instead of reloading in a loop.
+const AUTOMATIC_BRANCH_RELOAD_INTERVAL_MS = 5_000;
+
 function PagedContentFilesBranch({
   cursor,
   precedingDocumentIds = new Set(),
+  reloadBranch: reloadFromFirstPage,
   ...props
 }: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
   precedingDocumentIds?: ReadonlySet<string>;
+  /**
+   * Reloads the branch from its first page. Returns false when an automatic
+   * reload is refused because the branch reloaded itself moments ago.
+   */
+  reloadBranch?: (automatic: boolean) => boolean;
   sort: ContentDatabaseNavigationSort;
   viewId?: string;
   depth: number;
@@ -218,23 +235,83 @@ function PagedContentFilesBranch({
   untitledLabel: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [nextPageVisible, setNextPageVisible] = useState(false);
-  const query = useActionQuery("query-content-database-items", {
-    databaseId: props.databaseId,
-    limit: 20,
-    navigation: {
+  const [continuationGeneration, setContinuationGeneration] = useState(0);
+  const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
+  const [reloadRefused, setReloadRefused] = useState(false);
+  const query = useActionQuery(
+    "query-content-database-items",
+    filesNavigationPageParams({
+      databaseId: props.databaseId,
       parentId: props.parentId,
       sort: props.sort,
       viewId: props.viewId,
       cursor,
-    },
-  });
+    }),
+  );
   const data =
     query.data && !("available" in query.data)
       ? (query.data as ContentDatabaseNavigationPageResponse)
       : undefined;
+  // Only the first page of a branch reloads it; later pages reach it through
+  // the reloadBranch prop.
+  const reloadBranch = (automatic: boolean) => {
+    if (automatic) {
+      const now = Date.now();
+      if (
+        now - lastAutomaticReload.current <
+        AUTOMATIC_BRANCH_RELOAD_INTERVAL_MS
+      )
+        return false;
+      lastAutomaticReload.current = now;
+    }
+    void query.refetch().then(() => {
+      // Later pages remount from the fresh first page. Their cached reads are
+      // dropped so a remount cannot reuse a cursor this reload replaced.
+      queryClient.removeQueries({
+        predicate: ({ queryKey: [scope, name, params] }) => {
+          const key = params as
+            | {
+                databaseId?: string;
+                navigation?: { parentId?: string | null; cursor?: string };
+              }
+            | undefined;
+          return (
+            scope === "action" &&
+            name === "query-content-database-items" &&
+            key?.databaseId === props.databaseId &&
+            key.navigation?.parentId === props.parentId &&
+            key.navigation.cursor !== undefined
+          );
+        },
+      });
+      setContinuationGeneration((generation) => generation + 1);
+    });
+    return true;
+  };
+  const branchReload =
+    cursor === undefined ? reloadBranch : reloadFromFirstPage;
+  // A cursor stops being valid when a sibling at or before it changes, or
+  // after a server update. The branch reloads from its first page instead of
+  // leaving an error in the sidebar.
+  const cursorExpired =
+    cursor !== undefined &&
+    query.isError &&
+    (query.error as { errorCode?: unknown } | null)?.errorCode ===
+      "invalid_navigation_cursor";
+  useEffect(() => {
+    if (cursorExpired) setReloadRefused(!branchReload?.(true));
+    // Only a new expiry asks again; the callback identity changes per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursorExpired]);
+  const rootRowsShown =
+    props.depth === 0 && !cursor && Boolean(data?.items.length);
+  useEffect(() => {
+    if (rootRowsShown) markStartupMilestone(SIDEBAR_FILES_ROWS_DOM_MARK);
+  }, [rootRowsShown]);
 
-  if (query.isLoading) {
+  if (query.isLoading || (cursorExpired && !reloadRefused)) {
     return (
       <div aria-hidden="true" className="grid gap-1 p-1">
         {[70, 55, 85].map((width) => (
@@ -254,7 +331,11 @@ function PagedContentFilesBranch({
           size="sm"
           variant="ghost"
           disabled={query.isFetching}
-          onClick={() => void query.refetch()}
+          onClick={() =>
+            cursor === undefined || !branchReload
+              ? void query.refetch()
+              : branchReload(false)
+          }
         >
           {t("database.retry")}
         </Button>
@@ -331,6 +412,9 @@ function PagedContentFilesBranch({
               onToggleExpanded={(open) =>
                 props.onDocumentExpandedChange(navigationItem.documentId, open)
               }
+              elementTiming={
+                props.depth === 0 ? SIDEBAR_FILES_ROW_ELEMENT_TIMING : undefined
+              }
             />
             {expanded && navigationItem.hasChildren ? (
               <PagedContentFilesBranch
@@ -347,9 +431,10 @@ function PagedContentFilesBranch({
         nextPageVisible ? (
           <PagedContentFilesBranch
             {...props}
-            key={data.pagination.nextCursor}
+            key={`${data.pagination.nextCursor}:${continuationGeneration}`}
             cursor={data.pagination.nextCursor}
             precedingDocumentIds={composedDocumentIds}
+            reloadBranch={branchReload}
           />
         ) : (
           <Button
@@ -1003,9 +1088,11 @@ function DatabaseSidebarRow({
   onToggleExpanded,
   reorder,
   isCollection = Boolean(item.document.database),
+  elementTiming,
 }: {
   item: ContentDatabaseItem;
   isCollection?: boolean;
+  elementTiming?: string;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
@@ -1182,6 +1269,7 @@ function DatabaseSidebarRow({
                 hasRowActions &&
                   sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
               )}
+              elementtiming={elementTiming}
             >
               {title}
             </span>

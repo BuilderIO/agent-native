@@ -108,7 +108,9 @@ export function HomeImportButton() {
                   aria-label={t("home.import")}
                 >
                   <IconUpload />
-                  {t("home.import")}
+                  <span className="design-home-import-label">
+                    {t("home.import")}
+                  </span>
                   <IconChevronDown />
                 </Button>
               </DropdownMenuTrigger>

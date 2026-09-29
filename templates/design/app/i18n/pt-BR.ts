@@ -166,12 +166,6 @@ export default {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     openAgentSettings: "Gerenciar agente",
-    languageTitle: "Idioma",
-    languageDescription: "Escolha o idioma da interface do Design.",
-    languageLabel: "Idioma da interface",
-    labs: "Labs",
-    labsIntro:
-      "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
     mcpAbout:
@@ -227,6 +221,7 @@ export default {
     },
   },
   common: {
+    loading: "Carregando...",
     genericError: "Algo deu errado",
   },
   editPanel: {
@@ -324,6 +319,8 @@ export default {
       bottomLeft: "IE",
       bottomRight: "ID",
       blend: "Mistura",
+      blendMode: "Modo de mesclagem",
+      removeBlendMode: "Remover modo de mesclagem",
       border: "Borda",
       outline: "Contorno",
       inside: "Dentro",
@@ -1493,11 +1490,6 @@ export default {
       permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
       permissionPromptSettingsInstructions:
         "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e permita o acesso aos apps do seu dispositivo.",
-      permissionCloseTitle: "Fechar a configuração?",
-      permissionCloseDescription:
-        "A edição ao vivo não funcionará até você permitir o acesso no Chrome.",
-      permissionCloseStay: "Manter a configuração aberta",
-      permissionCloseAnyway: "Fechar mesmo assim",
       permissionPromptRetry: "Tentar conexão novamente",
     },
   },

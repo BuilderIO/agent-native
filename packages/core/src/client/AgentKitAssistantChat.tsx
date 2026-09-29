@@ -1,5 +1,8 @@
-import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import type { AgentThreadState } from "@agent-native/agentkit";
+import {
+  hasActiveAgentRuns,
+  type AgentKitUploadDriver,
+  type AgentThreadState,
+} from "@agent-native/agentkit";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
@@ -60,6 +63,7 @@ import React, {
 } from "react";
 
 import type { AgentChatAttachment } from "../agent/types.js";
+import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "../package-lifecycle/migration-message.js";
 import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   appendAgentChatContextToMessage,
@@ -101,6 +105,7 @@ import { agentNativePath } from "./api-path.js";
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
+  isClientAppStateMutationPending,
   readClientAppState,
 } from "./application-state.js";
 import { isInBuilderFrame } from "./builder-frame.js";
@@ -161,6 +166,11 @@ export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */
   onForkedThread?: (threadId: string) => void;
   branchNavigation?: AgentKitBranchNavigation;
+  /**
+   * @deprecated Removed in Core 0.194.0. Pass `runtime` or `createTransport`.
+   * @see https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md
+   */
+  createAdapter?: "Removed. See https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
 }
 
 const reportIntegrity = (report: AgentStreamIntegrityReport) => {
@@ -204,6 +214,8 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryRequestMode?: "act" | "plan";
   deferredFileParts?: FilePart[];
   contextAlreadyIncluded?: boolean;
+  pendingSelectionCapturedAt?: number | null;
+  skipAmbientSelectionContext?: boolean;
   deferredAgentId?: string | null;
   deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
   deferredSubmissionId?: string;
@@ -231,6 +243,23 @@ interface DeferredProviderSubmissionsState {
 interface PendingSelectionContext {
   text: string;
   capturedAt: number;
+}
+
+interface PendingSelectionHydration {
+  threadId: string;
+  promise: Promise<void>;
+  resolve: () => void;
+  status: "pending" | "loaded" | "failed";
+}
+
+function createPendingSelectionHydration(
+  threadId: string,
+): PendingSelectionHydration {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { threadId, promise, resolve, status: "pending" };
 }
 
 function deferredProviderSubmissionsStateKey(threadId: string): string {
@@ -500,6 +529,11 @@ export const AgentKitAssistantChat = forwardRef<
   AssistantChatHandle,
   AgentKitAssistantChatProps
 >(function AgentKitAssistantChat(props, ref) {
+  if ((props as { createAdapter?: unknown }).createAdapter !== undefined) {
+    throw new Error(
+      `AssistantChat's createAdapter prop was removed. Pass runtime or createTransport instead. Migration guide: ${AGENTKIT_CHAT_MIGRATION_GUIDE_URL}`,
+    );
+  }
   const t = useT();
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;
@@ -999,7 +1033,7 @@ const AgentKitAssistantChatBody = forwardRef<
     onThreadRestoreLoaded: () => void;
   }
 >(function AgentKitAssistantChatBody(props, ref) {
-  const { threadId, requestComposerFocus } = useAgentKit();
+  const { controller, threadId, requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const history = useOptionalAgentKitHistory();
@@ -1106,6 +1140,22 @@ const AgentKitAssistantChatBody = forwardRef<
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
+  const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
+  const updatePendingSelection = useCallback(
+    (selection: PendingSelectionContext | null) => {
+      pendingSelectionRef.current = selection;
+      setPendingSelection(selection);
+    },
+    [],
+  );
+  const pendingSelectionHydrationRef = useRef<PendingSelectionHydration | null>(
+    null,
+  );
+  if (pendingSelectionHydrationRef.current?.threadId !== threadId) {
+    pendingSelectionHydrationRef.current?.resolve();
+    pendingSelectionHydrationRef.current =
+      createPendingSelectionHydration(threadId);
+  }
   const selectionRevisionRef = useRef(0);
   const selectionLength = pendingSelection?.text.length ?? null;
   const [voiceTranscriptState, setVoiceTranscriptState] = useState({
@@ -1160,7 +1210,11 @@ const AgentKitAssistantChatBody = forwardRef<
         .find((message) => message.role === "assistant"),
     [thread.messages],
   );
-  const isRunning = thread.activeRunIds.length > 0;
+  const isRunning = hasActiveAgentRuns(thread);
+  const isThreadRunning = useCallback(
+    () => hasActiveAgentRuns(controller.getThread(threadId)),
+    [controller, threadId],
+  );
 
   useEffect(() => {
     if (previousPrefillRevisionRef.current === prefillRevision) return;
@@ -1337,24 +1391,31 @@ const AgentKitAssistantChatBody = forwardRef<
     thread.messages.some((message) => message.role === "assistant");
 
   const clearPendingSelection = useCallback(() => {
-    selectionRevisionRef.current += 1;
-    setPendingSelection(null);
-    void deleteClientAppState("pending-selection-context", {
+    const selectionRevision = ++selectionRevisionRef.current;
+    return deleteClientAppState("pending-selection-context", {
       keepalive: true,
-    }).catch(() => {});
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-    }
-  }, []);
+    }).then(() => {
+      if (selectionRevision !== selectionRevisionRef.current) return;
+      updatePendingSelection(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agent-panel:selection-cleared"));
+      }
+    });
+  }, [updatePendingSelection]);
+  const requestPendingSelectionClear = useCallback(() => {
+    void clearPendingSelection().catch((error: unknown) => {
+      console.warn("[agent-chat] Couldn't clear the pending selection", error);
+    });
+  }, [clearPendingSelection]);
 
   useEffect(() => {
     let cancelled = false;
+    const hydration = pendingSelectionHydrationRef.current;
+    updatePendingSelection(null);
     const selectionRevision = selectionRevisionRef.current;
     void readClientAppState<unknown>("pending-selection-context")
       .then((value) => {
-        if (cancelled || selectionRevision !== selectionRevisionRef.current) {
-          return;
-        }
+        if (cancelled || hydration?.threadId !== threadId) return;
         const state = asRecord(value);
         const nestedValue = asRecord(state?.value);
         const text =
@@ -1369,31 +1430,42 @@ const AgentKitAssistantChatBody = forwardRef<
             : typeof state?.capturedAt === "number"
               ? state.capturedAt
               : 0;
-        setPendingSelection(
-          text && Date.now() - capturedAt <= PENDING_SELECTION_TTL_MS
-            ? { text, capturedAt }
-            : null,
-        );
+        if (selectionRevision === selectionRevisionRef.current) {
+          updatePendingSelection(
+            text && Date.now() - capturedAt <= PENDING_SELECTION_TTL_MS
+              ? { text, capturedAt }
+              : null,
+          );
+        }
+        if (hydration) hydration.status = "loaded";
       })
-      .catch(() => {});
+      .catch(() => {
+        if (hydration) hydration.status = "failed";
+      })
+      .finally(() => {
+        if (hydration?.status === "pending") hydration.status = "failed";
+        hydration?.resolve();
+      });
     return () => {
       cancelled = true;
+      if (hydration?.status === "pending") hydration.status = "failed";
+      hydration?.resolve();
     };
-  }, [threadId]);
+  }, [threadId, updatePendingSelection]);
 
   useEffect(() => {
     const onAttached = (event: Event) => {
       const detail = asRecord((event as CustomEvent).detail);
       if (typeof detail?.text === "string" && detail.text) {
         selectionRevisionRef.current += 1;
-        setPendingSelection({ text: detail.text, capturedAt: Date.now() });
+        updatePendingSelection({ text: detail.text, capturedAt: Date.now() });
       }
     };
     const onCleared = () => {
       selectionRevisionRef.current += 1;
-      setPendingSelection(null);
+      updatePendingSelection(null);
     };
-    const onClearRequested = () => clearPendingSelection();
+    const onClearRequested = requestPendingSelectionClear;
     window.addEventListener("agent-panel:selection-attached", onAttached);
     window.addEventListener("agent-panel:selection-cleared", onCleared);
     window.addEventListener(
@@ -1408,7 +1480,7 @@ const AgentKitAssistantChatBody = forwardRef<
         onClearRequested,
       );
     };
-  }, [clearPendingSelection]);
+  }, [requestPendingSelectionClear, updatePendingSelection]);
 
   useEffect(() => {
     const apply = () => {
@@ -1670,22 +1742,23 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: PromptComposerSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ) => {
+      const selectionHydration = pendingSelectionHydrationRef.current;
+      await selectionHydration?.promise;
+      const currentPendingSelection = pendingSelectionRef.current;
+      const selectionRevision = selectionRevisionRef.current;
       const context =
         options.recoveryAction || options.contextAlreadyIncluded
           ? ""
           : [
               formatAgentChatContextItemsForPrompt(contextItems),
-              pendingSelectionPromptContext(pendingSelection),
+              pendingSelectionPromptContext(currentPendingSelection),
             ]
               .filter(Boolean)
               .join("\n\n");
       const message = options.contextAlreadyIncluded
         ? text
         : appendAgentChatContextToMessage(text, context);
-      const attachments = [
-        ...(options.attachments ?? []),
-        ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
-      ];
+      const attachments = options.attachments ?? [];
       const needsFileStorage =
         files.length > 0 ||
         attachments.some(
@@ -1697,15 +1770,23 @@ const AgentKitAssistantChatBody = forwardRef<
       const fileParts =
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
-      if (!options.recoveryAction) {
-        await deleteClientAppState("pending-selection-context", {
-          keepalive: true,
-        }).catch(() => {});
-        selectionRevisionRef.current += 1;
-        setPendingSelection(null);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-        }
+      const selectionChangedDuringSubmission =
+        selectionRevision !== selectionRevisionRef.current ||
+        (options.pendingSelectionCapturedAt !== undefined &&
+          options.pendingSelectionCapturedAt !==
+            (currentPendingSelection?.capturedAt ?? null));
+      const skipAmbientSelectionContext =
+        options.skipAmbientSelectionContext === true ||
+        selectionHydration?.status === "pending" ||
+        isClientAppStateMutationPending("pending-selection-context") ||
+        selectionChangedDuringSubmission ||
+        Boolean(pendingSelectionPromptContext(currentPendingSelection));
+      if (
+        !options.recoveryAction &&
+        !selectionChangedDuringSubmission &&
+        Boolean(pendingSelectionPromptContext(currentPendingSelection))
+      ) {
+        requestPendingSelectionClear();
       }
       const requestMode =
         options.requestMode ??
@@ -1736,6 +1817,9 @@ const AgentKitAssistantChatBody = forwardRef<
           : {}),
         ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
         ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
+        ...(skipAmbientSelectionContext
+          ? { agentNativeSkipPendingSelectionContext: true }
+          : {}),
         ...(actionScope ? { actionScope } : {}),
         ...(options.approvedToolCalls
           ? { approvedToolCalls: options.approvedToolCalls }
@@ -1825,7 +1909,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedModel,
       fileStorageConfigured,
       t,
-      pendingSelection,
+      requestPendingSelectionClear,
     ],
   );
 
@@ -1870,10 +1954,11 @@ const AgentKitAssistantChatBody = forwardRef<
                 readiness.state === "unavailable")))
         ) {
           try {
-            const attachments = [
-              ...(options.attachments ?? []),
-              ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
-            ];
+            const selectionHydration = pendingSelectionHydrationRef.current;
+            await selectionHydration?.promise;
+            const currentPendingSelection = pendingSelectionRef.current;
+            const selectionRevision = selectionRevisionRef.current;
+            const attachments = options.attachments ?? [];
             const needsFileStorage =
               files.length > 0 ||
               attachments.some(
@@ -1889,16 +1974,27 @@ const AgentKitAssistantChatBody = forwardRef<
               attachments,
               files,
             );
+            const selectionChangedDuringUpload =
+              selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
               ? ""
               : [
                   formatAgentChatContextItemsForPrompt(contextItems),
-                  pendingSelectionPromptContext(pendingSelection),
+                  pendingSelectionPromptContext(currentPendingSelection),
                 ]
                   .filter(Boolean)
                   .join("\n\n");
             const { submitMessageId } = options;
             const deferredOptions = { ...options };
+            deferredOptions.pendingSelectionCapturedAt =
+              currentPendingSelection?.capturedAt ?? null;
+            if (
+              options.skipAmbientSelectionContext === true ||
+              selectionHydration?.status === "pending" ||
+              selectionChangedDuringUpload
+            ) {
+              deferredOptions.skipAmbientSelectionContext = true;
+            }
             delete deferredOptions.submitMessageId;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
@@ -1971,7 +2067,6 @@ const AgentKitAssistantChatBody = forwardRef<
       control,
       dispatch,
       fileStorageConfigured,
-      pendingSelection,
       props.contextScope,
       props.execMode,
       props.selectedAgent,
@@ -2232,7 +2327,7 @@ const AgentKitAssistantChatBody = forwardRef<
         text,
         [],
         [],
-        { intent: isRunning ? "queued" : "immediate" },
+        { intent: isThreadRunning() ? "queued" : "immediate" },
         {
           ...options,
           attachments: [
@@ -2245,7 +2340,7 @@ const AgentKitAssistantChatBody = forwardRef<
           ],
         },
       ),
-    [isRunning, submit],
+    [isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
     async (
@@ -2266,7 +2361,7 @@ const AgentKitAssistantChatBody = forwardRef<
         text,
         [],
         [],
-        { intent: isRunning ? "queued" : "immediate" },
+        { intent: isThreadRunning() ? "queued" : "immediate" },
         {
           hideUserMessage: true,
           recoveryAction,
@@ -2283,7 +2378,7 @@ const AgentKitAssistantChatBody = forwardRef<
         },
       );
     },
-    [isRunning, submit],
+    [isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
     (message: string) => {
@@ -2297,11 +2392,11 @@ const AgentKitAssistantChatBody = forwardRef<
   const submitSuggestion = useCallback(
     (prompt: string) =>
       void submit(prompt, [], [], {
-        intent: isRunning ? "queued" : "immediate",
+        intent: isThreadRunning() ? "queued" : "immediate",
       }).catch((error) => {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
       }),
-    [isRunning, props.tabId, submit, threadId],
+    [isThreadRunning, props.tabId, submit, threadId],
   );
   const retryDeferredSubmission = useCallback(async () => {
     if (!deferredProviderSubmissionFailureId) return;
@@ -2416,7 +2511,7 @@ const AgentKitAssistantChatBody = forwardRef<
             })),
           },
         ),
-      isRunning: () => thread.activeRunIds.length > 0,
+      isRunning: isThreadRunning,
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
         Object.values(thread.activities).some(
@@ -2498,7 +2593,7 @@ const AgentKitAssistantChatBody = forwardRef<
     text: composerText,
     onTextChange: onComposerTextChange,
     onRemoveContextItem: removeContextItem,
-    onClearSelection: clearPendingSelection,
+    onClearSelection: requestPendingSelectionClear,
     onBeforeSubmit: beforeSubmit,
     onSubmit: submitPrepared,
     sendMessage: send,
@@ -2665,6 +2760,7 @@ function AgentKitSelectionPill({
 }
 
 function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
+  const { controller } = useAgentKit();
   const surface = useAgentKitSurface();
   const t = useT();
   const thread = useAgentThread(threadId);
@@ -2683,7 +2779,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         appendAgentChatContextToMessage(message, context),
         [],
         [],
-        { intent: surface.isRunning ? "queued" : "immediate" },
+        {
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
+        },
       );
       return { delivered: true };
     },
@@ -2692,7 +2792,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         appendAgentChatContextToMessage(message, context),
         [],
         [],
-        { intent: surface.isRunning ? "queued" : "immediate" },
+        {
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
+        },
       );
       return { delivered: true };
     },
@@ -3139,7 +3243,7 @@ function AgentKitComposerSurface({
           onSwitchToAct={() => props.onExecModeChange?.("build")}
         />
       ) : null}
-      {setupMissing ? (
+      {setupMissing && props.showMissingApiKeySetup !== false ? (
         <BuilderSetupCard
           fullWidth
           attached
@@ -3234,7 +3338,10 @@ function AgentKitComposerSurface({
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           onSlashCommand={props.onSlashCommand}
-          modelStatusChecksEnabled={false}
+          modelStatusChecksEnabled={
+            props.showModelSelector !== false &&
+            props.availableModels === undefined
+          }
           attachmentsEnabled={fileStorageConfigured}
           onAttachmentRequest={requestFileStorage}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
@@ -3418,7 +3525,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const integration =
     value.role === "assistant" &&
     value.status === "complete" &&
-    thread.activeRunIds.length === 0
+    !hasActiveAgentRuns(thread)
       ? findMcpConnectionSuggestionIntegration({
           text,
           contextText,
@@ -3429,6 +3536,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
   const missingFinalResponse =
     runWarning?.errorCode === "final_response_missing_after_tool";
+  const loopBreakerStopped = runWarning?.errorCode === "tool_loop_stopped";
   return (
     <>
       {missingFinalResponse ? (
@@ -3437,6 +3545,14 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
           role="status"
         >
           {t("agentChat.message.missingFinal")}
+        </div>
+      ) : null}
+      {loopBreakerStopped ? (
+        <div
+          className="rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          <span>{t("agentChat.error.stopped")}</span>
         </div>
       ) : null}
       {value.role === "assistant" && value.status === "complete" ? (
@@ -3696,6 +3812,7 @@ function AgentKitRunFailure({
     error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
     error.code === "missing_api_key"
   ) {
+    if (surface.setupMissing) return null;
     return (
       <BuilderSetupCard
         fullWidth
@@ -3939,6 +4056,8 @@ function dispatchAgentKitCompatibilityEvent(
             result: tool.output,
             isError: tool.status !== "completed",
             completedSideEffect: tool.metadata?.completedSideEffect === true,
+            tabId,
+            eventId: tool.id,
           },
         }),
       );

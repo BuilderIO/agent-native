@@ -12,6 +12,9 @@ let selectedRows: Record<string, unknown>[] = [];
 const mockEnsureIndexExists = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
+const executeResults: Array<{ rows: any[]; rowsAffected: number }> = [];
+const ensuredColumns = vi.hoisted(() => [] as string[]);
+const ensuredIndexes = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -19,10 +22,12 @@ function createCapturingDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args ?? []);
       execCalls.push({ sql: rawSql, args });
-      return {
-        rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
-        rowsAffected: 0,
-      };
+      return (
+        executeResults.shift() ?? {
+          rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
+          rowsAffected: 0,
+        }
+      );
     }),
   };
 }
@@ -35,8 +40,15 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: mockEnsureIndexExists,
+  ensureColumnExists: vi.fn(
+    async (table: string, column: string, sql: string) => {
+      ensuredColumns.push(`${table}.${column}:${sql}`);
+    },
+  ),
+  ensureIndexExists: vi.fn(async (name: string, sql: string) => {
+    ensuredIndexes.push(`${name}:${sql}`);
+    return mockEnsureIndexExists(name, sql);
+  }),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -62,7 +74,16 @@ const {
   getObservabilityOverview,
   insertTraceSpan,
   insertEvalResult,
+  listEvalDatasets,
+  listExperiments,
+  listExperimentsPage,
+  listExperimentsPageResult,
   insertFeedback,
+  insertEvalDataset,
+  listEvalDatasetsPage,
+  getEvalDatasetByName,
+  findPromotedEvalDataset,
+  savePromotedEvalDataset,
   upsertTraceSummary,
   upsertHumanReviewSummary,
   upsertSatisfactionScore,
@@ -78,6 +99,7 @@ describe("observability store: per-user isolation", () => {
   beforeEach(() => {
     execCalls.length = 0;
     selectedRows = [];
+    executeResults.length = 0;
     vi.clearAllMocks();
   });
 
@@ -1137,6 +1159,21 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["run-x", "alice"]);
     });
 
+    it("getEvalDatasetByName scopes by user_id (prevents IDOR by name)", async () => {
+      await getEvalDatasetByName("from-trace:run-x", { userId: "alice" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \? AND user_id = \?/);
+      expect(call.args).toEqual(["from-trace:run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName omits user_id filter when userId is undefined", async () => {
+      await getEvalDatasetByName("from-trace:run-x");
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \?/);
+      expect(call.sql).not.toMatch(/user_id/);
+      expect(call.args).toEqual(["from-trace:run-x"]);
+    });
+
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
       const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
@@ -1248,6 +1285,24 @@ describe("observability store: per-user isolation", () => {
       );
     });
 
+    it("insertEvalDataset persists user_id", async () => {
+      await insertEvalDataset({
+        id: "ds1",
+        name: "from-trace:run-1",
+        description: "Promoted from production run run-1",
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      const call = execCalls.find((c) =>
+        /INSERT INTO agent_eval_datasets/.test(c.sql),
+      );
+      expect(call).toBeDefined();
+      expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.args).toContain("alice");
+    });
+
     it("insertEvalResult persists user_id", async () => {
       await insertEvalResult({
         id: "e1",
@@ -1287,6 +1342,133 @@ describe("observability store: per-user isolation", () => {
       expect(call!.args).toContain("alice");
     });
 
+    it("claims one dataset per owner and source run", async () => {
+      await getEvalDatasetByName("warmup");
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.idempotency_key:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
+      );
+      expect(ensuredIndexes).toContain(
+        "idx_eval_datasets_idempotency:CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)",
+      );
+
+      const key = "from-trace:alice%40example.com:run-1";
+      const description = "Promoted from production run run-1";
+      execCalls.length = 0;
+      const found = await findPromotedEvalDataset({
+        idempotencyKey: key,
+        description,
+        userId: "alice@example.com",
+      });
+      expect(found).toBeNull();
+      const lookup = execCalls.find((call) =>
+        /FROM agent_eval_datasets/i.test(call.sql),
+      );
+      expect(lookup?.sql).toMatch(/user_id = \?/);
+      expect(lookup?.sql).toMatch(/idempotency_key = \?/);
+      expect(lookup?.args).toEqual([
+        "alice@example.com",
+        "alice@example.com",
+        key,
+        description,
+        key,
+      ]);
+
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const saved = await savePromotedEvalDataset({
+        id: "ds-new",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(saved.id).toBe("ds-new");
+      const insert = execCalls.find((call) =>
+        /INSERT INTO agent_eval_datasets/.test(call.sql),
+      );
+      expect(insert?.sql).toMatch(/ON CONFLICT \(idempotency_key\) DO NOTHING/);
+      expect(insert?.args).toContain(key);
+      expect(insert?.args).toContain("alice@example.com");
+
+      const legacy = {
+        id: "ds-legacy",
+        name: "from-trace:run-1",
+        description,
+        entries: JSON.stringify([
+          { input: "hello", tags: ["from-trace", "run-1"] },
+        ]),
+        created_at: 1,
+        updated_at: 2,
+        user_id: "alice@example.com",
+        idempotency_key: null,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [legacy], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const claimed = await savePromotedEvalDataset({
+        id: "ds-retry",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 3,
+        updatedAt: 3,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(claimed.id).toBe("ds-legacy");
+      expect(claimed.idempotencyKey).toBe(key);
+      expect(
+        execCalls.some((call) =>
+          /INSERT INTO agent_eval_datasets/.test(call.sql),
+        ),
+      ).toBe(false);
+      const claim = execCalls.find((call) =>
+        /UPDATE agent_eval_datasets/i.test(call.sql),
+      );
+      expect(claim?.sql).toMatch(/SET idempotency_key = \?/);
+      expect(claim?.args?.[0]).toBe(key);
+
+      const winner = {
+        ...legacy,
+        id: "ds-winner",
+        idempotency_key: key,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [winner], rowsAffected: 0 });
+      const raced = await savePromotedEvalDataset({
+        id: "ds-loser",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 4,
+        updatedAt: 4,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(raced.id).toBe("ds-winner");
+    });
+
+    it("adds user_id to an existing agent_eval_datasets table before insert", async () => {
+      await insertEvalDataset({
+        id: "ds-migrate",
+        name: "from-trace:run-migrate",
+        description: "",
+        entries: [],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.user_id:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS user_id TEXT",
+      );
+    });
+
     it("insertFeedback persists user_id and dedupes idempotency keys", async () => {
       await insertFeedback({
         id: "f1",
@@ -1308,5 +1490,157 @@ describe("observability store: per-user isolation", () => {
       expect(call!.sql).toMatch(/idempotency_key/);
       expect(call!.sql).toMatch(/ON CONFLICT DO NOTHING/);
     });
+  });
+});
+
+describe("observability list bounds", () => {
+  beforeEach(() => {
+    execCalls.length = 0;
+    selectedRows = [];
+    vi.clearAllMocks();
+  });
+
+  it("pages eval datasets by update time and id", async () => {
+    await listEvalDatasetsPage({
+      limit: 500,
+      before: { updatedAt: 20, id: "dataset-b" },
+    });
+    const call = lastSelect();
+    expect(call.sql).toContain("FROM agent_eval_datasets");
+    expect(call.sql).toContain("updated_at < ? OR (updated_at = ? AND id < ?)");
+    expect(call.sql).toContain("LIMIT ?");
+    expect(call.sql).not.toContain("SELECT *");
+    expect(call.args).toEqual([20, 20, "dataset-b", 100]);
+  });
+
+  it("maps dataset ownership and idempotency fields from its bounded projection", async () => {
+    selectedRows = [
+      {
+        id: "dataset-a",
+        name: "A",
+        description: "",
+        entries: "[]",
+        created_at: 10,
+        updated_at: 20,
+        user_id: "alice",
+        idempotency_key: "promoted-run-a",
+      },
+    ];
+
+    const [dataset] = await listEvalDatasetsPage();
+
+    expect(dataset).toMatchObject({
+      id: "dataset-a",
+      userId: "alice",
+      idempotencyKey: "promoted-run-a",
+    });
+    expect(lastSelect().sql).toContain("user_id, idempotency_key");
+  });
+
+  it("returns the full legacy dataset list through bounded pages", async () => {
+    const row = (id: number) => ({
+      id: `dataset-${id}`,
+      name: `Dataset ${id}`,
+      description: "",
+      entries: "[]",
+      created_at: id,
+      updated_at: id,
+      user_id: null,
+      idempotency_key: null,
+    });
+    executeResults.push(
+      {
+        rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+        rowsAffected: 0,
+      },
+      { rows: [row(100)], rowsAffected: 0 },
+    );
+
+    const datasets = await listEvalDatasets();
+
+    expect(datasets).toHaveLength(101);
+    const selects = execCalls.filter((call) =>
+      /FROM agent_eval_datasets/.test(call.sql),
+    );
+    expect(selects).toHaveLength(2);
+    expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
+    expect(selects[1]?.args).toEqual([101, 101, "dataset-101", 100]);
+  });
+
+  it("filters running experiments in SQL and pages the admin list", async () => {
+    await expect(
+      listExperimentsPage({
+        status: "running",
+        limit: 25,
+        before: { createdAt: 30, id: "experiment-c" },
+      }),
+    ).resolves.toEqual([]);
+    const call = lastSelect();
+    expect(call.sql).toContain("status = ?");
+    expect(call.sql).toContain("created_at < ? OR (created_at = ? AND id < ?)");
+    expect(call.sql).toContain("LIMIT ?");
+    expect(call.sql).not.toContain("SELECT *");
+    expect(call.args).toEqual(["running", 30, 30, "experiment-c", 26]);
+  });
+
+  it("returns an explicit cursor when another experiment page exists", async () => {
+    const row = (id: number) => ({
+      id: `experiment-${id}`,
+      name: `Experiment ${id}`,
+      status: "paused",
+      variants: "[]",
+      metrics: "[]",
+      assignment_level: "user",
+      started_at: null,
+      ended_at: null,
+      created_at: id,
+      owner_email: null,
+    });
+    executeResults.push({
+      rows: [row(30), row(20), row(10)],
+      rowsAffected: 0,
+    });
+
+    await expect(listExperimentsPageResult({ limit: 2 })).resolves.toEqual({
+      items: [
+        expect.objectContaining({ id: "experiment-30" }),
+        expect.objectContaining({ id: "experiment-20" }),
+      ],
+      nextCursor: { createdAt: 20, id: "experiment-20" },
+      hasMore: true,
+    });
+    expect(lastSelect().args).toEqual([3]);
+  });
+
+  it("returns the full legacy experiment list through bounded pages", async () => {
+    const row = (id: number) => ({
+      id: `experiment-${id}`,
+      name: `Experiment ${id}`,
+      status: "paused",
+      variants: "[]",
+      metrics: "[]",
+      assignment_level: "user",
+      started_at: null,
+      ended_at: null,
+      created_at: id,
+      owner_email: null,
+    });
+    executeResults.push(
+      {
+        rows: Array.from({ length: 101 }, (_, index) => row(200 - index)),
+        rowsAffected: 0,
+      },
+      { rows: [row(100)], rowsAffected: 0 },
+    );
+
+    const experiments = await listExperiments();
+
+    expect(experiments).toHaveLength(101);
+    const selects = execCalls.filter((call) =>
+      /FROM agent_experiments/.test(call.sql),
+    );
+    expect(selects).toHaveLength(2);
+    expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
+    expect(selects[1]?.args).toEqual([101, 101, "experiment-101", 101]);
   });
 });

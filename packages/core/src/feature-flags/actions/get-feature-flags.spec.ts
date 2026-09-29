@@ -1,17 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const chain = () => {
-  const value: Record<string, unknown> = {};
-  for (const method of ["min", "max", "email", "int", "optional"]) {
-    value[method] = () => value;
-  }
-  return value;
-};
-
-vi.mock("zod", () => ({
-  z: { object: () => chain() },
-}));
-
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
 }));
@@ -41,7 +29,8 @@ const getSettingMock = vi.fn(async (key: string) => {
     : (globalSettings.get(key) ?? null);
 });
 
-vi.mock("../../settings/store.js", () => ({
+vi.mock("../../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../settings/store.js")>()),
   getSetting: (...args: any[]) => getSettingMock(...args),
   getSettings: (...args: any[]) => getSettingsMock(...args),
   mutateSetting: vi.fn(),

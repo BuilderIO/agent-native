@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "컨텍스트를 불러올 수 없습니다.",
   "composer.contextLinkRequired": "링크를 입력하세요.",
   "composer.submitFailed": "제출하지 못했습니다. 다시 시도하세요.",
+  "composer.attachmentsRemainAfterSubmit":
+    "메시지는 전송되었지만 첨부 파일이 남아 있습니다. 다시 보내기 전에 삭제하세요.",
   "composer.addContext": "컨텍스트 추가",
   "composer.contextActionFailed": "컨텍스트를 추가하지 못했습니다.",
   "composer.contextBack": "뒤로",
@@ -74,6 +76,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
+  "observability.promoteMustContain": "답변에 포함할 내용…",
+  "observability.promoteMustContainOptional": "답변에 포함할 내용(선택 사항)",
+  "observability.promoteMustContainLabel":
+    "승격된 평가 답변에 포함되어야 하는 텍스트",
+  "observability.promoteNeedsContains":
+    "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.viewDetails": "세부 정보 보기",
   "observability.hideDetails": "세부 정보 숨기기",
   "observability.input": "입력",
@@ -632,6 +640,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
   "mcpIntegrations.menuLabel": "연동",
+  "mcpApps.optionalPeerRequired":
+    "이 MCP 앱을 사용하려면 {{packageName}} 패키지가 필요합니다. {{installCommand}}로 설치하세요.",
   "mcpIntegrations.menuDescription": "도구와 서비스를 에이전트에 연결",
   "mcpIntegrations.title": "연동 연결",
   "mcpIntegrations.description":
@@ -1299,14 +1309,17 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
   "usage.builderCredits": "Builder 크레딧",
+  "featureFlags.builderCreditReferrals.name": "Builder 크레딧 추천",
+  "featureFlags.builderCreditReferrals.description":
+    "사용량에 연결된 Builder 워크스페이스의 추천 세부정보를 표시합니다.",
   "usage.inviteFriends": "친구 초대",
   "usage.inviteCredits":
     "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
   "usage.copyInviteLink": "초대 링크 복사",
   "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
   "usage.creditBalance": "워크스페이스 잔액",
-  "usage.monthlyPlan": "월간 플랜",
-  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.monthlyLimit": "월간 한도",
+  "usage.dailyDefaultLimit": "기본 일일 한도",
   "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
   "usage.creditRemaining": "{{amount}} 남음",
   "usage.creditUsageUnavailable":

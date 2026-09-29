@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "الشريحة {{current}} من {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ar-SA"],
+  common: {
+    loading: "جارٍ التحميل...",
+  },
   root: {
     commandPresentations: "العروض التقديمية",
     searchDecks: "البحث في العروض",
@@ -44,13 +47,9 @@ const messages = {
   settings: {
     agentObservability: "مراقبة الوكيل",
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
     labs: "المختبرات",
     labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
     labLayoutOverflowWarningDescription: "إظهار تحذير تجاوز التخطيط في المحرر.",
-    emailNotifications: "إشعارات البريد الإلكتروني",
-    emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
     saveFailed: "فشل الحفظ",
     notificationsEmail: "البريد الإلكتروني",
     commentsAndReplies: "التعليقات والردود",
@@ -58,9 +57,6 @@ const messages = {
     retry: "إعادة المحاولة",
     mcpAbout:
       "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -865,6 +861,7 @@ const messages = {
       networkFailed:
         "انتهت مهلة طلب الاستيراد أو انقطع اتصال الشبكة. تحقّق من اتصالك وحاول مرة أخرى.",
       notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+      unsupportedFileType: "نوع الملف هذا غير مدعوم. اختر ملفًا مدعومًا.",
       uploadLimitExceeded:
         "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
     },
@@ -905,6 +902,8 @@ const messages = {
       notReady:
         "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
       emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      websiteReadFailed:
+        "تعذّرت قراءة هذا الموقع تلقائيًا. انسخ النص ذي الصلة والصقه بدلًا من ذلك.",
       figmaReadFailed:
         "تعذّر على Design قراءة مرجع Figma هذا. تحقّق من رمز الوصول المحفوظ إلى Figma في Design ومن أن حسابه يمكنه فتح الملف، ثم حاول مرة أخرى.",
       tooMany: "اختر حتى 20 مرجعًا.",
@@ -1058,6 +1057,11 @@ const messages = {
     createFirstDeck: "أنشئ أول عرض لك",
     emptyDescription:
       "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
   },
 };
 

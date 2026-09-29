@@ -10,6 +10,7 @@ import {
   hasCanonicalCodeLayerNodeIds,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
+  resolveCodeLayerTarget,
   stripEditorOnlyAttributes,
   wrapBareTextLeavesInHtml,
   type EditIntent,
@@ -71,6 +72,15 @@ describe("code-layer projection cache", () => {
     expect(buildCodeLayerProjection(large)).toBe(kept);
     expect(buildCodeLayerProjection("<main><p>doc-0</p></main>")).not.toBe(
       first,
+    );
+  });
+
+  it("resolves targets against the cached projection", () => {
+    clearCodeLayerProjectionCache();
+    const html = '<main data-agent-native-node-id="root"><p>hi</p></main>';
+    const cached = buildCodeLayerProjection(html);
+    expect(resolveCodeLayerTarget(html, { nodeId: "root" }).projection).toBe(
+      cached,
     );
   });
 

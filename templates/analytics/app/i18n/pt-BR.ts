@@ -158,14 +158,11 @@ export default {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     openAgentSettings: "Gerenciar agente",
-    account: "Conta",
     signedInAs: "Conectado como",
     credentials: "Credenciais de fontes de dados",
     credentialsDescription:
       "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
     manageDataSources: "Gerenciar fontes de dados",
-    languageTitle: "Idioma",
-    languageLabel: "Idioma da interface",
     errorEmailNotifications: "Receber novos alertas de erro por e-mail",
     errorEmailNotificationsDescription:
       "Envie um e-mail quando um novo erro de JavaScript for capturado. Desativado por padrão.",
@@ -213,8 +210,6 @@ export default {
     storageSaveFailed:
       "Não foi possível salvar as configurações de armazenamento.",
     alertsTitle: "Alertas",
-    alertsDescription:
-      "Gerencie regras de eventos de analytics próprios e a entrega de notificações.",
     alertRunNow: "Executar verificação",
     alertNew: "Novo alerta",
     alertsEmptyTitle: "Nenhuma regra de alerta ainda",

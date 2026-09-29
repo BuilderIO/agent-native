@@ -87,6 +87,8 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import type { AgentThreadState } from "../client/state.js";
+import { hasActiveAgentRuns } from "../client/state.js";
 import {
   inferAgentActivityKind,
   type AgentActivity,
@@ -2402,7 +2404,7 @@ export function AgentMessageActions({
                 pending={regenerateAction.pending}
                 disabled={
                   regenerateAction.pending ||
-                  thread.activeRunIds.length > 0 ||
+                  hasActiveAgentRuns(thread) ||
                   !forkingCapability.enabled
                 }
                 title={forkingCapability.reason}
@@ -2553,7 +2555,7 @@ export function AgentMessageActions({
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
                 disabled={
-                  thread.activeRunIds.length > 0 || !forkingCapability.enabled
+                  hasActiveAgentRuns(thread) || !forkingCapability.enabled
                 }
                 title={forkingCapability.reason}
                 aria-pressed={editContext.message?.id === message.id}
@@ -2786,6 +2788,10 @@ export interface AgentKitComposerProps extends Omit<
   toolbarSlot?: ReactNode;
 }
 
+function hasActiveRuns(thread: AgentThreadState): boolean {
+  return hasActiveAgentRuns(thread);
+}
+
 export function AgentKitComposer({
   threadId: requestedThreadId,
   className,
@@ -2879,7 +2885,7 @@ export function AgentKitComposer({
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const executionMode = mode ?? uncontrolledMode;
-  const active = thread.activeRunIds.length > 0;
+  const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
     ? messageText(editingMessage)
     : initialText;
@@ -3056,11 +3062,13 @@ export function AgentKitComposer({
       return;
     }
 
+    const submissionThread = controller.getThread(threadId);
+    const activeAtSubmit = hasActiveRuns(submissionThread);
     const draft = createAgentKitComposerSubmission({
       threadId,
       intent:
         canQueue &&
-        (options.intent === "queued" || (active && queueWhileRunning))
+        (options.intent === "queued" || (activeAtSubmit && queueWhileRunning))
           ? "queued"
           : "immediate",
       text,
@@ -3141,7 +3149,11 @@ export function AgentKitComposer({
         if (!(await prepareHostSubmit())) return;
         await submitMessage(agentSuggestionPrompt(suggestion), [], [], {
           intent:
-            active && queueWhileRunning && canQueue ? "queued" : "immediate",
+            hasActiveRuns(controller.getThread(threadId)) &&
+            queueWhileRunning &&
+            canQueue
+              ? "queued"
+              : "immediate",
           contextItems,
         });
       })

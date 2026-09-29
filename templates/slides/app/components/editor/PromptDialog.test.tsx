@@ -114,6 +114,8 @@ vi.mock("@agent-native/core/client/composer", () => ({
     submissionDisabled?: boolean;
     showModelSelector?: boolean;
     modelStatusChecksEnabled?: boolean;
+    submitting?: boolean;
+    onBeforeSubmit?: () => boolean | Promise<boolean>;
     initialText?: string;
     initialTextKey?: string | number;
     composerRef?: Ref<{
@@ -175,6 +177,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
         <textarea
           ref={inputRef}
           aria-label="Prompt"
+          disabled={props.disabled}
           value={props.initialText ?? ""}
           readOnly
           onChange={(event) => props.onTextChange?.(event.target.value)}
@@ -249,6 +252,7 @@ import {
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
   isReferenceStorageReady,
   uploadPromptFiles as uploadPromptFilesImpl,
 } from "@/lib/prompt-file-uploads";
@@ -763,6 +767,54 @@ describe("uploadPromptFiles", () => {
     );
   });
 
+  it("keeps the server-reported filename when it does not exactly match a File", async () => {
+    const files = [
+      new File(["good"], "good.txt", { type: "text/plain" }),
+      new File(["bad"], "bad.html", { type: "text/html" }),
+    ];
+    stubReadyStorageUpload(
+      async () =>
+        new Response(JSON.stringify({ failedFileName: "bad.html " }), {
+          status: 400,
+        }),
+    );
+
+    const error = await uploadPromptFilesImpl(
+      files,
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({ fileName: "bad.html " });
+    expect(formatPromptUploadFailure(error, "Upload failed")).toBe(
+      "bad.html : Upload failed",
+    );
+  });
+
+  it("surfaces a safe unsupported-type reason without exposing server details", async () => {
+    stubReadyStorageUpload(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: 'File "reference.exe": Unsupported file type. Allowed: PDF',
+            failedFileName: "reference.exe",
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const error = await uploadPromptFilesImpl(
+      [new File(["bad"], "reference.exe")],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(isPromptUploadUnsupportedFileTypeError(error)).toBe(true);
+    expect(error.message).toBe("Reference file upload failed");
+    expect(error.message).not.toContain("Allowed: PDF");
+    expect(formatPromptUploadFailure(error, "Unsupported file type.")).toBe(
+      "reference.exe: Unsupported file type.",
+    );
+  });
+
   it("preserves HTTP 413 from chunked upload start", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input.toString().includes("/api/uploads/status")) {
@@ -791,6 +843,44 @@ describe("uploadPromptFiles", () => {
       status: 413,
     });
     expect(isPromptUploadLimitError(error)).toBe(true);
+  });
+
+  it("shows unsupported-type guidance for chunked uploads", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      if (url.includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+          status: 200,
+        });
+      }
+      if (url.includes("isFinal=1")) {
+        return new Response(
+          JSON.stringify({
+            error: "Unsupported file type. Allowed: PDF, PPTX, DOCX",
+          }),
+          { status: 400 },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await uploadPromptFilesImpl(
+      [new File([new Uint8Array(4 * 1024 * 1024 + 1)], "reference.exe")],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(isPromptUploadUnsupportedFileTypeError(error)).toBe(true);
+    expect(error).toMatchObject({ fileName: "reference.exe", status: 400 });
+    expect(error.message).not.toContain("Allowed: PDF");
+    expect(formatPromptUploadFailure(error, "Unsupported file type.")).toBe(
+      "reference.exe: Unsupported file type.",
+    );
   });
 
   it("blocks eager attachments when reference storage is unavailable", async () => {
@@ -1289,6 +1379,47 @@ describe("inline prompt starters", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("renders immediately and shows submitting while provider readiness is checked", async () => {
+    let resolveCheck!: (result: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveCheck = resolve;
+    });
+    const onSubmit = vi.fn();
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        onBeforeSubmit={() => readiness}
+      />,
+    );
+
+    expect(
+      (screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(false);
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    let check!: Promise<boolean>;
+    await act(async () => {
+      check = promptComposerProps.mock.lastCall![0].onBeforeSubmit!();
+      await Promise.resolve();
+    });
+    expect(promptComposerProps.mock.lastCall![0].submitting).toBe(true);
+    expect(promptComposerProps.mock.lastCall![0].disabled).toBe(false);
+    expect(
+      (screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(false);
+    await act(async () => {
+      resolveCheck(false);
+      expect(await check).toBe(false);
+    });
+    expect(promptComposerProps.mock.lastCall![0].submitting).toBe(false);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it.each([false, true])(

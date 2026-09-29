@@ -118,12 +118,23 @@ const USER_SCOPED_TABLES = [
   "agent_evals",
   "agent_feedback",
   "agent_instruction_updates",
+  "agent_eval_datasets",
 ] as const;
 
 const MAX_REVIEW_THREAD_BYTES = 1_000_000;
 const MAX_REVIEW_FEEDBACK_THREAD_SCOPES = 600;
+const MAX_OBSERVABILITY_LIST_PAGE_SIZE = 100;
 export const MAX_REVIEW_TOOL_SPANS = 20;
 const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
+
+function boundedListLimit(requested?: number): number {
+  return Number.isFinite(requested)
+    ? Math.min(
+        MAX_OBSERVABILITY_LIST_PAGE_SIZE,
+        Math.max(1, Math.floor(requested!)),
+      )
+    : MAX_OBSERVABILITY_LIST_PAGE_SIZE;
+}
 
 function withUserFilter(
   baseWhere: string,
@@ -273,7 +284,9 @@ export async function ensureObservabilityTables(): Promise<void> {
           description TEXT NOT NULL DEFAULT '',
           entries TEXT NOT NULL DEFAULT '[]',
           created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
+          updated_at BIGINT NOT NULL,
+          user_id TEXT,
+          idempotency_key TEXT
         )
       `;
 
@@ -380,6 +393,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           "idempotency_key",
           `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
         );
+        await ensureColumnExists(
+          "agent_eval_datasets",
+          "idempotency_key",
+          `ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
         await ensureIndexExists(
           "idx_trace_spans_run",
           `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
@@ -467,6 +485,10 @@ export async function ensureObservabilityTables(): Promise<void> {
         await ensureIndexExists(
           "idx_evals_user",
           `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_eval_datasets_idempotency",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)`,
         );
         await ensureIndexExists(
           "idx_experiment_results_exp",
@@ -1592,8 +1614,8 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_eval_datasets
-      (id, name, description, entries, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, name, description, entries, created_at, updated_at, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     args: [
       dataset.id,
       dataset.name,
@@ -1601,17 +1623,47 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
       JSON.stringify(dataset.entries),
       dataset.createdAt,
       dataset.updatedAt,
+      dataset.userId ?? null,
     ],
   });
 }
 
-export async function listEvalDatasets(): Promise<EvalDataset[]> {
+export async function listEvalDatasetsPage(
+  options: {
+    limit?: number;
+    before?: { updatedAt: number; id: string };
+  } = {},
+): Promise<EvalDataset[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { rows } = await client.execute(
-    `SELECT * FROM agent_eval_datasets ORDER BY updated_at DESC`,
-  );
+  const args: unknown[] = [];
+  const cursor = options.before;
+  const where = cursor
+    ? "WHERE updated_at < ? OR (updated_at = ? AND id < ?)"
+    : "";
+  if (cursor) args.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+  const limit = boundedListLimit(options.limit);
+  const { rows } = await client.execute({
+    sql: `SELECT id, name, description, entries, created_at, updated_at,
+        user_id, idempotency_key
+      FROM agent_eval_datasets ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit],
+  });
   return (rows as any[]).map(rowToDataset);
+}
+
+export async function listEvalDatasets(): Promise<EvalDataset[]> {
+  const datasets: EvalDataset[] = [];
+  let before: { updatedAt: number; id: string } | undefined;
+  while (true) {
+    const page = await listEvalDatasetsPage({ limit: 100, before });
+    datasets.push(...page);
+    if (page.length < 100) return datasets;
+    const last = page.at(-1)!;
+    before = { updatedAt: last.updatedAt, id: last.id };
+  }
 }
 
 export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
@@ -1623,6 +1675,157 @@ export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
   });
   if (rows.length === 0) return null;
   return rowToDataset(rows[0] as any);
+}
+
+export async function getEvalDatasetByName(
+  name: string,
+  opts: { userId?: string } = {},
+): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { where, args } = withUserFilter("name = ?", [name], opts.userId);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets WHERE ${where} ORDER BY updated_at DESC LIMIT 1`,
+    args,
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+const PROMOTED_DATASET_OWNER =
+  "(user_id = ? OR (? IS NULL AND user_id IS NULL))";
+
+async function selectPromotedEvalDatasetByKey(
+  idempotencyKey: string,
+  userId: string | null,
+): Promise<EvalDataset | null> {
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE idempotency_key = ?
+        AND ${PROMOTED_DATASET_OWNER}
+      LIMIT 1`,
+    args: [idempotencyKey, userId, userId],
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+/**
+ * The dataset already stored for this owner and source run, if any.
+ * A legacy row (same description, no key) is claimed in place so a concurrent
+ * insert cannot create a second promotion.
+ */
+export async function findPromotedEvalDataset(args: {
+  idempotencyKey: string;
+  description: string;
+  userId: string | null;
+}): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE ${PROMOTED_DATASET_OWNER}
+        AND (
+          idempotency_key = ?
+          OR (idempotency_key IS NULL AND description = ?)
+        )
+      ORDER BY CASE WHEN idempotency_key = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [
+      args.userId,
+      args.userId,
+      args.idempotencyKey,
+      args.description,
+      args.idempotencyKey,
+    ],
+  });
+  if (rows.length === 0) return null;
+  const dataset = rowToDataset(rows[0] as any);
+  if (dataset.idempotencyKey === args.idempotencyKey) return dataset;
+
+  try {
+    const updated = await client.execute({
+      sql: `UPDATE agent_eval_datasets
+        SET idempotency_key = ?
+        WHERE id = ?
+          AND idempotency_key IS NULL
+          AND description = ?
+          AND ${PROMOTED_DATASET_OWNER}`,
+      args: [
+        args.idempotencyKey,
+        dataset.id,
+        args.description,
+        args.userId,
+        args.userId,
+      ],
+    });
+    if (Number(updated.rowsAffected) > 0) {
+      return { ...dataset, idempotencyKey: args.idempotencyKey };
+    }
+  } catch (err) {
+    const winner = await selectPromotedEvalDatasetByKey(
+      args.idempotencyKey,
+      args.userId,
+    );
+    if (winner) return winner;
+    throw err;
+  }
+
+  const winner = await selectPromotedEvalDatasetByKey(
+    args.idempotencyKey,
+    args.userId,
+  );
+  return winner ?? dataset;
+}
+
+/**
+ * Insert a promoted dataset, or return the row that already owns its
+ * idempotency key. Concurrent promotions of the same run cannot both insert.
+ */
+export async function savePromotedEvalDataset(
+  dataset: EvalDataset,
+): Promise<EvalDataset> {
+  const idempotencyKey = dataset.idempotencyKey;
+  if (!idempotencyKey) {
+    await insertEvalDataset(dataset);
+    return dataset;
+  }
+  const userId = dataset.userId ?? null;
+  const existing = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (existing) return existing;
+
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_eval_datasets
+      (id, name, description, entries, created_at, updated_at, user_id, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (idempotency_key) DO NOTHING`,
+    args: [
+      dataset.id,
+      dataset.name,
+      dataset.description,
+      JSON.stringify(dataset.entries),
+      dataset.createdAt,
+      dataset.updatedAt,
+      userId,
+      idempotencyKey,
+    ],
+  });
+  if (Number(inserted.rowsAffected) > 0) return dataset;
+
+  const raced = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (raced) return raced;
+  throw new Error("Failed to save promoted eval dataset");
 }
 
 export async function updateEvalDataset(
@@ -1719,13 +1922,76 @@ export async function updateExperiment(
   });
 }
 
-export async function listExperiments(): Promise<Experiment[]> {
+export async function listExperimentsPageResult(
+  options: {
+    status?: Experiment["status"];
+    limit?: number;
+    before?: { createdAt: number; id: string };
+  } = {},
+): Promise<{
+  items: Experiment[];
+  nextCursor: { createdAt: number; id: string } | null;
+  hasMore: boolean;
+}> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { rows } = await client.execute(
-    `SELECT * FROM agent_experiments ORDER BY created_at DESC`,
-  );
-  return (rows as any[]).map(rowToExperiment);
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (options.status) {
+    conditions.push("status = ?");
+    args.push(options.status);
+  }
+  if (options.before) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    args.push(
+      options.before.createdAt,
+      options.before.createdAt,
+      options.before.id,
+    );
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = boundedListLimit(options.limit);
+  const { rows } = await client.execute({
+    sql: `SELECT id, name, status, variants, metrics, assignment_level,
+        started_at, ended_at, created_at, owner_email
+      FROM agent_experiments ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit + 1],
+  });
+  const experiments = (rows as any[]).map(rowToExperiment);
+  const hasMore = experiments.length > limit;
+  const items = experiments.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    hasMore,
+    nextCursor:
+      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+  };
+}
+
+export async function listExperimentsPage(
+  options: {
+    status?: Experiment["status"];
+    limit?: number;
+    before?: { createdAt: number; id: string };
+  } = {},
+): Promise<Experiment[]> {
+  return (await listExperimentsPageResult(options)).items;
+}
+
+export async function listExperiments(): Promise<Experiment[]> {
+  const experiments: Experiment[] = [];
+  let before: { createdAt: number; id: string } | undefined;
+  while (true) {
+    const page = await listExperimentsPage({ limit: 100, before });
+    experiments.push(...page);
+    if (page.length < 100) return experiments;
+    const last = page.at(-1)!;
+    before = { createdAt: last.createdAt, id: last.id };
+  }
 }
 
 export async function getExperiment(id: string): Promise<Experiment | null> {
@@ -2035,6 +2301,8 @@ function rowToDataset(row: Record<string, any>): EvalDataset {
     entries: safeJsonParse(row.entries, []),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    userId: row.user_id ? String(row.user_id) : null,
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
   };
 }
 

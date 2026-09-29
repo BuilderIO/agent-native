@@ -11,7 +11,14 @@ import type { Task, Message, TaskState, Artifact } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
+const A2A_RECOVERY_INDEX = "idx_a2a_tasks_recovery_created";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
+const MAX_TASK_LIST_PAGE_SIZE = 100;
+
+export interface A2ATaskListCursor {
+  createdAt: number;
+  id: string;
+}
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -36,6 +43,10 @@ export async function ensureTable(): Promise<void> {
       const createIdempotencyIndexSql =
         `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
         `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+      const createRecoveryIndexSql =
+        `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
+        "ON a2a_tasks(created_at) " +
+        "WHERE status_state IN ('submitted', 'working', 'processing')";
       const createApprovalsSql = `
         CREATE TABLE IF NOT EXISTS a2a_approvals (
           id TEXT PRIMARY KEY,
@@ -71,6 +82,7 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
       );
       await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
+      await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
       await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
       _initPromise = undefined;
@@ -815,20 +827,58 @@ export async function updateTaskStatusMessage(
   });
 }
 
-export async function listTasks(contextId?: string): Promise<Task[]> {
+export async function listTasksPage(
+  contextId?: string,
+  options: { limit?: number; before?: A2ATaskListCursor } = {},
+): Promise<{ tasks: Task[]; nextCursor: A2ATaskListCursor | null }> {
   await ensureTable();
   const client = getDbExec();
-
+  const requestedLimit = options.limit ?? MAX_TASK_LIST_PAGE_SIZE;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(MAX_TASK_LIST_PAGE_SIZE, Math.max(1, Math.floor(requestedLimit)))
+    : MAX_TASK_LIST_PAGE_SIZE;
+  const conditions: string[] = [];
+  const args: unknown[] = [];
   if (contextId) {
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM a2a_tasks WHERE context_id = ? ORDER BY created_at DESC`,
-      args: [contextId],
-    });
-    return rows.map(taskFromRow);
+    conditions.push("context_id = ?");
+    args.push(contextId);
   }
+  if (options.before) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    args.push(
+      options.before.createdAt,
+      options.before.createdAt,
+      options.before.id,
+    );
+  }
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { rows } = await client.execute({
+    sql: `SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, created_at
+      FROM a2a_tasks ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    args: [...args, limit + 1],
+  });
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const lastRow = pageRows.at(-1) as Record<string, unknown> | undefined;
+  return {
+    tasks: pageRows.map(taskFromRow),
+    nextCursor:
+      hasMore && lastRow
+        ? { createdAt: Number(lastRow.created_at), id: String(lastRow.id) }
+        : null,
+  };
+}
 
-  const { rows } = await client.execute(
-    `SELECT * FROM a2a_tasks ORDER BY created_at DESC`,
-  );
-  return rows.map(taskFromRow);
+export async function listTasks(contextId?: string): Promise<Task[]> {
+  const tasks: Task[] = [];
+  let before: A2ATaskListCursor | undefined;
+  while (true) {
+    const page = await listTasksPage(contextId, { before });
+    tasks.push(...page.tasks);
+    if (!page.nextCursor) return tasks;
+    before = page.nextCursor;
+  }
 }

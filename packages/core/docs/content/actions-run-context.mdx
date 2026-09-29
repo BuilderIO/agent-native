@@ -98,6 +98,13 @@ Most actions only ever read `ctx?.userEmail` and `ctx?.orgId`, the [access-contr
             "The registry key of the action being called (e.g. `delete-recording`), set at each dispatch site so cross-cutting concerns like the audit log can attribute the call. `undefined` for direct programmatic `run()` calls that bypass the dispatcher.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "The model tool-call ID (`toolCall.id`) for this invocation. Set by the agent loop, including through `defineAction()` wrappers. Use it to correlate events when the same action runs more than once. It is not an action input and is `undefined` for callers without a model tool call.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

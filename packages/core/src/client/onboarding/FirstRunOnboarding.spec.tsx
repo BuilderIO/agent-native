@@ -21,14 +21,6 @@ const mocks = vi.hoisted(() => ({
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
-  redesign: false,
-}));
-
-vi.mock("../feature-flags/use-feature-flag.js", () => ({
-  useFeatureFlagState: () => ({
-    status: "ready",
-    enabled: mocks.redesign,
-  }),
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -70,7 +62,6 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
-    mocks.redesign = false;
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
@@ -868,6 +859,55 @@ describe("FirstRunOnboarding", () => {
     ).toBeUndefined();
   });
 
+  it("does not ask Mail users to connect Gmail again in manual setup", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "mail",
+        appName: "Mail",
+        capabilities: [
+          {
+            id: "llm",
+            service: "model",
+            label: "AI model",
+            required: true,
+            builderIncluded: false,
+            keySummary: "Connect your own AI model",
+            why: "Needed for agent responses.",
+          },
+          {
+            id: "gmail",
+            label: "Gmail",
+            required: true,
+            builderIncluded: false,
+            satisfiedBySignIn: true,
+            keySummary: "Connect Gmail with OAuth",
+            why: "Google sign-in already connects Mail.",
+          },
+        ],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).not.toContain("Connect Gmail with OAuth");
+    expect(document.body.textContent).toContain("Connect your own AI model");
+  });
+
   it("keeps per-app optional keys off both setup cards", () => {
     act(() => {
       root.render(
@@ -1315,6 +1355,7 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
+    let completionResult: boolean | void;
     mocks.completeFirstRun
       .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
       .mockResolvedValueOnce(undefined);
@@ -1334,7 +1375,12 @@ describe("FirstRunOnboarding", () => {
       id: "test-extension",
       component: ({ onComplete, onSkip }) => (
         <>
-          <button type="button" onClick={onComplete}>
+          <button
+            type="button"
+            onClick={async () => {
+              completionResult = await onComplete();
+            }}
+          >
             Extension Complete
           </button>
           <button type="button" onClick={onSkip}>
@@ -1386,6 +1432,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    expect(completionResult).toBe(false);
     expect(document.body.textContent).toContain("Extension Complete");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
@@ -1396,7 +1443,7 @@ describe("FirstRunOnboarding", () => {
         ([event, properties]) =>
           event === "onboarding_step_completed" &&
           (properties as { step_id?: string }).step_id ===
-            "extension:test-extension",
+            "extension:test-extension:1",
       );
     expect(completedExtensionEvents()).toBe(false);
 
@@ -1487,33 +1534,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("opens the AI key settings page without opening the agent sidebar", async () => {
-    act(() => {
-      root.render(
-        <TooltipProvider>
-          <FirstRunOnboarding />
-        </TooltipProvider>,
-      );
-    });
-    act(() => {
-      document.body
-        .querySelector("[data-testid='first-run-role-skip']")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    await act(async () => {
-      document.body
-        .querySelector("[data-testid='first-run-open-key-settings']")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(window.location.pathname).toBe("/settings/keys");
-    expect(mocks.completeFirstRun).toHaveBeenCalled();
-    window.history.replaceState(null, "", "/");
-  });
-
-  it("lands on Agent › Model when the redesign is on", async () => {
-    mocks.redesign = true;
+  it("opens Agent › Model without opening the agent sidebar", async () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -1565,16 +1586,11 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/dispatch/settings/keys");
+    expect(window.location.pathname).toBe("/dispatch/settings/model");
   });
 
-  it("picks the manual setup page from the flag", () => {
-    expect(manualSetupSettingsRoute({ redesign: true })).toBe(
-      "/settings/model",
-    );
-    expect(manualSetupSettingsRoute({ redesign: false })).toBe(
-      "/settings/keys",
-    );
+  it("sends manual setup to Agent › Model", () => {
+    expect(manualSetupSettingsRoute()).toBe("/settings/model");
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

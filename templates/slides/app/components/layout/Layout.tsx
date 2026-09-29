@@ -22,7 +22,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useDecks } from "@/context/DeckContext";
-import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   buildSlidesAgentContext,
@@ -40,7 +39,8 @@ import { Header } from "./Header";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
-  isSlidesFullWidthSettingsRoute,
+  isSlidesSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -112,7 +112,6 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
-  const settingsRedesign = useSettingsRedesign();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -292,10 +291,9 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const fullWidthSettings = isSlidesFullWidthSettingsRoute(
-    location.pathname,
-    settingsRedesign,
-  );
+  // Settings brings its own navigation, header, and agent-panel toggle, so it
+  // replaces the app's chrome instead of nesting inside it.
+  const fullWidthSettings = isSlidesSettingsRoute(location.pathname);
   const ownToolbar = pageHasOwnToolbar(location.pathname) || fullWidthSettings;
   const showAppSidebar =
     shouldShowSlidesAppSidebar(location.pathname) && !fullWidthSettings;
@@ -411,6 +409,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>

@@ -2,6 +2,8 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  ONBOARDING_PRIMARY_BUTTON_CLASS,
+  OnboardingStepLayout,
   useFirstRunOnboardingGateOwnsSurface,
   useOnboardingPreviewMode,
 } from "@agent-native/core/client/onboarding";
@@ -15,17 +17,17 @@ import {
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import type { AutomationAction, AutomationRule } from "@shared/types";
 import {
-  IconArchive,
+  IconArrowRight,
   IconCheck,
-  IconFilter,
   IconLoader2,
   IconPlus,
+  IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
-import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
 import {
   JevAvailabilityError,
   JevConnectionPrompt,
@@ -34,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -41,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useAiFilterBackfillStatus,
   useManageAiFilterBackfill,
@@ -75,6 +79,33 @@ export const TAG_SUGGESTIONS = [
 ] as const;
 
 type SetupStep = 0 | 1 | 2 | 3;
+type CustomTag = {
+  id: string;
+  name: string;
+  condition: string;
+};
+
+const PENDING_SETUP_RULE_IDS = "mail.ai-setup.pending-rule-ids";
+const PENDING_SETUP_BACKFILL_RUN_ID = "mail.ai-setup.backfill-run-id";
+let pendingSetupRuleIdsFallback: string[] | null = null;
+
+const IMPORTANT_SUGGESTIONS = [
+  "mail.sort.aiSetupImportantBoss",
+  "mail.sort.aiSetupImportantReply",
+  "mail.sort.aiSetupImportantDeadlines",
+  "mail.sort.aiSetupImportantCustomers",
+  "mail.sort.aiSetupImportantGitHub",
+  "mail.sort.aiSetupImportantCalendar",
+] as const;
+
+const SKIP_INBOX_SUGGESTIONS = [
+  "mail.sort.aiSetupSkipNewsletters",
+  "mail.sort.aiSetupSkipPromotions",
+  "mail.sort.aiSetupSkipBots",
+  "mail.sort.aiSetupSkipColdSales",
+  "mail.sort.aiSetupSkipRecruiters",
+  "mail.sort.aiSetupSkipSocial",
+] as const;
 
 type ReviewDestination = {
   href: string;
@@ -93,52 +124,6 @@ function reviewDestinationForRule(
     labelName,
     mode,
   };
-}
-
-function SetupRuleRow({
-  icon,
-  title,
-  condition,
-  placeholder,
-  enabled,
-  onConditionChange,
-  onEnabledChange,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  condition: string;
-  placeholder: string;
-  enabled: boolean;
-  onConditionChange: (value: string) => void;
-  onEnabledChange: (value: boolean) => void;
-}) {
-  const t = useT();
-
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card p-3 shadow-sm">
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-        {icon}
-      </span>
-      <label className="min-w-0 flex-1 space-y-1.5">
-        <span className="text-xs font-medium text-muted-foreground">
-          {title}
-        </span>
-        <Input
-          value={condition}
-          onChange={(event) => onConditionChange(event.target.value)}
-          placeholder={placeholder}
-          aria-label={title}
-        />
-      </label>
-      <Switch
-        checked={enabled}
-        onCheckedChange={onEnabledChange}
-        aria-label={t("mail.aiFilter.toggleInstruction", {
-          instruction: title,
-        })}
-      />
-    </div>
-  );
 }
 
 function SetupSurface({
@@ -175,6 +160,9 @@ function SetupResults({
   onUndo,
   onReview,
   onTeach,
+  onRetry,
+  compactReviewLinks = false,
+  showChatSuggestion = true,
 }: {
   status: AiFilterBackfillStatus | undefined;
   loading: boolean;
@@ -184,6 +172,9 @@ function SetupResults({
   onUndo: (undoToken: string) => Promise<void>;
   onReview: () => void;
   onTeach: () => void;
+  onRetry?: () => void;
+  compactReviewLinks?: boolean;
+  showChatSuggestion?: boolean;
 }) {
   const t = useT();
   const previews = useMemo(() => {
@@ -230,11 +221,14 @@ function SetupResults({
   const undone = status?.status === "undone";
   const hasFailed =
     status?.status === "failed" || (!loading && hasRun && failed);
+  const retryBlockedByUndo = Boolean(
+    onRetry && status?.status === "failed" && status.undoToken,
+  );
 
   return (
     <div className="space-y-5">
       {running ? (
-        <div className="space-y-3 rounded-xl border border-border/70 bg-card p-4">
+        <div className="space-y-3">
           <div className="flex items-center gap-3">
             <IconLoader2 className="size-4 animate-spin text-primary" />
             <p className="text-sm font-medium">
@@ -257,34 +251,74 @@ function SetupResults({
         </div>
       ) : null}
       {hasFailed ? (
-        <p role="alert" className="text-sm text-destructive">
-          {t("mail.sort.aiSetupSortingFailed")}
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <p role="alert" className="text-sm text-destructive">
+            {t("mail.sort.aiSetupSortingFailed")}
+          </p>
+          {retryBlockedByUndo ? (
+            <p className="text-xs text-muted-foreground">
+              {t("mail.sort.aiSetupUndoBeforeRetry")}
+            </p>
+          ) : onRetry && !undone ? (
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              {t("mail.sort.aiSetupRetry")}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {undone ? (
-        <p className="text-sm text-muted-foreground">
-          {t("mail.sort.aiSetupUndoComplete", {
-            count: status.restoredThreads ?? 0,
-          })}
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {t("mail.sort.aiSetupUndoComplete", {
+              count: status.restoredThreads ?? 0,
+            })}
+          </p>
+          {onRetry ? (
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              {t("mail.sort.aiSetupRetry")}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {status && !undone && status.perRule.length > 0 ? (
         <div className="space-y-2">
-          {status.perRule.map((rule) => (
-            <div
-              key={rule.ruleId}
-              className="flex items-center justify-between gap-4 text-sm"
-            >
-              <span className="min-w-0 truncate text-muted-foreground">
-                {rule.name}
-              </span>
-              <span className="shrink-0 font-medium tabular-nums">
-                {t("mail.sort.aiSetupRuleCount", {
-                  count: rule.matchedCount,
-                })}
-              </span>
-            </div>
-          ))}
+          {status.perRule.map((rule) => {
+            const destination = reviewDestinationsByRuleId[rule.ruleId];
+            const count = t("mail.sort.aiSetupRuleCount", {
+              count: rule.matchedCount,
+            });
+            return compactReviewLinks && destination ? (
+              <a
+                key={rule.ruleId}
+                href={destination.href}
+                onClick={onReview}
+                className="flex items-center gap-2 rounded-md py-1 text-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {rule.name}
+                </span>
+                <span aria-hidden="true" className="text-muted-foreground">
+                  ·
+                </span>
+                <span className="shrink-0 font-medium tabular-nums">
+                  {count}
+                </span>
+                <IconArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+              </a>
+            ) : (
+              <div
+                key={rule.ruleId}
+                className="flex items-center justify-between gap-4 text-sm"
+              >
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {rule.name}
+                </span>
+                <span className="shrink-0 font-medium tabular-nums">
+                  {count}
+                </span>
+              </div>
+            );
+          })}
         </div>
       ) : null}
       {status && !undone && status.failedThreads > 0 ? (
@@ -300,12 +334,9 @@ function SetupResults({
         </div>
       ) : null}
       {status && !undone && previews.length > 0 ? (
-        <div className="space-y-2">
+        <div className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/70 bg-card">
           {previews.map((preview) => (
-            <div
-              key={preview.id}
-              className="rounded-xl border border-border/70 bg-card p-3"
-            >
+            <div key={preview.id} className="p-3">
               <p className="truncate text-sm font-medium">
                 {preview.subject || t("mail.aiFilter.noSubject")}
               </p>
@@ -352,36 +383,40 @@ function SetupResults({
           <p className="font-medium">{t("mail.sort.aiSetupNoRules")}</p>
         </div>
       ) : null}
-      <div className="space-y-1">
-        <p className="text-xs text-muted-foreground">
-          {t("mail.sort.aiSetupChatTip")}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="rounded-full"
-          onClick={onTeach}
-        >
-          {t("mail.sort.aiSetupChatPrompt")}
-        </Button>
-      </div>
+      {showChatSuggestion ? (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            {t("mail.sort.aiSetupChatTip")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            onClick={onTeach}
+          >
+            {t("mail.sort.aiSetupChatPrompt")}
+          </Button>
+        </div>
+      ) : null}
       {status && !running && !undone ? (
         <div className="flex flex-wrap gap-2">
-          {reviewDestinations.map(({ href, labelName, mode }) => (
-            <Button key={href} asChild variant="outline" onClick={onReview}>
-              <a href={href}>
-                {mode === "filtered"
-                  ? t("mail.aiFilter.filteredMode")
-                  : mode === "important"
-                    ? t("mail.aiFilter.importantMode")
-                    : mode === "archive"
-                      ? t("mail.aiFilter.skipInboxMode")
-                      : labelName}
-              </a>
-            </Button>
-          ))}
-          {status.undoToken ? (
+          {!compactReviewLinks
+            ? reviewDestinations.map(({ href, labelName, mode }) => (
+                <Button key={href} asChild variant="outline" onClick={onReview}>
+                  <a href={href}>
+                    {mode === "filtered"
+                      ? t("mail.aiFilter.filteredMode")
+                      : mode === "important"
+                        ? t("mail.aiFilter.importantMode")
+                        : mode === "archive"
+                          ? t("mail.aiFilter.skipInboxMode")
+                          : labelName}
+                  </a>
+                </Button>
+              ))
+            : null}
+          {!compactReviewLinks && status.undoToken ? (
             <Button
               variant="ghost"
               onClick={() => void onUndo(status.undoToken!)}
@@ -395,26 +430,109 @@ function SetupResults({
   );
 }
 
+function readPendingSetupRuleIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = window.sessionStorage.getItem(PENDING_SETUP_RULE_IDS);
+    if (value === null) return pendingSetupRuleIdsFallback ?? [];
+    const ids: unknown = JSON.parse(value);
+    return Array.isArray(ids) && ids.every((id) => typeof id === "string")
+      ? ids
+      : (pendingSetupRuleIdsFallback ?? []);
+    // coercion-ok: unreadable pending state means no onboarding rules may be backfilled.
+  } catch {
+    return pendingSetupRuleIdsFallback ?? [];
+  }
+}
+
+function writePendingSetupRuleIds(ruleIds: string[]): void {
+  pendingSetupRuleIdsFallback = [...ruleIds];
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      PENDING_SETUP_RULE_IDS,
+      JSON.stringify(ruleIds),
+    );
+  } catch {
+    // coercion-ok: the in-memory handoff keeps the current onboarding flow moving.
+  }
+}
+
+function readPendingSetupBackfillRunId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(PENDING_SETUP_BACKFILL_RUN_ID);
+  } catch {
+    // coercion-ok: recovery storage is optional and must not block setup rendering.
+    return null;
+  }
+}
+
+function clearPendingSetupBackfill(): void {
+  pendingSetupRuleIdsFallback = null;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(PENDING_SETUP_RULE_IDS);
+    window.sessionStorage.removeItem(PENDING_SETUP_BACKFILL_RUN_ID);
+  } catch {
+    // coercion-ok: recovery storage must not block the user from finishing setup.
+  }
+}
+
+function suggestionLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function toggleSuggestion(
+  value: string,
+  onChange: (next: string) => void,
+  suggestion: string,
+) {
+  const lines = suggestionLines(value);
+  onChange(
+    lines.includes(suggestion)
+      ? lines.filter((line) => line !== suggestion).join("\n")
+      : [...lines, suggestion].join("\n"),
+  );
+}
+
 export function AiInboxSetup({
   forceOpen = false,
   embedded = false,
+  firstRunStage,
+  onStepChange,
   onOpenChange,
   onComplete,
-  onSkipSetup,
+  onSkip,
 }: {
   forceOpen?: boolean;
   embedded?: boolean;
+  firstRunStage?: "preferences" | "sorting";
+  onStepChange?: (stepIndex: number) => void;
   onOpenChange?: (open: boolean) => void;
-  onComplete?: () => void;
-  onSkipSetup?: () => void;
+  onComplete?: () => void | boolean | Promise<void | boolean>;
+  onSkip?: () => void;
 }) {
   const t = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
   const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const onboardingPreview = useOnboardingPreviewMode();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
   const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
+  const gmailStatusUnknown = googleStatus.isError && !googleStatus.data;
+  const aiRules = useMemo(
+    () =>
+      rules.filter(
+        (rule) => rule.domain === "mail" && rule.kind === "ai-filter",
+      ),
+    [rules],
+  );
   const canOfferGoogleOAuthSetup = useMemo(
     () => shouldOfferGoogleOAuthSetup(),
     [],
@@ -429,95 +547,176 @@ export function AiInboxSetup({
       refetchOnWindowFocus: true,
     },
   );
+  const automationSettings = useActionQuery(
+    "get-automation-settings",
+    {},
+    {
+      enabled:
+        connected &&
+        !onboardingPreview &&
+        firstRunStage !== "preferences" &&
+        (forceOpen ||
+          (!rulesLoading &&
+            settings?.aiSetupCompleted !== true &&
+            aiRules.length === 0)),
+      staleTime: 0,
+      // request-storm-allow: this query is enabled only while setup is open or eligible for initial auto-open.
+      refetchOnWindowFocus: true,
+    },
+  );
   const jevAvailabilityResolved =
     !jevAvailability.isError && jevAvailability.data != null;
   const jevConfigured =
     jevAvailabilityResolved && jevAvailability.data?.configured === true;
+  const automationSettingsUnknown =
+    automationSettings.isError && !automationSettings.data && !jevConfigured;
+  const canApplyRules =
+    jevConfigured ||
+    Boolean(automationSettings.data?.engine && automationSettings.data?.model);
   const createRuleMutation = useCreateAutomation();
   const updateRuleMutation = useUpdateAutomation();
   const updateSettings = useUpdateSettings();
-  const [step, setStep] = useState<SetupStep>(0);
-  const [backfillReviewDestinations, setBackfillReviewDestinations] = useState<
-    Record<string, ReviewDestination>
-  >({});
+  const startBackfill = useManageAiFilterBackfill();
+  const [step, setStep] = useState<SetupStep>(() =>
+    firstRunStage === "sorting" ? 3 : 0,
+  );
   const [selectedTags, setSelectedTags] = useState(
     () => new Set<string>(["receipts", "github"]),
   );
-  const [customTagSelected, setCustomTagSelected] = useState(false);
-  const [customTagName, setCustomTagName] = useState("");
-  const [customTagPrompt, setCustomTagPrompt] = useState("");
+  const [customTags, setCustomTags] = useState<CustomTag[]>([]);
   const [importantPrompt, setImportantPrompt] = useState("");
   const [archivePrompt, setArchivePrompt] = useState("");
-  const [archiveEnabled, setArchiveEnabled] = useState(false);
-  const [archiveUserOptedOut, setArchiveUserOptedOut] = useState(false);
-  const [spamPrompt, setSpamPrompt] = useState("");
-  const [spamEnabled, setSpamEnabled] = useState(false);
-  const [spamUserOptedOut, setSpamUserOptedOut] = useState(false);
-  const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
-  const [customCleanupPrompt, setCustomCleanupPrompt] = useState("");
-  const [customCleanupMode, setCustomCleanupMode] = useState<
-    "archive" | "filtered"
-  >("archive");
+  const importantTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const focusBossSuggestionCaret = useRef(false);
   const [saving, setSaving] = useState(false);
-  const [backfillRunId, setBackfillRunId] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const completionInFlight = useRef(false);
+  const [backfillRunId, setBackfillRunId] = useState<string | null>(() =>
+    firstRunStage === "sorting" ? readPendingSetupBackfillRunId() : null,
+  );
+  const [backfillStartFailed, setBackfillStartFailed] = useState(false);
+  const [backfillReviewDestinations, setBackfillReviewDestinations] = useState<
+    Record<string, ReviewDestination>
+  >({});
+  const [pendingRuleIds] = useState<string[]>(() =>
+    firstRunStage === "sorting" ? readPendingSetupRuleIds() : [],
+  );
+  const retryBackfill = useRef<{
+    ruleIds: string[];
+    destinationsByRuleId: Record<string, ReviewDestination>;
+  }>({ ruleIds: pendingRuleIds, destinationsByRuleId: {} });
   const previousForceOpen = useRef(forceOpen);
-  const startBackfill = useManageAiFilterBackfill();
+  const backfillStarted = useRef(backfillRunId !== null);
   const backfillStatus = useAiFilterBackfillStatus(backfillRunId);
 
-  const aiRules = useMemo(
-    () =>
-      rules.filter(
-        (rule) => rule.domain === "mail" && rule.kind === "ai-filter",
-      ),
-    [rules],
-  );
+  useEffect(() => {
+    if (!focusBossSuggestionCaret.current) return;
+    focusBossSuggestionCaret.current = false;
+    const textarea = importantTextareaRef.current;
+    if (!textarea) return;
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }, [importantPrompt]);
+
   const setupSurfaceAllowed =
     embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview);
+  const firstRunPreferences = firstRunStage === "preferences";
+  const firstRunSorting = firstRunStage === "sorting";
+
+  useEffect(() => {
+    if (firstRunPreferences) pendingSetupRuleIdsFallback = null;
+  }, [firstRunPreferences]);
+
   const loadingSurfaceVisible =
     setupSurfaceAllowed &&
     forceOpen &&
-    (googleStatus.isLoading || (connected && jevAvailability.isLoading));
+    !firstRunPreferences &&
+    (googleStatus.isLoading ||
+      (connected &&
+        (jevAvailability.isLoading || automationSettings.isLoading)));
   const visible =
     setupSurfaceAllowed &&
-    connected &&
-    !googleStatus.isLoading &&
-    !jevAvailability.isLoading &&
-    (forceOpen ||
-      (!rulesLoading &&
-        settings?.aiSetupCompleted !== true &&
-        aiRules.length === 0));
+    (firstRunPreferences
+      ? forceOpen
+      : firstRunSorting
+        ? forceOpen &&
+          !googleStatus.isLoading &&
+          (!connected ||
+            (!jevAvailability.isLoading && !automationSettings.isLoading))
+        : connected &&
+          !googleStatus.isLoading &&
+          !jevAvailability.isLoading &&
+          !automationSettings.isLoading &&
+          (forceOpen ||
+            (!rulesLoading &&
+              settings?.aiSetupCompleted !== true &&
+              aiRules.length === 0)));
 
   useEffect(() => {
     const wasForceOpen = previousForceOpen.current;
     if (!forceOpen) previousForceOpen.current = false;
-    if (!visible) return;
-    previousForceOpen.current = forceOpen;
-    if (forceOpen && !wasForceOpen) {
-      setStep(0);
-      setBackfillRunId(null);
-      setBackfillReviewDestinations({});
-      setArchiveUserOptedOut(false);
-      setSpamUserOptedOut(false);
-    }
-  }, [forceOpen, visible]);
+    if (!forceOpen || wasForceOpen) return;
+    previousForceOpen.current = true;
+    setStep(firstRunStage === "sorting" ? 3 : 0);
+    setSelectedTags(new Set(["receipts", "github"]));
+    setCustomTags([]);
+    setImportantPrompt("");
+    setArchivePrompt("");
+    const recoveredRunId =
+      firstRunStage === "sorting" ? readPendingSetupBackfillRunId() : null;
+    setBackfillRunId(recoveredRunId);
+    setBackfillStartFailed(false);
+    setBackfillReviewDestinations({});
+    backfillStarted.current = recoveredRunId !== null;
+  }, [firstRunStage, forceOpen]);
 
-  const complete = async () => {
+  const complete = async (): Promise<boolean> => {
+    if (completionInFlight.current) return false;
+    completionInFlight.current = true;
+    setCompleting(true);
+    const keepOpen = () => {
+      completionInFlight.current = false;
+      setCompleting(false);
+    };
+    if (onboardingPreview) {
+      try {
+        const completed = await onComplete?.();
+        if (completed === false) {
+          keepOpen();
+          return false;
+        }
+        onOpenChange?.(false);
+        return true;
+      } catch {
+        keepOpen();
+        return false;
+      }
+    }
+    if (onComplete) {
+      try {
+        const completed = await onComplete();
+        if (completed === false) {
+          keepOpen();
+          return false;
+        }
+        clearPendingSetupBackfill();
+        onOpenChange?.(false);
+        return true;
+      } catch {
+        keepOpen();
+        toast.error(t("mail.aiFilter.settingsFailed"));
+        return false;
+      }
+    }
     try {
       await updateSettings.mutateAsync({ aiSetupCompleted: true });
+      clearPendingSetupBackfill();
       onOpenChange?.(false);
-      onComplete?.();
+      return true;
     } catch {
+      keepOpen();
       toast.error(t("mail.aiFilter.settingsFailed"));
-    }
-  };
-
-  const skipSetup = async () => {
-    if (saving || updateSettings.isPending) return;
-    try {
-      await updateSettings.mutateAsync({ aiSetupCompleted: true });
-      onSkipSetup?.();
-    } catch {
-      toast.error(t("mail.aiFilter.settingsFailed"));
+      return false;
     }
   };
 
@@ -543,78 +742,172 @@ export function AiInboxSetup({
     });
   };
 
-  const saveStep = async (skipCleanup = false) => {
-    if (step < 2) {
-      setStep((current) => (current + 1) as SetupStep);
+  const runBackfill = useCallback(
+    async (
+      ruleIds: string[],
+      destinationsByRuleId: Record<string, ReviewDestination>,
+    ) => {
+      const uniqueRuleIds = [...new Set(ruleIds)];
+      retryBackfill.current = { ruleIds: uniqueRuleIds, destinationsByRuleId };
+      setBackfillStartFailed(false);
+      let runId: string;
+      try {
+        const result = await startBackfill.mutateAsync({
+          operation: "start",
+          ruleIds: uniqueRuleIds,
+        });
+        if (!("runId" in result) || !result.runId) {
+          throw new Error("Backfill did not return a run ID");
+        }
+        runId = result.runId;
+      } catch {
+        setBackfillStartFailed(true);
+        backfillStarted.current = false;
+        return;
+      }
+      setBackfillRunId(runId);
+      setBackfillReviewDestinations(destinationsByRuleId);
+      if (typeof window !== "undefined" && firstRunSorting) {
+        try {
+          window.sessionStorage.setItem(PENDING_SETUP_BACKFILL_RUN_ID, runId);
+        } catch {
+          // coercion-ok: keep the started run available in memory when recovery storage is blocked.
+        }
+      }
+    },
+    [firstRunSorting, startBackfill.mutateAsync],
+  );
+
+  useEffect(() => {
+    if (
+      !firstRunSorting ||
+      onboardingPreview ||
+      !connected ||
+      !canApplyRules ||
+      rulesLoading ||
+      backfillRunId !== null ||
+      backfillStarted.current
+    ) {
       return;
     }
-    if (!jevConfigured || rulesLoading) return;
+    const ruleIds = pendingRuleIds;
+    backfillStarted.current = true;
+    const destinations = Object.fromEntries(
+      aiRules.flatMap((rule) => {
+        if (!ruleIds.includes(rule.id)) return [];
+        const destination = reviewDestinationForRule(rule);
+        return destination ? [[rule.id, destination] as const] : [];
+      }),
+    );
+    if (ruleIds.length > 0) void runBackfill(ruleIds, destinations);
+  }, [
+    aiRules,
+    backfillRunId,
+    canApplyRules,
+    connected,
+    firstRunSorting,
+    onboardingPreview,
+    jevConfigured,
+    pendingRuleIds,
+    rulesLoading,
+    runBackfill,
+  ]);
 
+  useEffect(() => {
+    const perRule = backfillStatus.data?.perRule;
+    if (!firstRunSorting || !backfillRunId || rulesLoading || !perRule) return;
+    const runRuleIds = new Set(perRule.map(({ ruleId }) => ruleId));
+    setBackfillReviewDestinations(
+      Object.fromEntries(
+        aiRules.flatMap((rule) => {
+          if (!runRuleIds.has(rule.id)) return [];
+          const destination = reviewDestinationForRule(rule);
+          return destination ? [[rule.id, destination] as const] : [];
+        }),
+      ),
+    );
+  }, [
+    aiRules,
+    backfillRunId,
+    backfillStatus.data?.perRule,
+    firstRunSorting,
+    rulesLoading,
+  ]);
+
+  useEffect(() => {
+    if (
+      onboardingPreview ||
+      firstRunOnboardingOwnsSurface ||
+      !location.pathname.split("/").includes("settings")
+    ) {
+      return;
+    }
+    clearPendingSetupBackfill();
+  }, [firstRunOnboardingOwnsSurface, location.pathname, onboardingPreview]);
+
+  const savePreferences = async (includeArchive: boolean) => {
+    if (onboardingPreview) {
+      onComplete?.();
+      return;
+    }
+    if (rulesLoading || (!firstRunPreferences && automationSettingsUnknown))
+      return;
     setSaving(true);
     try {
       const ruleIds: string[] = [];
-      const reviewDestinationsByRuleId: Record<string, ReviewDestination> = {};
+      const destinationsByRuleId: Record<string, ReviewDestination> = {};
       const includeRule = (rule: AutomationRule | null) => {
         if (!rule) return;
         ruleIds.push(rule.id);
         const destination = reviewDestinationForRule(rule);
-        if (destination) reviewDestinationsByRuleId[rule.id] = destination;
+        if (destination) destinationsByRuleId[rule.id] = destination;
       };
+
       for (const [id, nameKey, promptKey] of TAG_SUGGESTIONS) {
         if (!selectedTags.has(id)) continue;
-        const labelName = t(nameKey);
-        const rule = await saveRule(t(promptKey), [
-          { type: "label", labelName },
-        ]);
-        includeRule(rule);
+        includeRule(
+          await saveRule(t(promptKey), [
+            { type: "label", labelName: t(nameKey) },
+          ]),
+        );
       }
-
-      if (customTagSelected && customTagName.trim() && customTagPrompt.trim()) {
-        const labelName = customTagName.trim();
-        const rule = await saveRule(customTagPrompt, [
-          { type: "label", labelName },
-        ]);
-        includeRule(rule);
+      for (const customTag of customTags) {
+        if (!customTag.name.trim() || !customTag.condition.trim()) continue;
+        includeRule(
+          await saveRule(customTag.condition, [
+            { type: "label", labelName: customTag.name.trim() },
+          ]),
+        );
       }
-
       if (importantPrompt.trim()) {
-        const rule = await saveRule(importantPrompt, [
-          { type: "label", labelName: AI_IMPORTANT_LABEL },
-        ]);
-        includeRule(rule);
+        includeRule(
+          await saveRule(importantPrompt, [
+            { type: "label", labelName: AI_IMPORTANT_LABEL },
+          ]),
+        );
       }
-      if (!skipCleanup) {
-        if (archiveEnabled && archivePrompt.trim()) {
-          const rule = await saveRule(archivePrompt, [{ type: "archive" }]);
-          includeRule(rule);
-        }
-        if (spamEnabled && spamPrompt.trim()) {
-          const rule = await saveRule(spamPrompt, [
-            { type: "label", labelName: AI_FILTER_LABEL },
-            { type: "archive" },
-          ]);
-          includeRule(rule);
-        }
-        if (customCleanupPrompt.trim()) {
-          const actions =
-            customCleanupMode === "archive"
-              ? [{ type: "archive" } as const]
-              : [
-                  { type: "label", labelName: AI_FILTER_LABEL } as const,
-                  { type: "archive" } as const,
-                ];
-          const rule = await saveRule(customCleanupPrompt, actions);
-          includeRule(rule);
-        }
+      if (includeArchive && archivePrompt.trim()) {
+        includeRule(await saveRule(archivePrompt, [{ type: "archive" }]));
       }
 
-      if (ruleIds.length > 0) {
-        const result = await startBackfill.mutateAsync({
-          operation: "start",
-          ruleIds: [...new Set(ruleIds)],
-        });
-        setBackfillRunId(result.runId);
-        setBackfillReviewDestinations(reviewDestinationsByRuleId);
+      const uniqueRuleIds = [...new Set(ruleIds)];
+      if (firstRunPreferences) {
+        clearPendingSetupBackfill();
+        writePendingSetupRuleIds(uniqueRuleIds);
+        await updateSettings.mutateAsync({ aiSetupCompleted: true });
+        const completed = await onComplete?.();
+        if (completed === false) return;
+        return;
+      }
+
+      if (!canApplyRules) {
+        await complete();
+        return;
+      }
+      setBackfillReviewDestinations(destinationsByRuleId);
+      if (uniqueRuleIds.length > 0) {
+        backfillStarted.current = true;
+        await runBackfill(uniqueRuleIds, destinationsByRuleId);
       }
       setStep(3);
       try {
@@ -633,20 +926,29 @@ export function AiInboxSetup({
     }
   };
 
-  const skip = () => {
-    if (step === 0) {
-      setSelectedTags(new Set());
-      setCustomTagSelected(false);
-    }
-    if (step === 1) setImportantPrompt("");
-    if (step === 2) {
-      if (jevConfigured) void saveStep(true);
-      else setStep(3);
-      return;
-    }
-    setStep((current) => (current + 1) as SetupStep);
+  const moveToStep = (nextStep: SetupStep) => {
+    setStep(nextStep);
+    if (firstRunPreferences) onStepChange?.(nextStep);
   };
 
+  const skipCurrentStep = () => {
+    if (step === 0) {
+      setSelectedTags(new Set());
+      setCustomTags([]);
+      moveToStep(1);
+    } else if (step === 1) {
+      setImportantPrompt("");
+      moveToStep(2);
+    } else {
+      void savePreferences(false);
+    }
+  };
+
+  const importantLines = suggestionLines(importantPrompt);
+  const archiveLines = suggestionLines(archivePrompt);
+  const customTagIncomplete =
+    step === 0 &&
+    customTags.some((tag) => !tag.name.trim() || !tag.condition.trim());
   const headline =
     step === 0
       ? t("mail.sort.aiSetupTagsHeadline")
@@ -655,12 +957,587 @@ export function AiInboxSetup({
         : step === 2
           ? t("mail.sort.aiSetupSkipInboxHeadline")
           : t("mail.sort.aiSetupSortingHeadline");
-  const stepCount = 4;
-  const progressIndex = step;
-  const customTagIncomplete =
-    step === 0 &&
-    customTagSelected &&
-    (!customTagName.trim() || !customTagPrompt.trim());
+  const description =
+    step === 0
+      ? t("mail.sort.aiSetupTagsDescription")
+      : step === 1
+        ? t("mail.sort.aiSetupImportantDescription")
+        : step === 2
+          ? t("mail.sort.aiSetupSkipInboxDescription")
+          : t("mail.sort.aiSetupSortingDescription");
+  const needsSetupToSort =
+    firstRunSorting && !onboardingPreview && (!connected || !canApplyRules);
+  const sortingStatusUnknown =
+    firstRunSorting && (gmailStatusUnknown || automationSettingsUnknown);
+  const displayHeadline = sortingStatusUnknown
+    ? headline
+    : needsSetupToSort
+      ? connected
+        ? t("mail.sort.aiSetupConnectJevHeadline")
+        : t("mail.sort.aiSetupConnectGmailHeadline")
+      : headline;
+  const displayDescription = sortingStatusUnknown
+    ? undefined
+    : needsSetupToSort
+      ? connected
+        ? t("mail.sort.aiSetupConnectJevDescription")
+        : t("mail.sort.aiSetupConnectGmailDescription")
+      : description;
+  const bossSuggestion = t("mail.sort.aiSetupImportantBoss");
+  const bossSuggestionLabel = t("mail.sort.aiSetupImportantBossChip");
+  const bossSuggestionPrefix = bossSuggestion.trimEnd();
+  const bossSuggestionSelected = importantLines.some((line) =>
+    line.startsWith(bossSuggestionPrefix),
+  );
+  const toggleBossSuggestion = () => {
+    const lineIndex = importantLines.findIndex((line) =>
+      line.startsWith(bossSuggestionPrefix),
+    );
+    if (lineIndex >= 0) {
+      setImportantPrompt(
+        importantLines.filter((_, index) => index !== lineIndex).join("\n"),
+      );
+      return;
+    }
+    const current = importantPrompt.trimEnd();
+    focusBossSuggestionCaret.current = true;
+    setImportantPrompt(
+      current ? `${current}\n${bossSuggestion}` : bossSuggestion,
+    );
+  };
+  const skipSorting = () => {
+    if (onSkip) {
+      if (!onboardingPreview) clearPendingSetupBackfill();
+      onSkip();
+    } else void complete();
+  };
+  const startRetry = () => {
+    const { ruleIds, destinationsByRuleId } = retryBackfill.current;
+    if (onboardingPreview || ruleIds.length === 0) return;
+    if (
+      backfillStatus.data?.status === "failed" &&
+      backfillStatus.data.undoToken
+    ) {
+      return;
+    }
+    if (
+      backfillRunId &&
+      backfillStatus.isError &&
+      backfillStatus.data?.status !== "failed"
+    ) {
+      void backfillStatus.refetch();
+      return;
+    }
+    backfillStarted.current = true;
+    setBackfillRunId(null);
+    void runBackfill(ruleIds, destinationsByRuleId);
+  };
+  const onAdjustRules = async () => {
+    if (await complete()) navigate("/settings?section=ai-filter");
+  };
+  const undoBackfill = async (undoToken: string) => {
+    if (onboardingPreview || !backfillRunId) return;
+    try {
+      await startBackfill.mutateAsync({
+        operation: "undo",
+        runId: backfillRunId,
+        undoToken,
+      });
+    } catch {
+      toast.error(t("mail.sort.aiSetupUndoFailed"));
+      return;
+    }
+    try {
+      const result = await backfillStatus.refetch();
+      if (result.isError) {
+        toast.error(t("mail.sort.aiSetupUndoStatusFailed"));
+      }
+    } catch {
+      toast.error(t("mail.sort.aiSetupUndoStatusFailed"));
+    }
+  };
+
+  const stepFooter = firstRunPreferences ? (
+    <>
+      <div className="flex items-center gap-1">
+        {step > 0 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => moveToStep((step - 1) as SetupStep)}
+            disabled={saving}
+          >
+            {t("mail.thread.back")}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-xs text-muted-foreground hover:text-foreground"
+          onClick={skipCurrentStep}
+          disabled={
+            saving ||
+            (step === 2 &&
+              (rulesLoading ||
+                (!firstRunPreferences && automationSettingsUnknown)))
+          }
+        >
+          {t("mail.sort.aiSetupSkip")}
+        </Button>
+      </div>
+      <Button
+        type="button"
+        className={ONBOARDING_PRIMARY_BUTTON_CLASS}
+        onClick={() =>
+          step === 2
+            ? void savePreferences(true)
+            : moveToStep((step + 1) as SetupStep)
+        }
+        disabled={
+          saving ||
+          (step === 0 && customTagIncomplete) ||
+          (step === 2 && !firstRunPreferences && automationSettingsUnknown)
+        }
+        aria-busy={saving}
+      >
+        {saving ? <IconLoader2 className="size-4 animate-spin" /> : null}
+        {t("mail.sort.aiSetupContinue")}
+        {!saving ? <IconArrowRight className="size-4" /> : null}
+      </Button>
+    </>
+  ) : firstRunSorting ? (
+    needsSetupToSort || automationSettingsUnknown ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="text-xs text-muted-foreground hover:text-foreground"
+        onClick={skipSorting}
+      >
+        {t("mail.sort.aiSetupSkip")}
+      </Button>
+    ) : (
+      <>
+        <div>
+          {backfillStatus.data?.undoToken &&
+          backfillStatus.data.status !== "undoing" &&
+          backfillStatus.data.status !== "undone" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => void undoBackfill(backfillStatus.data!.undoToken!)}
+              disabled={startBackfill.isPending}
+            >
+              {t("mail.actions.undo")}
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => void onAdjustRules()}
+            disabled={updateSettings.isPending || completing}
+          >
+            {t("mail.sort.aiSetupAdjustRules")}
+          </Button>
+          <Button
+            type="button"
+            className={ONBOARDING_PRIMARY_BUTTON_CLASS}
+            onClick={() => void complete()}
+            disabled={updateSettings.isPending || completing}
+          >
+            {t("mail.sort.aiSetupDone")}
+          </Button>
+        </div>
+      </>
+    )
+  ) : !embedded ? (
+    <>
+      <div className="flex items-center gap-1">
+        {step > 0 && step < 3 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setStep((current) => (current - 1) as SetupStep)}
+            disabled={saving}
+          >
+            {t("mail.thread.back")}
+          </Button>
+        ) : null}
+        {step < 3 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={skipCurrentStep}
+            disabled={
+              saving ||
+              (step === 2 &&
+                (rulesLoading ||
+                  (!firstRunPreferences && automationSettingsUnknown)))
+            }
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            {t("mail.sort.aiSetupSkip")}
+          </Button>
+        ) : null}
+      </div>
+      <Button
+        type="button"
+        className={ONBOARDING_PRIMARY_BUTTON_CLASS}
+        onClick={() =>
+          step === 3
+            ? void complete()
+            : step === 2
+              ? void savePreferences(true)
+              : setStep((current) => (current + 1) as SetupStep)
+        }
+        disabled={
+          saving ||
+          (step === 0 && customTagIncomplete) ||
+          (step === 2 &&
+            (rulesLoading ||
+              (!firstRunPreferences && automationSettingsUnknown)))
+        }
+        aria-busy={saving}
+      >
+        {saving ? <IconLoader2 className="size-4 animate-spin" /> : null}
+        {step === 3
+          ? t("mail.sort.aiSetupDone")
+          : step === 2
+            ? t("mail.sort.aiSetupSortInbox")
+            : t("mail.sort.aiSetupContinue")}
+      </Button>
+    </>
+  ) : null;
+
+  const stepContent = (
+    <>
+      {jevAvailability.isError && !firstRunPreferences ? (
+        <div className="mb-5">
+          <JevAvailabilityError
+            onRetry={() => void jevAvailability.refetch()}
+            retrying={jevAvailability.isFetching}
+          />
+        </div>
+      ) : null}
+      {automationSettingsUnknown &&
+      (firstRunSorting || (!firstRunPreferences && step === 2)) ? (
+        <div className="mb-5 flex items-center gap-3" role="alert">
+          <p className="text-sm text-muted-foreground">
+            {t("mail.sort.aiSetupAutomationSettingsFailed")}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => void automationSettings.refetch()}
+            disabled={automationSettings.isFetching}
+          >
+            {t("mail.sort.aiSetupRetry")}
+          </Button>
+        </div>
+      ) : null}
+
+      {step === 0 ? (
+        <div className={cn(!firstRunPreferences && "mt-7", "space-y-2")}>
+          <div className="max-h-[calc(100dvh-18.5rem)] space-y-2 overflow-y-auto">
+            {TAG_SUGGESTIONS.map(([id, nameKey, promptKey]) => {
+              const selected = selectedTags.has(id);
+              const toggle = () =>
+                setSelectedTags((current) => {
+                  const next = new Set(current);
+                  if (selected) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+              return (
+                <div
+                  key={id}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:bg-muted/40"
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("button")) return;
+                    toggle();
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {t(nameKey)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t(promptKey)}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={selected}
+                    onClick={(event) => event.stopPropagation()}
+                    onCheckedChange={toggle}
+                    aria-label={t("mail.aiFilter.toggleInstruction", {
+                      instruction: t(nameKey),
+                    })}
+                  />
+                </div>
+              );
+            })}
+            {customTags.map((tag) => (
+              <div
+                key={tag.id}
+                className="group flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:bg-muted/40"
+              >
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <Input
+                    value={tag.name}
+                    autoFocus
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setCustomTags((current) =>
+                        current.map((item) =>
+                          item.id === tag.id ? { ...item, name } : item,
+                        ),
+                      );
+                    }}
+                    placeholder={t("mail.sort.aiSetupCustomTabName")}
+                    aria-label={t("mail.sort.aiSetupCustomTabName")}
+                    className="h-5 border-0 bg-transparent p-0 text-sm font-medium shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                  <Input
+                    value={tag.condition}
+                    onChange={(event) => {
+                      const condition = event.target.value;
+                      setCustomTags((current) =>
+                        current.map((item) =>
+                          item.id === tag.id ? { ...item, condition } : item,
+                        ),
+                      );
+                    }}
+                    placeholder={t("mail.sort.aiSetupCustomTabExample")}
+                    aria-label={t("mail.sort.aiSetupCustomTabExample")}
+                    className="h-4 border-0 bg-transparent p-0 text-xs text-muted-foreground shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                  onClick={() =>
+                    setCustomTags((current) =>
+                      current.filter((item) => item.id !== tag.id),
+                    )
+                  }
+                  aria-label={t("mail.accounts.remove")}
+                >
+                  <IconX className="size-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() =>
+              setCustomTags((current) => [
+                ...current,
+                {
+                  id: crypto.randomUUID(),
+                  name: "",
+                  condition: "",
+                },
+              ])
+            }
+          >
+            <IconPlus className="size-4" />
+            {t("mail.sort.aiSetupAddTab")}
+          </Button>
+        </div>
+      ) : step === 1 ? (
+        <div className={cn(!firstRunPreferences && "mt-7", "space-y-3")}>
+          <Textarea
+            ref={importantTextareaRef}
+            value={importantPrompt}
+            onChange={(event) => setImportantPrompt(event.target.value)}
+            aria-label={headline}
+            placeholder={t("mail.sort.aiSetupImportantExample")}
+            className="min-h-24 resize-y"
+          />
+          <div className="flex flex-wrap gap-2">
+            {IMPORTANT_SUGGESTIONS.map((key) => {
+              const suggestion = t(key);
+              const isBossSuggestion = key === "mail.sort.aiSetupImportantBoss";
+              const selected = isBossSuggestion
+                ? bossSuggestionSelected
+                : importantLines.includes(suggestion);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() =>
+                    isBossSuggestion
+                      ? toggleBossSuggestion()
+                      : toggleSuggestion(
+                          importantPrompt,
+                          setImportantPrompt,
+                          suggestion,
+                        )
+                  }
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
+                    selected
+                      ? "border-primary/30 bg-primary/10 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {selected ? (
+                    <IconCheck className="size-3.5" />
+                  ) : (
+                    <IconPlus className="size-3.5" />
+                  )}
+                  {isBossSuggestion ? bossSuggestionLabel : suggestion}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : step === 2 ? (
+        <div className={cn(!firstRunPreferences && "mt-7", "space-y-3")}>
+          <Textarea
+            value={archivePrompt}
+            onChange={(event) => setArchivePrompt(event.target.value)}
+            aria-label={headline}
+            placeholder={t("mail.sort.aiSetupArchiveExample")}
+            className="min-h-24 resize-y"
+          />
+          <div className="flex flex-wrap gap-2">
+            {SKIP_INBOX_SUGGESTIONS.map((key) => {
+              const suggestion = t(key);
+              const selected = archiveLines.includes(suggestion);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() =>
+                    toggleSuggestion(
+                      archivePrompt,
+                      setArchivePrompt,
+                      suggestion,
+                    )
+                  }
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
+                    selected
+                      ? "border-primary/30 bg-primary/10 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {selected ? (
+                    <IconCheck className="size-3.5" />
+                  ) : (
+                    <IconPlus className="size-3.5" />
+                  )}
+                  {suggestion}
+                </button>
+              );
+            })}
+          </div>
+          {!firstRunPreferences &&
+          !jevConfigured &&
+          !automationSettingsUnknown ? (
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <JevConnectionPrompt
+                showHeading={false}
+                onConnected={() => void jevAvailability.refetch()}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className={cn(!firstRunSorting && "mt-7", "space-y-5")}>
+          {firstRunSorting && gmailStatusUnknown ? (
+            <div className="flex items-center gap-3" role="alert">
+              <p className="text-sm text-muted-foreground">
+                {t("mail.sort.aiSetupGmailStatusFailed")}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => void googleStatus.refetch()}
+                disabled={googleStatus.isFetching}
+              >
+                {t("mail.sort.aiSetupRetry")}
+              </Button>
+            </div>
+          ) : null}
+          {!onboardingPreview &&
+          firstRunSorting &&
+          googleStatus.data &&
+          googleStatus.data.accounts.length === 0 ? (
+            googleStatus.data?.configured === true ||
+            canOfferGoogleOAuthSetup ? (
+              <GoogleConnectBanner variant="button" />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {t("mail.googleConnect.connectionNotConfigured")}
+              </p>
+            )
+          ) : null}
+          {!onboardingPreview &&
+          firstRunSorting &&
+          connected &&
+          !canApplyRules &&
+          !automationSettingsUnknown ? (
+            <JevConnectionPrompt
+              showHeading={false}
+              onConnected={() => void jevAvailability.refetch()}
+            />
+          ) : null}
+          {needsSetupToSort ? null : (
+            <SetupResults
+              status={backfillStatus.data}
+              reviewDestinationsByRuleId={backfillReviewDestinations}
+              loading={
+                startBackfill.isPending ||
+                (backfillRunId !== null &&
+                  !backfillStatus.data &&
+                  (backfillStatus.isLoading || backfillStatus.isFetching))
+              }
+              hasRun={backfillRunId !== null || backfillStartFailed}
+              failed={backfillStartFailed || backfillStatus.isError}
+              onUndo={undoBackfill}
+              onRetry={startRetry}
+              compactReviewLinks={firstRunSorting}
+              showChatSuggestion={!firstRunSorting}
+              onReview={() => void complete()}
+              onTeach={() => {
+                sendToAgentChat({
+                  message: t("mail.sort.aiSetupChatPrompt"),
+                  submit: false,
+                  openSidebar: true,
+                });
+                void complete();
+              }}
+            />
+          )}
+        </div>
+      )}
+    </>
+  );
 
   if (loadingSurfaceVisible) {
     return (
@@ -674,41 +1551,10 @@ export function AiInboxSetup({
       >
         <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
           <Skeleton className="h-7 w-48" />
-          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-24 w-full" />
           <Skeleton className="h-10 w-28" />
         </div>
       </SetupSurface>
-    );
-  }
-
-  if (embedded && forceOpen && !connected) {
-    return (
-      <div className="mx-auto w-full max-w-2xl">
-        {googleStatus.data?.configured === true ||
-        canOfferGoogleOAuthSetup ||
-        googleStatus.isError ? (
-          <GoogleConnectBanner variant="hero" />
-        ) : (
-          <div className="py-6">
-            <h1 className="text-lg font-semibold">
-              {t("mail.googleConnect.connectTitle")}
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {t("mail.googleConnect.connectionNotConfigured")}
-            </p>
-          </div>
-        )}
-        <div className="mt-6 flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void skipSetup()}
-            disabled={saving || updateSettings.isPending}
-          >
-            {t("mail.sort.aiSetupSkipSetup")}
-          </Button>
-        </div>
-      </div>
     );
   }
 
@@ -721,281 +1567,35 @@ export function AiInboxSetup({
         void complete();
       }}
     >
-      <>
-        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center overflow-y-auto">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            {embedded ? (
-              <h1 className="text-lg font-semibold">{headline}</h1>
-            ) : (
-              <DialogHeader>
-                <DialogTitle>{headline}</DialogTitle>
-              </DialogHeader>
-            )}
-            {embedded && step < 3 && onSkipSetup ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void skipSetup()}
-                disabled={saving || updateSettings.isPending}
-              >
-                {t("mail.sort.aiSetupSkipSetup")}
-              </Button>
-            ) : null}
-          </div>
-          <div
-            className="mb-8 flex items-center gap-2"
-            role="progressbar"
-            aria-valuemin={1}
-            aria-valuemax={stepCount}
-            aria-valuenow={progressIndex + 1}
-            aria-label={`${progressIndex + 1}/${stepCount}`}
-          >
-            {Array.from({ length: stepCount }, (_, index) => index).map(
-              (index) => (
-                <span
-                  key={index}
-                  className={`h-1 flex-1 rounded-full ${index <= progressIndex ? "bg-primary" : "bg-muted"}`}
-                />
-              ),
-            )}
-          </div>
-          {jevAvailability.isError ? (
-            <div className="mb-5">
-              <JevAvailabilityError
-                onRetry={() => void jevAvailability.refetch()}
-                retrying={jevAvailability.isFetching}
-              />
-            </div>
-          ) : null}
-          {step === 0 ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {TAG_SUGGESTIONS.map(([id, nameKey]) => {
-                  const selected = selectedTags.has(id);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() =>
-                        setSelectedTags((current) => {
-                          const next = new Set(current);
-                          if (selected) next.delete(id);
-                          else next.add(id);
-                          return next;
-                        })
-                      }
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${selected ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
-                    >
-                      {selected ? <IconCheck className="size-3.5" /> : null}
-                      {t(nameKey)}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  aria-pressed={customTagSelected}
-                  onClick={() => setCustomTagSelected((selected) => !selected)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${customTagSelected ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
-                >
-                  {customTagSelected ? (
-                    <IconCheck className="size-3.5" />
-                  ) : null}
-                  {t("mail.sort.aiSetupCustomTag")}
-                </button>
-              </div>
-              {customTagSelected && (
-                <div className="space-y-3">
-                  <Input
-                    value={customTagName}
-                    onChange={(event) => setCustomTagName(event.target.value)}
-                    placeholder={t("mail.aiFilter.tagNamePlaceholder")}
-                    aria-label={t("mail.aiFilter.tagNamePlaceholder")}
-                  />
-                  <AiRulePromptField
-                    value={customTagPrompt}
-                    onChange={setCustomTagPrompt}
-                    label={t("mail.aiFilter.tagPlaceholder")}
-                    placeholder={t("mail.aiFilter.tagPlaceholder")}
-                  />
-                </div>
-              )}
-            </div>
-          ) : step === 1 ? (
-            <Input
-              value={importantPrompt}
-              onChange={(event) => setImportantPrompt(event.target.value)}
-              aria-label={headline}
-              placeholder={t("mail.sort.aiSetupImportantExample")}
-              className="h-12"
-            />
-          ) : step === 2 ? (
-            <div className="space-y-3">
-              <SetupRuleRow
-                icon={<IconArchive className="size-4" />}
-                title={t("mail.aiFilter.skipInboxMode")}
-                condition={archivePrompt}
-                placeholder={t("mail.sort.aiSetupArchiveExample")}
-                enabled={archiveEnabled}
-                onConditionChange={(value) => {
-                  setArchivePrompt(value);
-                  if (!archiveUserOptedOut) setArchiveEnabled(!!value.trim());
-                }}
-                onEnabledChange={(enabled) => {
-                  setArchiveEnabled(enabled);
-                  setArchiveUserOptedOut(!enabled);
-                }}
-              />
-              <SetupRuleRow
-                icon={<IconFilter className="size-4" />}
-                title={t("mail.aiFilter.filteredMode")}
-                condition={spamPrompt}
-                placeholder={t("mail.sort.aiSetupFilteredExample")}
-                enabled={spamEnabled}
-                onConditionChange={(value) => {
-                  setSpamPrompt(value);
-                  if (!spamUserOptedOut) setSpamEnabled(!!value.trim());
-                }}
-                onEnabledChange={(enabled) => {
-                  setSpamEnabled(enabled);
-                  setSpamUserOptedOut(!enabled);
-                }}
-              />
-              {customCleanupOpen ? (
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border p-3 sm:flex-nowrap">
-                  <div className="flex shrink-0 rounded-lg bg-muted p-1">
-                    {(["archive", "filtered"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        aria-pressed={customCleanupMode === mode}
-                        onClick={() => setCustomCleanupMode(mode)}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${customCleanupMode === mode ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
-                      >
-                        {t(
-                          mode === "archive"
-                            ? "mail.aiFilter.skipInboxMode"
-                            : "mail.aiFilter.filteredMode",
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                  <Input
-                    autoFocus
-                    value={customCleanupPrompt}
-                    onChange={(event) =>
-                      setCustomCleanupPrompt(event.target.value)
-                    }
-                    placeholder={t("mail.aiFilter.instructionPlaceholder")}
-                    aria-label={t("mail.aiFilter.instructionPlaceholder")}
-                    className="h-9 min-w-40 flex-1"
-                  />
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCustomCleanupOpen(true)}
-                >
-                  <IconPlus className="size-4" />
-                  {t("mail.aiFilter.newRule")}
-                </Button>
-              )}
-              {!jevConfigured ? (
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
-                  <JevConnectionPrompt
-                    showHeading={false}
-                    onConnected={() => void jevAvailability.refetch()}
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <SetupResults
-              status={backfillStatus.data}
-              reviewDestinationsByRuleId={backfillReviewDestinations}
-              loading={
-                startBackfill.isPending ||
-                (backfillRunId !== null &&
-                  !backfillStatus.data &&
-                  (backfillStatus.isLoading || backfillStatus.isFetching))
-              }
-              hasRun={backfillRunId !== null}
-              failed={backfillStatus.isError}
-              onUndo={async (undoToken) => {
-                if (!backfillRunId) return;
-                await startBackfill.mutateAsync({
-                  operation: "undo",
-                  runId: backfillRunId,
-                  undoToken,
-                });
-                await backfillStatus.refetch();
-              }}
-              onReview={() => void complete()}
-              onTeach={() => {
-                sendToAgentChat({
-                  message: t("mail.sort.aiSetupChatPrompt"),
-                  submit: false,
-                  openSidebar: true,
-                });
-                void complete();
-              }}
-            />
-          )}
-          <div
-            className={cn(
-              "mt-8 flex items-center",
-              step === 3 ? "justify-end" : "justify-between",
-            )}
-          >
-            <div className="flex items-center gap-1">
-              {step > 0 && step < 3 && (
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    setStep((current) => (current - 1) as SetupStep)
-                  }
-                  disabled={saving}
-                >
-                  {t("mail.thread.back")}
-                </Button>
-              )}
-              {step < 3 ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => void skip()}
-                  disabled={
-                    saving || (step === 2 && jevConfigured && rulesLoading)
-                  }
-                >
-                  {t("mail.sort.aiSetupSkip")}
-                </Button>
-              ) : null}
-            </div>
-            <Button
-              onClick={() => (step === 3 ? void complete() : void saveStep())}
-              disabled={
-                step < 3 &&
-                (saving ||
-                  customTagIncomplete ||
-                  (step === 1 && !importantPrompt.trim()) ||
-                  (step === 2 && (!jevConfigured || rulesLoading)))
-              }
-              aria-busy={saving || (step === 2 && rulesLoading)}
-            >
-              {saving || (step === 2 && rulesLoading) ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : null}
-              {step === 3
-                ? t("mail.sort.aiSetupDone")
-                : step === 2
-                  ? t("mail.sort.aiSetupSortInbox")
-                  : t("mail.sort.aiSetupContinue")}
-            </Button>
-          </div>
-        </div>
-      </>
+      <OnboardingStepLayout
+        title={
+          firstRunPreferences || firstRunSorting ? displayHeadline : undefined
+        }
+        description={
+          firstRunPreferences || firstRunSorting
+            ? displayDescription
+            : undefined
+        }
+        header={
+          !firstRunPreferences && !firstRunSorting && !embedded ? (
+            <DialogHeader>
+              <DialogTitle>{headline}</DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+          ) : undefined
+        }
+        footer={stepFooter}
+        className={
+          firstRunPreferences || firstRunSorting
+            ? undefined
+            : "flex-1 justify-center"
+        }
+        contentClassName={
+          firstRunPreferences || firstRunSorting ? "mt-7" : "mt-0"
+        }
+      >
+        {stepContent}
+      </OnboardingStepLayout>
     </SetupSurface>
   );
 }

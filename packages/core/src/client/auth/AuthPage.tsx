@@ -1,102 +1,36 @@
 /** @jsxRuntime classic */
 
 import { AuthForm } from "@agent-native/toolkit/onboarding";
+import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
 import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
 import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
+import type {
+  AuthLocaleOption,
+  AuthPageProps,
+  AuthView,
+} from "../../shared/auth-page-types.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
+  isVerificationLinkInvalid,
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
 import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
-import { OceanBackground } from "../ocean/OceanBackground.js";
 
-export type AuthView =
-  | "signup"
-  | "login"
-  | "forgot"
-  | "twoFactor"
-  | "verification"
-  | "magicLink"
-  | "magicLinkSent"
-  | "googleOnly";
-
-export interface AuthMarketingProps {
-  appName: string;
-  tagline?: string;
-  description?: string;
-  features?: string[];
-  authHeadline?: string;
-  authDescription?: string;
-  learnMoreUrl?: string;
-}
-
-export interface AuthLocaleOption {
-  value: string;
-  label: string;
-}
-
-export interface AuthLegalNotice {
-  termsUrl: string;
-  privacyUrl: string;
-  termsLabel?: string;
-  privacyLabel?: string;
-  prefix?: string;
-  connector?: string;
-  suffix?: string;
-}
-
-export interface AuthPageProps {
-  authMode: "magic-link" | "password";
-  googleOnly: boolean;
-  initialPrompt: boolean;
-  initialView: AuthView;
-  appBasePath: string;
-  homePath: string;
-  initialResumeHref?: string;
-  workspaceRuntime: boolean;
-  trackingApp: string;
-  defaultLocale: string;
-  localeStorageKey: string;
-  locales: Record<string, Record<string, string>>;
-  localeMetadata: Record<string, { dir?: string }>;
-  localeOptions: AuthLocaleOption[];
-  marketing?: AuthMarketingProps;
-  marketingLocales: Record<string, AuthMarketingProps>;
-  brandMarkSrc: string;
-  brandMarkLightSrc?: string;
-  githubUrl: string;
-  appName?: string;
-  showGoogle: boolean;
-  organizationSsoEnabled?: boolean;
-  identitySsoEnabled?: boolean;
-  googleViaIdentitySso?: boolean;
-  /** Whether canonical browser auth should attempt a silent identity handoff. */
-  identitySsoAuto?: boolean;
-  signupLegalNotice?: AuthLegalNotice;
-  signupLocalModeNote?: { text: string; command: string };
-  docsAuthUrl: string;
-  publicOAuthOrigin: string;
-  workspaceGatewayReturnOrigin: string;
-  googleAuthMode: "popup" | "redirect" | "auto";
-  builderPreviewLocalDevEnabled: boolean;
-  environmentBetaHosts: Record<string, string>;
-  betaForceQueryParam: string;
-  betaForceSessionStorageKey: string;
-  betaOptOutQueryParam: string;
-  betaOptOutStorageKey: string;
-  betaOptOutDurationMs: number;
-  passwordMinLength: number;
-  passwordMaxLength: number;
-  passwordMaxCopy: string;
-}
+export type {
+  AuthLegalNotice,
+  AuthLocaleOption,
+  AuthMarketingProps,
+  AuthPageProps,
+  AuthView,
+} from "../../shared/auth-page-types.js";
 
 type Notice = { kind: "error" | "success"; text: string } | null;
 type AuthRequestResult = {
@@ -117,9 +51,7 @@ const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
-export function isVerificationLinkInvalid(error: string | null): boolean {
-  return error === "verification_link_invalid" || error === "INVALID_TOKEN";
-}
+export { isVerificationLinkInvalid };
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -711,23 +643,13 @@ export function shouldStartWithLocalDev(
 }
 
 function AuthMarketingBackground() {
-  const [visible, setVisible] = React.useState(false);
-
-  React.useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 901px)");
-    const update = () => setVisible(desktop.matches);
-    update();
-    if (typeof desktop.addEventListener === "function") {
-      desktop.addEventListener("change", update);
-      return () => desktop.removeEventListener("change", update);
-    }
-    desktop.addListener(update);
-    return () => desktop.removeListener(update);
-  }, []);
-
-  return visible ? (
-    <OceanBackground className="auth-marketing-screenshot" />
-  ) : null;
+  return (
+    <div
+      aria-hidden="true"
+      className="auth-marketing-screenshot"
+      data-agent-native-marketing-background
+    />
+  );
 }
 
 export function AuthPage(props: AuthPageProps) {
@@ -2676,9 +2598,14 @@ export function AuthPage(props: AuthPageProps) {
               id="google-btn"
               type="button"
               disabled={googleBusy}
+              aria-busy={googleBusy}
               onClick={() => void startGoogle()}
             >
-              {googleSvg()}
+              {googleBusy ? (
+                <IconLoader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                googleSvg()
+              )}
               <span data-i18n="googleButton">{t("googleButton")}</span>
             </button>
             {notice("google")}

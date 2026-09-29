@@ -657,6 +657,10 @@ describe("content database source actions", () => {
       limit: null,
       offset: 0,
     });
+    expect(normalizeContentDatabasePageOptions({ limit: 0 })).toEqual({
+      limit: 0,
+      offset: 0,
+    });
   });
 
   it("accepts source disconnect requests", () => {

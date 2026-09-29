@@ -79,7 +79,6 @@ export interface CollabPluginOptions {
   contentColumn?: string;
   idColumn?: string;
   autoSeed?: boolean;
-  resolveCollabDocumentId?: (sourceId: string) => string;
   resolveSourceIdFromCollabDocumentId?: (docId: string) => string;
   onContentSync?: (docId: string, text: string) => Promise<void>;
   contentType?: "text" | "json";
@@ -229,7 +228,6 @@ export function createCollabPlugin(
   const seedColumn = isJson
     ? options.jsonColumn || contentColumn
     : contentColumn;
-  const legacyResolveCollabDocumentId = options.resolveCollabDocumentId;
   const resourceType =
     normalizedAccess.mode === "resource"
       ? normalizedAccess.resourceType
@@ -262,38 +260,6 @@ export function createCollabPlugin(
             }
             return source;
           };
-
-          if (
-            legacyResolveCollabDocumentId &&
-            !options.resolveSourceIdFromCollabDocumentId
-          ) {
-            const { rows } = await getDbExec().execute({
-              sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
-            });
-            for (const row of rows as Record<string, unknown>[]) {
-              const rawSourceId = row[idColumn];
-              if (
-                rawSourceId === null ||
-                rawSourceId === undefined ||
-                (typeof rawSourceId !== "string" &&
-                  typeof rawSourceId !== "number" &&
-                  typeof rawSourceId !== "bigint")
-              ) {
-                throw new Error(
-                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
-                );
-              }
-              const sourceId = String(rawSourceId);
-              if (!sourceId) {
-                throw new Error(
-                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
-                );
-              }
-              if (legacyResolveCollabDocumentId(sourceId) !== docId) continue;
-              return readSource(row, sourceId);
-            }
-            return null;
-          }
 
           const sourceId = resolveSourceIdFromCollabDocumentId(docId);
           const { rows } = await getDbExec().execute({

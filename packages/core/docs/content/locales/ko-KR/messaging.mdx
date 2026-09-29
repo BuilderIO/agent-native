@@ -648,6 +648,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+`createIntegrationsPlugin()`은 선택 사항인 `IntegrationsPluginOptions` 객체를 받습니다. `initialToolNames?: readonly string[]` 옵션은 첫 모델 요청에 보낼 로컬 액션 스키마를 선택합니다. 생략하면 모든 로컬 액션이 초기 집합에 포함됩니다. 전달된 배열은 복사되며 호출자의 배열은 변경되지 않습니다.
+
+빈 목록을 명시하면 `tool-search`가 발견할 때까지 로컬 액션 로딩을 미룹니다. 필수 프레임워크 도구는 처음부터 사용할 수 있습니다. 다음 설정은 배포 환경에 A2A 피어가 없을 때 앱 간 위임도 비활성화합니다.
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+같은 초기 도구 집합이 웹훅 처리, 대기열 작업, Google Docs 폴링에 적용됩니다. 전체 액션 레지스트리는 계속 검색할 수 있습니다. `callAgent: false`는 `initialToolNames`에 포함되어 있어도 내장 `call-agent` 액션의 등록을 별도로 비활성화합니다.
+
 활성화된 플랫폼은 설정된 환경 변수에 따라 다릅니다. 플러그인은 `/_agent-native/integrations/` 아래 각각에 대한 웹훅 경로를 등록합니다.
 
 ### 웹훅 URL {#webhook-urls}

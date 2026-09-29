@@ -132,6 +132,55 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
   });
 
+  it("counts setup time against an absolute event deadline", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          {
+            automation: {
+              name: "deadline-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/deadline-digest.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: deadline-digest",
+            runIdPrefix: "job-deadline-digest",
+            usageLabel: "recurring-job:deadline-digest",
+            hardDeadlineAt: now + 100,
+          },
+          {
+            getActions: async () => {
+              dateNow.mockReturnValue(now + 101);
+              return {};
+            },
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+      });
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it("runs scheduled work under the background timeout regime, not the interactive clamp", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -589,7 +638,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
         delay?: number,
         ...args: unknown[]
       ) => {
-        if (delay === BACKGROUND_RUN_HARD_TIMEOUT_MS) {
+        if (delay === 120_000) {
           pendingHardTimeouts.push(() => {
             if (typeof handler === "function") handler(...args);
           });
@@ -623,6 +672,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
           runIdPrefix: "job-hard-timeout-digest",
           usageLabel: "recurring-job:hard-timeout-digest",
+          hardTimeoutMs: 120_000,
         },
         {
           getActions: () => ({}),
@@ -636,7 +686,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
       });
       pendingHardTimeouts[0]!();
 
-      await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
       const hardTimedOutRunId = (await pglite
         .prepare(
           `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
@@ -662,7 +712,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           expect.objectContaining({
             type: "text",
             text: expect.stringMatching(
-              /Still working\.[\s\S]*timed out after 10 minutes/,
+              /Still working\.[\s\S]*timed out after 2 minutes/,
             ),
           }),
         ]),

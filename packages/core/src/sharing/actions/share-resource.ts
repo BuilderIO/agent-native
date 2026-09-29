@@ -4,13 +4,12 @@ import { z } from "zod";
 import { defineAction, fail } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
+import {
+  CORE_RESOURCE_SHARED_EMAIL_ID,
+  renderTransactionalEmail,
+} from "../../email-catalog/templates.js";
 import { isOrgMember } from "../../org/membership.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
-import {
-  emailQuote,
-  emailStrong,
-  renderEmail,
-} from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
@@ -519,41 +518,24 @@ export default defineAction({
             );
           }
         }
-        const resourceLabel = reg.displayName.toLowerCase();
-        const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
-        const subject = `${senderDisplayName} shared with you: "${resourceTitle}"`;
-        const messageParagraph = args.message?.trim()
-          ? emailQuote(args.message)
-          : null;
-        const roleVerb =
-          args.role === "viewer"
-            ? "view"
-            : args.role === "commenter"
-              ? "comment on"
-              : args.role === "admin"
-                ? "edit and manage access to"
-                : "edit";
-        const defaultParagraphs = [
-          `${emailStrong(senderDisplayName)} (${emailStrong(actor)}) has invited you to ${roleVerb} the following ${resourceLabel}:`,
-          ...(messageParagraph ? [messageParagraph] : []),
-        ];
-        const { html, text } = renderEmail({
-          brandName,
-          brandLogoUrl,
-          preheader: subject,
-          heading: `${senderDisplayName} shared ${article} ${resourceLabel}`,
-          paragraphs: extras?.paragraphs
-            ? messageParagraph
-              ? [messageParagraph, ...extras.paragraphs]
-              : extras.paragraphs
-            : defaultParagraphs,
-          resourceBlock: { name: resourceTitle },
-          heroHtml,
-          cta: { label: "Open", url: notificationUrl },
-          secondaryCta: extras?.secondaryCta,
-          linkBlock: extras?.linkBlock,
-          closingParagraphs: extras?.closingParagraphs,
-        });
+        const { subject, html, text } = await renderTransactionalEmail(
+          CORE_RESOURCE_SHARED_EMAIL_ID,
+          {
+            recipientEmail: principalId,
+            sender: { name: senderDisplayName, email: actor },
+            resource: {
+              type: args.resourceType,
+              label: reg.displayName,
+              title: resourceTitle,
+              url: notificationUrl,
+            },
+            role: args.role,
+            message: args.message,
+            app: { name: brandName, logoUrl: brandLogoUrl },
+            heroHtml,
+            extras,
+          },
+        );
         await sendEmail({
           to: principalId,
           subject,
@@ -561,6 +543,7 @@ export default defineAction({
           text,
           fromName,
           replyTo,
+          templateId: CORE_RESOURCE_SHARED_EMAIL_ID,
         });
         notified = true;
       } catch (err) {

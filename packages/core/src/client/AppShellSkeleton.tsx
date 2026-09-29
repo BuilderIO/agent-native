@@ -146,10 +146,6 @@ function PromptLibraryLayout() {
             padding: 32,
           }}
         >
-          <div style={{ width: "100%", maxWidth: 700, margin: "0 auto" }}>
-            <Block style={{ width: 210, height: 26, marginBottom: 16 }} />
-            <Block style={{ width: "100%", height: 128, borderRadius: 16 }} />
-          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <Block style={{ width: 92, height: 28, borderRadius: 14 }} />
             <Block style={{ width: 80, height: 14 }} />

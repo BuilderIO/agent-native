@@ -157,14 +157,11 @@ export default {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     openAgentSettings: "إدارة الوكيل",
-    account: "الحساب",
     signedInAs: "تم تسجيل الدخول باسم",
     credentials: "بيانات اعتماد مصادر البيانات",
     credentialsDescription:
       "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
     manageDataSources: "إدارة مصادر البيانات",
-    languageTitle: "اللغة",
-    languageLabel: "لغة الواجهة",
     errorEmailNotifications: "تلقي تنبيهات الأخطاء الجديدة عبر البريد الإلكتروني",
     errorEmailNotificationsDescription:
       "إرسال بريد إلكتروني عند التقاط خطأ JavaScript جديد. معطّل افتراضيًا.",
@@ -208,8 +205,6 @@ export default {
     storageSaved: "تم حفظ إعدادات التخزين.",
     storageSaveFailed: "تعذّر حفظ إعدادات التخزين.",
     alertsTitle: "التنبيهات",
-    alertsDescription:
-      "إدارة قواعد أحداث التحليلات المباشرة وقنوات تسليم الإشعارات.",
     alertRunNow: "تشغيل الفحص",
     alertNew: "تنبيه جديد",
     alertsEmptyTitle: "لا توجد قواعد تنبيه بعد",

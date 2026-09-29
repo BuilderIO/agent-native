@@ -147,30 +147,75 @@ function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
 }
 
 function loadRememberUserFocusedElement() {
+  const editorChromeBridgeScript = loadEditorChromeBridgeScript();
+  const armFocusIntent = extractFunction(
+    editorChromeBridgeScript,
+    "armTrustedFocusIntent",
+  );
   const source = extractFunction(
-    loadEditorChromeBridgeScript(),
+    editorChromeBridgeScript,
     "rememberUserFocusedElement",
   );
+  const isRovingFocusSibling = extractFunction(
+    editorChromeBridgeScript,
+    "isRovingFocusSibling",
+  );
+  const clearNavigationIntent = extractFunction(
+    editorChromeBridgeScript,
+    "clearNavigationFocusIntentAfterAppTasks",
+  );
+  const timers: Array<() => void> = [];
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const factory = new Function(`
+  const factory = new Function(
+    "timers",
+    `
     var userFocusedElement = null;
     var trustedFocusIntent = null;
+    var rovingGroupSelector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
+    var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+    var window = {
+      setTimeout: function (callback) { timers.push(callback); },
+      getComputedStyle: function (element) {
+        return { direction: element.getAttribute("dir") || "ltr" };
+      },
+    };
     function getCanvasFocusTarget(event) { return event.target; }
+    ${isRovingFocusSibling}
+    ${armFocusIntent}
     ${source}
+    ${clearNavigationIntent}
     return {
       remember: rememberUserFocusedElement,
       setFocused: function (element) { userFocusedElement = element; },
       focused: function () { return userFocusedElement; },
-      setIntent: function (intent) { trustedFocusIntent = intent; },
+      clearAfterNavigation: clearNavigationFocusIntentAfterAppTasks,
+      queueTimer: function (callback) { timers.push(callback); },
+      runTimer: function () { timers.shift()?.(); },
+      pendingTimers: function () { return timers.length; },
+      intent: function () { return trustedFocusIntent; },
+      setIntent: function (intent) {
+        armTrustedFocusIntent(intent.target, intent.kind, intent.key);
+        if (intent.expiresAt) trustedFocusIntent.expiresAt = intent.expiresAt;
+      },
     };
-  `);
-  return factory() as {
-    remember: (event: Pick<FocusEvent, "target" | "composedPath">) => void;
+  `,
+  );
+  return factory(timers) as {
+    remember: (event: {
+      target: FocusTestElement | Element;
+      composedPath: () => unknown[];
+    }) => void;
     setFocused: (element: Element | null) => void;
     focused: () => Element | null;
+    clearAfterNavigation: () => void;
+    queueTimer: (callback: () => void) => void;
+    runTimer: () => void;
+    pendingTimers: () => number;
+    intent: () => object | null;
     setIntent: (intent: {
-      target: Element | null;
-      kind: "pointer" | "tab" | "activation";
+      target: FocusTestElement | Element | null;
+      kind: "pointer" | "tab" | "activation" | "navigation";
+      key?: string;
       expiresAt: number;
     }) => void;
   };
@@ -197,6 +242,115 @@ function canvasFocusTransferIsSafe(options: {
     options.activeTextEditEl,
     options.userFocusedElement,
   ) as boolean;
+}
+
+type FocusTestElement = {
+  tagName: string;
+  type: string;
+  name: string;
+  checked: boolean;
+  form: FocusTestElement | null;
+  parentElement: FocusTestElement | null;
+  children: FocusTestElement[];
+  matches: (selector: string) => boolean;
+  getAttribute: (name: string) => string | null;
+  setAttribute: (name: string, value: string) => void;
+  matchesSelector: (selector: string) => boolean;
+  closest: (selector: string) => FocusTestElement | null;
+  querySelectorAll: (selector: string) => FocusTestElement[];
+  contains: (other: FocusTestElement) => boolean;
+  getRootNode: () => FocusTestElement;
+};
+
+function createFocusTestElement(
+  tagName: string,
+  attributes: Record<string, string> = {},
+  children: FocusTestElement[] = [],
+): FocusTestElement {
+  const node = {
+    tagName: tagName.toUpperCase(),
+    get type() {
+      return attributes.type ?? "";
+    },
+    get name() {
+      return attributes.name ?? "";
+    },
+    get checked() {
+      return attributes.checked === "true";
+    },
+    set checked(value: boolean) {
+      if (value) attributes.checked = "true";
+      else delete attributes.checked;
+    },
+    get form() {
+      return node.closest("form");
+    },
+    parentElement: null as FocusTestElement | null,
+    children,
+    getAttribute(name: string) {
+      return attributes[name] ?? null;
+    },
+    setAttribute(name: string, value: string) {
+      attributes[name] = value;
+    },
+    matches(selector: string) {
+      return node.matchesSelector(selector);
+    },
+    matchesSelector(selector: string) {
+      return selector.split(",").some((candidate) => {
+        const normalized = candidate.trim();
+        if (normalized === 'input:not([type="hidden"])') {
+          return node.tagName === "INPUT" && attributes.type !== "hidden";
+        }
+        const attributeMatch = normalized.match(
+          /^([a-z]+)?\[([a-z-]+)(?:="([^"]*)")?\]$/i,
+        );
+        if (attributeMatch) {
+          const [, tag, name, value] = attributeMatch;
+          return (
+            (!tag || node.tagName === tag.toUpperCase()) &&
+            attributes[name] !== undefined &&
+            (value === undefined || attributes[name] === value)
+          );
+        }
+        return node.tagName === normalized.toUpperCase();
+      });
+    },
+    closest(selector: string): FocusTestElement | null {
+      let current: FocusTestElement | null = node as FocusTestElement;
+      while (current) {
+        if (current.matchesSelector(selector)) return current;
+        current = current.parentElement;
+      }
+      return null;
+    },
+    querySelectorAll(selector: string): FocusTestElement[] {
+      const matches: FocusTestElement[] = [];
+      const visit = (parent: FocusTestElement) => {
+        for (const child of parent.children) {
+          if (child.matchesSelector(selector)) matches.push(child);
+          visit(child);
+        }
+      };
+      visit(node as FocusTestElement);
+      return matches;
+    },
+    contains(other: FocusTestElement) {
+      let current: FocusTestElement | null = other;
+      while (current) {
+        if (current === node) return true;
+        current = current.parentElement;
+      }
+      return false;
+    },
+    getRootNode() {
+      let root: FocusTestElement = node as FocusTestElement;
+      while (root.parentElement) root = root.parentElement;
+      return root;
+    },
+  } as FocusTestElement;
+  for (const child of children) child.parentElement = node;
+  return node;
 }
 
 interface DragTargetArgs {
@@ -228,14 +382,26 @@ const resolveCornerRadiusXY = loadPureBridgeFn<
 const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
   "isDirectCornerRadiusValue",
 );
-const composeRadiusLinearTransform = loadPureBridgeFn<
+const composeRadiusTransformMatrices = loadPureBridgeFn<
+  (parent: number[], child: number[]) => number[]
+>("composeRadiusTransformMatrices");
+const radiusTransformInverse = loadPureBridgeFn<
+  (matrix: { a: number; b: number; c: number; d: number } | null) => {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
+    determinant: number;
+    scale: number;
+  } | null
+>("radiusTransformInverse");
+const radiusInverseLinearDelta = loadPureBridgeFn<
   (
-    transform: { a: number; b: number; c: number; d: number },
-    scaleX: number,
-    scaleY: number,
-    radians: number,
-  ) => { a: number; b: number; c: number; d: number }
->("composeRadiusLinearTransform");
+    matrix: { a: number; b: number; c: number; d: number },
+    screenDx: number,
+    screenDy: number,
+  ) => { x: number; y: number } | null
+>("radiusInverseLinearDelta", ["radiusTransformInverse"]);
 const radiusDragMaximums =
   loadPureBridgeFn<
     (
@@ -311,6 +477,549 @@ describe("editor-chrome bridge — focus ownership", () => {
 
     expect(focusTracker.focused()).toBe(shadowHost);
   });
+
+  it("does not treat unrelated autofocus after keyboard activation as user intent", () => {
+    const activatedButton = { contains: () => false } as unknown as Element;
+    const autoFocusedInput = { contains: () => false } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: activatedButton,
+      kind: "activation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({
+      target: autoFocusedInput,
+      composedPath: () => [autoFocusedInput],
+    });
+
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("accepts only the toolbar item immediately reached by the arrow key", () => {
+    const first = createFocusTestElement("button", { tabindex: "0" });
+    const second = createFocusTestElement("button", { tabindex: "-1" });
+    const third = createFocusTestElement("button", { tabindex: "-1" });
+    createFocusTestElement("div", { role: "toolbar" }, [first, second, third]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    focusTracker.remember({ target: second, composedPath: () => [second] });
+
+    expect(focusTracker.focused()).toBeNull();
+
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    first.setAttribute("tabindex", "-1");
+    second.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: second, composedPath: () => [second] });
+
+    expect(focusTracker.focused()).toBe(second);
+  });
+
+  it("tracks same-name native radios by form owner and wraps at the ends", () => {
+    const first = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+      checked: "true",
+    });
+    const middle = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+    });
+    const last = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+    });
+    createFocusTestElement("form", {}, [first, middle, last]);
+    const otherFormRadio = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+    });
+    createFocusTestElement("form", {}, [otherFormRadio]);
+    const focusTracker = loadRememberUserFocusedElement();
+
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    last.checked = true;
+    first.checked = false;
+    focusTracker.remember({ target: last, composedPath: () => [last] });
+    expect(focusTracker.focused()).toBe(last);
+
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    focusTracker.remember({
+      target: otherFormRadio,
+      composedPath: () => [otherFormRadio],
+    });
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("tracks adjacent grid-cell controls without roving-attribute changes", () => {
+    const firstControl = createFocusTestElement("button");
+    const secondControl = createFocusTestElement("input");
+    createFocusTestElement("div", { role: "grid" }, [
+      createFocusTestElement("div", { role: "row" }, [
+        createFocusTestElement("div", { role: "gridcell" }, [firstControl]),
+        createFocusTestElement("div", { role: "gridcell" }, [secondControl]),
+      ]),
+    ]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: firstControl,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({
+      target: secondControl,
+      composedPath: () => [secondControl],
+    });
+
+    expect(focusTracker.focused()).toBe(secondControl);
+  });
+
+  it("tracks supported arrow wrapping at group boundaries", () => {
+    for (const [role, itemRole, key] of [
+      ["radiogroup", "radio", "ArrowLeft"],
+      ["tablist", "tab", "ArrowLeft"],
+      ["menu", "menuitem", "ArrowUp"],
+      ["menubar", "menuitem", "ArrowLeft"],
+      ["toolbar", "button", "ArrowLeft"],
+    ] as const) {
+      const first = createFocusTestElement("div", {
+        role: itemRole,
+        tabindex: "0",
+      });
+      const last = createFocusTestElement("div", {
+        role: itemRole,
+        tabindex: "-1",
+      });
+      createFocusTestElement("div", { role }, [first, last]);
+      const focusTracker = loadRememberUserFocusedElement();
+      focusTracker.setIntent({
+        target: first,
+        kind: "navigation",
+        key,
+        expiresAt: Date.now() + 1000,
+      });
+      first.setAttribute("tabindex", "-1");
+      last.setAttribute("tabindex", "0");
+      focusTracker.remember({ target: last, composedPath: () => [last] });
+
+      expect(focusTracker.focused()).toBe(last);
+    }
+  });
+
+  it("tracks grid arrows across header and data-cell roles", () => {
+    const headerOne = createFocusTestElement("div", {
+      role: "columnheader",
+      tabindex: "0",
+    });
+    const headerTwo = createFocusTestElement("div", {
+      role: "columnheader",
+      tabindex: "-1",
+    });
+    const dataOne = createFocusTestElement("div", {
+      role: "gridcell",
+      tabindex: "-1",
+    });
+    const dataTwo = createFocusTestElement("div", {
+      role: "gridcell",
+      tabindex: "-1",
+    });
+    createFocusTestElement("div", { role: "grid" }, [
+      createFocusTestElement("div", { role: "row" }, [headerOne, headerTwo]),
+      createFocusTestElement("div", { role: "row" }, [dataOne, dataTwo]),
+    ]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: headerOne,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    headerOne.setAttribute("tabindex", "-1");
+    headerTwo.setAttribute("tabindex", "0");
+    focusTracker.remember({
+      target: headerTwo,
+      composedPath: () => [headerTwo],
+    });
+    expect(focusTracker.focused()).toBe(headerTwo);
+
+    headerOne.setAttribute("tabindex", "0");
+    headerTwo.setAttribute("tabindex", "-1");
+    dataOne.setAttribute("tabindex", "-1");
+    focusTracker.setIntent({
+      target: headerOne,
+      kind: "navigation",
+      key: "ArrowDown",
+      expiresAt: Date.now() + 1000,
+    });
+    headerOne.setAttribute("tabindex", "-1");
+    dataOne.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: dataOne, composedPath: () => [dataOne] });
+    expect(focusTracker.focused()).toBe(dataOne);
+  });
+
+  it("maps nested grid controls to their cells and rejects non-adjacent focus", () => {
+    const firstControl = createFocusTestElement("button");
+    const secondControl = createFocusTestElement("input");
+    const thirdControl = createFocusTestElement("button");
+    const firstCell = createFocusTestElement(
+      "div",
+      { role: "gridcell", tabindex: "0" },
+      [firstControl],
+    );
+    const secondCell = createFocusTestElement(
+      "div",
+      { role: "rowheader", tabindex: "-1" },
+      [secondControl],
+    );
+    const thirdCell = createFocusTestElement(
+      "div",
+      { role: "gridcell", tabindex: "-1" },
+      [thirdControl],
+    );
+    const row = createFocusTestElement("div", { role: "row" }, [
+      firstCell,
+      secondCell,
+      thirdCell,
+    ]);
+    createFocusTestElement("div", { role: "treegrid" }, [row]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: firstControl,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    firstCell.setAttribute("tabindex", "-1");
+    secondCell.setAttribute("tabindex", "0");
+    focusTracker.remember({
+      target: secondControl,
+      composedPath: () => [secondControl],
+    });
+    expect(focusTracker.focused()).toBe(secondControl);
+
+    firstCell.setAttribute("tabindex", "0");
+    secondCell.setAttribute("tabindex", "-1");
+    focusTracker.setIntent({
+      target: firstControl,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    focusTracker.remember({
+      target: thirdControl,
+      composedPath: () => [thirdControl],
+    });
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("supports treegrid row-focus and cell-focus transitions", () => {
+    const cell = createFocusTestElement("div", {
+      role: "gridcell",
+      tabindex: "-1",
+    });
+    const row = createFocusTestElement("div", { role: "row", tabindex: "0" }, [
+      cell,
+    ]);
+    createFocusTestElement("div", { role: "treegrid" }, [row]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: row,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    row.setAttribute("tabindex", "-1");
+    cell.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: cell, composedPath: () => [cell] });
+    expect(focusTracker.focused()).toBe(cell);
+
+    focusTracker.setIntent({
+      target: cell,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    cell.setAttribute("tabindex", "-1");
+    row.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: row, composedPath: () => [row] });
+    expect(focusTracker.focused()).toBe(row);
+  });
+
+  it("recognizes implicit table rows and cells in a native grid", () => {
+    const header = createFocusTestElement("button");
+    const value = createFocusTestElement("input");
+    const headerCell = createFocusTestElement("th", { tabindex: "0" }, [
+      header,
+    ]);
+    const valueCell = createFocusTestElement("td", { tabindex: "-1" }, [value]);
+    const grid = createFocusTestElement("table", { role: "grid" }, [
+      createFocusTestElement("thead", {}, [
+        createFocusTestElement("tr", {}, [headerCell]),
+      ]),
+      createFocusTestElement("tbody", {}, [
+        createFocusTestElement("tr", {}, [valueCell]),
+      ]),
+    ]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: header,
+      kind: "navigation",
+      key: "ArrowDown",
+      expiresAt: Date.now() + 1000,
+    });
+    headerCell.setAttribute("tabindex", "-1");
+    valueCell.setAttribute("tabindex", "0");
+
+    focusTracker.remember({ target: value, composedPath: () => [value] });
+
+    expect(focusTracker.focused()).toBe(value);
+    expect(grid.querySelectorAll("tr")).toHaveLength(2);
+
+    const plainTable = createFocusTestElement("table", {}, [
+      createFocusTestElement("tbody", {}, [
+        createFocusTestElement("tr", {}, [
+          createFocusTestElement("td", { tabindex: "0" }, [
+            createFocusTestElement("button"),
+          ]),
+          createFocusTestElement("td", { tabindex: "-1" }, [
+            createFocusTestElement("button"),
+          ]),
+        ]),
+      ]),
+    ]);
+    const plainCells = plainTable.querySelectorAll("td");
+    const plainSource = plainCells[0].querySelectorAll("button")[0];
+    const plainTarget = plainCells[1].querySelectorAll("button")[0];
+    const plainTracker = loadRememberUserFocusedElement();
+    plainTracker.setIntent({
+      target: plainSource,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    plainTracker.remember({
+      target: plainTarget,
+      composedPath: () => [plainTarget],
+    });
+    expect(plainTracker.focused()).toBeNull();
+  });
+
+  it("keeps deferred tree navigation tied to the arrow direction", () => {
+    const first = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "0",
+    });
+    const second = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "-1",
+    });
+    createFocusTestElement("div", { role: "tree" }, [first, second]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowDown",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.clearAfterNavigation();
+    focusTracker.queueTimer(() => {
+      first.setAttribute("tabindex", "-1");
+      second.setAttribute("tabindex", "0");
+      focusTracker.remember({ target: second, composedPath: () => [second] });
+    });
+    focusTracker.runTimer();
+    focusTracker.runTimer();
+
+    expect(focusTracker.focused()).toBe(second);
+    focusTracker.runTimer();
+    expect(focusTracker.pendingTimers()).toBe(0);
+    expect(focusTracker.intent()).toBeNull();
+  });
+
+  it("skips mounted descendants of collapsed tree items", () => {
+    const parent = createFocusTestElement(
+      "div",
+      { role: "treeitem", tabindex: "0", "aria-expanded": "false" },
+      [
+        createFocusTestElement("div", { role: "group" }, [
+          createFocusTestElement("div", {
+            role: "treeitem",
+            tabindex: "-1",
+          }),
+        ]),
+      ],
+    );
+    const nextVisible = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "-1",
+    });
+    createFocusTestElement("div", { role: "tree" }, [parent, nextVisible]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: parent,
+      kind: "navigation",
+      key: "ArrowDown",
+      expiresAt: Date.now() + 1000,
+    });
+    parent.setAttribute("tabindex", "-1");
+    nextVisible.setAttribute("tabindex", "0");
+
+    focusTracker.remember({
+      target: nextVisible,
+      composedPath: () => [nextVisible],
+    });
+
+    expect(focusTracker.focused()).toBe(nextVisible);
+  });
+
+  it("reverses tree parent and child arrows in RTL", () => {
+    const parent = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "0",
+      "aria-expanded": "true",
+    });
+    const child = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "-1",
+    });
+    const group = createFocusTestElement("div", { role: "group" }, [child]);
+    group.parentElement = parent;
+    parent.children.push(group);
+    createFocusTestElement("div", { role: "tree", dir: "rtl" }, [parent]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: parent,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    parent.setAttribute("tabindex", "-1");
+    child.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: child, composedPath: () => [child] });
+    expect(focusTracker.focused()).toBe(child);
+
+    focusTracker.setIntent({
+      target: child,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    child.setAttribute("tabindex", "-1");
+    parent.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: parent, composedPath: () => [parent] });
+    expect(focusTracker.focused()).toBe(parent);
+  });
+
+  it("does not treat autofocus on a second toolbar button as arrow navigation", () => {
+    const first = createFocusTestElement("button", { tabindex: "0" });
+    const second = createFocusTestElement("button", { tabindex: "-1" });
+    const third = createFocusTestElement("button", { tabindex: "-1" });
+    createFocusTestElement("div", { role: "toolbar" }, [first, second, third]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    focusTracker.clearAfterNavigation();
+    focusTracker.queueTimer(() =>
+      focusTracker.remember({ target: second, composedPath: () => [second] }),
+    );
+    focusTracker.runTimer();
+    focusTracker.runTimer();
+
+    expect(focusTracker.focused()).toBeNull();
+    focusTracker.runTimer();
+    expect(focusTracker.intent()).toBeNull();
+  });
+
+  it("does not accept a newly inserted toolbar button as the roving destination", () => {
+    const first = createFocusTestElement("button", { tabindex: "0" });
+    const toolbar = createFocusTestElement("div", { role: "toolbar" }, [first]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+
+    const autoFocused = createFocusTestElement("button", { tabindex: "0" });
+    toolbar.children.push(autoFocused);
+    autoFocused.parentElement = toolbar;
+    first.setAttribute("tabindex", "-1");
+    focusTracker.remember({
+      target: autoFocused,
+      composedPath: () => [autoFocused],
+    });
+
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("does not trust focus changes without a roving group", () => {
+    const current = createFocusTestElement("button");
+    const unrelated = createFocusTestElement("button");
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: current,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.clearAfterNavigation();
+    focusTracker.queueTimer(() =>
+      focusTracker.remember({
+        target: unrelated,
+        composedPath: () => [unrelated],
+      }),
+    );
+    focusTracker.runTimer();
+    focusTracker.runTimer();
+
+    expect(focusTracker.focused()).toBeNull();
+    expect(focusTracker.intent()).toBeNull();
+    focusTracker.runTimer();
+    expect(focusTracker.pendingTimers()).toBe(0);
+  });
+
+  it("keeps focus on the control the user activated from the keyboard", () => {
+    const input = {} as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: input,
+      kind: "activation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({ target: input, composedPath: () => [input] });
+
+    expect(focusTracker.focused()).toBe(input);
+  });
 });
 
 describe("editor-chrome bridge — resize transform preservation", () => {
@@ -345,10 +1054,67 @@ describe("editor-chrome bridge — corner radius math", () => {
     expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
   });
 
-  it("composes independent scale after a transformed element", () => {
+  it("composes full 3D transforms before projecting the radius plane", () => {
+    const cosX = Math.cos(Math.PI / 4);
+    const sinX = Math.sin(Math.PI / 4);
+    const cosY = Math.cos(Math.PI / 6);
+    const sinY = Math.sin(Math.PI / 6);
+    const rotateX = [
+      1,
+      0,
+      0,
+      0,
+      0,
+      cosX,
+      -sinX,
+      0,
+      0,
+      sinX,
+      cosX,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ];
+    const rotateY = [
+      cosY,
+      0,
+      sinY,
+      0,
+      0,
+      1,
+      0,
+      0,
+      -sinY,
+      0,
+      cosY,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ];
+    const combined = composeRadiusTransformMatrices(rotateY, rotateX);
+
+    expect(combined[0]).toBeCloseTo(cosY);
+    expect(combined[1]).toBeCloseTo(sinY * sinX);
+    expect(combined[5]).toBeCloseTo(cosX);
+    expect(combined[1]).not.toBeCloseTo(0);
+  });
+
+  it("conditions inverse radius mapping relative to transform scale", () => {
     expect(
-      composeRadiusLinearTransform({ a: 0, b: 1, c: -1, d: 0 }, 2, 3, 0),
-    ).toEqual({ a: 0, b: 3, c: -2, d: 0 });
+      radiusTransformInverse({ a: 0.001, b: 0, c: 0, d: 0.001 }),
+    ).not.toBeNull();
+    expect(
+      radiusInverseLinearDelta(
+        { a: 0.001, b: 0, c: 0, d: 0.001 },
+        0.001,
+        -0.002,
+      ),
+    ).toEqual({ x: 1, y: -2 });
+    expect(radiusTransformInverse({ a: 1e9, b: 0, c: 0, d: 1e-9 })).toBeNull();
   });
 
   it("leaves room for the adjacent corners before clamping a drag", () => {

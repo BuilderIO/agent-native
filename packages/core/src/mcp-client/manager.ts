@@ -414,7 +414,19 @@ export class McpClientManager {
         versionNegotiation: { mode: "auto" },
       } as any,
     );
-    const recordConnectionError: ErrorSink = () => {};
+    let handshakeComplete = false;
+    let callbackError: unknown;
+    const recordConnectionError: ErrorSink = (error) => {
+      const message = formatMcpConnectError(error);
+      entry.error = message;
+      callbackError ??= error;
+      if (handshakeComplete) this.emitChange();
+      if (this.debug) {
+        console.warn(
+          `[mcp-client] ${handshakeComplete ? "runtime" : "handshake"} error from ${entry.id}: ${message}`,
+        );
+      }
+    };
     const restoreClientClose = guardClose(client, recordConnectionError);
     const restoreTransportClose = guardClose(transport, recordConnectionError);
     client.onerror = recordConnectionError;
@@ -427,11 +439,13 @@ export class McpClientManager {
         `MCP server ${entry.id} connect`,
         timeoutMs,
       );
+      if (callbackError) throw callbackError;
       const listed = await withConnectTimeout(
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,
         timeoutMs,
       );
+      if (callbackError) throw callbackError;
       const rawTools: Array<{
         name: string;
         title?: string;
@@ -459,14 +473,7 @@ export class McpClientManager {
         ...(t._meta ? { _meta: t._meta } : {}),
         raw: { ...t },
       }));
-      client.onerror = (error: unknown) => {
-        entry.error = formatMcpConnectError(error);
-        if (this.debug) {
-          console.warn(
-            `[mcp-client] runtime error from ${entry.id}: ${entry.error}`,
-          );
-        }
-      };
+      handshakeComplete = true;
     } catch (err) {
       await safelyClose(client, recordConnectionError);
       await safelyClose(transport, recordConnectionError);

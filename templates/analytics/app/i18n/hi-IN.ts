@@ -153,13 +153,10 @@ export default {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     openAgentSettings: "एजेंट प्रबंधित करें",
-    account: "खाता",
     signedInAs: "इस रूप में साइन इन",
     credentials: "डेटा स्रोत क्रेडेंशियल",
     credentialsDescription: "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
     manageDataSources: "डेटा स्रोत प्रबंधित करें",
-    languageTitle: "भाषा",
-    languageLabel: "इंटरफ़ेस भाषा",
     errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
     errorEmailNotificationsDescription:
       "नया JavaScript त्रुटि कैप्चर होने पर ईमेल भेजें। डिफ़ॉल्ट रूप से बंद।",
@@ -203,8 +200,6 @@ export default {
     storageSaved: "स्टोरेज सेटिंग्स सेव हो गईं।",
     storageSaveFailed: "स्टोरेज सेटिंग्स सेव नहीं हो सकीं।",
     alertsTitle: "अलर्ट",
-    alertsDescription:
-      "फ़र्स्ट-पार्टी analytics event rules और notification delivery प्रबंधित करें।",
     alertRunNow: "जांच चलाएं",
     alertNew: "नया अलर्ट",
     alertsEmptyTitle: "अभी कोई अलर्ट rule नहीं है",

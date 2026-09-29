@@ -26,6 +26,14 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 Output is fixes; reply only when informative. Two fixes and three messages
 beats thirty replies.
 
+## Slack channels
+
+By default, apply this Slack workflow equally to `#product-agent-native-feedback`
+(`C0ATH3CCZT4`) and `#qa-agent-native` (`C0C4U4XRT6X`), including evidence,
+eligibility, claims, reactions, dispositions, and replies. Repeat each
+`<#CHANNEL>` search/read in both; track pagination and reply cursors and message
+counts per channel. Honor narrower invocation scope.
+
 ## Phase 0: claim what you are taking
 
 `👀` is permanent claim history; add it before investigation and never remove
@@ -131,9 +139,8 @@ proof. Each row needs a post-change ledger result. If it cannot be read, say
 Every question you ask creates an obligation to come back for the answer.
 Discharge it before reading anything new.
 
-Slack is the ledger. Do not keep a local one — a per-run state file cannot
-see the previous run, which is why the follow-up never happened. Run this
-first, every time:
+Slack is the ledger; a per-run state file cannot carry state across runs. First,
+exhaust this search to enumerate prior questions and context:
 
 ```
 slack_search: "this was sent from a bot." in:<#CHANNEL>
@@ -147,27 +154,31 @@ replies ending in `?`. Open only threads with a human reply.
 **The parent is the permalink's `thread_ts`.** `Message_ts` is your own
 reply's timestamp; acting on it targets the wrong message.
 
-Find new replies even when their parent is older than the five-day scan. Before
-searching, read the `Reply scan cursor` from the previous recap; if absent,
-scan all available history. Search all channel messages over an overlapping
-date window, sorted oldest-first, and filter hits to timestamps after that
-cursor. Resolve each hit to its parent's `thread_ts` and read the full thread.
-Slack's `after:` takes a date, not a message timestamp; start at least one day
-before the cursor date. Follow `next_cursor` until exhausted. Record the last
-processed timestamp only after every page is handled.
+Find replies even when their parent is older than the five-day scan. Read this
+channel's prior reply-scan cursor; without one, scan all available history. A
+new reply can belong to an old disclosure, so search all channel messages over
+an overlapping date window instead of cursor-filtering the disclosure search:
 
-An item is answered only when a person speaks after the question without this
-workflow's disclosure marker. Open the thread: a partial, unrelated, or
-"will check later" reply is not sufficient. Count a reply once; only a newer
-message re-enters the set. Enumerate answered threads before new work and put
-the count in the recap. Keep unanswered **Clarification needed** threads
-pending until answered, resolved, or aged out at four days; **Fixed**,
-**Shipped**, **In progress**, and **Open - no question** are not substitutes.
-Reapply the Phase 0 eye and checkmark rules to terminal states.
+```
+slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
+  sort=timestamp sort_dir=asc
+```
 
-Only an unanswered **Clarification needed** thread enters the age branches
-below. If an older thread was marked **Open - no question** despite one, restore it
-to pending.
+Filter hits by their own timestamp after the cursor, resolve each to its
+parent's `thread_ts`, and read the full thread. Never filter by the older
+parent/disclosure timestamp. Slack's `after:` is date-only, so begin one day
+before the cursor date. Exhaust `next_cursor`; advance each cursor only to its
+greatest fully processed timestamp.
+
+Count a question answered only when a person posts after it without this
+workflow's disclosure marker; read the thread to reject partial, unrelated, or
+deferred replies. Count each answer once; only a newer message reopens it.
+Enumerate answered threads before new work and recap the count. Keep unanswered
+**Clarification needed** pending until answered, resolved, or four days old;
+other dispositions do not substitute. Reapply Phase 0 eye/checkmark rules.
+
+Apply the age branches only to unanswered **Clarification needed** threads;
+restore any such thread mistakenly marked **Open - no question**.
 
 - **Someone answered** → highest priority in the run, ahead of every newer
   report: the evidence you said blocked you now exists. Rebuild it and attempt
@@ -185,28 +196,26 @@ to pending.
   thread without a new question, and carry any still-relevant bug forward as an
   internal investigation.
 
-Search without an `after` filter, then apply the four-day expiry; disclosure is
-the primary cross-identity cursor. For legacy replies
-without disclosure or eyes, run this once per valid workflow identity:
+Search without `after`, then apply the four-day expiry; disclosure is the
+cross-identity cursor. For legacy replies without disclosure or eyes, run once
+per valid workflow identity:
 
 ```
 slack_search: from:<EACH_WORKFLOW_IDENTITY> in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
-Classify those hits by clarification wording such as `if you can share`, not as
-the discovery cursor. Inspect author and full thread so another identity finds
-the same question; never re-ask either search's result. Search for the
-disclosure string, not a display name, and never omit it from a reply.
+Classify these hits by clarification wording (for example, `if you can share`),
+not as the discovery cursor. Inspect author and full thread; never re-ask a
+result from either search. Search the disclosure string, not a display name,
+and include it in every reply.
 
 ## Classification rules
 
 Phase 0 applies these from parent-level evidence to decide what to claim.
 Phase 2 reapplies these rules after full-thread review.
 
-Use the workspace's product feedback channel; here that is
-`#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
-another.
+Use `## Slack channels` unless the invocation narrows scope.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -522,23 +531,23 @@ Use this worktree's branch. Batch fixes with one
 `origin/main` only for GitHub conflicts; prefer normal merges on shared
 branches. Behind/pending never justify syncing.
 
-With shipping authority — an explicit request, or a caller that already
-granted it — continue straight into `ship` in the same worktree without asking
-again. Without it, prepare the ready-to-ship handoff and say shipping is
-pending authorization. Carry the start cursor, grouped reports, evidence
-links, owning seam, sibling-sweep results, and every disposition into the PR
-body. Keep source-tested, built, deployed, and observed-live claims separate.
+Use `/ship` for PR ownership, push, and merge checks. Never push to another
+person's PR without explicit authorization for that exact PR in this request.
+Push-only authorization means `ship_mode=ready-only`; merging requires separate
+authorization for that PR. Without push authorization, hand off as pending.
+Carry cursors, reports, evidence, owners, sibling results, and dispositions
+into the PR body.
+Keep source-tested, built, deployed, and observed-live claims separate.
 
-If a tracker was supplied, carry its exact row ids and the reproduction ledger
-into the PR or release recap. Never turn a tracker status into a shipping claim.
-Give every row its own disposition marker. A single reaction, checkmark, or
-"reviewed" marker must not stand in for several rows, including expected,
-docs-owned, cross-team, or duplicate items. Any source/docs change is linked
-to its exact PR or commit; non-coding dispositions link the evidence or named
-owner instead of borrowing a nearby PR link.
+Carry exact tracker row ids and the reproduction ledger into the PR or release
+recap; tracker status is not shipping evidence. Mark each row independently: a
+reaction, checkmark, or "reviewed" cannot cover multiple rows, including
+expected, docs-owned, cross-team, or duplicate items. Link each source/docs
+change to its exact PR or commit, and each non-coding disposition to its
+evidence or owner.
 
-If the sweep found no verified fix, finish with the recap and say why no ship
-started. Unavailable connectors and external failures are not shipping blockers.
+If no fix is verified, recap why shipping did not start. Unavailable connectors
+and external failures are not shipping blockers.
 While waiting, **Clarification needed** stays open with `👀` and no `✅`. It
 must not block merging independently verified fixes unless the report could
 affect a PR change. Keep the eye when new evidence arrives.
@@ -550,9 +559,9 @@ on - that is how silence stays auditable.
 
 ```md
 ## Feedback sweep
-Start cursor: [Slack message](...)
-Reply scan cursor (read from prior recap; use next run): <last timestamp fully processed>
-Messages enumerated: N · Claimed: N · Answered since last run: N
+Start cursors: product [Slack message](...) · QA [Slack message](...)
+Reply cursors (from prior recap; reuse next run): product <last processed timestamp> · QA <last processed timestamp>
+Messages enumerated: product N · QA N (total N) · Claimed: N · Answered since last run: N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)

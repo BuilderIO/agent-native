@@ -540,6 +540,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     };
     const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
     const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
+    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     const initialSourceBounds = await source.boundingBox();
     if (!initialSourceBounds) {
       throw new Error("live focus probe source has no bounds");
@@ -589,7 +590,10 @@ test.describe("URL-backed live auto-layout probe", () => {
       page.locator("[data-design-pending-visual-style-toolbar]"),
     ).toBeVisible();
     await expectCanvasFocus();
-    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.down(primaryModifier);
+    await expectCanvasFocus(1_000);
+    await page.keyboard.press("z");
+    await page.keyboard.up(primaryModifier);
     await expect
       .poll(readOrder, { timeout: 5_000 })
       .toEqual(["v1", "v2", "v3"]);
@@ -608,7 +612,12 @@ test.describe("URL-backed live auto-layout probe", () => {
     const shell = page.locator("[data-screen-shell]").first();
     const interact = shell.locator("[data-frame-full-view]");
     await expect(interact).toBeVisible({ timeout: 90_000 });
-    await interact.click();
+    const interactBounds = await interact.boundingBox();
+    if (!interactBounds) throw new Error("Interact button has no bounds");
+    await page.mouse.click(
+      interactBounds.x + Math.min(8, interactBounds.width / 2),
+      interactBounds.y + interactBounds.height / 2,
+    );
     await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
 
     const frame = page.locator("iframe[data-design-preview-iframe]").first();
@@ -1677,7 +1686,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
   });
 
-  test("holds a URL-backed grouped grid drag as one pending Apply unit", async ({
+  test("keeps a grouped grid drag in one pending visual edit unit", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1800, height: 1000 });
@@ -1928,78 +1937,60 @@ test.describe("URL-backed live auto-layout probe", () => {
         sourceWriteCount += 1;
       }
     });
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __groupedUrlProbeHandoff?: { context?: string; message?: string };
-      };
-      window.addEventListener("message", (event) => {
-        const payload = event.data;
-        const submitMessageId = payload?.data?.submitMessageId;
-        if (
-          payload?.type !== "agentNative.submitChat" ||
-          typeof submitMessageId !== "string"
-        ) {
-          return;
-        }
-        state.__groupedUrlProbeHandoff = {
-          context:
-            typeof payload.data.context === "string"
-              ? payload.data.context
-              : undefined,
-          message:
-            typeof payload.data.message === "string"
-              ? payload.data.message
-              : undefined,
-        };
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatSubmitResult", {
-            detail: { submitMessageId, delivered: true },
-          }),
-        );
-      });
-    });
-    const applyUpdates = page.getByRole("button", {
-      name: "Apply design updates",
+    const pendingToolbar = page.locator(
+      "[data-design-pending-visual-style-toolbar]",
+    );
+    const copyPrompt = pendingToolbar.getByRole("button", {
+      name: "Copy prompt to your agent",
       exact: true,
     });
-    await expect(applyUpdates).toBeVisible({ timeout: 10_000 });
-    await applyUpdates.click();
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            document.body.innerText.includes("Verifying source and runtime"),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            Boolean(
-              (window as typeof window & { __groupedUrlProbeHandoff?: unknown })
-                .__groupedUrlProbeHandoff,
-            ),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    const groupedHandoff = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __groupedUrlProbeHandoff?: {
-              context?: string;
-              message?: string;
-            };
-          }
-        ).__groupedUrlProbeHandoff,
+    await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
+    await pendingToolbar
+      .getByRole("button", { name: "Pending visual preview", exact: true })
+      .click();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Copy full prompt",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Abort preview and interact",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const toolbarScreenshot = path.resolve(
+      import.meta.dirname,
+      "../../../.tmp/design-editor-copy-prompt-signed-in.png",
     );
-    expect(groupedHandoff?.message).toContain("source");
-    expect(groupedHandoff?.context).toContain('"sourceId": "group-a"');
-    expect(groupedHandoff?.context).toContain('"sourceId": "group-b"');
-    expect(groupedHandoff?.context).toContain('"transactionId"');
+    fs.mkdirSync(path.dirname(toolbarScreenshot), { recursive: true });
+    await page.screenshot({ path: toolbarScreenshot });
+    await page.keyboard.press("Escape");
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    await copyPrompt.click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain(`{ designId: "${designId}" }`);
+    const copiedPrompt = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    expect(copiedPrompt).toContain("get-visual-edit-pending");
+
+    const pendingHandoffResponse = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
+    );
+    expect(pendingHandoffResponse.ok()).toBe(true);
+    const pendingHandoff = (await pendingHandoffResponse.json()) as {
+      revision?: number;
+      status?: string;
+    };
+    expect(pendingHandoff.status).toBe("ready");
+    expect(pendingHandoff.revision).toEqual(expect.any(Number));
 
     const readResult = (await call("read-local-file", {
       designId,
@@ -2061,6 +2052,15 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
     expect(writeResult).toMatchObject({ ok: true });
     expect(sourceWriteCount).toBe(1);
+    const acknowledgementResponse = await page.request.post(
+      `${baseURL}/_agent-native/actions/acknowledge-visual-edit-pending`,
+      { data: { designId, revision: pendingHandoff.revision } },
+    );
+    expect(acknowledgementResponse.ok()).toBe(true);
+    expect(await acknowledgementResponse.json()).toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
       sourceWithRuntimeState,
     );

@@ -650,6 +650,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+تقبل `createIntegrationsPlugin()` كائن `IntegrationsPluginOptions` اختياريًا. يحدد الخيار `initialToolNames?: readonly string[]` مخططات actions المحلية التي تُرسل في أول طلب إلى النموذج. عند حذفه، تبقى جميع actions المحلية ضمن المجموعة الأولية. تُنسخ المصفوفة المقدمة دون تعديل مصفوفة المستدعي.
+
+تؤجل القائمة الفارغة الصريحة تحميل actions المحلية حتى تكتشفها `tool-search`. تبقى أدوات إطار العمل المطلوبة متاحة منذ البداية. يعطّل هذا الإعداد أيضًا التفويض بين التطبيقات عندما لا تتضمن بيئة النشر نظير A2A:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+تنطبق مجموعة الأدوات الأولية نفسها على معالجة webhooks والمهام في قائمة الانتظار والاستطلاع الدوري لـ Google Docs. يبقى سجل actions الكامل قابلًا للبحث. يعطّل `callAgent: false` تسجيل action المدمج `call-agent` بشكل مستقل، حتى لو ظهر في `initialToolNames`.
+
 تعتمد الأنظمة الأساسية النشطة على نوع env vars الذي تم تعيينه. يسجل المكون الإضافي مسارات خطاف الويب لكل مسار ضمن `/_agent-native/integrations/`.
 
 ### الخطاف التلقائي على الويب URL {#webhook-urls}

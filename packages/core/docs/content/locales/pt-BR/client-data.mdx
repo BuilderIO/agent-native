@@ -333,6 +333,13 @@ Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é
           description: "URL do endpoint de pesquisa.",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "Ativa a sincronização em segundo plano nesta página. Um motivo curto deixa a decisão e seu custo visíveis no código. Sem essa opção, nenhum transporte é aberto.",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -345,7 +352,8 @@ Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é
           type: "number",
           optional: true,
           default: "2000",
-          description: "Intervalo de pesquisa em ms.",
+          description:
+            "Intervalo de polling em ms durante uma execução do agente. Em repouso, aumenta para 1, 2 e 5 minutos.",
         },
         {
           name: "fallbackInterval",
@@ -353,15 +361,15 @@ Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é
           optional: true,
           default: "60000",
           description:
-            "Intervalo de pesquisa enquanto o SSE está conectado, como backup no caso de um evento ser perdido. Uma aba desconectada faz a pesquisa no ritmo mais rápido `interval` (ou um ritmo fixo ocioso) em vez disso.",
+            "Intervalo mínimo de polling em ms enquanto o SSE está conectado. Polls vazios bem-sucedidos aumentam para 1, 2 e 5 minutos.",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
+          default: "true",
           description:
-            "Pausa a pesquisa quando a aba do navegador está oculta. Abas ocultas mantêm o SSE conectado e pesquisam no máximo a cada 10s enquanto ativas, 60s quando ociosas.",
+            "Pausa a sincronização em segundo plano quando a aba do navegador está oculta.",
         },
         {
           name: "ignoreSource",
@@ -375,7 +383,7 @@ Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é
           type: "(data) => void",
           optional: true,
           description:
-            "Callback opcional quando o SSE ou a pesquisa recebe um evento de mudança.",
+            "Callback opcional para eventos de sincronização remotos e conclusões locais de ferramentas durante o chat.",
         },
         {
           name: "actionInvalidatePredicate",
@@ -403,7 +411,7 @@ Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é
   returns={{ type: "void" }}
 />
 
-Este gancho é destinado a manter a UI sincronizada com mudanças no banco de dados que ocorrem fora das suas próprias actions, como uma gravação do agente, um webhook, ou uma mudança feita em outra aba do navegador. Ele escuta mudanças por server-sent events, e recorre à pesquisa quando server-sent events não estão disponíveis. Em uma implantação serverless de produção, o próprio stream `/_agent-native/events` do app não está disponível por design — o servidor responde imediatamente com 204 em vez de manter uma instância de função aberta —, então a pesquisa cuida de toda a sincronização ali, no mesmo ritmo, a menos que o app tenha ativado o [Gateway de sincronização em tempo real hospedado](/docs/real-time-collaboration#hosted-gateway).
+`useDbSync()` sempre processa ferramentas concluídas durante uma execução local do chat e atualiza ao final dela. Assim, alterações de um único agente ficam atualizadas sem uma solicitação em segundo plano. Mudanças de outras abas, pessoas, webhooks ou tarefas não são sincronizadas em segundo plano, a menos que esta página ative esse recurso com um motivo curto. Cada aba compartilha um transporte, pausa quando fica oculta e aumenta os intervalos ociosos para 1, 2 e 5 minutos.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -414,6 +422,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -422,7 +431,7 @@ function App() {
 }
 ```
 
-Para CRUD normal, prefira `useActionQuery()` e `useActionMutation()`. Actions de mutação emitem `source: "action"`, então esses ganchos buscam novamente imediatamente. Mudanças do agente, de um webhook, ou de outra aba chegam através de `useDbSync()` em vez disso, via SSE ou o fallback de pesquisa. Se uma chamada `useQuery()` bruta precisa sincronizar em uma chave personalizada, veja [Sincronização interna](/docs/client-sync-internals). Se você precisa gravar diretamente em `application_state`, veja [Avançado](/docs/client-advanced).
+Ative o tempo real apenas quando os dados puderem mudar sem uma ação do usuário atual e ele precisar ver a mudança antes de atualizar. Edição colaborativa no Slides e a caixa de entrada do Mail são bons exemplos. Mantenha desativados páginas públicas, Docs, configurações, formulários, listas que mudam pouco e alterações de um agente individual; atualize ao voltar o foco ou navegar. Cada aba aberta inscrita acrescenta um poll por intervalo ocioso.
 
 ## O que vem a seguir
 

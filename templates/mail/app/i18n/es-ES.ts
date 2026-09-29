@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Nota para mí",
     },
     inbox: {
+      atLeastCount: "Al menos {{count}}",
       syncing: "Sincronizando bandeja...",
     },
     sort: {
@@ -45,10 +46,9 @@ const messages = {
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
-      aiSetupSkipSetup: "Omitir configuración de la bandeja",
-      aiSetupImportantHeadline: "Qué es importante",
-      aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
-      aiSetupTagsHeadline: "Elige tus pestañas",
+      aiSetupImportantHeadline: "¿Qué es importante para ti?",
+      aiSetupSkipInboxHeadline: "¿Qué puede saltarse tu bandeja de entrada?",
+      aiSetupTagsHeadline: "Ordena el correo en pestañas",
       aiSetupArchiveSpamHeadline: "Omitir bandeja de entrada y spam",
       aiSetupTagReceipts: "Recibos",
       aiSetupTagUpdates: "Actualizaciones de productos",
@@ -65,6 +65,16 @@ const messages = {
         "Omitir bandeja de entrada: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Listo",
+      aiSetupConnectGmailHeadline:
+        "Conecta Gmail para organizar tu bandeja de entrada",
+      aiSetupConnectGmailDescription:
+        "Conecta Google para aplicar tus reglas a los correos recientes.",
+      aiSetupConnectJevHeadline:
+        "Conecta Jev para organizar tu bandeja de entrada",
+      aiSetupConnectJevDescription:
+        "Conecta Jev para aplicar tus reglas a los correos recientes.",
+      aiSetupCustomTabName: "Nombre de pestaña",
+      aiSetupCustomTabExample: "p. ej., facturas de proveedores",
       aiSetupRunAgain: "Volver a configurar",
       aiSetupTagCalendar: "Calendario",
       aiSetupPromptCalendar:
@@ -78,13 +88,25 @@ const messages = {
       aiSetupFilteredExample:
         "Mensajes de ventas no solicitados y reclutadores a quienes no he respondido",
       aiSetupSortingHeadline: "Organizando tu bandeja de entrada",
+      aiSetupSortingDescription:
+        "Esto es lo que tus reglas encontraron en el correo reciente.",
       aiSetupFindingRecentMail: "Buscando mensajes recientes…",
+      aiSetupRetry: "Reintentar",
+      aiSetupGmailStatusFailed: "No se pudo comprobar la conexión con Gmail",
+      aiSetupAutomationSettingsFailed:
+        "No se pudo comprobar la configuración del modelo de IA",
       aiSetupSortingProgress:
         "Ordenando correo reciente: {{processed}} de {{total}}",
       aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupUndoBeforeRetry:
+        "Deshaz los cambios parciales antes de volver a intentarlo.",
       aiSetupSortingFailed:
         "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
       aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupUndoFailed:
+        "No se pudieron deshacer estos cambios en la bandeja de entrada. Inténtalo de nuevo.",
+      aiSetupUndoStatusFailed:
+        "Se solicitó deshacer, pero no se pudieron cargar los resultados más recientes.",
       aiSetupRuleCount: "{{count}} coincidencias",
       aiSetupNoMatches:
         "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
@@ -94,7 +116,28 @@ const messages = {
       aiSetupNoRules: "No seleccionaste ninguna regla.",
       aiSetupPartialFailure: "No se pudieron actualizar {{count}} mensajes.",
       aiSetupSortInbox: "Ordenar mi bandeja",
-      aiSetupImportantExample: "Todo lo de mi gerente, Priya…",
+      aiSetupImportantExample: "Todo lo de mi jefe, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "La IA etiqueta los mensajes que coinciden y crea una pestaña para cada etiqueta junto a Recibidos.",
+      aiSetupImportantDescription:
+        "La IA añade la etiqueta Importante a los mensajes que coinciden para mostrarlos en la pestaña Importantes.",
+      aiSetupSkipInboxDescription:
+        "La IA archiva los mensajes que coinciden para que no lleguen a Recibidos. Siguen disponibles en Todo el correo y en las búsquedas.",
+      aiSetupAddTab: "Añadir pestaña",
+      aiSetupAdjustRules: "Ajustar reglas",
+      aiSetupImportantBoss: "Mensajes de mi jefe, ",
+      aiSetupImportantBossChip: "Mensajes de mi jefe",
+      aiSetupImportantReply: "Necesita respuesta",
+      aiSetupImportantDeadlines: "Plazos",
+      aiSetupImportantCustomers: "Clientes",
+      aiSetupImportantGitHub: "Personas en GitHub",
+      aiSetupImportantCalendar: "Invitaciones",
+      aiSetupSkipNewsletters: "Boletines",
+      aiSetupSkipPromotions: "Promociones",
+      aiSetupSkipBots: "Alertas de bots y CI",
+      aiSetupSkipColdSales: "Ventas no solicitadas",
+      aiSetupSkipRecruiters: "Reclutadores",
+      aiSetupSkipSocial: "Alertas sociales",
       priorityFeedbackLabel: "Comentarios sobre importancia",
       priorityScoreHigh: "Importancia alta",
       priorityScoreMedium: "Importancia media",
@@ -295,6 +338,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
+      deliveryUnknownWarning:
+        "Se desconoce el estado de entrega; revisa la vista Enviados de Mail antes de resolverlo.",
+      markSentAfterChecking: "Revisé Enviados; marcar como enviado",
+      sendNewCopy: "Enviar una copia nueva",
+      sendingStatus:
+        "El envío programado se está procesando. Las acciones no están disponibles temporalmente.",
+      confirmSendNewCopyTitle: "¿Enviar otra copia?",
+      confirmSendNewCopyDescription:
+        "Es posible que el mensaje original ya se haya entregado. Revisa primero la vista Enviados de Mail. Enviar otra copia podría crear un duplicado.",
       dateInput: "Fecha y hora",
       noDateMatch: "No hay una hora futura coincidente",
       inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",
@@ -405,6 +457,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
       scheduledSendFailed: "No se pudo enviar el email programado",
+      uncertainScheduledMarkedSent: "Email programado marcado como enviado.",
+      uncertainScheduledResolveFailed:
+        "No se pudo resolver el email programado.",
+      uncertainScheduledRetryStarted: "Se está enviando una copia nueva.",
+      uncertainScheduledRetryFailed: "No se pudo enviar una copia nueva.",
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -523,9 +580,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -755,8 +809,6 @@ const messages = {
     peoplePlural: "{{count}} personas",
     deleteAliasDescription:
       '¿Eliminar el alias "{{name}}"? Esta acción no se puede deshacer.',
-    aliasesDescription:
-      "Grupos de direcciones que puedes usar al redactar correos.",
     newAlias: "Nuevo alias",
     noAliases: "Aún no hay alias. Crea uno para empezar.",
     applyLabel: "Aplicar etiqueta",
@@ -775,16 +827,6 @@ const messages = {
     actions: "Acciones",
     editRule: "Editar regla",
     deleteRule: "Eliminar regla",
-    noEventAutomations:
-      "Aún no hay automatizaciones activadas por eventos de correo.",
-    eventAutomationsPrompt:
-      'Pide al agente crear una automatización como "cuando reciba un correo de mi jefe, destácalo y avísame".',
-    disabled: "desactivado",
-    on: "en",
-    when: "cuando",
-    lastRun: "Última ejecución:",
-    automationsDescription:
-      "Reglas que procesan automáticamente nuevos correos de la bandeja usando IA.",
     allowAutomationSends:
       "Permitir que las automatizaciones envíen correos automáticamente",
     allowAutomationSendsDescription:
@@ -796,17 +838,12 @@ const messages = {
     noAutomationRules: "Aún no hay reglas de automatización.",
     noAutomationRulesDescription:
       "Crea reglas para etiquetar correos, archivar newsletters, destacar mensajes importantes y más. También puedes pedirle al agente de IA que las configure.",
-    eventTriggers: "Disparadores de eventos",
-    eventTriggersDescription:
-      "Automatizaciones que se ejecutan cuando ocurren eventos de correo (p. ej., nuevo correo recibido). Gestionadas por el agente.",
     importedSignature: "Firma importada desde {{account}}.",
     noGmailSignature: "No se encontró firma de Gmail para {{account}}.",
     importSignatureFailed: "No se pudo importar la firma de Gmail.",
     draftingSettingsSaved: "Ajustes de redacción guardados.",
     draftingSettingsSaveFailed:
       "No se pudieron guardar los ajustes de redacción.",
-    draftingDescription:
-      "Preferencias usadas al redactar y generar borradores de correo.",
     signature: "Firma",
     importFromGmail: "Importar desde Gmail",
     signatureHelp:
@@ -821,42 +858,14 @@ const messages = {
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",
     reset: "Restablecer",
-    trackingDescription:
-      "Sabe cuándo los destinatarios abren tus correos y hacen clic en enlaces. Las estadísticas aparecen bajo cada mensaje enviado.",
     trackEmailOpens: "Rastrear aperturas",
     trackEmailOpensDescription:
       "Inserta un píxel 1×1 en correos salientes para ver cuándo los abren.",
     trackLinkClicks: "Rastrear clics",
     trackLinkClicksDescription:
       "Reescribe enlaces externos en correos salientes para contar cuándo hacen clic.",
-    slackLoadFailed: "No se pudo cargar el estado de Slack",
-    slackUpdateFailed: "No se pudo actualizar la entrada de Slack",
-    slackConfigured: "Las credenciales de Slack están configuradas.",
-    slackNeedsCredentials:
-      "La entrada personalizada antigua requiere SLACK_BOT_TOKEN y SLACK_SIGNING_SECRET. Para nuevas automatizaciones de mensajería de Slack, conecta un espacio de trabajo en Configuración > Mensajería.",
-    slackIntake: "Entrada de Slack (antigua)",
-    slackDescription:
-      "Integración personalizada antigua que permite poner borradores de correo en cola desde Slack.",
-    enabled: "Activado",
-    disable: "Desactivar",
-    enable: "Activar",
-    slackPostEndpoint: "Endpoint POST de Slack",
-    slackPostEndpointHelp:
-      "Úsalo en Slack Event Subscriptions. Un GET desde el navegador puede mostrar Not Found.",
-    title: "Configuracion",
-    general: "General",
-    generalDescription: "Idioma y preferencias de cuenta para Mail.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz para esta cuenta. Mail lo recuerda en todos tus dispositivos.",
-    languageLabel: "Idioma de la interfaz",
-    whatsNew: "Novedades",
-    whatsNewDescription:
-      "Cambios recientes para usuarios en Agent-Native Mail.",
     drafting: "Redaccion",
     snippets: "Fragmentos",
-    snippetsDescription:
-      "Respuestas guardadas que puedes insertar en un borrador escribiendo / y el nombre del fragmento.",
     newSnippet: "Nuevo fragmento",
     noSnippets: "Aun no hay fragmentos. Crea uno para empezar.",
     snippetName: "Nombre del fragmento",
@@ -867,7 +876,6 @@ const messages = {
     deleteSnippet: "Eliminar fragmento",
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
-    automations: "Automatizaciones",
     rules: "Reglas",
     rulesModel: "Modelo de reglas",
     rulesModelDescription: "Compara el correo entrante con tus reglas.",
@@ -880,7 +888,6 @@ const messages = {
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
-    slack: "Slack",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

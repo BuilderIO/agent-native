@@ -5,7 +5,6 @@ import {
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
@@ -23,7 +22,6 @@ import {
   FeedbackButton,
   RouterSidebarLink,
 } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
@@ -117,6 +115,7 @@ import {
   mergeOptimisticInboxTabCounts,
   resolveInboxTabId,
   useInboxOverview,
+  useInboxSyncPoller,
   useInboxThreads,
 } from "@/hooks/use-inbox-threads";
 import {
@@ -129,9 +128,13 @@ import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_PARAM,
+  isInboxScopedLabel,
+  pinnedTriageLabels,
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  resolveInboxEmailQueryScope,
+  filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -222,7 +225,6 @@ function isSettingsPath(pathname: string): boolean {
 
 function isStandardLayoutPath(pathname: string): boolean {
   return (
-    isSettingsPath(pathname) ||
     pathname === "/agent" ||
     pathname === "/chat" ||
     pathname === "/team" ||
@@ -333,18 +335,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isAgentChatRoute = location.pathname === "/chat";
 
   const t = useT();
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  // The redesigned Settings shell brings its own navigation, header, and
-  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
-  // so the app chrome stays out then too instead of appearing and vanishing.
-  const settingsOwnsChrome =
-    isSettingsPath(location.pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
-  const content = settingsOwnsChrome ? (
+  // Settings brings its own navigation, header, and agent toggle.
+  const content = isSettingsPath(location.pathname) ? (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {children}
     </div>
@@ -573,6 +569,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilterQuery = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  )?.query;
   const { data: automations = [] } = useAutomations();
   const aiTags = useMemo(() => {
     const tags = new Map<string, { id: string; name: string }>();
@@ -628,6 +627,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  useInboxSyncPoller(inboxAccountEmails);
   const inboxThreadInput = {
     tab: resolvedInboxTab,
     accountEmails: inboxAccountEmails,
@@ -708,6 +708,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     color?: string;
     tooltip?: string;
     total?: number;
+    totalIsLowerBound?: boolean;
     unread?: number;
     isSystemView: boolean;
   };
@@ -750,6 +751,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         color: label?.color,
         tooltip: tab.query,
         total: tab.total,
+        totalIsLowerBound: tab.totalIsLowerBound,
         unread: tab.unread,
         isSystemView: false,
       };
@@ -757,8 +759,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
-    () => [...systemViewTabs, ...dataTabs],
-    [systemViewTabs, dataTabs],
+    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
+    [systemViewTabs, dataTabs, view],
   );
 
   const hiddenViews = useMemo(
@@ -816,11 +818,74 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
-    isMailboxView ? view : "inbox",
-    undefined,
-    undefined,
-    { enabled: isMailboxView },
+  const shellSearchQuery =
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellQueryScope = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped: isInboxScopedLabel(activeLabel, labels),
+    activeSavedFilter: activeSavedFilterQuery !== undefined,
+    combineInbox,
+    triageLabels: pinnedTriageLabels(pinnedLabels),
+    searchQuery: shellSearchQuery,
+  });
+  const useInboxThreadsForActionTargets =
+    view === "inbox" &&
+    hasAccounts &&
+    activeSearchQuery === null &&
+    activeSavedFilterQuery === undefined &&
+    activeLabel === null;
+  const {
+    data: legacyCurrentViewEmails = [],
+    isPlaceholderData: legacyCurrentViewEmailsArePlaceholder,
+  } = useEmails(
+    isMailboxView ? shellQueryScope.emailView : "inbox",
+    shellSearchQuery,
+    shellQueryScope.effectiveLabel,
+    {
+      enabled:
+        isMailboxView &&
+        (view !== "inbox" ||
+          (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady)),
+    },
+  );
+  const currentViewEmails = useInboxThreadsForActionTargets
+    ? (inboxThreads.data?.items ?? [])
+    : legacyCurrentViewEmails;
+  const currentViewEmailsArePlaceholder = useInboxThreadsForActionTargets
+    ? inboxThreads.isPlaceholderData
+    : legacyCurrentViewEmailsArePlaceholder;
+  const actionTargetTab =
+    view === "inbox" &&
+    !combineInbox &&
+    !activeSearchQuery &&
+    !activeSavedFilterQuery &&
+    (activeInboxTabId === OTHER_INBOX_TAB_PARAM ||
+      pinnedTriageLabels(pinnedLabels).includes(activeInboxTabId ?? ""))
+      ? activeInboxTabId
+      : undefined;
+  const actionTargetEmails = useMemo(
+    () =>
+      currentViewEmailsArePlaceholder
+        ? []
+        : actionTargetTab === undefined
+          ? currentViewEmails
+          : filterInboxTabEmails(
+              currentViewEmails,
+              actionTargetTab === OTHER_INBOX_TAB_PARAM
+                ? null
+                : actionTargetTab,
+              pinnedLabels,
+              savedFilters.map((filter) => filter.query),
+            ),
+    [
+      actionTargetTab,
+      currentViewEmails,
+      currentViewEmailsArePlaceholder,
+      pinnedLabels,
+      savedFilters,
+    ],
   );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
@@ -849,14 +914,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const targetEmail = useMemo(() => {
     if (threadId) {
-      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+      return actionTargetEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = actionTargetEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    return currentViewEmails[0] ?? undefined;
-  }, [threadId, focusedListId, currentViewEmails]);
+    return actionTargetEmails[0] ?? undefined;
+  }, [threadId, focusedListId, actionTargetEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {
     window.dispatchEvent(
@@ -1589,6 +1654,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       {tab.label}
                       {count !== undefined && count > 0 && (
                         <span
+                          aria-label={
+                            tab.totalIsLowerBound
+                              ? t("mail.inbox.atLeastCount", { count })
+                              : undefined
+                          }
                           className={cn(
                             "text-[11px] tabular-nums",
                             tab.isActive
@@ -1596,7 +1666,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               : "text-muted-foreground/70",
                           )}
                         >
-                          {count}
+                          {tab.totalIsLowerBound ? `${count}+` : count}
                         </span>
                       )}
                     </RouterSidebarLink>
@@ -2209,13 +2279,7 @@ function StandardLayout({ children }: AppLayoutProps) {
     location.pathname.startsWith("/extensions/");
 
   const fallbackTitle = (() => {
-    if (location.pathname === "/settings") return t("settings.title");
-    if (
-      location.pathname === "/agent" ||
-      location.pathname.startsWith("/settings/agent")
-    ) {
-      return t("settings.agentTitle");
-    }
+    if (location.pathname === "/agent") return t("settings.agentTitle");
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");

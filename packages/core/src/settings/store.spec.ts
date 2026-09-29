@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let originalEnv: NodeJS.ProcessEnv;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
@@ -20,10 +21,10 @@ const rawClient = {
   }),
 };
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => rawClient,
-  isProductionServerlessFunctionRuntime: () => false,
-}));
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>();
+  return { ...actual, getDbExec: () => rawClient };
+});
 
 const {
   getSetting,
@@ -36,6 +37,13 @@ const {
 const { runWithRequestContext } = await import("../server/request-context.js");
 
 beforeEach(async () => {
+  originalEnv = { ...process.env };
+  process.env.NODE_ENV = "test";
+  delete process.env.NETLIFY_FUNCTION_NAME;
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.LAMBDA_TASK_ROOT;
+  delete process.env.VERCEL_FUNCTION_ID;
+  delete process.env.VERCEL_REGION;
   pglite = await createTestPglite();
   await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -45,6 +53,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  process.env = originalEnv;
   await pglite.close();
   vi.clearAllMocks();
 });
@@ -68,6 +77,9 @@ describe("settings store", () => {
     expect(seen).toContain(
       "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
     );
+    expect(
+      seen.filter((sql) => /information_schema|pg_indexes|pg_class/i.test(sql)),
+    ).toHaveLength(6);
   });
 
   it("round-trips a value via put/get", async () => {

@@ -62,6 +62,28 @@ export function sharedResourceOwner(orgId?: string | null): string {
   return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
 }
 
+export function isBinaryResourceMimeType(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+  return !(normalized.startsWith("text/") || normalized === "application/json");
+}
+
+export function packScopeFromOwner(
+  owner: string,
+  userEmail: string,
+): "personal" | "organization" | "workspace" {
+  if (owner === userEmail) return "personal";
+  if (isWorkspaceResourceOwner(owner)) return "workspace";
+  return "organization";
+}
+
+export function ownerForPackTarget(
+  target: "personal" | "organization",
+  userEmail: string,
+  orgId?: string | null,
+): string {
+  return target === "personal" ? userEmail : sharedResourceOwner(orgId);
+}
+
 export function workspaceResourceOwner(orgId?: string | null): string {
   const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
   return activeOrgId
@@ -326,6 +348,7 @@ export interface ResourceSnapshotWriteResult {
 
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
+  limit?: number;
   workspaceAppId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
@@ -816,12 +839,14 @@ async function localWorkspaceResourceByPath(
 
 async function localWorkspaceResourceMetas(
   pathPrefix?: string,
+  limit?: number,
 ): Promise<ResourceMeta[]> {
-  const resources = (await listLocalWorkspaceResources()).map(
-    localWorkspaceResourceToMeta,
-  );
-  if (!pathPrefix) return resources;
-  return resources.filter((resource) => resource.path.startsWith(pathPrefix));
+  return (
+    await listLocalWorkspaceResources({
+      ...(limit === undefined ? {} : { maxResults: limit }),
+      ...(pathPrefix === undefined ? {} : { pathPrefix }),
+    })
+  ).map(localWorkspaceResourceToMeta);
 }
 
 export async function canWriteLocalWorkspaceResourcePath(
@@ -867,6 +892,15 @@ function mergeResourceMetas(
   return merged;
 }
 
+function limitResourceMetas(
+  resources: ResourceMeta[],
+  limit?: number,
+): ResourceMeta[] {
+  return limit === undefined
+    ? resources
+    : resources.slice(0, Math.max(0, Math.floor(limit)));
+}
+
 async function selectGrantedWorkspaceResourceRows(
   input: {
     resourceId?: string;
@@ -876,7 +910,7 @@ async function selectGrantedWorkspaceResourceRows(
     userEmail?: string | null;
     orgId?: string | null;
   },
-  options: { includeContent?: boolean } = {},
+  options: { includeContent?: boolean; limit?: number } = {},
 ): Promise<any[]> {
   const appId = currentWorkspaceAppId(input.workspaceAppId);
   const { userEmail, orgId } = requestScopedResourceIdentity(input);
@@ -915,10 +949,11 @@ async function selectGrantedWorkspaceResourceRows(
     options.includeContent === false
       ? `${"octet_length(wr.content)"} AS content_size`
       : "wr.content";
+  const limited = options.limit !== undefined;
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `
-      SELECT
+      SELECT ${limited ? "DISTINCT ON (wr.path)" : ""}
         wr.id,
         wr.kind,
         wr.name,
@@ -932,14 +967,16 @@ async function selectGrantedWorkspaceResourceRows(
       FROM workspace_resources wr
       INNER JOIN workspace_resource_grants wg ON wg.resource_id = wr.id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY wr.updated_at DESC
+      ORDER BY ${limited ? "wr.path, wr.updated_at DESC, wg.id" : "wr.updated_at DESC"}
+      ${limited ? "LIMIT ?" : ""}
     `,
-    args,
+    args: limited ? [...args, options.limit] : args,
   });
   return rows;
 }
 
 async function grantedWorkspaceResources(input: {
+  limit?: number;
   pathPrefix?: string;
   workspaceAppId?: string | null;
   userEmail?: string | null;
@@ -948,6 +985,7 @@ async function grantedWorkspaceResources(input: {
   try {
     const rows = await selectGrantedWorkspaceResourceRows(input, {
       includeContent: false,
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
     });
     return rows.map(rowToGrantedWorkspaceResource);
   } catch {
@@ -2190,33 +2228,62 @@ export async function resourceList(
     ? workspaceReadOwners(owner, options?.orgId)
     : [owner];
   const listOwner = async (candidate: string): Promise<ResourceMeta[]> => {
-    const { rows } = await client.execute(
-      pathPrefix
-        ? {
-            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-            args: [candidate, prefixLike(pathPrefix)],
-          }
-        : {
-            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-            args: [candidate],
-          },
-    );
-    return filterLegacyDispatchWorkspaceRows(
-      rows
-        .map(rowToMeta)
-        .filter((resource) =>
-          isLegacySharedResourceVisibleToOrganization(resource, orgId),
-        ),
-      orgId,
-    );
+    const query = pathPrefix
+      ? {
+          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
+          args: [candidate, prefixLike(pathPrefix)],
+        }
+      : {
+          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
+          args: [candidate],
+        };
+    const listRows = async (limit?: number, offset = 0) =>
+      client.execute(
+        limit === undefined
+          ? query
+          : {
+              sql: `${query.sql} ORDER BY path LIMIT ? OFFSET ?`,
+              args: [...query.args, limit, offset],
+            },
+      );
+    if (options?.limit === undefined) {
+      const { rows } = await listRows();
+      return filterLegacyDispatchWorkspaceRows(
+        rows
+          .map(rowToMeta)
+          .filter((resource) =>
+            isLegacySharedResourceVisibleToOrganization(resource, orgId),
+          ),
+        orgId,
+      );
+    }
+
+    const limit = Math.max(0, Math.floor(options.limit));
+    const resources: ResourceMeta[] = [];
+    let offset = 0;
+    while (resources.length < limit) {
+      const { rows } = await listRows(limit, offset);
+      const visible = await filterLegacyDispatchWorkspaceRows(
+        rows
+          .map(rowToMeta)
+          .filter((resource) =>
+            isLegacySharedResourceVisibleToOrganization(resource, orgId),
+          ),
+        orgId,
+      );
+      resources.push(...visible);
+      offset += rows.length;
+      if (rows.length < limit) break;
+    }
+    return mergeResourceMetas([], resources).slice(0, limit);
   };
   const ownerResources = await Promise.all(owners.map(listOwner));
   const resources = ownerResources.reduce((merged, candidate) =>
     mergeResourceMetas(merged, candidate),
   );
-  if (!workspace) return resources;
+  if (!workspace) return limitResourceMetas(resources, options?.limit);
 
-  const local = await localWorkspaceResourceMetas(pathPrefix);
+  const local = await localWorkspaceResourceMetas(pathPrefix, options?.limit);
   const primaryResources = ownerResources[0] ?? [];
   const inheritedResources = ownerResources[1] ?? [];
   const workspaceResources = isBareWorkspaceResourceOwner(owners[0])
@@ -2226,12 +2293,16 @@ export async function resourceList(
         mergeResourceMetas(local, inheritedResources),
       );
   const granted = await grantedWorkspaceResources({
+    limit: options?.limit,
     pathPrefix,
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(workspaceResources, granted.map(resourceToMeta));
+  return limitResourceMetas(
+    mergeResourceMetas(workspaceResources, granted.map(resourceToMeta)),
+    options?.limit,
+  );
 }
 
 export async function resourceListContentByOwnersAndPrefixes(
@@ -2305,12 +2376,36 @@ export async function resourceListAccessible(
     }),
   ]);
 
-  return mergeResourceMetas(
-    personal,
+  return limitResourceMetas(
     mergeResourceMetas(
-      organization,
-      mergeResourceMetas(legacyShared, workspace),
+      personal,
+      mergeResourceMetas(
+        organization,
+        mergeResourceMetas(legacyShared, workspace),
+      ),
     ),
+    options?.limit,
+  );
+}
+
+/** Organization/shared rows a caller can list, including the legacy app default. */
+export async function resourceListOrganization(
+  orgId: string | null,
+  pathPrefix?: string,
+  options?: ResourceListOptions,
+): Promise<ResourceMeta[]> {
+  const organizationOwner = sharedResourceOwner(orgId);
+  const scopedOptions = { ...options, orgId };
+  if (organizationOwner === SHARED_OWNER) {
+    return resourceList(SHARED_OWNER, pathPrefix, scopedOptions);
+  }
+  const [organization, legacyAppDefaults] = await Promise.all([
+    resourceList(organizationOwner, pathPrefix, scopedOptions),
+    resourceList(SHARED_OWNER, pathPrefix, scopedOptions),
+  ]);
+  return limitResourceMetas(
+    mergeResourceMetas(organization, legacyAppDefaults),
+    options?.limit,
   );
 }
 

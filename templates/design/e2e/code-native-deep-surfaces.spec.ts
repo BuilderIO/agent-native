@@ -371,22 +371,8 @@ test("run-design-audit scopes findings to the requested file", async ({
   ).toBe(false);
 });
 
-// background-image stays "none" — the shader fill never reaches the element.
-// Two explanations ruled out: the click path is valid (Browse Shaders exists
-// at DesignExtensionsPanel.tsx:1261 and "Mesh Gradient" is the preset's
-// own label in shared/shader-presets.ts), and the harness does have WebGL
-// (WebGL 2.0 via ANGLE/SwiftShader), so this is not label drift and not a
-// missing GPU. shared/shader-fills.ts persists shaders as CSS gradients, so
-// the transient preview is what fails to reach the element.
-// Not label drift, not missing WebGL, and not a crash: the transient preview
-// exists only in the single-screen DesignCanvas. `shaderFillPreview` has zero
-// occurrences in MultiScreenCanvas.tsx and shaderFillPreviewBridgeScript is
-// injected only by DesignCanvas, so in the overview the editor actually runs
-// there is no code path to reach the element and background-image stays "none".
-// `gradientEditTarget` appears 11x in BOTH canvases, so porting is the
-// established pattern and this one was simply left behind — a feature port
-// into the canvas, not a test fix.
-test.fixme("shader preview is transient while apply-shader-fill persists", async ({
+// Overview renders multiple DesignCanvas instances, but the preview belongs to the active screen.
+test("shader preview reaches the active overview screen and apply-shader-fill persists", async ({
   page,
   request,
 }) => {

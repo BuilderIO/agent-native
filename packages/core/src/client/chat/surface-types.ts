@@ -232,6 +232,8 @@ export interface AssistantChatProps {
   composerPlaceholder?: string;
   /** Controls the compactness of the provider setup panel attached above the composer. */
   missingApiKeySetupLayout?: BuilderSetupCardLayout;
+  /** Hide the provider setup panel when another host surface owns that prompt. */
+  showMissingApiKeySetup?: boolean;
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
   /** Center the composer on a fresh empty chat instead of pinning it low. */

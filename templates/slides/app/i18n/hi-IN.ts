@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "स्लाइड {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["hi-IN"],
+  common: {
+    loading: "लोड हो रहा है...",
+  },
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
     searchDecks: "डेक खोजें",
@@ -44,13 +47,9 @@ const messages = {
   settings: {
     agentObservability: "एजेंट अवलोकन",
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
     labLayoutOverflowWarningDescription: "एडिटर में लेआउट ओवरफ्लो चेतावनी दिखाएँ।",
-    emailNotifications: "ईमेल सूचनाएँ",
-    emailNotificationsDescription:
-      "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
     notificationsEmail: "ईमेल",
     commentsAndReplies: "टिप्पणियाँ और जवाब",
@@ -58,9 +57,6 @@ const messages = {
     retry: "फिर कोशिश करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -841,6 +837,7 @@ const messages = {
       networkFailed:
         "आयात अनुरोध का समय समाप्त हो गया या नेटवर्क कनेक्शन टूट गया। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
       notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+      unsupportedFileType: "यह फ़ाइल प्रकार समर्थित नहीं है। समर्थित फ़ाइल चुनें।",
       uploadLimitExceeded:
         "अपलोड की अनुमति सीमा पार हो गई है। फ़ाइल का आकार कम करें या कम फ़ाइलें चुनें, फिर दोबारा कोशिश करें।",
     },
@@ -881,6 +878,8 @@ const messages = {
       notReady:
         "संदर्भ लोड हो रहा है या उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें या उसे हटाएं।",
       emptySource: "इस स्रोत से उपयोगी संदर्भ नहीं मिला।",
+      websiteReadFailed:
+        "इस वेबसाइट को अपने-आप नहीं पढ़ा जा सका। इसके बजाय संबंधित टेक्स्ट कॉपी करके पेस्ट करें।",
       figmaReadFailed:
         "Design यह Figma संदर्भ नहीं पढ़ सका। Design में सेव किया गया Figma access token और यह जाँचें कि उससे जुड़ा खाता फ़ाइल खोल सकता है, फिर दोबारा कोशिश करें।",
       tooMany: "अधिकतम 20 संदर्भ चुनें।",
@@ -1034,6 +1033,11 @@ const messages = {
     emptyTitle: "अभी कोई डेक नहीं",
     createFirstDeck: "अपना पहला डेक बनाएं",
     emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
   },
 };
 

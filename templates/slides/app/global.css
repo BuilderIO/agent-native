@@ -79,7 +79,7 @@
   flex: 1 1 150px;
 }
 
-.slides-home-mobile-toolbar > :nth-child(2) {
+.slides-home-mobile-toolbar > :last-child {
   flex-shrink: 0;
   margin-inline-start: auto;
 }

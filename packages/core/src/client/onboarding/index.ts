@@ -26,6 +26,10 @@ export { OnboardingBanner } from "./OnboardingBanner.js";
 export { SetupButton } from "./SetupButton.js";
 export { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 export {
+  ONBOARDING_PRIMARY_BUTTON_CLASS,
+  OnboardingStepLayout,
+} from "./OnboardingStepLayout.js";
+export {
   listFirstRunOnboardingExtensions,
   registerFirstRunOnboardingExtension,
 } from "./first-run-registry.js";

@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "第 {{current}} 页，共 {{total}} 页",
   },
   creativeContext: creativeContextMessagesByLocale["zh-CN"],
+  common: {
+    loading: "正在加载...",
+  },
   root: {
     commandPresentations: "演示文稿",
     searchDecks: "搜索幻灯片",
@@ -44,13 +47,9 @@ const messages = {
   settings: {
     agentObservability: "代理可观测性",
     title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
     labs: "实验室",
     labsIntro: "在正式发布前预览实验性功能。",
     labLayoutOverflowWarningDescription: "在编辑器中显示布局溢出警告。",
-    emailNotifications: "邮件通知",
-    emailNotificationsDescription:
-      "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
     saveFailed: "保存失败",
     notificationsEmail: "电子邮件",
     commentsAndReplies: "评论和回复",
@@ -58,9 +57,6 @@ const messages = {
     retry: "重试",
     mcpAbout:
       "将 Slides 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Slides 中工作：创建演示文稿、添加幻灯片并导出为 PowerPoint。它只能看到你有权看到的内容。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
@@ -825,6 +821,7 @@ const messages = {
       invalidFile: "请选择 PDF 或 PPTX 文件。",
       networkFailed: "导入请求超时或网络连接中断。请检查网络连接后重试。",
       notStarted: "完成所需的登录后，请重试导入。",
+      unsupportedFileType: "不支持此文件类型。请选择受支持的文件。",
       uploadLimitExceeded:
         "上传内容超出允许的限制。请缩小文件或减少文件数量后重试。",
     },
@@ -863,6 +860,7 @@ const messages = {
       figma: "Figma 画框",
       notReady: "上下文仍在加载或不可用。请重试或移除后再发送。",
       emptySource: "此来源未返回可用的上下文。",
+      websiteReadFailed: "无法自动读取此网站。请改为复制并粘贴相关文本。",
       figmaReadFailed:
         "Design 无法读取此 Figma 参考内容。请检查 Design 中保存的 Figma 访问令牌，以及关联账号是否有权打开该文件，然后重试。",
       tooMany: "最多选择 20 项参考资料。",
@@ -1012,6 +1010,11 @@ const messages = {
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription: "使用 AI 生成精美演示文稿。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
   },
 };
 

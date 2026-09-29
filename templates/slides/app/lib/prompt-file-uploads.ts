@@ -46,6 +46,16 @@ export function isPromptUploadLimitError(error: unknown): boolean {
   );
 }
 
+export function isPromptUploadUnsupportedFileTypeError(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof Error &&
+    "failureReason" in error &&
+    error.failureReason === "unsupported-file-type"
+  );
+}
+
 export function isPromptUploadStorageStatusError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -248,6 +258,7 @@ function promptUploadNetworkError(cause: unknown, fileName?: string): Error {
 export function promptUploadHttpError(
   status: number,
   fileName?: string,
+  failureReason?: "unsupported-file-type",
 ): Error {
   return Object.assign(new Error("Reference file upload failed"), {
     code:
@@ -258,7 +269,40 @@ export function promptUploadHttpError(
           : "reference_storage_http_failed",
     status,
     ...(fileName ? { fileName } : {}),
+    ...(failureReason ? { failureReason } : {}),
   });
+}
+
+async function parsePromptUploadFailure(
+  response: Response,
+  files: readonly File[],
+): Promise<Error> {
+  let body: Record<string, unknown> | undefined;
+  try {
+    const value: unknown = await response.json();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      body = value as Record<string, unknown>;
+    }
+  } catch {
+    // coercion-ok: the HTTP status remains a typed upload failure when its body is malformed.
+  }
+
+  const failedFileName =
+    typeof body?.failedFileName === "string" ? body.failedFileName : undefined;
+  const fileName =
+    files.find((file) => file.name === failedFileName)?.name ??
+    (failedFileName?.trim()
+      ? failedFileName
+      : files.length === 1
+        ? files[0]?.name
+        : undefined);
+  const failureReason =
+    typeof body?.error === "string" &&
+    body.error.includes("Unsupported file type. Allowed: ")
+      ? "unsupported-file-type"
+      : undefined;
+
+  return promptUploadHttpError(response.status, fileName, failureReason);
 }
 
 async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
@@ -281,23 +325,7 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
     throw cause;
   }
   if (!response.ok) {
-    let failedFileName: unknown;
-    try {
-      const error = (await response.json()) as {
-        failedFileName?: unknown;
-      };
-      failedFileName = error?.failedFileName;
-    } catch {
-      failedFileName = undefined;
-    }
-    const matchedFileName =
-      typeof failedFileName === "string"
-        ? files.find((file) => file.name === failedFileName)?.name
-        : undefined;
-    throw promptUploadHttpError(
-      response.status,
-      matchedFileName ?? (files.length === 1 ? files[0]?.name : undefined),
-    );
+    throw await parsePromptUploadFailure(response, files);
   }
   const data = await readUploadJson(response);
   return parseUploadedFiles(data, files.length);
@@ -345,7 +373,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
     },
   );
   if (!startResponse.ok) {
-    throw promptUploadHttpError(startResponse.status, file.name);
+    throw await parsePromptUploadFailure(startResponse, [file]);
   }
   const startData = await readUploadJson(startResponse);
   if (
@@ -382,7 +410,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
       },
     );
     if (!chunkResponse.ok) {
-      throw promptUploadHttpError(chunkResponse.status, file.name);
+      throw await parsePromptUploadFailure(chunkResponse, [file]);
     }
     const chunkData = await readUploadJson(chunkResponse);
     if (isFinal) {

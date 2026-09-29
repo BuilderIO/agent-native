@@ -20,6 +20,20 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      'const useInboxThreadsForActionTargets = view === "inbox" && hasAccounts && activeSearchQuery === null && activeSavedFilterQuery === undefined && activeLabel === null',
+    );
+    expect(source).toContain(
+      'enabled: isMailboxView && (view !== "inbox" || (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady))',
+    );
+    expect(source).toContain(
+      "const currentViewEmails = useInboxThreadsForActionTargets ? (inboxThreads.data?.items ?? []) : legacyCurrentViewEmails",
+    );
+  });
+
   it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
     const source = appLayoutSource();
 
@@ -86,6 +100,14 @@ describe("AppLayout inbox tab bar", () => {
     );
   });
 
+  it("shows inbox category tabs only in the inbox view", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+    );
+  });
+
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
     const source = appLayoutSource();
 
@@ -107,6 +129,60 @@ describe("AppLayout inbox tab bar", () => {
     );
     expect(source).not.toContain('getInboxCount("unread")');
     expect(source).not.toContain("labelThreadCounts");
+  });
+
+  it("scopes mailbox actions to the active search and label", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("isMailboxView ? shellQueryScope.emailView");
+    expect(source).toContain("shellQueryScope.effectiveLabel");
+  });
+
+  it("keeps inbox action targets inside the active pinned-label or Other tab", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+    const targetStart = source.indexOf("const targetEmail = useMemo(() => {");
+    const targetEnd = source.indexOf("const dismissEmail", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(source).toContain("pinnedTriageLabels(pinnedLabels).includes(");
+    expect(source).toContain("filterInboxTabEmails(");
+    expect(source).toContain(
+      "actionTargetTab === OTHER_INBOX_TAB_PARAM ? null : actionTargetTab",
+    );
+    expect(targetSelection).toContain("actionTargetEmails.find(");
+    expect(targetSelection).toContain(
+      "return actionTargetEmails[0] ?? undefined",
+    );
+    expect(targetSelection).not.toContain("currentViewEmails");
+  });
+
+  it("keys the shell mailbox query to the active saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toMatch(
+      /const activeSavedFilterQuery = savedFilters\.find\(\s*\(filter\) => filter\.id === activeFilterId,\s*\)\?\.query;/,
+    );
+    expect(source).toContain(
+      "activeSavedFilterQuery ?? activeSearchQuery ?? undefined",
+    );
+  });
+
+  it("does not target previous-query rows while filters change", () => {
+    const source = appLayoutSource();
+    const hookSource = readFileSync(
+      new URL("../../hooks/use-emails.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(hookSource).toContain("isPlaceholderData: q.isPlaceholderData");
+    const targetStart = source.indexOf("const actionTargetEmails = useMemo(");
+    const targetEnd = source.indexOf("const reportSpam", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(targetSelection).toContain("currentViewEmailsArePlaceholder");
+    expect(targetSelection).toContain("filterInboxTabEmails(");
+    expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
   });
 
   it("keeps Mail navigation in a hamburger-controlled drawer", () => {
@@ -453,7 +529,9 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
-    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+    );
   });
 
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {

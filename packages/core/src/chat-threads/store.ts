@@ -216,8 +216,9 @@ export async function repairLegacyChatThreadMessageCounts(
   let scanned = 0;
   let updated = 0;
   while (true) {
+    // guard:allow-unscoped — operator-invoked legacy repair scans all threads by explicit maintenance contract
     const { rows } = await client.execute({
-      sql: `SELECT id, thread_data, message_count FROM chat_threads
+      sql: `SELECT id, owner_email, thread_data, message_count FROM chat_threads
             WHERE message_count = 0
               AND thread_data LIKE '%"messages"%'
               AND id > ?
@@ -232,8 +233,8 @@ export async function repairLegacyChatThreadMessageCounts(
       const count = deriveMessageCount(row.thread_data, 0);
       if (count <= 0) continue;
       const result = await client.execute({
-        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0`,
-        args: [count, afterId],
+        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0 AND LOWER(owner_email) = LOWER(?)`,
+        args: [count, afterId, row.owner_email],
       });
       if (result.rowsAffected > 0) updated++;
     }
@@ -321,6 +322,7 @@ export interface ForkThreadSourceSnapshot {
   title?: string;
   preview?: string;
   messageCount?: number;
+  fromMessageId?: string;
   scope?: ChatThreadScope | null;
 }
 
@@ -370,6 +372,7 @@ function normalizeForkSourceSnapshot(
   title: string;
   preview: string;
   messageCount: number;
+  fromMessageId?: string;
   scope?: ChatThreadScope | null;
 } | null {
   if (!source || typeof source.threadData !== "string") return null;
@@ -383,27 +386,286 @@ function normalizeForkSourceSnapshot(
     return null;
   }
 
-  const repoMessageCount = Array.isArray(parsed.messages)
-    ? parsed.messages.length
-    : 0;
-  if (repoMessageCount <= 0) return null;
+  const messageCount = countThreadMessages(parsed, 0);
+  if (messageCount <= 0) return null;
 
   return {
     threadData: JSON.stringify(parsed),
     title: typeof source.title === "string" ? source.title : "",
     preview: typeof source.preview === "string" ? source.preview : "",
-    messageCount: repoMessageCount,
+    messageCount,
+    ...(typeof source.fromMessageId === "string"
+      ? { fromMessageId: source.fromMessageId }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(source, "scope")
       ? { scope: source.scope ?? null }
       : {}),
   };
 }
 
+function countThreadMessages(value: unknown, fallback: number): number {
+  const repo = normalizeThreadRepository(value);
+  if (!repo || typeof repo !== "object") return fallback;
+  const repoMessageCount = Array.isArray(repo.messages)
+    ? repo.messages.length
+    : undefined;
+  const agentKitMessageCount = Array.isArray(repo.agentKit?.messages)
+    ? repo.agentKit.messages.length
+    : undefined;
+  if (repoMessageCount === undefined && agentKitMessageCount === undefined) {
+    return fallback;
+  }
+  return Math.max(repoMessageCount ?? 0, agentKitMessageCount ?? 0);
+}
+
+function forkThreadData(
+  threadData: string,
+  forkId: string,
+  fromMessageId?: string,
+): string {
+  const parsed = normalizeThreadRepository(JSON.parse(threadData));
+  const repository =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  const agentKit = repository?.agentKit;
+  if (!agentKit || typeof agentKit !== "object" || Array.isArray(agentKit)) {
+    return threadData;
+  }
+  const agentKitRecord = agentKit as Record<string, unknown>;
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  const repositoryMessages = Array.isArray(repository.messages)
+    ? repository.messages
+    : [];
+  const protocolMessages = Array.isArray(agentKitRecord.messages)
+    ? agentKitRecord.messages
+    : [];
+  const messageId = (value: unknown) => {
+    const outer = asRecord(value);
+    const message = asRecord(outer?.message) ?? outer;
+    return typeof message?.id === "string" ? message.id : undefined;
+  };
+  const messageIds = new Set<string>();
+  if (fromMessageId) {
+    for (const messages of [repositoryMessages, protocolMessages]) {
+      const throughIndex = messages.findIndex(
+        (message) => messageId(message) === fromMessageId,
+      );
+      if (throughIndex >= 0) {
+        for (const message of messages.slice(0, throughIndex + 1)) {
+          const id = messageId(message);
+          if (id) messageIds.add(id);
+        }
+      }
+    }
+    if (!messageIds.has(fromMessageId)) {
+      throw new Error(`Unknown message for fork: ${fromMessageId}`);
+    }
+  } else {
+    for (const message of [...repositoryMessages, ...protocolMessages]) {
+      const id = messageId(message);
+      if (id) messageIds.add(id);
+    }
+  }
+  const events = Array.isArray(agentKitRecord.events)
+    ? agentKitRecord.events
+    : [];
+  const runs = Array.isArray(agentKitRecord.runs) ? agentKitRecord.runs : [];
+  const eventBoundaries = new Map<string, number>();
+  for (const rawEvent of events) {
+    const event = asRecord(rawEvent);
+    const message = asRecord(event?.message);
+    const messageId =
+      typeof event?.messageId === "string"
+        ? event.messageId
+        : typeof message?.id === "string"
+          ? message.id
+          : undefined;
+    if (
+      event?.type === "message.completed" &&
+      typeof event?.runId === "string" &&
+      typeof event.sequence === "number" &&
+      messageId &&
+      messageIds.has(messageId)
+    ) {
+      eventBoundaries.set(
+        event.runId,
+        Math.max(eventBoundaries.get(event.runId) ?? 0, event.sequence),
+      );
+    }
+  }
+  for (const rawRun of runs) {
+    const run = asRecord(rawRun);
+    if (
+      typeof run?.id === "string" &&
+      typeof run.activeMessageId === "string" &&
+      messageIds.has(run.activeMessageId) &&
+      typeof run.lastSequence === "number"
+    ) {
+      eventBoundaries.set(
+        run.id,
+        Math.max(eventBoundaries.get(run.id) ?? 0, run.lastSequence),
+      );
+    }
+  }
+  const retainedRunIds = new Set(eventBoundaries.keys());
+  const nonterminalRunIds = new Set(
+    runs.flatMap((rawRun) => {
+      const run = asRecord(rawRun);
+      return typeof run?.id === "string" &&
+        (run.status === "queued" ||
+          run.status === "running" ||
+          run.status === "awaiting_approval" ||
+          run.status === "awaiting_input")
+        ? [run.id]
+        : [];
+    }),
+  );
+  const activeMessageIds = new Set(
+    runs.flatMap((rawRun) => {
+      const run = asRecord(rawRun);
+      return typeof run?.id === "string" &&
+        nonterminalRunIds.has(run.id) &&
+        typeof run.activeMessageId === "string"
+        ? [run.activeMessageId]
+        : [];
+    }),
+  );
+  const retainedMessageId = (value: unknown) => {
+    const id = messageId(value);
+    return Boolean(id && messageIds.has(id));
+  };
+  const remapThreadId = (value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? { ...value, threadId: forkId }
+      : value;
+  return JSON.stringify({
+    ...repository,
+    ...(Array.isArray(repository.messages)
+      ? { messages: repositoryMessages.filter(retainedMessageId) }
+      : {}),
+    agentKit: {
+      ...agentKitRecord,
+      ...(Array.isArray(agentKitRecord.messages)
+        ? {
+            messages: agentKitRecord.messages
+              .filter(retainedMessageId)
+              .map((message) => {
+                const record = asRecord(message)!;
+                return typeof record.id === "string" &&
+                  activeMessageIds.has(record.id) &&
+                  record.status === "streaming"
+                  ? { ...record, status: "complete" }
+                  : record;
+              }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.events)
+        ? {
+            events: events.flatMap((rawEvent) => {
+              const event = asRecord(rawEvent);
+              const runId = event?.runId;
+              const boundary =
+                typeof runId === "string"
+                  ? eventBoundaries.get(runId)
+                  : undefined;
+              if (
+                typeof runId !== "string" ||
+                boundary === undefined ||
+                typeof event?.sequence !== "number" ||
+                event.sequence > boundary
+              ) {
+                return [];
+              }
+              if (
+                nonterminalRunIds.has(runId) &&
+                (event.type === "activity.started" ||
+                  event.type === "activity.updated")
+              ) {
+                const activity = asRecord(event.activity);
+                if (activity?.status === "running") {
+                  return [
+                    {
+                      ...event,
+                      type: "activity.completed",
+                      activity: { ...activity, status: "cancelled" },
+                      threadId: forkId,
+                    },
+                  ];
+                }
+              }
+              return [remapThreadId(rawEvent)];
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.runs)
+        ? {
+            runs: runs.flatMap((rawRun) => {
+              const run = asRecord(rawRun);
+              if (typeof run?.id !== "string" || !retainedRunIds.has(run.id)) {
+                return [];
+              }
+              const copied: Record<string, unknown> = {
+                ...run,
+                threadId: forkId,
+              };
+              if (nonterminalRunIds.has(run.id)) {
+                copied.status = "cancelled";
+                delete copied.activeMessageId;
+              }
+              return [copied];
+            }),
+          }
+        : {}),
+      ...(fromMessageId && Array.isArray(agentKitRecord.toolCalls)
+        ? {
+            toolCalls: agentKitRecord.toolCalls.filter((rawToolCall) => {
+              const toolCall = asRecord(rawToolCall);
+              if (typeof toolCall?.messageId === "string") {
+                return messageIds.has(toolCall.messageId);
+              }
+              return (
+                typeof toolCall?.runId === "string" &&
+                retainedRunIds.has(toolCall.runId)
+              );
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.widgets)
+        ? {
+            widgets: agentKitRecord.widgets.filter((widget) => {
+              const record = asRecord(widget);
+              return (
+                typeof record?.messageId === "string" &&
+                messageIds.has(record.messageId)
+              );
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.annotations)
+        ? {
+            annotations: agentKitRecord.annotations.filter((annotation) => {
+              const record = asRecord(annotation);
+              return (
+                typeof record?.messageId === "string" &&
+                messageIds.has(record.messageId)
+              );
+            }),
+          }
+        : {}),
+      ...(fromMessageId ? { suggestions: [] } : {}),
+      activeRunIds: [],
+    },
+  });
+}
+
 function deriveMessageCount(threadData: unknown, fallback: number): number {
   if (typeof threadData !== "string" || !threadData.trim()) return fallback;
   try {
-    const repo = normalizeThreadRepository(JSON.parse(threadData));
-    if (Array.isArray(repo.messages)) return repo.messages.length;
+    return countThreadMessages(JSON.parse(threadData), fallback);
   } catch {
     // Keep the stored count if the JSON blob is malformed.
   }
@@ -586,6 +848,7 @@ export async function resolveThreadsAccess(
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
   const client = getDbExec();
+  // guard:allow-unscoped — internal lookup; request handlers validate owner/share access before returning or mutating data
   const { rows } = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id = ?`,
     args: [id],
@@ -601,6 +864,7 @@ export async function getThread(id: string): Promise<ChatThread | null> {
  */
 export async function setThreadSourceIfMissing(
   id: string,
+  ownerEmail: string,
   source: ChatThreadSource | null | undefined,
 ): Promise<boolean> {
   if (!source || (!source.platform && !source.appId && !source.url)) {
@@ -609,12 +873,13 @@ export async function setThreadSourceIfMissing(
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ?`,
+    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
     args: [
       source.platform ?? null,
       source.appId ?? null,
       source.url ?? null,
       id,
+      ownerEmail,
     ],
   });
   return result.rowsAffected > 0;
@@ -652,7 +917,10 @@ export async function forkThread(
           snapshot.messageCount,
         );
         if (Object.prototype.hasOwnProperty.call(snapshot, "scope")) {
-          await setThreadScope(sourceId, snapshot.scope ?? null);
+          if (snapshot.scope === undefined) {
+            throw new Error("Normalized fork source scope must be explicit");
+          }
+          await setThreadScope(sourceId, ownerEmail, snapshot.scope);
         }
         source = await getThread(sourceId);
       }
@@ -660,19 +928,18 @@ export async function forkThread(
   } else if (
     snapshot &&
     source.ownerEmail === ownerEmail &&
-    snapshot.messageCount > source.messageCount
+    (snapshot.fromMessageId || snapshot.messageCount > source.messageCount)
   ) {
-    // The source row exists but the in-memory snapshot is fresher — the agent
-    // run flushed an older state to SQL, but the tab has additional unflushed
-    // messages. Overlay the snapshot before cloning so the fork captures the
-    // latest user-visible content. Guard with messageCount > stored to avoid
-    // clobbering a fresher persisted row with a stale snapshot from another
-    // tab.
+    // Message-scoped forks intentionally carry a truncated snapshot even when
+    // the persisted source has later messages; full forks only overlay fresher
+    // client snapshots.
     source = {
       ...source,
       threadData: snapshot.threadData,
       title: snapshot.title || source.title,
-      preview: snapshot.preview || source.preview,
+      preview: snapshot.fromMessageId
+        ? snapshot.preview
+        : snapshot.preview || source.preview,
       messageCount: snapshot.messageCount,
     };
   }
@@ -683,6 +950,11 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
+  const threadData = forkThreadData(
+    source.threadData,
+    id,
+    snapshot?.fromMessageId,
+  );
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -694,7 +966,7 @@ export async function forkThread(
       ownerEmail,
       title,
       source.preview,
-      source.threadData,
+      threadData,
       source.messageCount,
       now,
       now,
@@ -712,7 +984,7 @@ export async function forkThread(
     ownerEmail,
     title,
     preview: source.preview,
-    threadData: source.threadData,
+    threadData,
     messageCount: source.messageCount,
     createdAt: now,
     updatedAt: now,
@@ -909,18 +1181,20 @@ export function resolveRunThreadScope(
  */
 export async function adoptThreadScopeIfUnscoped(
   id: string,
+  ownerEmail: string,
   scope: ChatThreadScope,
 ): Promise<ChatThreadScope | null> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND scope_type IS NULL`,
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?) AND scope_type IS NULL`,
     args: [
       scope.type,
       scope.id,
       scope.label ?? null,
       Math.max(Date.now(), 1),
       id,
+      ownerEmail,
     ],
   });
   if (result.rowsAffected > 0) {
@@ -937,18 +1211,20 @@ export async function adoptThreadScopeIfUnscoped(
  */
 export async function setThreadScope(
   id: string,
+  ownerEmail: string,
   scope: ChatThreadScope | null,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ?`,
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
     args: [
       scope?.type ?? null,
       scope?.id ?? null,
       scope?.label ?? null,
       Math.max(Date.now(), 1),
       id,
+      ownerEmail,
     ],
   });
   emitChatThreadChange(id);
@@ -1089,9 +1365,7 @@ export async function updateThreadData(
           },
         );
         nextThreadData = JSON.stringify(merged);
-        if (Array.isArray(merged.messages)) {
-          nextMessageCount = merged.messages.length;
-        }
+        nextMessageCount = countThreadMessages(merged, messageCount);
       } catch {
         // Keep the caller's serialized value if either JSON blob is malformed.
       }
@@ -1107,7 +1381,7 @@ export async function updateThreadData(
         ? current.preview
         : preview;
       const result = await client.execute({
-        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ?`,
+        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [
           nextThreadData,
           nextTitle,
@@ -1116,6 +1390,7 @@ export async function updateThreadData(
           nextUpdatedAt,
           id,
           current.updatedAt,
+          current.ownerEmail,
         ],
       });
 
@@ -1457,7 +1732,7 @@ export async function createThreadShareLink(
     // Mirror the hash into the indexed column so getThreadByShareToken
     // resolves via an equality lookup instead of a LIKE scan over every
     // thread's blob. thread_data stays the source of truth for validation.
-    await setThreadShareTokenHashColumn(threadId, tokenHash);
+    await setThreadShareTokenHashColumn(threadId, thread.ownerEmail, tokenHash);
 
     return {
       enabled: true,
@@ -1471,12 +1746,13 @@ export async function createThreadShareLink(
 
 async function setThreadShareTokenHashColumn(
   threadId: string,
+  ownerEmail: string,
   tokenHash: string | null,
 ): Promise<void> {
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ?`,
-    args: [tokenHash, threadId],
+    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [tokenHash, threadId, ownerEmail],
   });
 }
 
@@ -1507,7 +1783,7 @@ export async function revokeThreadShareLink(
       thread.preview,
       thread.messageCount,
     );
-    await setThreadShareTokenHashColumn(threadId, null);
+    await setThreadShareTokenHashColumn(threadId, thread.ownerEmail, null);
 
     return {
       enabled: false,
@@ -1538,6 +1814,7 @@ export async function getThreadByShareToken(
   };
 
   // Fast path: indexed equality lookup on the mirrored hash column.
+  // guard:allow-unscoped — public bearer-token lookup; stored hash and revocation state are validated before returning the thread
   const indexed = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash = ? LIMIT 10`,
     args: [tokenHash],
@@ -1550,6 +1827,7 @@ export async function getThreadByShareToken(
   // Legacy fallback: shares created before the share_token_hash column
   // existed only carry the hash inside the thread_data blob. Backfill the
   // column on hit so the next lookup takes the indexed path.
+  // guard:allow-unscoped — public bearer-token lookup; each candidate is validated against stored hash and revocation state
   const legacy = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash IS NULL AND thread_data LIKE ? LIMIT 10`,
     args: [`%${tokenHash}%`],
@@ -1557,7 +1835,11 @@ export async function getThreadByShareToken(
   for (const row of legacy.rows) {
     const thread = validate(row);
     if (thread) {
-      await setThreadShareTokenHashColumn(thread.id, tokenHash).catch(() => {});
+      await setThreadShareTokenHashColumn(
+        thread.id,
+        thread.ownerEmail,
+        tokenHash,
+      ).catch(() => {});
       return thread;
     }
   }
@@ -1609,12 +1891,15 @@ export async function grantThreadUserShare(
   });
 }
 
-export async function deleteThread(id: string): Promise<boolean> {
+export async function deleteThread(
+  id: string,
+  ownerEmail: string,
+): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ?`,
-    args: [id],
+    sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [id, ownerEmail],
   });
   if (result.rowsAffected > 0) {
     await client

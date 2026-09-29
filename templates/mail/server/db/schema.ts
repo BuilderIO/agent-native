@@ -30,10 +30,20 @@ export const scheduledJobs = table("scheduled_jobs", {
   payload: text("payload").notNull(),
   runAt: integer("run_at").notNull(),
   status: text("status", {
-    enum: ["pending", "processing", "done", "cancelled"],
+    enum: [
+      "pending",
+      "processing",
+      "done",
+      "cancelled",
+      "uncertain",
+      "retry_queued",
+    ],
   })
     .notNull()
     .default("pending"),
+  processingClaimId: text("processing_claim_id"),
+  processingLeaseUntil: integer("processing_lease_until"),
+  sendStartedAt: integer("send_started_at"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -154,6 +164,14 @@ export const mailSyncAccounts = table(
     fullSyncPageToken: text("full_sync_page_token"),
     fullSyncHistoryId: text("full_sync_history_id"),
     fullSyncStartedAt: integer("full_sync_started_at"),
+    fullSyncPhase: text("full_sync_phase", { enum: ["reconcile"] }),
+    fullSyncReconcilePageToken: text("full_sync_reconcile_page_token"),
+    fullSyncReconcilePendingIdsJson: text(
+      "full_sync_reconcile_pending_ids_json",
+    ),
+    fullSyncReconcilePasses: integer("full_sync_reconcile_passes")
+      .notNull()
+      .default(0),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })
@@ -166,12 +184,55 @@ export const mailSyncAccounts = table(
       .default(0),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
+    lastWatchRenewedAt: bigint("last_watch_renewed_at", { mode: "number" }),
+    lastWatchAttemptedAt: bigint("last_watch_attempted_at", { mode: "number" }),
+    lastAutomationAttemptedAt: bigint("last_automation_attempted_at", {
+      mode: "number",
+    }),
+    watchRenewClaimId: text("watch_renew_claim_id"),
+    watchRenewClaimedAt: bigint("watch_renew_claimed_at", { mode: "number" }),
     labelsJson: text("labels_json"),
     labelsUpdatedAt: integer("labels_updated_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [index("mail_sync_accounts_owner_idx").on(t.ownerEmail)],
+  (t) => [
+    index("mail_sync_accounts_owner_idx").on(t.ownerEmail),
+    index("mail_sync_accounts_automation_attempted_id_idx").on(
+      sql`COALESCE(${t.lastAutomationAttemptedAt}, 0)`,
+      t.id,
+    ),
+    index("mail_sync_accounts_watch_attempted_id_idx").on(
+      sql`COALESCE(${t.lastWatchAttemptedAt}, 0)`,
+      t.id,
+    ),
+  ],
+);
+
+export const mailGmailQuotaBudgets = table(
+  "mail_gmail_quota_budgets",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    quotaWindowStartedAt: bigint("quota_window_started_at", { mode: "number" })
+      .notNull()
+      .default(0),
+    quotaUnitsUsed: integer("quota_units_used").notNull().default(0),
+    quotaBackgroundUnitsUsed: integer("quota_background_units_used")
+      .notNull()
+      .default(0),
+    quotaBackfillUnitsUsed: integer("quota_backfill_units_used")
+      .notNull()
+      .default(0),
+    quotaCooldownUntil: bigint("quota_cooldown_until", { mode: "number" }),
+    quotaCooldownAttempts: integer("quota_cooldown_attempts")
+      .notNull()
+      .default(0),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("mail_gmail_quota_budgets_owner_idx").on(t.ownerEmail)],
 );
 
 export const mailInboxPushInvalidations = table(

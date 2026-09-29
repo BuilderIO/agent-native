@@ -52,12 +52,27 @@ settings, provider callback registration, deployed auth configuration, or
 serverless session behavior; AuthPage copy or layout changes alone do not
 trigger it.
 
+## Existing PR authorization
+
+Before pushing to or merging an existing PR, resolve the active GitHub login
+with `gh api user --jq .login` and query the live PR including `author`,
+`headRepository`, `headRefName`, `headRefOid`, `baseRefName`, and `state`.
+Compare `author.login` with the active login. A push to another person's PR
+requires the current request to explicitly authorize a push to that exact PR;
+a PR link, branch match, or generic `/ship-now` request is not authorization.
+Merging another person's PR requires separate authorization to merge that exact
+PR. Repeat the live checks immediately before each push and merge, and push only
+to the verified head repository and branch with a normal fast-forward.
+
 ## Fast-path contract
 
 `/ship-now` publishes one complete, coherent nonignored current-branch
 snapshot. Do not publish every checkpoint or split known review/CI fixes into
 separate pushes: each new head reruns checks. Use `corepack pnpm ship:push -m`
-with a subject naming the actual behavior changed (for example,
+for a new PR. For an existing PR, use it only when `origin` matches the PR head
+repository and the local branch matches `headRefName`; otherwise follow
+`babysit-pr` to push to the verified head remote/ref. Use a subject naming the
+actual behavior changed (for example,
 `fix: deduplicate chat start checkpoints`); the helper refuses an omitted or
 generic subject. It excludes `learnings.md`, `bridge/**`, and `data/**`.
 
@@ -74,7 +89,13 @@ beta deploy checks, or the normal `/ship` soak; monitor those after the merge.
 A worktree is a valid publishing checkout. When `/ship-now` is authorized from
 a worktree, keep validation, commit, push, PR lookup, and admin merge in that
 worktree's current branch and cwd. Do not copy changes into the shared
-checkout, and update the existing PR rather than creating a second one.
+checkout, and update the existing PR rather than creating a second one. If the
+explicit `/ship-now` request starts in a shared checkout that cannot safely
+serve as the PR source, keep it unchanged and follow `new-branch` to create a
+managed task-owned worktree without asking. Base a new PR on fresh
+`origin/main`; base an existing PR update on its fetched live head so its
+history stays publishable. Carry only this task's changes. If they cannot be
+isolated safely, preserve all state and report the exact paths or commits.
 
 ## Workflow
 
@@ -84,7 +105,7 @@ checkout, and update the existing PR rather than creating a second one.
    git status --short
    git log --oneline -5
    git branch --show-current
-   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url
+   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url,author
    ```
 
    Stay on the current branch until its PR is merged. Do not reset, rebase,
@@ -128,7 +149,8 @@ checkout, and update the existing PR rather than creating a second one.
    calling them green.
 
 4. Publish the complete current-branch snapshot immediately after the local
-   gate passes:
+   gate passes. For an existing PR, honor the verified head remote/ref rule
+   above:
 
    ```bash
    corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
@@ -147,12 +169,20 @@ checkout, and update the existing PR rather than creating a second one.
      remaining;
    - every review item has a fix or an explicit reply;
    - the PR is not conflicting; and
-   - the user has explicitly authorized this `/ship-now` invocation.
+   - the user has explicitly authorized this `/ship-now` invocation; when the
+     existing PR is authored by someone else, the current request separately
+     authorizes merging that exact PR.
 
-   Use the current PR number and no force push:
+   Recheck the active login, PR author, head repository, branch, current head
+   OID, base, and state immediately before merging. Bind the merge to that
+   verified head and do not retry against a changed head without rechecking:
+
+   Before merging, record that exact OID as `ship_merge_head_oid` in the active
+   goal or task transcript and carry it unchanged through `origin/main`
+   verification.
 
    ```bash
-   gh pr merge <number> --squash --admin
+   gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
    ```
 
    Do not wait for remote CI, release checks, or the normal `/ship` soak, and
@@ -163,8 +193,8 @@ checkout, and update the existing PR rather than creating a second one.
    6. Run `/new-branch` after the merge lands. In a task-owned worktree, rotate
    to a fresh branch without asking when its freshness and clean-work gates
    pass. Preserve the source branch if unpushed commits or dirty publishable
-   paths remain. In a shared checkout, ask before changing branches unless the
-   user gave the exact operation. Never stash or touch another worktree.
+   paths remain. In a shared checkout, keep the source branch and do not rotate
+   it or ask for branch permission. Never stash or touch another worktree.
 
 7. Monitor the merged PR and release tail after rotation. Check the merged PR's
    merge commit, all workflows attached to that commit, beta deployment status,
@@ -193,8 +223,9 @@ checkout, and update the existing PR rather than creating a second one.
 
 - Never expose environment values, tokens, cookies, or private payloads in
   commits, PR text, logs, prompts, or status reports.
-- Publish all nonignored local paths through `corepack pnpm ship:push -m
-  "<specific change>"`.
+- Publish with `ship:push` only when it targets the exact PR head repository and
+  branch; for fork or differently named PR heads, follow `babysit-pr`'s verified
+  head remote/ref procedure.
 - Never silently skip a review comment, CI failure, package release failure,
   or production deploy failure.
 - Never treat a Netlify lock as the production promotion mechanism or remove it

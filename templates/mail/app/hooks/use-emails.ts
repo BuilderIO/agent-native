@@ -1361,6 +1361,7 @@ export function useEmails(
     isLoading: q.isLoading,
     isFetching: q.isFetching,
     isRefetching: q.isRefetching,
+    isPlaceholderData: q.isPlaceholderData,
     isError: q.isError && !hasCurrentQueryData,
     error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,
@@ -3257,7 +3258,10 @@ export function useUpdateSettings() {
               savedFiltersBase: base,
               requestSource: TAB_ID,
             },
-            { method: "PUT" },
+            {
+              method: "PUT",
+              headers: { "X-Request-Source": TAB_ID },
+            },
           ),
         );
       }
@@ -3265,7 +3269,10 @@ export function useUpdateSettings() {
         return callAction(
           "update-mail-preferences",
           { ...data, requestSource: TAB_ID },
-          { method: "PUT" },
+          {
+            method: "PUT",
+            headers: { "X-Request-Source": TAB_ID },
+          },
         );
       }
 
@@ -3295,7 +3302,10 @@ export function useUpdateSettings() {
             ...(intent && { pinnedLabelsBase: intent.base }),
             requestSource: TAB_ID,
           },
-          { method: "PUT" },
+          {
+            method: "PUT",
+            headers: { "X-Request-Source": TAB_ID },
+          },
         );
       });
     },
@@ -3370,8 +3380,17 @@ export function useUpdateSettings() {
         savedFiltersBaseByPatch.delete(variables);
       }
       const invalidations = [qc.invalidateQueries({ queryKey: ["settings"] })];
-      if ("showAllTab" in variables) {
-        invalidations.push(invalidateInboxThreads(qc));
+      if (
+        "pinnedLabels" in variables ||
+        "combineInbox" in variables ||
+        "showAllTab" in variables ||
+        "savedFilters" in variables ||
+        "labelAliases" in variables
+      ) {
+        invalidations.push(
+          qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY }),
+          qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] }),
+        );
       }
       return Promise.all(invalidations);
     },

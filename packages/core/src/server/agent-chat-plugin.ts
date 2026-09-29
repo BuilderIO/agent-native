@@ -164,10 +164,7 @@ import {
 } from "../chat-threads/store.js";
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import {
-  isProductionServerlessFunctionRuntime,
-  isTransientDatabaseError,
-} from "../db/client.js";
+import { isTransientDatabaseError } from "../db/client.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -181,18 +178,19 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
+import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import {
-  McpClientManager,
   mcpToolsToActionEntries,
-  syncMcpActionEntries,
   mountMcpServersRoutes,
   mountMcpHubRoutes,
-  buildMergedConfig,
-  startMcpConfigRefresh,
   getHubStatus,
   isHubServeEnabled,
   type McpActionEntryOptions,
 } from "../mcp-client/index.js";
+import {
+  normalizeMcpPrincipal,
+  principalFromRequestContext,
+} from "../mcp-client/principal.js";
 import { declaredMcpToolNames } from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
@@ -546,6 +544,22 @@ export async function runPreAgentTurnAutosave(
     });
     console.error("[agent-chat] pre-agent-turn autosave failed:", error);
   }
+}
+
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1],
+  run: Pick<
+    ActiveRun,
+    "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+  >,
+) {
+  return foldAssistantTurn(repo, assistantMsg, {
+    runId: run.runId,
+    turnId: run.turnId,
+    parentId: run.parentId,
+    agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+  });
 }
 
 /**
@@ -1082,7 +1096,6 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
-      const backgroundMcpTools = options?.backgroundMcpTools ?? "requested";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -1106,62 +1119,39 @@ export function createAgentChatPlugin(
       // third-party MCP handshakes. Build the action surface against an empty
       // manager, then hydrate it after every live action registry has subscribed
       // to manager changes.
-      const mcpManager = new McpClientManager(null);
-      const mcpActionEntries: Record<string, ActionEntry> = {};
-      let mcpInitializationPromise: Promise<void> | null = null;
-      const initializeMcpManager = async (): Promise<void> => {
-        const mcpConfig = await buildMergedConfig();
-        if (mcpConfig?.source) {
-          console.log(
-            `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-          );
-        } else if (process.env.DEBUG) {
-          console.log(
-            "[mcp-client] no configured MCP servers — skipping MCP tools",
-          );
-        }
-        await mcpManager.reconfigure(mcpConfig);
-        const stopMcpConfigRefresh = startMcpConfigRefresh(mcpManager);
-        if (stopMcpConfigRefresh) {
-          lifecycle.addCleanup(stopMcpConfigRefresh);
-        }
+      // MCP action entries are resolved against a principal-scoped manager at
+      // request time. Keep the static registries MCP-free in shared processes.
+      const getMcpActionEntriesForPrincipal = async (
+        userEmail: string | null | undefined,
+        orgId: string | null | undefined,
+        toolNames?: readonly string[],
+      ): Promise<Record<string, ActionEntry>> => {
+        const principal = normalizeMcpPrincipal({ userEmail, orgId });
+        if (!principal) return {};
+        const manager = await getMcpManagerForPrincipal(principal);
+        return mcpToolsToActionEntries(manager, {
+          ...mcpActionEntryOptions,
+          ...(toolNames ? { toolNames } : {}),
+        });
       };
-      /**
-       * Start MCP initialization at most once, and return the run in flight.
-       *
-       * On a serverless function nothing kicks this off at boot (see the
-       * `isProductionServerlessFunctionRuntime` gate below), so every surface
-       * that actually consumes MCP tools must await this or the manager stays
-       * empty for the life of the container.
-       */
-      const ensureMcpInitialized = (): Promise<void> => {
-        if (!mcpInitializationPromise) {
-          mcpInitializationPromise = initializeMcpManager().catch((err) => {
-            // Do not cache a settings outage as a successful empty manager;
-            // the next MCP-consuming request must retry the configuration read.
-            mcpInitializationPromise = null;
-            throw err;
-          });
-        }
-        return mcpInitializationPromise;
-      };
-      setGlobalMcpManager(mcpManager, ensureMcpInitialized);
       const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
-        if (requested.length === 0 && backgroundMcpTools !== "all") return {};
-        // Background action suppliers may be async so event-triggered and
-        // scheduled runs can await lazy MCP hydration on serverless cold
-        // starts. Runs without requested MCP tools still skip this work.
-        await ensureMcpInitialized();
-        const entries = mcpToolsToActionEntries(
-          mcpManager,
-          backgroundMcpTools === "all"
-            ? mcpActionEntryOptions
-            : { ...mcpActionEntryOptions, toolNames: requested },
+        const toolNames = resolveBackgroundMcpToolSelection(
+          requested,
+          options?.backgroundMcpTools === "all",
         );
-        const missing = requested.filter((toolName) => !entries[toolName]);
+        if (toolNames === null) return {};
+        const principal = principalFromRequestContext();
+        if (!principal) return {};
+        const entries = await getMcpActionEntriesForPrincipal(
+          principal.userEmail,
+          principal.orgId,
+          toolNames,
+        );
+        const missing =
+          toolNames?.filter((toolName) => !entries[toolName]) ?? [];
         if (missing.length > 0) {
           throw new Error(
             `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
@@ -1172,16 +1162,19 @@ export function createAgentChatPlugin(
 
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
-      mountMcpStatusRoute(nitroApp, mcpManager);
-      mountMcpServersRoutes(nitroApp, mcpManager, {
-        // Serialize an unusually early settings mutation behind the initial
-        // config snapshot so stale startup data cannot overwrite the write.
-        waitUntilReady: ensureMcpInitialized,
+      mountMcpStatusRoute(nitroApp);
+      mountMcpServersRoutes(nitroApp, null, {
+        resolveManager: (principal) => getMcpManagerForPrincipal(principal),
+        invalidateScope: invalidateMcpManagersForScope,
       });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
       if (isHubServeEnabled()) {
+        registerAuthPublicPaths(
+          ["/_agent-native/mcp/hub/servers"],
+          getH3App(nitroApp),
+        );
         mountMcpHubRoutes(nitroApp);
         console.log(
           "[mcp-client] hub serve enabled — other apps can pull org servers via /_agent-native/mcp/hub/servers",
@@ -1203,10 +1196,9 @@ export function createAgentChatPlugin(
       ) {
         (globalThis as any).__agentNativeMcpExitHooked = true;
         const stop = () => {
-          const mgr = getGlobalMcpManager();
           // Shutdown is best-effort — a rejection here must not surface as
           // an unhandled promise rejection during process exit.
-          if (mgr) mgr.stop().catch(() => {});
+          void stopAllMcpManagers();
         };
         process.once("exit", stop);
         process.once("SIGTERM", stop);
@@ -2483,6 +2475,10 @@ export function createAgentChatPlugin(
           // repetition guard kills the run minutes later. A rejected `{}` call
           // returns a schema error the model can fix on the next step, which is
           // strictly better than a shell loop nobody can see.
+          const requestMcpActionEntries = await getMcpActionEntriesForPrincipal(
+            userEmail,
+            getRequestOrgId(),
+          );
           const a2aActions = attachToolSearch(
             devActive
               ? {
@@ -2504,7 +2500,7 @@ export function createAgentChatPlugin(
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
-                  ...mcpActionEntries,
+                  ...requestMcpActionEntries,
                   ...devScriptsForA2A,
                   ...devRunCodeTool,
                 }
@@ -2529,7 +2525,7 @@ export function createAgentChatPlugin(
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
-                  ...mcpActionEntries,
+                  ...requestMcpActionEntries,
                   ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
                   ...prodCodingTools,
                 },
@@ -2970,7 +2966,7 @@ export function createAgentChatPlugin(
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
         Object.fromEntries(
           Object.entries(prodActions).filter(
-            ([name]) => !templateScripts[name] && !mcpActionEntries[name],
+            ([name]) => !templateScripts[name] && !name.startsWith("mcp__"),
           ),
         );
 
@@ -3068,6 +3064,11 @@ export function createAgentChatPlugin(
             // here for the same reason as the A2A surface above: an external
             // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
+            const requestMcpActionEntries =
+              await getMcpActionEntriesForPrincipal(
+                getRequestUserEmail(),
+                getRequestOrgId(),
+              );
             const mcpActions = attachToolSearch(
               devActiveMcp
                 ? {
@@ -3082,7 +3083,7 @@ export function createAgentChatPlugin(
                     ...workspaceFilesTool,
                     ...workspaceFileActions,
                     ...toolActions,
-                    ...mcpActionEntries,
+                    ...requestMcpActionEntries,
                     ...devScriptsForA2A,
                     ...devRunCodeTool,
                   }
@@ -3100,7 +3101,7 @@ export function createAgentChatPlugin(
                     ...workspaceFilesTool,
                     ...workspaceFileActions,
                     ...toolActions,
-                    ...mcpActionEntries,
+                    ...requestMcpActionEntries,
                     ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
                     ...prodCodingTools,
                   },
@@ -3415,14 +3416,7 @@ export function createAgentChatPlugin(
           }
           if (!Array.isArray(repo.messages)) repo.messages = [];
 
-          repo = foldAssistantTurn(repo, assistantMsg, {
-            runId: run.runId,
-            turnId:
-              typeof run.turnId === "string" && run.turnId
-                ? run.turnId
-                : undefined,
-            parentId: run.parentId,
-          });
+          repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
 
           // Store debug metadata so we can inspect what the LLM actually
           // received (system prompt, model, engine) when diagnosing issues.
@@ -3635,7 +3629,7 @@ export function createAgentChatPlugin(
             });
           }
           if (options?.appId) {
-            await setThreadSourceIfMissing(threadId, {
+            await setThreadSourceIfMissing(threadId, ownerEmail, {
               appId: options.appId,
             });
           }
@@ -3656,7 +3650,11 @@ export function createAgentChatPlugin(
           if (nextScope && nextScope !== thread.scope) {
             thread = {
               ...thread,
-              scope: await adoptThreadScopeIfUnscoped(threadId, nextScope),
+              scope: await adoptThreadScopeIfUnscoped(
+                threadId,
+                ownerEmail,
+                nextScope,
+              ),
             };
           }
 
@@ -3844,7 +3842,6 @@ export function createAgentChatPlugin(
         ...coreEmailTools,
         ...coreAttachmentTools,
         ...browserTools,
-        ...mcpActionEntries,
         // Sandboxed run-code for hosted production when enabled, and for the
         // app-rendered production-style handler in local dev.
         ...(canToggle || effectiveProdCodeExec !== "off" ? runCodeTool : {}),
@@ -3909,19 +3906,6 @@ export function createAgentChatPlugin(
           : {}),
       });
       leanRunCodeToolActions = leanActions;
-
-      // Keep the prod action dict's MCP entries in sync when the manager's
-      // server set changes at runtime (e.g. a user adds a remote MCP server
-      // through the settings UI). getEngineTools() in production-agent re-reads
-      // the registry per request, so updates here propagate without restart.
-      mcpManager.onChange(() => {
-        syncMcpActionEntries(
-          mcpManager,
-          mcpActionEntries,
-          mcpActionEntryOptions,
-        );
-        syncMcpActionEntries(mcpManager, prodActions, mcpActionEntryOptions);
-      });
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
       // In production mode (!canToggle), resolve the owner from the request session.
@@ -4411,6 +4395,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
+        resolveAdditionalActions: ({ ownerEmail, orgId }) =>
+          getMcpActionEntriesForPrincipal(ownerEmail, orgId),
         // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
@@ -4577,7 +4563,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
-                  ...mcpActionEntries,
                   ...devScriptRegistry,
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
@@ -4589,16 +4574,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // Wire the late-binding supplier for devRunCodeTool so the bridge can
         // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
-        // Keep dev action dict in sync with runtime MCP additions. When
-        // native-actions mode is on (lean or `nativeActionsInDev`), devActions
-        // === prodActions so the prod listener already covers it.
-        if (devActions !== prodActions && devActions !== leanActions) {
-          mcpManager.onChange(() => {
-            syncMcpActionEntries(mcpManager, devActions, mcpActionEntryOptions);
-          });
-        }
         devHandler = createProductionAgentHandler({
           actions: devActions,
+          resolveAdditionalActions: ({ ownerEmail, orgId }) =>
+            getMcpActionEntriesForPrincipal(ownerEmail, orgId),
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const requestActionsPrompt = resolveRequestActionsPrompt(
@@ -5358,16 +5337,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             source: "codebase" | "resource";
           }> = [];
           const seenNames = new Set<string>();
+          const skillLabVisibility = new Map<string, Promise<boolean>>();
+          const isSkillLabEnabled = (labKey: string): Promise<boolean> => {
+            let available = skillLabVisibility.get(labKey);
+            if (!available) {
+              available = import("./agents-bundle.js").then(
+                async ({ getEnabledSkillLabsForUser }) =>
+                  (
+                    await getEnabledSkillLabsForUser(
+                      [labKey],
+                      getRequestUserEmail(),
+                    )
+                  ).has(labKey),
+              );
+              skillLabVisibility.set(labKey, available);
+            }
+            return available;
+          };
 
           // Bundled template skills are available in production via the
           // virtual agents bundle, not the runtime filesystem. Surface them in
           // the slash/skill picker so production users can explicitly invoke
           // the same skills that are present in the prompt and docs-search.
           try {
-            const { loadAgentsBundle, getRuntimeSkills } =
+            const { loadAgentsBundle, getRuntimeSkillsForUser } =
               await import("./agents-bundle.js");
             const bundle = await loadAgentsBundle();
-            for (const skill of getRuntimeSkills(bundle)) {
+            for (const skill of await getRuntimeSkillsForUser(
+              bundle,
+              getRequestUserEmail(),
+            )) {
               const fm = parseSkillFrontmatter(skill.content);
               if (fm.userInvocable === false) continue;
               const skillName = skill.meta.name || fm.name;
@@ -5439,6 +5438,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
                     if (!isRuntimeVisibleScope(fm.scope)) continue;
+                    if (
+                      fm.requiresLab &&
+                      !(await isSkillLabEnabled(fm.requiresLab))
+                    ) {
+                      continue;
+                    }
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -5470,9 +5475,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             event,
             options?.resolveOrgId,
           );
+          let resourceSkills: Awaited<
+            ReturnType<typeof resourceListAccessible>
+          > = [];
           try {
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
-            const resourceSkills = skillsOwner
+            resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/", {
                   userEmail: skillsOwner,
                   orgId: skillsOrgId,
@@ -5485,62 +5493,60 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     orgId: skillsOrgId,
                   })),
                 ];
-            resourceSkills.sort((a, b) => {
-              const ownerOrder =
-                (a.owner === skillsOwner
-                  ? 0
-                  : a.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(a.owner)
-                      ? 2
-                      : 3) -
-                (b.owner === skillsOwner
-                  ? 0
-                  : b.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(b.owner)
-                      ? 2
-                      : 3);
-              if (ownerOrder !== 0) return ownerOrder;
-              const pathOrder =
-                (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-                (b.path.endsWith("/SKILL.md") ? 0 : 1);
-              if (pathOrder !== 0) return pathOrder;
-              return a.path.localeCompare(b.path);
-            });
-            for (const r of resourceSkills) {
-              // Try to get content to parse frontmatter
-              let skillName = getSkillNameFromPath(r.path);
-              let description: string | undefined;
-              let userInvocable: boolean | undefined;
-              try {
-                const full = await resourceGet(r.id, {
-                  userEmail: skillsOwner,
-                  orgId: skillsOrgId,
-                });
-                if (full) {
-                  const fm = parseSkillFrontmatter(full.content);
-                  if (!isRuntimeVisibleScope(fm.scope)) continue;
-                  if (fm.name) skillName = fm.name;
-                  description = fm.description;
-                  userInvocable = fm.userInvocable;
-                }
-              } catch {
-                // Could not read resource content — use path-based name
-              }
-              if (userInvocable === false) continue;
-              if (!seenNames.has(skillName)) {
-                seenNames.add(skillName);
-                skills.push({
-                  name: skillName,
-                  description,
-                  path: r.path,
-                  source: "resource",
-                });
-              }
-            }
           } catch {
             // Resources not available — skip
+          }
+
+          resourceSkills.sort((a, b) => {
+            const ownerOrder =
+              (a.owner === skillsOwner
+                ? 0
+                : a.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(a.owner)
+                    ? 2
+                    : 3) -
+              (b.owner === skillsOwner
+                ? 0
+                : b.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(b.owner)
+                    ? 2
+                    : 3);
+            if (ownerOrder !== 0) return ownerOrder;
+            const pathOrder =
+              (a.path.endsWith("/SKILL.md") ? 0 : 1) -
+              (b.path.endsWith("/SKILL.md") ? 0 : 1);
+            if (pathOrder !== 0) return pathOrder;
+            return a.path.localeCompare(b.path);
+          });
+          for (const r of resourceSkills) {
+            let full;
+            try {
+              full = await resourceGet(r.id, {
+                userEmail: skillsOwner,
+                orgId: skillsOrgId,
+              });
+            } catch {
+              // Unreadable skill metadata cannot establish runtime access.
+              continue;
+            }
+            if (!full) continue;
+            const fm = parseSkillFrontmatter(full.content);
+            if (!isRuntimeVisibleScope(fm.scope)) continue;
+            if (fm.requiresLab && !(await isSkillLabEnabled(fm.requiresLab))) {
+              continue;
+            }
+            const skillName = fm.name || getSkillNameFromPath(r.path);
+            if (fm.userInvocable === false || seenNames.has(skillName))
+              continue;
+            seenNames.add(skillName);
+            skills.push({
+              name: skillName,
+              description: fm.description,
+              path: r.path,
+              source: "resource",
+            });
           }
 
           const result: {
@@ -6472,6 +6478,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           title: typeof r.title === "string" ? r.title : "",
           preview: typeof r.preview === "string" ? r.preview : "",
           messageCount,
+          ...(typeof r.fromMessageId === "string"
+            ? { fromMessageId: r.fromMessageId }
+            : {}),
           ...(Object.prototype.hasOwnProperty.call(r, "scope")
             ? { scope: parseScopeFromBody(r.scope) }
             : {}),
@@ -6654,7 +6663,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // A scoped thread cannot be retagged across resources here.
                 if (Object.prototype.hasOwnProperty.call(body, "scope")) {
                   const incomingScope = parseScopeFromBody(body.scope);
-                  await setThreadScope(threadId, incomingScope);
+                  await setThreadScope(threadId, owner, incomingScope);
                 }
                 return { ok: true };
               });
@@ -6913,7 +6922,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              await deleteThread(threadId);
+              await deleteThread(threadId, owner);
               return { ok: true };
             }
 
@@ -6991,6 +7000,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (!existing.scope && scopeToAdopt) {
                 const adoptedScope = await adoptThreadScopeIfUnscoped(
                   existing.id,
+                  owner,
                   scopeToAdopt,
                 );
                 if (!scopesMatch(adoptedScope, scopeToAdopt)) {
@@ -7059,10 +7069,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
-        // Chat is the main MCP consumer, and on serverless nothing hydrated the
-        // manager at boot. Awaiting here trades first-chat latency for tools
-        // that are actually present instead of a silently MCP-less run.
-        await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
         const isBackgroundWorker = Boolean(
@@ -7612,6 +7618,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { runRecurringSweepHandlers } =
+              await import("../jobs/sweep-hooks.js");
+            const sweepContext = {
+              deadlineAt: Date.now() + RECURRING_SWEEP_BUDGET_MS,
+            };
+            const appSweepHandlers =
+              await runRecurringSweepHandlers(sweepContext);
             // Rides the same site-tick as the reap above, for the same reason:
             // it is the only durable driver on serverless. Never fatal to the
             // job sweep, and its own failure is a distinguishable outcome
@@ -7643,9 +7656,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               return null;
             });
-            const { runRecurringSweepHandlers } =
-              await import("../jobs/sweep-hooks.js");
-            const appSweepHandlers = await runRecurringSweepHandlers();
             const triggerAvailability = scheduledTriggerAvailability();
             if (unclaimedBackgroundRuns === null) {
               setResponseStatus(event, 500);
@@ -7681,10 +7691,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
             try {
-              // Jobs may request MCP tools, and `getActions` is synchronous —
-              // hydrate before the sweep so a serverless container that never
-              // eagerly initialized still resolves them.
-              await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
               if (
                 appSweepHandlers.failed.length > 0 ||
@@ -7792,20 +7798,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           lifecycle.startTimeout(() => void sweep(), 15_000);
           lifecycle.startInterval(() => void sweep(), 30_000);
         })();
-      }
-
-      // Long-lived runtimes hydrate MCP once at boot. Serverless functions must
-      // not: nothing awaits this, so a settings scan plus third-party MCP
-      // handshakes run on EVERY cold start of every app — including requests
-      // that never touch MCP — and outlive the response on a runtime that
-      // freezes after responding. There, `ensureMcpInitialized()` is driven by
-      // the surfaces that consume MCP tools instead.
-      if (!isProductionServerlessFunctionRuntime()) {
-        void ensureMcpInitialized().catch((err) => {
-          console.warn(
-            `[mcp-client] eager initialization failed: ${err?.message ?? err}`,
-          );
-        });
       }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
@@ -8090,12 +8082,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 export const defaultAgentChatPlugin: NitroPluginDef = createAgentChatPlugin();
 
 import {
-  setGlobalMcpManager,
-  getGlobalMcpManager,
-  refreshGlobalMcpManager,
+  getMcpManagerForPrincipal,
+  invalidateMcpManagersForScope,
+  resolveBackgroundMcpToolSelection,
+  stopAllMcpManagers,
   mountMcpHubStatusRoute,
   mountMcpStatusRoute,
 } from "./agent-chat/mcp-glue.js";
-
-export { getGlobalMcpManager };
-export { refreshGlobalMcpManager };

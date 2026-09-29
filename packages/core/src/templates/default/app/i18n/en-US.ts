@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "Disconnecting…",
   },
   settings: {
-    title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -35,7 +29,6 @@ const messages = {
     emailChange: "Change email",
     emailChangeSent: "Check your email to confirm this change.",
     emailChangeError: "Could not send confirmation.",
-    backHome: "Back to home",
     builderConnection: {
       manage: "Manage Builder.io connection",
     },
@@ -651,6 +644,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Reply must contain (optional)",
+    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     spans: "Spans",
     type: "Type",
     name: "Name",

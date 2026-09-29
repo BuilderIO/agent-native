@@ -3,16 +3,46 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-27
+## 2026-09-28
 
 ### Improved
 
+- Builder credit notices appear above sidebar actions in a full-width layout.
+- Mail automation rules use a consistent neutral color treatment.
+- Open the current agent conversation in a full-page view
+
+### Fixed
+
+- Avoid automatic retries after Gmail quota cooldowns
+
+## 2026-09-27
+
+### Added
+
+- Mail can mark prompt-matched messages Important and show browser notifications while Mail is open; mobile app notifications are coming soon.
+
+### Improved
+
+- AI triage links open the relevant rule group.
+- Inbox Priority shows each email's score with quick feedback and rule settings.
+- Mail rule changes in chat now link to the matching Settings section
+- Updated drafts now include a review link in chat
 - Add AI inbox triage to Mail's first-run onboarding.
 - Scheduled-send cards show the subject and local send time
 - Successful draft, filter, and inbox rule changes now appear as concise action cards in chat.
 
 ### Fixed
 
+- Failed queued draft sends now report an error instead of appearing successful.
+- Gmail cooldown messages now show when to try again.
+- Inbox sorting recovers automatically when background processing is interrupted
+- Mail resumes inbox organization after temporary Gmail limits
+- Mail retries inbox rules after temporary Google token refresh failures
+- Mail setup stays visible while triage availability loads
+- Mail setup waits for first-run onboarding, and empty importance prompts require an explicit skip.
+- Inbox tabs are visible on mobile, and the full toolbar scrolls together horizontally.
+- Triage examples stay placeholders until you choose them
+- Undo resumes safely after an interrupted mail restore
 - Fixed the inbox crash when the sidebar is pinned
 - Inbox navigation stays in a hamburger drawer, and filter tabs use available toolbar space before scrolling.
 - Inbox sorting finishes reliably across larger mailboxes
@@ -32,6 +62,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Removing a member from your organization now completes instead of failing with a pending cleanup error
 - Chat-created inbox rules appear immediately while recent mail is processed in the background.
 - Chat-created Mail rules save and queue recent-mail processing before background model checks run.
 - Fixed AI rule setup progress and chat updates
@@ -51,6 +82,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Mail settings now live in tabs on Mail > General (Drafting, Snippets, Rules, AI filter, Gmail filters, Aliases, Tracking), and Slack draft requests sit on Channels > Slack.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - Mail now guides users to connect Jev before setting up triage and lets them remove existing rules if Jev becomes unavailable.
 - Tune inbox priorities with Jev, label messages clearly, and teach importance with feedback.
 
