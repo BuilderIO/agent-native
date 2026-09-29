@@ -393,7 +393,7 @@ describe("list-inbox-threads action", () => {
     );
 
     expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
-      { total: 12, unread: 3 },
+      { total: 12, unread: 3, totalIsLowerBound: true },
     );
     expect(result.tabs.find((tab) => tab.id === "projects")).toMatchObject({
       total: 1,

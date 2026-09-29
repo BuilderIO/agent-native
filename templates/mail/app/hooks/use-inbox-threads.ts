@@ -42,6 +42,7 @@ export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
 const SYNCING_POLL_MS = 3_000;
 const IDLE_POLL_MS = 20_000;
 const INBOX_THREADS_STALE_TIME_MS = Infinity;
+const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
 
 export type InboxOverview = Pick<
   ListInboxThreadsResult,
@@ -299,7 +300,11 @@ function fetchInboxThreads(
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
     input,
-    { method: "GET", signal },
+    {
+      method: "GET",
+      signal,
+      timeoutMs: INBOX_THREADS_REQUEST_TIMEOUT_MS,
+    },
   ).then((data) => {
     const incoming = { ...data, clientSnapshotId };
     publishInboxOverview(qc, input.accountEmails, {
@@ -380,7 +385,10 @@ export function useInboxSyncPoller(
     queryFn: async ({ queryKey }) => {
       const previous = qc.getQueryData<InboxSyncResult>(queryKey);
       const now = Date.now();
-      const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
+      const hasAccountFilter = (accountEmails?.length ?? 0) > 0;
+      const scopedEmails = hasAccountFilter
+        ? accountEmails!.map((email) => email.toLowerCase())
+        : undefined;
       const eligibleEmails = previous?.accounts
         .filter((account) => {
           if (
@@ -393,6 +401,7 @@ export function useInboxSyncPoller(
         })
         .map((account) => account.accountEmail);
       if (
+        hasAccountFilter &&
         previous &&
         previous.accounts.length > 0 &&
         eligibleEmails?.length === 0
@@ -406,13 +415,11 @@ export function useInboxSyncPoller(
           })),
         };
       }
-      const requestedEmails = previous
-        ? previous.accounts.length === 0 && !accountEmails
-          ? undefined
-          : (eligibleEmails ?? scopedEmails ?? [])
-        : accountEmails
-          ? [...accountEmails]
-          : undefined;
+      const requestedEmails = hasAccountFilter
+        ? previous
+          ? (eligibleEmails ?? scopedEmails ?? [])
+          : [...accountEmails!]
+        : undefined;
       const request = requestedEmails ? { accountEmails: requestedEmails } : {};
       const result = await syncMutation.mutateAsync(request);
       const receivedAt = Date.now();

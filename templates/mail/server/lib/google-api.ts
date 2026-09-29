@@ -201,6 +201,42 @@ export function estimateRequestCost(url: string, method: string): number {
   return 5;
 }
 
+function waitWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+type GoogleFetchOptions = RequestInit & {
+  onRequestStart?: () => Promise<void>;
+  onRequestCancelled?: () => Promise<void>;
+};
+
+function makeGoogleRequestAggregateError(
+  errors: Iterable<unknown>,
+  message: string,
+): Error {
+  const NativeAggregateError = (
+    globalThis as unknown as {
+      AggregateError: new (errors: Iterable<unknown>, message: string) => Error;
+    }
+  ).AggregateError;
+  return new NativeAggregateError(errors, message);
+}
+
 async function markGmailQuotaSuccessAfterResponse(
   accessToken: string,
   shouldClearCooldown: boolean,
@@ -218,15 +254,20 @@ async function markGmailQuotaSuccessAfterResponse(
 export async function googleFetch(
   url: string,
   accessToken: string,
-  opts?: RequestInit,
+  opts?: GoogleFetchOptions,
   lane: GmailQuotaLane = "interactive",
   allowUnregisteredProfile = false,
 ): Promise<any> {
+  const { onRequestStart, onRequestCancelled, ...requestOptions } = opts ?? {};
+  const signal = requestOptions.signal ?? undefined;
+  signal?.throwIfAborted();
   const maxRetries = 3;
-  const method = opts?.method?.toUpperCase() ?? "GET";
+  const method = requestOptions.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
   const gmailRequest = url.includes("gmail.googleapis.com");
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    signal?.throwIfAborted();
     let clearCooldownAfterSuccess = false;
     if (gmailRequest) {
       try {
@@ -242,12 +283,27 @@ export async function googleFetch(
           error instanceof GmailQuotaAccountUnavailableError;
         if (!profileBootstrap) throw error;
       }
+      signal?.throwIfAborted();
     }
 
-    const headers = new Headers(opts?.headers);
-    headers.set("Authorization", `Bearer ${accessToken}`);
+    if (onRequestStart) {
+      await onRequestStart();
+      if (signal?.aborted) {
+        try {
+          await onRequestCancelled?.();
+        } catch (releaseError) {
+          throw makeGoogleRequestAggregateError(
+            [signal.reason, releaseError],
+            "Google request was cancelled before dispatch and its claim could not be released.",
+          );
+        }
+        signal.throwIfAborted();
+      }
+    }
 
-    const res = await fetch(url, { ...opts, headers });
+    const headers = new Headers(requestOptions.headers);
+    headers.set("Authorization", `Bearer ${accessToken}`);
+    const res = await fetch(url, { ...requestOptions, headers });
 
     if (res.status === 204) {
       if (gmailRequest)
@@ -263,8 +319,7 @@ export async function googleFetch(
       (res.status === 500 || res.status === 502 || res.status === 503) &&
       attempt < maxRetries
     ) {
-      const delay = Math.min(1000 * 2 ** attempt, 8000);
-      await new Promise((r) => setTimeout(r, delay));
+      await waitWithSignal(Math.min(1000 * 2 ** attempt, 8000), signal);
       continue;
     }
 
@@ -278,9 +333,6 @@ export async function googleFetch(
       }
     }
 
-    // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
-    // the same exhausted quota window just deepens the lockout. Trip the
-    // account-wide cooldown and let callers/UI retry after the cooldown.
     if (!res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
       let effectiveCooldownMs = cooldownMs;
@@ -325,11 +377,12 @@ export function gmailGetProfile(
   accessToken: string,
   lane: GmailQuotaLane = "interactive",
   allowUnregisteredProfile = false,
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/profile`,
     accessToken,
-    undefined,
+    { signal },
     lane,
     allowUnregisteredProfile,
   );
@@ -339,11 +392,12 @@ export function gmailListMessages(
   accessToken: string,
   params: { q?: string; maxResults?: number; pageToken?: string } = {},
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/messages${qs(params)}`,
     accessToken,
-    undefined,
+    { signal },
     lane,
   );
 }
@@ -366,11 +420,12 @@ export function gmailGetMessage(
   id: string,
   format?: "full" | "metadata" | "minimal",
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/messages/${id}${qs({ format })}`,
     accessToken,
-    undefined,
+    { signal },
     lane,
   );
 }
@@ -395,6 +450,7 @@ export function gmailModifyMessage(
   addLabelIds?: string[],
   removeLabelIds?: string[],
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/messages/${id}/modify`,
@@ -403,6 +459,7 @@ export function gmailModifyMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ addLabelIds, removeLabelIds }),
+      signal,
     },
     lane,
   );
@@ -413,11 +470,13 @@ export function gmailModifyThread(
   threadId: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  signal?: AbortSignal,
 ) {
   return googleFetch(`${GMAIL_BASE}/threads/${threadId}/modify`, accessToken, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    signal,
   });
 }
 
@@ -425,13 +484,12 @@ export function gmailTrashMessage(
   accessToken: string,
   id: string,
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/messages/${id}/trash`,
     accessToken,
-    {
-      method: "POST",
-    },
+    { method: "POST", signal },
     lane,
   );
 }
@@ -479,11 +537,12 @@ export function gmailGetThread(
   format?: string,
   metadataHeaders?: string[],
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
-    undefined,
+    { signal },
     lane,
   );
 }
@@ -491,8 +550,9 @@ export function gmailGetThread(
 export function gmailListLabels(
   accessToken: string,
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
-  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, undefined, lane);
+  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, { signal }, lane);
 }
 
 export function gmailGetLabel(
@@ -516,6 +576,7 @@ export function gmailCreateLabel(
     messageListVisibility?: string;
   },
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/labels`,
@@ -528,6 +589,7 @@ export function gmailCreateLabel(
         labelListVisibility: opts?.labelListVisibility ?? "labelShow",
         messageListVisibility: opts?.messageListVisibility ?? "show",
       }),
+      signal,
     },
     lane,
   );
@@ -605,6 +667,7 @@ export function gmailListHistory(
     pageToken?: string;
   },
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   const sp = new URLSearchParams();
   sp.set("startHistoryId", params.startHistoryId);
@@ -617,7 +680,7 @@ export function gmailListHistory(
   return googleFetch(
     `${GMAIL_BASE}/history?${sp.toString()}`,
     accessToken,
-    undefined,
+    { signal },
     lane,
   );
 }
@@ -625,7 +688,11 @@ export function gmailListHistory(
 export function gmailWatch(
   accessToken: string,
   topicName: string,
-  opts?: { labelIds?: string[]; labelFilterBehavior?: "include" | "exclude" },
+  opts?: {
+    labelIds?: string[];
+    labelFilterBehavior?: "include" | "exclude";
+    signal?: AbortSignal;
+  },
 ): Promise<{ historyId: string; expiration: string }> {
   return googleFetch(`${GMAIL_BASE}/watch`, accessToken, {
     method: "POST",
@@ -635,6 +702,7 @@ export function gmailWatch(
       labelIds: opts?.labelIds ?? ["INBOX"],
       labelFilterBehavior: opts?.labelFilterBehavior ?? "include",
     }),
+    signal: opts?.signal,
   });
 }
 
@@ -650,7 +718,9 @@ async function gmailBatchGet(
   costPerItem: number,
   buildPath: (id: string) => string,
   lane: GmailQuotaLane,
+  signal?: AbortSignal,
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
+  signal?.throwIfAborted();
   if (ids.length === 0) return [];
 
   const maxIdsPerBatch = 50;
@@ -667,6 +737,7 @@ async function gmailBatchGet(
         costPerItem,
         buildPath,
         lane,
+        signal,
       );
       results.push(...part);
     }
@@ -678,10 +749,10 @@ async function gmailBatchGet(
     ids.length * costPerItem,
     lane,
   );
+  signal?.throwIfAborted();
 
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const CRLF = "\r\n";
-
   const parts: string[] = [];
   ids.forEach((id, i) => {
     parts.push(
@@ -701,6 +772,7 @@ async function gmailBatchGet(
       "Content-Type": `multipart/mixed; boundary=${boundary}`,
     },
     body,
+    signal,
   });
 
   if (!res.ok) {
@@ -756,6 +828,7 @@ export async function gmailBatchGetMessages(
   ids: string[],
   format?: "full" | "metadata" | "minimal",
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
@@ -764,6 +837,7 @@ export async function gmailBatchGetMessages(
     20,
     (id) => `/gmail/v1/users/me/messages/${encodeURIComponent(id)}${formatQs}`,
     lane,
+    signal,
   );
 }
 

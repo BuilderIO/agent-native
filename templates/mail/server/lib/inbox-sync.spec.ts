@@ -533,7 +533,7 @@ describe("syncInboxAccount — full sync", () => {
     }
   });
 
-  it("continues bounded reconciliation when incremental sync reports changes", async () => {
+  it("continues bounded reconciliation while incremental sync reports changes", async () => {
     currentRow = baseRow({
       historyId: "8000",
       fullSyncPhase: "reconcile",
@@ -546,37 +546,48 @@ describe("syncInboxAccount — full sync", () => {
       history: [
         {
           id: "8001",
-          messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+          messagesAdded: [
+            {
+              message: {
+                id: "incremental-message",
+                threadId: "incremental-thread",
+              },
+            },
+          ],
         },
       ],
       historyId: "8001",
     });
-    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
-      {
-        id: "t1",
-        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
-      },
-    ]);
+    mocks.gmailListThreads.mockResolvedValue({
+      threads: [{ id: "reconciliation-thread" }],
+    });
     mocks.upsertInboxThreadRows.mockImplementation(async (rows: any[]) => {
       fakeRows.push(...rows);
     });
-    mocks.gmailListThreads.mockResolvedValue({ threads: [] });
+    mocks.gmailBatchGetThreads.mockImplementation(async (_token, ids) =>
+      ids.map((id: string) => ({
+        id,
+        data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+      })),
+    );
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(result).toMatchObject({ state: "ready", changed: true });
     expect(mocks.gmailListThreads).toHaveBeenCalledWith(
       "tok",
-      expect.objectContaining({
-        q: "in:inbox",
-        maxResults: 500,
-        pageToken: undefined,
-      }),
+      expect.objectContaining({ q: "in:inbox" }),
       "backfill",
     );
+    expect(mocks.gmailBatchGetThreads.mock.calls.map(([, ids]) => ids)).toEqual(
+      [["incremental-thread"], ["reconciliation-thread"]],
+    );
+    expect(result).toMatchObject({ state: "ready", changed: true });
+    expect(result.backfillPending).toBeUndefined();
     expect(currentRow.fullSyncPhase).toBeNull();
-    expect(currentRow.fullSyncReconcilePasses).toBe(0);
-    expect(fakeRows.map((row) => row.threadId)).toEqual(["t1"]);
+    expect(fakeRows.map((row) => row.threadId)).toEqual([
+      "incremental-thread",
+      "reconciliation-thread",
+    ]);
   });
 
   it("ends repeated permanent count mismatches without leaving sync in error", async () => {

@@ -238,6 +238,43 @@ describe("scheduled send account selection", () => {
     );
   });
 
+  it("passes cancellation through to the Gmail send request after durable dispatch", async () => {
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: SELECTED,
+      accessToken: "managed-token",
+    });
+    const controller = new AbortController();
+    const onDispatchStart = vi.fn(async () => {});
+    const onDispatchCancelled = vi.fn(async () => {});
+
+    await expect(
+      sendScheduledEmail(
+        {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+        },
+        SELECTED,
+        OWNER,
+        {
+          signal: controller.signal,
+          onDispatchStart,
+          onDispatchCancelled,
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.googleFetch).toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      "managed-token",
+      expect.objectContaining({
+        signal: controller.signal,
+        onRequestStart: onDispatchStart,
+        onRequestCancelled: onDispatchCancelled,
+      }),
+    );
+  });
+
   it("does not send a reply when its original message headers cannot be read", async () => {
     mocks.getClientForConnectedAccount.mockResolvedValue({
       email: SELECTED,
@@ -262,6 +299,8 @@ describe("scheduled send account selection", () => {
       "selected-token",
       "original-message-id",
       "metadata",
+      "interactive",
+      undefined,
     );
     expect(mocks.googleFetch).not.toHaveBeenCalled();
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
@@ -411,6 +450,9 @@ describe("scheduled send account selection", () => {
       "selected-token",
       "thread-1",
       "full",
+      undefined,
+      "interactive",
+      undefined,
     );
   });
 });

@@ -18,6 +18,7 @@ import {
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+import { isDefaultTitle } from "@shared/title-source";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -108,7 +109,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";

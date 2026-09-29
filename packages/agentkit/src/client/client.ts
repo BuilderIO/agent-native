@@ -1,6 +1,7 @@
 import type {
   AgentActionInvocation,
   AgentActionResult,
+  AgentAnnotationSnapshot,
   AgentApprovalResponse,
   AgentConnectionResponse,
   AgentCapabilityDescriptor,
@@ -42,6 +43,7 @@ import {
 import {
   classifyAgentEvent,
   createAgentThreadState,
+  hasActiveAgentRuns,
   reduceAgentEvent,
   settleRunProjection,
   type AgentKitSnapshot,
@@ -1273,6 +1275,9 @@ export class AgentKitClient implements AgentKitController {
     }
     return this.enqueueQueueMutation(input.threadId, async () => {
       this.assertActive();
+      const threadBeforeWrite = this.getThread(input.threadId);
+      const runWasActive = hasActiveAgentRuns(threadBeforeWrite);
+      const runIdsBeforeWrite = new Set(Object.keys(threadBeforeWrite.runs));
       const result = await this.invokeRequest(requestContext, (context) =>
         queueMessage(
           {
@@ -1297,6 +1302,16 @@ export class AgentKitClient implements AgentKitController {
         messages: [...thread.queuedMessages, result.message],
         removedIds,
       });
+      const updatedThread = this.getThread(input.threadId);
+      const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
+        (runId) => !runIdsBeforeWrite.has(runId),
+      );
+      if (
+        !hasActiveAgentRuns(updatedThread) &&
+        (runWasActive || runStartedDuringWrite)
+      ) {
+        this.scheduleQueuePromotion(input.threadId);
+      }
       return result.message;
     });
   }
@@ -1471,7 +1486,6 @@ export class AgentKitClient implements AgentKitController {
         (message) => message.id === messageId,
       );
       if (!queued) throw new Error(`Unknown queued message: ${messageId}`);
-      const previousOverride = this.queuedMessageOverrides.get(threadId);
       const message: AgentMessage = {
         id: queued.id,
         role: "user",
@@ -1485,28 +1499,33 @@ export class AgentKitClient implements AgentKitController {
       };
       const previousConnection = this.snapshot.connection;
       const previousError = this.snapshot.error;
-      this.setThread(threadId, {
-        ...previous,
-        messages: [...previous.messages, message],
-        queuedMessages: previous.queuedMessages.filter(
-          (candidate) => candidate.id !== messageId,
-        ),
-        suggestions: [],
-      });
-      const removedIds = new Set(previousOverride?.removedIds);
-      removedIds.add(messageId);
-      this.queuedMessageOverrides.set(threadId, {
-        messages: previous.queuedMessages.filter(
-          (candidate) => candidate.id !== messageId,
-        ),
-        removedIds,
-      });
       this.setConnection("connecting");
       try {
         const result = await this.invokeRequest(requestContext, (context) =>
           steerQueuedMessage({ threadId, messageId }, context),
         );
         this.assertActive();
+        const current = this.getThread(threadId);
+        const queuedMessages = current.queuedMessages.filter(
+          (candidate) => candidate.id !== messageId,
+        );
+        this.setThread(threadId, {
+          ...current,
+          messages: current.messages.some(
+            (candidate) => candidate.id === messageId,
+          )
+            ? current.messages
+            : [...current.messages, message],
+          queuedMessages,
+          suggestions: [],
+        });
+        const override = this.queuedMessageOverrides.get(threadId);
+        const removedIds = new Set(override?.removedIds);
+        removedIds.add(messageId);
+        this.queuedMessageOverrides.set(threadId, {
+          messages: queuedMessages,
+          removedIds,
+        });
         if (!result) {
           this.setConnection("connected");
           return;
@@ -1527,41 +1546,6 @@ export class AgentKitClient implements AgentKitController {
         };
       } catch (error) {
         if (this.disposed) throw error;
-        const current = this.getThread(threadId);
-        const queuedMessages = current.queuedMessages.some(
-          (candidate) => candidate.id === queued.id,
-        )
-          ? current.queuedMessages
-          : (() => {
-              const restored = [...current.queuedMessages];
-              restored.splice(
-                Math.min(
-                  previous.queuedMessages.indexOf(queued),
-                  restored.length,
-                ),
-                0,
-                queued,
-              );
-              return restored;
-            })();
-        this.setThread(threadId, {
-          ...current,
-          messages: current.messages.filter(
-            (candidate) => candidate.id !== message.id,
-          ),
-          queuedMessages,
-        });
-        const currentOverride = this.queuedMessageOverrides.get(threadId);
-        const restoredRemovedIds = new Set(currentOverride?.removedIds);
-        restoredRemovedIds.delete(messageId);
-        if (currentOverride || restoredRemovedIds.size > 0) {
-          this.queuedMessageOverrides.set(threadId, {
-            messages: queuedMessages,
-            removedIds: restoredRemovedIds,
-          });
-        } else {
-          this.queuedMessageOverrides.delete(threadId);
-        }
         this.patch({ connection: previousConnection, error: previousError });
         this.report(error, "queue_steer_failed");
         throw error;
@@ -1733,6 +1717,54 @@ export class AgentKitClient implements AgentKitController {
     void completed.catch(() => undefined);
   }
 
+  private persistThreadSnapshot(
+    threadId: ThreadId,
+  ): Promise<{ error: unknown } | undefined> {
+    const persist = this.transport.persistThreadSnapshot;
+    if (!persist) return Promise.resolve(undefined);
+    const thread = this.getThread(threadId);
+    const updatedAt = this.now();
+    const messageIds = new Set(thread.messages.map((message) => message.id));
+    const annotations: AgentAnnotationSnapshot[] = Object.entries(
+      thread.annotations,
+    ).flatMap(([id, annotation]) => {
+      const messageId = thread.annotationMessageIds[id];
+      return messageId && messageIds.has(messageId)
+        ? [{ messageId, annotation }]
+        : [];
+    });
+    const snapshot: AgentThreadSnapshot = {
+      ...(thread.thread ?? {
+        id: threadId,
+        createdAt: updatedAt,
+        updatedAt,
+      }),
+      id: threadId,
+      updatedAt,
+      messages: thread.messages,
+      queuedMessages: thread.queuedMessages,
+      events: thread.events,
+      runs: Object.values(thread.runs).map((run) => ({
+        ...run,
+        threadId,
+      })),
+      activeRunIds: thread.activeRunIds,
+      suggestions: thread.suggestions,
+      activities: Object.values(thread.activities),
+      annotations,
+      toolCalls: Object.values(thread.tools),
+      widgets: Object.entries(thread.widgets).flatMap(([id, widget]) => {
+        const messageId = thread.widgetMessageIds[id];
+        return messageId ? [{ messageId, widget }] : [];
+      }),
+    };
+    return this.invokeRequest(this.createRequestContext(), (requestContext) =>
+      persist({ threadId, snapshot }, requestContext),
+    )
+      .then(() => undefined)
+      .catch((error) => ({ error }));
+  }
+
   private async consume(threadId: ThreadId, runId: RunId): Promise<void> {
     const key = this.runKey(threadId, runId);
     const abortController = new AbortController();
@@ -1809,22 +1841,38 @@ export class AgentKitClient implements AgentKitController {
             );
           }
           this.setConnection("connected");
-          if (
+          const snapshotPersistence = this.persistThreadSnapshot(threadId);
+          const completed =
             terminalEvent.type === "run.completed" ||
             (terminalEvent.type === "run.status" &&
-              terminalEvent.status === "completed")
-          ) {
-            if (
+              terminalEvent.status === "completed");
+          const terminalThread = this.getThread(threadId);
+          const queuedWorkKnown =
+            completed &&
+            terminalThread.queuedMessages.length > 0 &&
+            !hasActiveAgentRuns(terminalThread);
+          if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+          const persistenceError = await snapshotPersistence;
+          if (completed) {
+            const shouldRefreshProjection =
               !this.threadLoads.has(threadId) &&
-              (this.transport.getThreadSnapshot || this.transport.getThread)
-            ) {
+              (this.transport.getThreadSnapshot || this.transport.getThread);
+            if (shouldRefreshProjection) {
               await this.loadThreadProjection(
                 threadId,
                 this.createRequestContext(),
                 true,
               );
             }
-            this.scheduleQueuePromotion(threadId);
+            if (
+              !queuedWorkKnown &&
+              !hasActiveAgentRuns(this.getThread(threadId))
+            ) {
+              this.scheduleQueuePromotion(threadId);
+            }
+          }
+          if (persistenceError) {
+            this.fail(persistenceError.error, "thread_snapshot_persist_failed");
           }
           return;
         } catch (error) {
@@ -2060,6 +2108,18 @@ export class AgentKitClient implements AgentKitController {
         entry.messageId,
       ]),
     );
+    const snapshotAnnotations = Object.fromEntries(
+      (snapshot.annotations ?? []).map((entry) => [
+        entry.annotation.id,
+        entry.annotation,
+      ]),
+    );
+    const snapshotAnnotationMessageIds = Object.fromEntries(
+      (snapshot.annotations ?? []).map((entry) => [
+        entry.annotation.id,
+        entry.messageId,
+      ]),
+    );
     const mergedRuns = this.mergeRuns(hydrated.runs, runs);
     const currentActiveRunIds = activeRunIds.filter(
       (runId) => !this.isTerminalStatus(mergedRuns[runId]?.status ?? "running"),
@@ -2111,6 +2171,11 @@ export class AgentKitClient implements AgentKitController {
       widgetMessageIds: {
         ...hydrated.widgetMessageIds,
         ...snapshotWidgetMessageIds,
+      },
+      annotations: { ...hydrated.annotations, ...snapshotAnnotations },
+      annotationMessageIds: {
+        ...hydrated.annotationMessageIds,
+        ...snapshotAnnotationMessageIds,
       },
       agents: {
         ...hydrated.agents,
@@ -2773,8 +2838,20 @@ export class AgentKitClient implements AgentKitController {
 
   private retireInterruptedRun(threadId: ThreadId, runId: RunId): void {
     const thread = this.getThread(threadId);
+    const run = thread.runs[runId];
     this.setThread(threadId, {
       ...thread,
+      runs:
+        run && !this.isTerminalStatus(run.status)
+          ? {
+              ...thread.runs,
+              [runId]: {
+                ...run,
+                status: "completed",
+                completedAt: run.completedAt ?? this.now(),
+              },
+            }
+          : thread.runs,
       activeRunIds: thread.activeRunIds.filter((id) => id !== runId),
     });
   }
@@ -2816,21 +2893,11 @@ export class AgentKitClient implements AgentKitController {
     if (this.queuePromotions.has(threadId)) return;
     const queued = thread.queuedMessages[0];
     if (!queued) return;
-    // Reached only after a terminal event, so a queued follow-up that cannot
-    // be promoted here is stranded rather than merely waiting.
     if (!this.transport.steerQueuedMessage) {
       this.reportIntegrity({
         code: "queue_promotion_dropped",
         threadId,
         reason: "transport-cannot-steer",
-      });
-      return;
-    }
-    if (thread.activeRunIds.length > 0) {
-      this.reportIntegrity({
-        code: "queue_promotion_dropped",
-        threadId,
-        reason: "run-still-active",
       });
       return;
     }

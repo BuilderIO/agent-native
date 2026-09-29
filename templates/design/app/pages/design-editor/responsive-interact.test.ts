@@ -136,7 +136,7 @@ describe("responsive Interact wiring", () => {
     expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
     expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
     expect(pinnedExit).toContain(
-      "flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
+      "flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3",
     );
   });
 

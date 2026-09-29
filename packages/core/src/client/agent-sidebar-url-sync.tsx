@@ -184,10 +184,12 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
 
 export function ScreenRefreshBoundary({
   children,
+  active = true,
 }: {
   children: React.ReactNode;
+  active?: boolean;
 }) {
-  const key = useScreenRefreshKey();
+  const key = useScreenRefreshKey({ enabled: active });
   const queryClient = useQueryClient();
   const lastKeyRef = React.useRef(key);
   if (key !== lastKeyRef.current) {

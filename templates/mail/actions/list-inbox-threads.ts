@@ -95,9 +95,7 @@ function paginateIntoResult(
       unread:
         cachedCount?.unread ??
         members.filter((item) => item.unreadCount > 0).length,
-      ...(backfillIncomplete && !cachedCount
-        ? { totalIsLowerBound: true }
-        : {}),
+      ...(backfillIncomplete ? { totalIsLowerBound: true } : {}),
     };
   });
 

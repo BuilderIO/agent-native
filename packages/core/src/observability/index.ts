@@ -47,6 +47,7 @@ export {
   insertEvalDataset,
   listEvalDatasets,
   getEvalDataset,
+  getEvalDatasetByName,
   updateEvalDataset,
   insertExperiment,
   updateExperiment,

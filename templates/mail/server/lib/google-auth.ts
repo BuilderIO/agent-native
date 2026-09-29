@@ -357,6 +357,7 @@ function getWatchTopic(): string | null {
 
 export async function startWatch(
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<{ historyId: string; expiration: string } | null> {
   const topic = getWatchTopic();
   if (!topic) return null;
@@ -364,9 +365,12 @@ export async function startWatch(
     const res = await gmailWatch(accessToken, topic, {
       labelIds: ["INBOX"],
       labelFilterBehavior: "include",
+      signal,
     });
     return res;
   } catch (err: any) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
     console.warn(`[gmail-watch] start failed: ${err.message}`);
     return null;
   }
@@ -2179,59 +2183,8 @@ function getArchiveLabelIds(
   return ids;
 }
 
-type CachedArchiveThread = {
-  threadId: string;
-  messageIds: string[];
-};
-
-async function readCachedArchiveThreads(
-  ownerEmail: string,
-  accountEmail: string,
-  threadIds: string[],
-): Promise<CachedArchiveThread[]> {
-  const requestedThreadIds = [...new Set(threadIds.filter(Boolean))];
-  if (requestedThreadIds.length === 0) return [];
-
-  const rows = await getDb()
-    .select({
-      threadId: schema.mailInboxThreads.threadId,
-      messageIdsJson: schema.mailInboxThreads.messageIdsJson,
-    })
-    .from(schema.mailInboxThreads)
-    .where(
-      and(
-        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
-        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
-        inArray(schema.mailInboxThreads.threadId, requestedThreadIds),
-      ),
-    );
-
-  const cached: CachedArchiveThread[] = [];
-  for (const row of rows) {
-    try {
-      const parsed: unknown = JSON.parse(row.messageIdsJson);
-      if (
-        Array.isArray(parsed) &&
-        parsed.length > 0 &&
-        parsed.every((id) => typeof id === "string" && id.length > 0)
-      ) {
-        cached.push({
-          threadId: row.threadId,
-          messageIds: [...new Set(parsed)],
-        });
-      }
-    } catch {
-      // coercion-ok: unreadable cached IDs use thread-level archive.
-      // An unreadable cache entry uses Gmail's thread-level archive path.
-    }
-  }
-  return cached;
-}
-
 /**
- * Archive selected inbox threads by batching every cached message ID. Gmail's
- * thread endpoint is the correctness fallback when the inbox cache has no full
- * message ID set for a thread.
+ * Mutate thread contents from Gmail's current message IDs, never the inbox cache.
  */
 async function gmailBatchModifyThreadsByAccountInternal(
   ownerEmail: string,
@@ -2299,20 +2252,6 @@ async function gmailBatchModifyThreadsByAccountInternal(
       continue;
     }
 
-    const cachedRows = await readCachedArchiveThreads(
-      ownerEmail,
-      accountEmail,
-      accountTargets.map((target) => target.threadId ?? ""),
-    );
-    const cachedByThreadId = new Map(
-      cachedRows.map((row) => [row.threadId, row.messageIds]),
-    );
-    const threadIdByMessageId = new Map<string, string>();
-    for (const row of cachedRows) {
-      for (const id of row.messageIds)
-        threadIdByMessageId.set(id, row.threadId);
-    }
-
     let removeLabelIds: string[];
     try {
       removeLabelIds = await resolveRemoveLabelIds(accessToken, accountEmail);
@@ -2336,9 +2275,9 @@ async function gmailBatchModifyThreadsByAccountInternal(
     }
     removeLabelIdsByAccount[accountEmail] = removeLabelIds;
 
-    const knownTargets: Array<{
+    let knownTargets: Array<{
       target: BatchModifyTarget;
-      messageIds: string[];
+      threadId: string;
     }> = [];
     const threadModifyTargets: Array<{
       target: BatchModifyTarget;
@@ -2346,7 +2285,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
     }> = [];
     let resolutionDeferred = false;
     for (const target of accountTargets) {
-      let threadId = target.threadId || threadIdByMessageId.get(target.id);
+      let threadId = target.threadId;
       if (!threadId) {
         if (threadLookupsUsed >= GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS) {
           remaining.push(
@@ -2398,21 +2337,112 @@ async function gmailBatchModifyThreadsByAccountInternal(
         continue;
       }
 
-      const cachedMessageIds = cachedByThreadId.get(threadId);
-      const messageIds = cachedMessageIds
-        ?.filter((id): id is string => typeof id === "string" && id.length > 0)
-        .filter((id, index, all) => all.indexOf(id) === index);
-      if (messageIds?.length && messageIds.includes(target.id)) {
-        knownTargets.push({ target, messageIds });
-      } else {
-        threadModifyTargets.push({ target, threadId });
-      }
+      knownTargets.push({ target, threadId });
     }
 
     if (resolutionDeferred) break;
 
+    const threadIdsToRefresh = [
+      ...new Set(knownTargets.map(({ threadId }) => threadId)),
+    ];
+    const refreshLimit = Math.max(
+      0,
+      GMAIL_ARCHIVE_MAX_THREAD_LOOKUPS - threadLookupsUsed,
+    );
+    const refreshedThreadIds = threadIdsToRefresh.slice(0, refreshLimit);
+    const deferredThreadIds = new Set(
+      threadIdsToRefresh.slice(refreshedThreadIds.length),
+    );
+    const threadLookupsDeferred = deferredThreadIds.size > 0;
+    if (threadLookupsDeferred) {
+      remaining.push(
+        ...knownTargets
+          .filter(({ threadId }) => deferredThreadIds.has(threadId))
+          .map(({ target }) => target.id),
+      );
+      knownTargets = knownTargets.filter(
+        ({ threadId }) => !deferredThreadIds.has(threadId),
+      );
+    }
+
+    const messageIdsByThread = new Map<string, string[]>();
+    if (refreshedThreadIds.length > 0) {
+      threadLookupsUsed += refreshedThreadIds.length;
+      let refreshedThreads: Array<{
+        id: string;
+        data: any;
+        error?: string;
+      }>;
+      try {
+        refreshedThreads = await gmailBatchGetThreads(
+          accessToken,
+          refreshedThreadIds,
+          "minimal",
+        );
+      } catch (error: any) {
+        if (error instanceof GmailQuotaCooldownError) {
+          remaining.push(
+            ...knownTargets.map(({ target }) => target.id),
+            ...accountEntries
+              .slice(accountIndex + 1)
+              .flatMap(([, targetsForAccount]) =>
+                targetsForAccount.map((target) => target.id),
+              ),
+          );
+          retryAfterSeconds = error.details.retryAfterSeconds;
+          break;
+        }
+        const message = error?.message ?? "Could not refresh Gmail threads";
+        failed.push(
+          ...knownTargets.map(({ target }) => ({
+            id: target.id,
+            error: message,
+          })),
+        );
+        knownTargets = [];
+        refreshedThreads = [];
+      }
+
+      const refreshErrors = new Map<string, string>();
+      const returnedThreadIds = new Set(refreshedThreads.map(({ id }) => id));
+      for (const thread of refreshedThreads) {
+        const messageIds = (thread.data?.messages ?? [])
+          .map((message: any) => message.id)
+          .filter(
+            (id: unknown): id is string =>
+              typeof id === "string" && id.length > 0,
+          );
+        if (messageIds.length > 0) {
+          messageIdsByThread.set(thread.id, [...new Set<string>(messageIds)]);
+        } else {
+          refreshErrors.set(
+            thread.id,
+            thread.error ?? "Gmail thread contains no current messages",
+          );
+        }
+      }
+      for (const threadId of refreshedThreadIds) {
+        if (!returnedThreadIds.has(threadId)) {
+          refreshErrors.set(threadId, "Gmail thread refresh returned no data");
+        }
+      }
+      knownTargets = knownTargets.filter(({ target, threadId }) => {
+        const message =
+          refreshErrors.get(threadId) ??
+          (messageIdsByThread.has(threadId)
+            ? undefined
+            : "Gmail thread refresh returned no data");
+        if (message) {
+          failed.push({ id: target.id, error: message });
+          return false;
+        }
+        return true;
+      });
+    }
+
     const targetIdsByMessageId = new Map<string, Set<string>>();
-    for (const { target, messageIds } of knownTargets) {
+    for (const { target, threadId } of knownTargets) {
+      const messageIds = messageIdsByThread.get(threadId) ?? [];
       for (const messageId of messageIds) {
         const owners = targetIdsByMessageId.get(messageId) ?? new Set<string>();
         owners.add(target.id);
@@ -2434,7 +2464,8 @@ async function gmailBatchModifyThreadsByAccountInternal(
       );
       const succeededMessages = new Set(result.succeeded);
       const remainingMessages = new Set(result.remaining);
-      for (const { target, messageIds } of knownTargets) {
+      for (const { target, threadId } of knownTargets) {
+        const messageIds = messageIdsByThread.get(threadId) ?? [];
         const failedId = messageIds.find((id) => failedMessage.has(id));
         if (failedId) {
           failed.push({ id: target.id, error: failedMessage.get(failedId)! });
@@ -2528,7 +2559,16 @@ async function gmailBatchModifyThreadsByAccountInternal(
         );
       }
     }
-    if (unknownWorkDeferred) break;
+    if (unknownWorkDeferred || threadLookupsDeferred) {
+      remaining.push(
+        ...accountEntries
+          .slice(accountIndex + 1)
+          .flatMap(([, targetsForAccount]) =>
+            targetsForAccount.map((target) => target.id),
+          ),
+      );
+      break;
+    }
   }
 
   return {

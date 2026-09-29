@@ -15,13 +15,20 @@ export function isDefaultTitle(title: string | null | undefined): boolean {
   return !trimmed || trimmed === DEFAULT_RECORDING_TITLE;
 }
 
+/** Title sources an auto-generated title may overwrite. */
+export const AUTO_REPLACEABLE_TITLE_SOURCES = [
+  "default",
+  "context",
+] as const satisfies readonly RecordingTitleSource[];
+
 export function isAutoTitleReplaceable(
   title: string | null | undefined,
   titleSource: string | null | undefined,
 ): boolean {
   return (
     isDefaultTitle(title) ||
-    titleSource === "default" ||
-    titleSource === "context"
+    (AUTO_REPLACEABLE_TITLE_SOURCES as readonly string[]).includes(
+      titleSource ?? "",
+    )
   );
 }

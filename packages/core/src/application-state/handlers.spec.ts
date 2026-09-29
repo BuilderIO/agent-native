@@ -121,6 +121,20 @@ describe("application-state handlers", () => {
       );
     });
 
+    it("scopes pending selection context to the requesting browser tab", async () => {
+      mockAppStateGet.mockResolvedValue({ text: "selected text" });
+
+      await getState({
+        _params: { key: "pending-selection-context" },
+        _headers: { "x-agent-native-browser-tab": "tab-a" },
+      });
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "user@example.com",
+        "pending-selection-context:tab-a",
+      );
+    });
+
     it("rejects unauthenticated requests instead of sharing local state", async () => {
       vi.mocked(getSession).mockResolvedValue(null as any);
       mockAppStateGet.mockResolvedValue({ leaked: true });

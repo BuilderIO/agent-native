@@ -88,10 +88,12 @@ export async function readSlidesComposerContext(
   selection: SlidesComposerContext,
   emptySource: string,
   figmaReadFailed: string = emptySource,
+  websiteReadFailed: string = emptySource,
 ): Promise<AgentChatContextItem[]> {
   const readers = selection.references.map((source) => ({
     key: composerSourceKey(source),
     title: source.title,
+    source: source.source,
     read: async () => {
       const result = composerSourceReferenceSchema.parse(
         await callAction(
@@ -116,6 +118,7 @@ export async function readSlidesComposerContext(
     readers.unshift({
       key: `system:${designSystemId}`,
       title: designSystemId,
+      source: "design",
       read: async () => {
         const result = (await callAction(
           "get-design-system",
@@ -126,7 +129,7 @@ export async function readSlidesComposerContext(
       },
     });
   return Promise.all(
-    readers.map(async ({ key, title, read }) => {
+    readers.map(async ({ key, title, source, read }) => {
       try {
         const result = await read();
         if (!result.context.trim()) throw new Error(emptySource);
@@ -137,11 +140,10 @@ export async function readSlidesComposerContext(
           title,
           context: "",
           status: "error" as const,
-          statusMessage: composerSourceErrorMessage(
-            error,
-            emptySource,
-            figmaReadFailed,
-          ),
+          statusMessage:
+            source === "website"
+              ? websiteReadFailed
+              : composerSourceErrorMessage(error, emptySource, figmaReadFailed),
         };
       }
     }),

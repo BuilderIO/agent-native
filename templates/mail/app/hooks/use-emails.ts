@@ -1361,6 +1361,7 @@ export function useEmails(
     isLoading: q.isLoading,
     isFetching: q.isFetching,
     isRefetching: q.isRefetching,
+    isPlaceholderData: q.isPlaceholderData,
     isError: q.isError && !hasCurrentQueryData,
     error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,

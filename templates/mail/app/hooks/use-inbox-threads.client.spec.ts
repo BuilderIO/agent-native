@@ -24,7 +24,11 @@ import type {
   ListInboxThreadsResult,
 } from "@shared/inbox-threads";
 
-import { useInboxSyncPoller, useInboxThreads } from "./use-inbox-threads";
+import {
+  inboxSyncQueryKey,
+  useInboxSyncPoller,
+  useInboxThreads,
+} from "./use-inbox-threads";
 
 afterEach(() => {
   cleanup();
@@ -307,5 +311,50 @@ describe("useInboxThreads tab previews", () => {
     syncHook.unmount();
     listHook.unmount();
     queryClient.clear();
+  });
+});
+
+describe("useInboxSyncPoller account discovery", () => {
+  it("keeps all-account polls unscoped so newly connected accounts are discovered", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const existingAccount = {
+      accountEmail: "first@example.com",
+      state: "ready" as const,
+      lastSyncedAt: Date.now(),
+      changed: false,
+      lastPushGeneration: 0,
+      pushGeneration: 0,
+      pushPending: false,
+    };
+    const connectedAccount = {
+      ...existingAccount,
+      accountEmail: "new@example.com",
+      state: "initial" as const,
+      lastSyncedAt: null,
+    };
+    mutateSyncAction.mockResolvedValue({
+      accounts: [existingAccount, connectedAccount],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      inboxSyncQueryKey(),
+      { accounts: [existingAccount] },
+      { updatedAt: 0 },
+    );
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxSyncPoller(), { wrapper });
+
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(hook.result.current.data?.accounts).toHaveLength(2),
+    );
+    expect(mutateSyncAction).toHaveBeenCalledWith({});
+
+    hook.unmount();
+    queryClient.clear();
+    clock.mockRestore();
   });
 });
