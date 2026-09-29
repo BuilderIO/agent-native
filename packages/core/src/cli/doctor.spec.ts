@@ -212,7 +212,7 @@ describe("runDoctorScan", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
       "app/root.tsx":
-        'import { PromptComposer } from "@agent-native/core/client/composer";\nvoid PromptComposer;\n',
+        'import { PromptComposer } from "@agent-native/core/client";\nvoid PromptComposer;\n',
     });
     const report = runDoctorScan({
       root,
@@ -221,8 +221,11 @@ describe("runDoctorScan", () => {
         {
           sinceVersion: "0.110.0",
           moves: {
-            "@agent-native/core/client/composer": {
-              to: "@agent-native/toolkit/composer",
+            "@agent-native/core/client": {
+              to: "@agent-native/core/client/agent-chat",
+              symbols: {
+                PromptComposer: { to: "@agent-native/toolkit/app/chat" },
+              },
             },
           },
         },
@@ -234,7 +237,7 @@ describe("runDoctorScan", () => {
         guard: "migration-manifest",
         file: "app/root.tsx",
         message:
-          "@agent-native/core/client/composer (PromptComposer) moves to @agent-native/toolkit/composer. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+          "@agent-native/core/client (PromptComposer) moves to @agent-native/toolkit/app/chat. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
       }),
     ]);
   });

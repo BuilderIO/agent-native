@@ -139,13 +139,15 @@ describe("scanDeprecatedImports", () => {
     expect(isMigrationManifestActive(manifest, "0.112.0")).toBe(true);
   });
 
-  it("activates the root-barrel move to the framework-wired composer entry", () => {
+  it("routes root-barrel composer symbols to Toolkit", () => {
     const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
     expect(manifest).not.toBeNull();
     expect(manifest?.sinceVersion).toBe("0.110.0");
-    expect(
-      manifest?.moves["@agent-native/core/client/composer"],
-    ).toBeUndefined();
+    expect(manifest?.moves["@agent-native/core/client/composer"]).toMatchObject(
+      {
+        to: "@agent-native/toolkit/app/chat/composer/index",
+      },
+    );
     const clientMove = manifest?.moves["@agent-native/core/client"];
     expect(clientMove).toBeDefined();
     expect(
@@ -153,7 +155,7 @@ describe("scanDeprecatedImports", () => {
         ? resolveMigrationSymbolMove(clientMove, "PromptComposer")
         : null,
     ).toMatchObject({
-      to: "@agent-native/core/client/composer",
+      to: "@agent-native/toolkit/app/chat",
       status: "active",
     });
   });
@@ -213,15 +215,7 @@ describe("scanDeprecatedImports", () => {
           ? resolveMigrationSymbolMove(move, "RegistryBlockDataProvider")
           : null,
       ).toMatchObject({
-        to: "@agent-native/core/blocks",
-        status: "active",
-      });
-      expect(
-        move
-          ? resolveMigrationSymbolMove(move, "RegistryBlockDataProvider")
-          : null,
-      ).toMatchObject({
-        to: "@agent-native/core/blocks",
+        to: "@agent-native/toolkit/app/blocks",
         status: "active",
       });
     }

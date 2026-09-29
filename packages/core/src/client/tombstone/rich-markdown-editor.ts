@@ -7,7 +7,7 @@ throwMovedAgentNativeModule(
   "@agent-native/core/client/rich-markdown-editor",
   "@agent-native/toolkit/editor",
   {
-    RegistryBlockDataProvider: "@agent-native/core/blocks",
+    RegistryBlockDataProvider: "@agent-native/toolkit/app/blocks",
     uploadEditorImage: "@agent-native/core/client/uploads",
   },
 );
@@ -44,9 +44,9 @@ export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
 export const RUN_ID_NODE_TYPES =
   undefined as DeprecatedExport<"@agent-native/core/client/rich-markdown-editor moved to @agent-native/toolkit/editor. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx">;
 
-/** @deprecated @agent-native/core/client/rich-markdown-editor moved to @agent-native/core/blocks. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx */
+/** @deprecated @agent-native/core/client/rich-markdown-editor moved to @agent-native/toolkit/app/blocks. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx */
 export const RegistryBlockDataProvider =
-  undefined as DeprecatedExport<"@agent-native/core/client/rich-markdown-editor moved to @agent-native/core/blocks. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx">;
+  undefined as DeprecatedExport<"@agent-native/core/client/rich-markdown-editor moved to @agent-native/toolkit/app/blocks. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx">;
 
 /** @deprecated @agent-native/core/client/rich-markdown-editor moved to @agent-native/toolkit/editor. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx */
 export const RegistryBlockNodeView =

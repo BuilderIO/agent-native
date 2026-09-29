@@ -88,6 +88,47 @@ describe("Agent-Native migration Vite diagnostic", () => {
     );
   });
 
+  it("fails builds for composer symbols imported from the Core client barrel", async () => {
+    const { root } = createProject(
+      [
+        'import { PromptComposer } from "@agent-native/core/client";',
+        'import { RegistryBlockDataProvider } from "@agent-native/core/client/editor";',
+        "void PromptComposer;",
+        "void RegistryBlockDataProvider;",
+        "",
+      ].join("\n"),
+    );
+
+    const buildError = await build({
+      configFile: false,
+      root,
+      plugins: [migrationDiagnosticPlugin()],
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(buildError).toBeInstanceOf(Error);
+    expect((buildError as Error).message).toContain(
+      'Old import: import { PromptComposer } from "@agent-native/core/client"',
+    );
+    expect((buildError as Error).message).toContain(
+      "New home: PromptComposer → @agent-native/toolkit/app/chat",
+    );
+    expect((buildError as Error).message).toContain(
+      'Old import: import { RegistryBlockDataProvider } from "@agent-native/core/client/editor"',
+    );
+    expect((buildError as Error).message).toContain(
+      "New home: RegistryBlockDataProvider → @agent-native/toolkit/app/blocks",
+    );
+    expect((buildError as Error).message).toContain(
+      AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+    );
+    expect((buildError as Error).message).toContain(
+      AGENT_NATIVE_MIGRATION_GUIDE_URL,
+    );
+  });
+
   it("preserves a removed symbol's guide and includes the current runbook", async () => {
     const { root } = createProject(
       [
