@@ -73,6 +73,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "फ़ाइलों, एजेंटों या संसाधनों का उल्लेख करें",
   "commands.new": "/clear के समान",
   "commands.plan": "केवल-पढ़ने योग्य योजना मोड पर जाएँ",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
+  "observability.promoteMustContainLabel":
+    "प्रमोट किए गए मूल्यांकन के जवाब में होना चाहिए यह टेक्स्ट",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.viewDetails": "विवरण देखें",
   "observability.hideDetails": "विवरण छिपाएँ",
   "observability.input": "इनपुट",

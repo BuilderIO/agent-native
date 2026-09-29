@@ -73,6 +73,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "observability.promoteMustContain": "يجب أن تحتوي الإجابة على…",
+  "observability.promoteMustContainOptional":
+    "يجب أن تحتوي الإجابة على (اختياري)",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن تتضمنه إجابة التقييم المُروَّج",
+  "observability.promoteNeedsContains":
+    "لا تتضمن هذه الجولة أي استدعاء ناجح للأداة. أدخل نصًا يجب أن تحتوي عليه الإجابة قبل الترويج.",
   "observability.viewDetails": "عرض التفاصيل",
   "observability.hideDetails": "إخفاء التفاصيل",
   "observability.input": "الإدخال",

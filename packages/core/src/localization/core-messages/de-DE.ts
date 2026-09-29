@@ -76,6 +76,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "observability.promoteMustContain": "Antwort muss enthalten …",
+  "observability.promoteMustContainOptional":
+    "Antwort muss enthalten (optional)",
+  "observability.promoteMustContainLabel":
+    "Text, den die hochgestufte Eval-Antwort enthalten muss",
+  "observability.promoteNeedsContains":
+    "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
   "observability.hideDetails": "Details ausblenden",
   "observability.input": "Eingabe",

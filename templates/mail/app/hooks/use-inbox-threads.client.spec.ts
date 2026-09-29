@@ -312,6 +312,55 @@ describe("useInboxThreads tab previews", () => {
     listHook.unmount();
     queryClient.clear();
   });
+
+  it("keeps the all-accounts sync poll unscoped while a cached account cools down", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const queryKey = inboxSyncQueryKey();
+    queryClient.setQueryData(queryKey, {
+      accounts: [
+        {
+          accountEmail: "first@example.com",
+          state: "initial",
+          lastSyncedAt: null,
+          retryAt: Date.now() + 60_000,
+        },
+      ],
+    } as any);
+    await queryClient.invalidateQueries({ queryKey });
+    mutateSyncAction.mockResolvedValue({
+      accounts: [
+        {
+          accountEmail: "first@example.com",
+          state: "initial",
+          lastSyncedAt: null,
+          changed: false,
+          pushGeneration: 0,
+          lastPushGeneration: 0,
+          pushPending: false,
+          retryAfterSeconds: 60,
+        },
+        {
+          accountEmail: "new@example.com",
+          state: "initial",
+          lastSyncedAt: null,
+          changed: false,
+          pushGeneration: 0,
+          lastPushGeneration: 0,
+          pushPending: false,
+        },
+      ],
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxSyncPoller(), { wrapper });
+
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledWith({}));
+
+    hook.unmount();
+    queryClient.clear();
+  });
 });
 
 describe("useInboxSyncPoller account discovery", () => {
