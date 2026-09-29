@@ -73,6 +73,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       resolve: (value: { reservationToken: string }) => void;
     }> = [];
     const onRuntimeLayerSnapshot = vi.fn();
+    const onRuntimeLayerSnapshotReadinessChange = vi.fn();
     const onReserveVisualEditSnapshot = vi.fn(() => {
       let resolve!: (value: { reservationToken: string }) => void;
       const promise = new Promise<{ reservationToken: string }>((done) => {
@@ -93,6 +94,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
           previewToken="ready-recovery-preview-token"
           liveEditCapability="ready-recovery-live-edit-capability"
           onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
+          onRuntimeLayerSnapshotReadinessChange={
+            onRuntimeLayerSnapshotReadinessChange
+          }
           onReserveVisualEditSnapshot={onReserveVisualEditSnapshot}
           zoom={100}
           deviceFrame="none"
@@ -164,11 +168,23 @@ describe("DesignCanvas one-shot bridge queue", () => {
       });
     };
 
+    await sendSnapshot(40, "<body>Before ready</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
+      true,
+    );
+
     await sendBridgeMessage({
       type: "agent-native:editor-chrome-ready",
       documentId,
       routePath: "/",
     });
+    expect(
+      iframePostMessage.mock.calls.some(
+        ([message]) =>
+          (message as { type?: string })?.type ===
+          "request-runtime-layer-snapshot",
+      ),
+    ).toBe(true);
     await requestReservation(41);
     await requestReservation(42);
     expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
@@ -182,8 +198,11 @@ describe("DesignCanvas one-shot bridge queue", () => {
     );
 
     await expectImmediateSnapshot(41, "<body>First</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      true,
+    );
     await expectImmediateSnapshot(42, "<body>Second</body>");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
 
     await resolveReservation(1, "reservation-for-42");
     expect(
@@ -213,8 +232,8 @@ describe("DesignCanvas one-shot bridge queue", () => {
     });
 
     await resolveReservation(0, "reservation-for-41");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
-    expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    expect(onRuntimeLayerSnapshot.mock.calls[3]?.[0]).toEqual({
       html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
       documentId,
@@ -223,7 +242,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
 
     await requestReservation(43);
     await expectImmediateSnapshot(43, "<body>Third</body>");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(5);
     await resolveReservation(2, "reservation-for-43");
     await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({

@@ -552,6 +552,7 @@ interface DesignCanvasProps {
     documentId?: string;
     reservationToken?: string;
   }) => void;
+  onRuntimeLayerSnapshotReadinessChange?: (ready: boolean) => void;
   onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
     reservationToken: string;
   }>;
@@ -1259,6 +1260,7 @@ export function DesignCanvas({
   blockPreviewInteraction = false,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onRuntimeLayerSnapshotReadinessChange,
   onReserveVisualEditSnapshot,
   onBridgeReady,
   onPreviewTokenChange,
@@ -1623,6 +1625,11 @@ export function DesignCanvas({
   const requestRuntimeLayerSnapshot = useCallback(() => {
     postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
   }, [postOneShotBridgeMessage]);
+  const refreshRuntimeLayerSnapshotAfterReady = useCallback(() => {
+    if (!onRuntimeLayerSnapshotReadinessChange) return;
+    onRuntimeLayerSnapshotReadinessChange(false);
+    requestRuntimeLayerSnapshot();
+  }, [onRuntimeLayerSnapshotReadinessChange, requestRuntimeLayerSnapshot]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
   const requestSharedSnapshotAfterEdit = useCallback(() => {
     if (sourceType !== "localhost" || snapshotOnly) return;
@@ -3550,6 +3557,15 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
+          e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
+          editorChromeReadyRef.current &&
+          onRuntimeLayerSnapshotReadinessChange &&
+          (!liveEditDocumentIdRef.current ||
+            documentId === liveEditDocumentIdRef.current)
+        ) {
+          onRuntimeLayerSnapshotReadinessChange(true);
+        }
+        if (
           Number.isSafeInteger(requestId) &&
           typeof documentId === "string" &&
           typeof e.data.payload?.reservationToken === "string"
@@ -3817,6 +3833,14 @@ export function DesignCanvas({
             : undefined;
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
           if (
+            editorChromeReadyRef.current &&
+            onRuntimeLayerSnapshotReadinessChange &&
+            (!liveEditDocumentIdRef.current ||
+              snapshot.documentId === liveEditDocumentIdRef.current)
+          ) {
+            onRuntimeLayerSnapshotReadinessChange(true);
+          }
+          if (
             reservationToken &&
             requestId !== undefined &&
             snapshot.documentId
@@ -3858,6 +3882,7 @@ export function DesignCanvas({
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
+        refreshRuntimeLayerSnapshotAfterReady();
         liveEditRestartAttemptRef.current = 0;
         if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
           window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
@@ -4858,8 +4883,10 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onRuntimeLayerSnapshotReadinessChange,
     onReserveVisualEditSnapshot,
     onBridgeReady,
+    refreshRuntimeLayerSnapshotAfterReady,
     onBootReady,
     markPreviewFrameReady,
     onBootStart,
@@ -5136,17 +5163,24 @@ export function DesignCanvas({
       if (bridgeReadyRef.current) {
         if (editorChromeReadyRef.current) return;
         editorChromeReadyRef.current = true;
+        refreshRuntimeLayerSnapshotAfterReady();
         flushPendingOneShotMessages();
         return;
       }
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
     iframe.addEventListener("load", handleLoadReadyFallback);
     return () => iframe.removeEventListener("load", handleLoadReadyFallback);
-  }, [flushPendingOneShotMessages, onBridgeReady, usesLiveEditEditorBridge]);
+  }, [
+    flushPendingOneShotMessages,
+    onBridgeReady,
+    refreshRuntimeLayerSnapshotAfterReady,
+    usesLiveEditEditorBridge,
+  ]);
 
   useEffect(() => {
     if (!onBootReady) return;
@@ -5160,6 +5194,19 @@ export function DesignCanvas({
     iframe.addEventListener("load", handleLoad);
     return () => iframe.removeEventListener("load", handleLoad);
   }, [iframeDocumentIdentity, onBootReady]);
+
+  useLayoutEffect(() => {
+    if (!onRuntimeLayerSnapshotReadinessChange) return;
+    if (editorChromeReadyRef.current) {
+      refreshRuntimeLayerSnapshotAfterReady();
+      return;
+    }
+    onRuntimeLayerSnapshotReadinessChange(false);
+  }, [
+    iframeDocumentIdentity,
+    onRuntimeLayerSnapshotReadinessChange,
+    refreshRuntimeLayerSnapshotAfterReady,
+  ]);
 
   useLayoutEffect(() => {
     onBootStart?.();
