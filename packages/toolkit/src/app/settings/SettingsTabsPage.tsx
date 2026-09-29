@@ -47,6 +47,11 @@ const SettingsShell = lazy(() =>
     default: module.SettingsShell,
   })),
 );
+const LegacyChangelogSettingsCard = lazy(() =>
+  import("../changelog/Changelog.js").then((module) => ({
+    default: module.ChangelogSettingsCard,
+  })),
+);
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
 
@@ -366,6 +371,7 @@ function SettingsTabsPageContent({
   account,
   team,
   whatsNew,
+  whatsNewMarkdown,
   extraTabs: templateTabs,
   appAreas,
   notifications,
@@ -484,13 +490,20 @@ function SettingsTabsPageContent({
         content: team,
       });
     }
-    if (whatsNew) {
+    if (whatsNew || whatsNewMarkdown) {
       next.push({
         id: "whats-new",
         label: whatsNewLabel,
         icon: IconHistory,
         group: "app",
-        content: whatsNew,
+        content: whatsNew ?? (
+          <Suspense fallback={null}>
+            <LegacyChangelogSettingsCard
+              markdown={whatsNewMarkdown ?? ""}
+              hideTitle
+            />
+          </Suspense>
+        ),
       });
     }
     next.push(...linkedTabs);
@@ -508,6 +521,7 @@ function SettingsTabsPageContent({
     team,
     teamLabel,
     whatsNew,
+    whatsNewMarkdown,
     whatsNewLabel,
     t,
   ]);
