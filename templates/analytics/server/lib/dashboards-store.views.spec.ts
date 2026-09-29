@@ -142,9 +142,24 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: async () => ({ role: "owner" }),
   resolveAccess: async (...args: unknown[]) => {
     state.accessCalls.push(args);
-    return state.accessResult;
+    const access = state.accessResult as {
+      resource: Record<string, unknown>;
+      role: string;
+    } | null;
+    return access
+      ? { ...access, resource: state.dashboardRow ?? access.resource }
+      : null;
   },
-  roleSatisfies: () => true,
+  roleSatisfies: (role: string, minimum: string) => {
+    const ranks: Record<string, number> = {
+      viewer: 1,
+      commenter: 2,
+      editor: 3,
+      admin: 4,
+      owner: 5,
+    };
+    return (ranks[role] ?? -1) >= (ranks[minimum] ?? Infinity);
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -172,7 +187,11 @@ vi.mock("../db/index.js", () => ({
             );
           }
           if (table === dashboards) {
-            return rowsResult(state.dashboardRow ? [state.dashboardRow] : []);
+            return rowsResult(
+              state.dashboardRow && matches(predicate, state.dashboardRow)
+                ? [state.dashboardRow]
+                : [],
+            );
           }
           return rowsResult([]);
         },
@@ -210,7 +229,7 @@ vi.mock("../db/index.js", () => ({
   }),
 }));
 
-const { deleteDashboardView, saveDashboardView } =
+const { deleteDashboardView, getDashboardForReview, saveDashboardView } =
   await import("./dashboards-store.js");
 
 beforeEach(() => {
@@ -239,6 +258,42 @@ beforeEach(() => {
 });
 
 describe("dashboard views", () => {
+  it("reads review dashboards only from the requested org without migrating legacy rows", async () => {
+    state.dashboardRow = {
+      ...dashboard,
+      orgId: "org-a",
+      visibility: "private",
+      config: JSON.stringify({ name: "Review", panels: [] }),
+    };
+    state.legacyDashboard = { name: "Legacy", panels: [] };
+
+    const result = await getDashboardForReview("dashboard-a", {
+      kind: "organization",
+      orgId: "org-a",
+    });
+    const otherOrgResult = await getDashboardForReview("dashboard-a", {
+      kind: "organization",
+      orgId: "org-b",
+    });
+
+    expect(result).toMatchObject({
+      id: "dashboard-a",
+      orgId: "org-a",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+    });
+    expect(otherOrgResult).toBeNull();
+    expect(state.accessCalls).toEqual([
+      [
+        "dashboard",
+        "dashboard-a",
+        { userEmail: "alice@example.com", orgId: "org-a" },
+      ],
+    ]);
+    expect(state.dashboardRow?.orgId).toBe("org-a");
+  });
+
   it("checks parent access without loading the dashboard config", async () => {
     const { listDashboardViews } = await import("./dashboards-store.js");
 

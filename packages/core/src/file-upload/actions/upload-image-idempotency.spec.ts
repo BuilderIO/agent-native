@@ -47,6 +47,18 @@ describe("upload-image idempotency receipts", () => {
     });
   });
 
+  it("explains both storage setup paths when no provider is connected", async () => {
+    mocks.uploadFile.mockResolvedValue(null);
+
+    await expect(
+      action.run({ data: "data:image/png;base64,AQ==", filename: "image.png" }),
+    ).resolves.toEqual({
+      error:
+        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+      configured: false,
+    });
+  });
+
   it("replays a stored provider result instead of uploading twice", async () => {
     const first = await action.run(uploadArgs);
 

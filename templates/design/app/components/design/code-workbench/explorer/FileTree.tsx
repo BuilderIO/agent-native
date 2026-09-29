@@ -65,11 +65,6 @@ interface FileTreeProps {
   ) => void;
 }
 
-/**
- * Single-root file tree: renders folders + files, owns expansion state,
- * roving-tabindex keyboard nav, inline rename/new-file input rows, and the
- * per-row context menu.
- */
 export function FileTree({
   providerKey,
   providerLabel,
@@ -100,14 +95,6 @@ export function FileTree({
     text: "",
     at: 0,
   });
-  // When Enter/Escape ends a rename or new-file input via setRenamingPath /
-  // setPendingNewFile, React unmounts the focused input as part of that same
-  // update. Removing a focused DOM node makes the browser fire a native blur
-  // on it, which our onBlur handler would otherwise treat as an independent
-  // commit — double-submitting on Enter (rename/create called twice) and
-  // silently committing the draft on Escape instead of discarding it. These
-  // refs let the key handler mark "I already resolved this input" so the
-  // resulting blur is a no-op.
   const renameHandledRef = useRef(false);
   const newFileHandledRef = useRef(false);
 
@@ -145,10 +132,6 @@ export function FileTree({
 
   const handleWriteError = useCallback(
     (error: unknown) => {
-      // Localhost providers throw a typed error when a write needs a fresh
-      // consent grant; surface the existing consent dialog flow instead of a
-      // silent failure. Checked by name to avoid a hard import-time coupling
-      // to the B4 provider module from this packet.
       if (
         error instanceof Error &&
         error.name === "LocalWriteConsentRequiredError" &&
@@ -200,8 +183,6 @@ export function FileTree({
   const requestDelete = useCallback(
     (target: TreeNode) => {
       if (providerKey.startsWith("inline:")) {
-        // Inline Design files are covered by the editor's durable undo/history
-        // boundary; external providers remain confirmation-gated below.
         void commitDelete(target);
       } else {
         setDeleteTarget(target);
@@ -458,9 +439,6 @@ export function FileTree({
                       onClick={(event) => event.stopPropagation()}
                       onChange={(event) => setRenameDraft(event.target.value)}
                       onBlur={() => {
-                        // Enter/Escape already resolved this input; the blur
-                        // firing right after is just the DOM node unmounting,
-                        // not a real "user clicked away" commit request.
                         if (renameHandledRef.current) {
                           renameHandledRef.current = false;
                           return;
@@ -566,9 +544,6 @@ export function FileTree({
               placeholder="filename.ext" /* i18n-ignore */
               onChange={(event) => setNewFileDraft(event.target.value)}
               onBlur={() => {
-                // Enter/Escape already resolved this input; the blur firing
-                // right after is just the DOM node unmounting, not a real
-                // "user clicked away" commit request.
                 if (newFileHandledRef.current) {
                   newFileHandledRef.current = false;
                   return;

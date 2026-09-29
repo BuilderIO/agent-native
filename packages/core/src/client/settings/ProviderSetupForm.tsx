@@ -18,6 +18,7 @@ import {
   getAgentEngineProviderKeyStatus,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
+  type AgentEngineKeyScope,
   type AgentEngineProviderKeyStatus,
 } from "../agent-engine-key.js";
 import {
@@ -27,6 +28,7 @@ import {
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 import { AgentProviderPicker } from "./AgentProviderPicker.js";
+import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
 
 export {
   AgentProviderPicker,
@@ -37,22 +39,37 @@ export interface AgentProviderSetupFormProps {
   initialProvider?: AgentProviderId;
   configuredProviders?: ReadonlySet<AgentProviderId>;
   onConnected?: (provider: AgentProviderId) => void;
-  /** @deprecated Provider keys are saved at organization scope. */
-  scope?: "user" | "org";
+  /**
+   * Where the key is saved. Defaults to the organization's for owners and
+   * admins and personal for everyone else; the server refuses an
+   * organization save from a member.
+   */
+  scope?: AgentEngineKeyScope;
   layout?: "compact" | "page";
   showTitle?: boolean;
   className?: string;
 }
 
+/**
+ * @deprecated Open {@link ProviderDialog} from `@agent-native/core/client/settings`
+ * instead: one dialog adds and manages every provider key, with the key
+ * check, model list, and scope. Kept for one release.
+ */
 export function AgentProviderSetupForm({
   initialProvider = "anthropic",
   configuredProviders,
   onConnected,
+  scope: chosenScope,
   layout = "compact",
   showTitle = true,
   className,
 }: AgentProviderSetupFormProps) {
   const t = useT();
+  const {
+    scope: saveScope,
+    roleUnavailable,
+    retry: retryRole,
+  } = useProviderKeySaveScope(chosenScope);
   const isPage = layout === "page";
   const [provider, setProvider] = useState<AgentProviderId>(initialProvider);
   const [apiKey, setApiKey] = useState("");
@@ -123,10 +140,6 @@ export function AgentProviderSetupForm({
     setOllamaModelsError(null);
   }, [active.defaultModel, provider]);
 
-  // Ask the Ollama server itself which models it has pulled, instead of only
-  // offering the static suggestion list. Triggered explicitly by the "Find
-  // models" button rather than on every keystroke, so the request always
-  // uses the address the user actually meant to check.
   const handleFindOllamaModels = () => {
     setOllamaModelsLoading(true);
     setOllamaModelsError(null);
@@ -135,18 +148,13 @@ export function AgentProviderSetupForm({
       .then(async (models) => {
         setOllamaModels(models);
         setOllamaModelsError(null);
-        // A successful check is the only signal this address actually works.
-        // Persist it as soon as it's confirmed — other surfaces that read
-        // the saved Ollama endpoint (like the chat composer's model picker)
-        // have no address field of their own, so without this they keep
-        // falling back to the http://localhost:11434 default until the main
-        // "Use Ollama" button below is also clicked.
-        if (typedEndpoint && active.endpointKey) {
+        if (typedEndpoint && active.endpointKey && saveScope) {
           try {
             await saveAgentEngineProviderSettings({
               provider,
               key: active.endpointKey,
               baseUrl: typedEndpoint,
+              scope: saveScope,
             });
             void refreshProviderKeyStatus();
           } catch {
@@ -170,7 +178,7 @@ export function AgentProviderSetupForm({
   };
 
   const handleSave = async () => {
-    if (saving) return;
+    if (saving || !saveScope) return;
     if (active.key && !apiKey.trim()) {
       setError(
         t("agentPanel.enterApiKey", {
@@ -183,19 +191,24 @@ export function AgentProviderSetupForm({
     setSaving(true);
     setError(null);
     try {
+      const selectedModel = model.trim() || active.defaultModel;
       if (active.key || endpoint.trim()) {
-        await saveAgentEngineProviderSettings({
+        // The save also picks the provider when the caller may change the
+        // default model; members only save the key.
+        const result = await saveAgentEngineProviderSettings({
           provider,
           ...(active.key ? { key: active.key } : {}),
           ...(apiKey.trim() ? { apiKey } : {}),
           ...(endpoint.trim() ? { baseUrl: endpoint } : {}),
-          scope: "org",
+          scope: saveScope,
+          defaultModel: { model: selectedModel },
         });
+        if (result.defaultModel?.status === "failed") {
+          throw new Error(result.defaultModel.error);
+        }
+      } else {
+        await setAgentEngineProvider({ provider, model: selectedModel });
       }
-      await setAgentEngineProvider({
-        provider,
-        model: model.trim() || active.defaultModel,
-      });
       setApiKey("");
       setSaved(true);
       void refreshProviderKeyStatus();
@@ -238,8 +251,6 @@ export function AgentProviderSetupForm({
     configuredProviders?.has(provider) ||
     providerKeyStatus?.status === "set" ||
     saved;
-  // The catalog provides current suggestions, while the free-form field keeps
-  // newly released provider models usable before the catalog is refreshed.
   const modelInputVisible = Boolean(active.key) || active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
   const isOllama = provider === "ollama";
@@ -582,7 +593,9 @@ export function AgentProviderSetupForm({
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
           <button
             type="submit"
-            disabled={saving || Boolean(active.key && !apiKey.trim())}
+            disabled={
+              saving || !saveScope || Boolean(active.key && !apiKey.trim())
+            }
             className={cn(
               "inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
               isPage ? "h-9 px-3 text-xs" : "h-8 px-3 text-[11px]",
@@ -626,6 +639,21 @@ export function AgentProviderSetupForm({
             </a>
           ) : null}
         </div>
+        {roleUnavailable ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-1.5 text-[11px] leading-relaxed text-destructive"
+          >
+            <p>{t("agentPanel.saveScopeRoleUnavailable")}</p>
+            <button
+              type="button"
+              onClick={retryRole}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              {t("agentChat.common.retry")}
+            </button>
+          </div>
+        ) : null}
         {error ? (
           <div
             role="alert"

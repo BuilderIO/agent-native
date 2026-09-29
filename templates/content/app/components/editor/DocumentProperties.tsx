@@ -1,6 +1,7 @@
 import { emailToName } from "@agent-native/core/client/collab";
-import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   closestCenter,
   DndContext,
@@ -80,8 +81,8 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -93,6 +94,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -128,7 +130,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAddContentDatabaseSourceFieldProperty } from "@/hooks/use-content-database";
+import { useContentActionMutation } from "@/hooks/use-content-action-mutation";
+import {
+  contentDatabaseConstrainedQueryFilter,
+  useAddContentDatabaseSourceFieldProperty,
+} from "@/hooks/use-content-database";
 import {
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
@@ -743,11 +749,6 @@ export function updatePropertyOptionDescription(
   );
 }
 
-/**
- * Keeps successive option edits based on the same local truth until the
- * server catches up. A rename followed immediately by a usage-description
- * edit must not let either request erase the other.
- */
 export function createPropertyOptionUpdateQueue(
   initialOptions: DocumentPropertyOption[],
   persist: (options: DocumentPropertyOption[]) => Promise<unknown>,
@@ -775,12 +776,6 @@ type PropertyMetadataSnapshot = Pick<
   "name" | "type" | "description" | "visibility" | "options" | "icon"
 >;
 
-/**
- * Serializes property-definition edits against one local snapshot. The action
- * accepts the complete definition, so composing each request from render-time
- * props would let a fast description save restore the name from before an
- * overlapping rename completed.
- */
 export function createPropertyMetadataUpdateQueue(
   initialMetadata: PropertyMetadataSnapshot,
   persist: (metadata: PropertyMetadataSnapshot) => Promise<unknown>,
@@ -889,8 +884,6 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
-  // Blocks fields are rendered as body content (below the database/title), not
-  // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -1115,8 +1108,6 @@ function PropertyRow({
   );
 }
 
-// Mirror of the server's propertyTypeForSourceField — keep in sync. Used to
-// gate which source fields can bind into a column (type compatibility).
 export function propertyTypeForSourceFieldType(
   sourceFieldType: string,
 ): DocumentPropertyType {
@@ -1203,27 +1194,17 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
   );
-  const bindQueryClient = useQueryClient();
-  const bindSourceField = useActionMutation<
+  const bindSourceField = useContentActionMutation<
     ContentDatabaseResponse,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
-    onSuccess: () => {
-      void bindQueryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void bindQueryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId, databaseId },
-        ],
-      });
-    },
+    invalidates: [
+      ["action", "get-content-database"],
+      ["action", "list-document-properties", { documentId, databaseId }],
+      ["action", "get-content-database-source"],
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
-  // Per-source field bindings for THIS column (row-union): which source fields
-  // feed it, and which unmapped, type-compatible fields could be bound into it
-  // (at most one field per source per column).
   const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
     src.fields.map((field) => ({ source: src, field })),
   );
@@ -1248,8 +1229,6 @@ export function PropertyManagementPopover({
       "tags",
       "multi_select",
     ].includes(entry.field.sourceFieldType.trim().toLowerCase());
-    // text columns accept any SCALAR field but not multi-value ones (lossy);
-    // otherwise the derived type must match the column type.
     return columnType === "text"
       ? !fieldIsMultiValue
       : columnType ===
@@ -1259,8 +1238,6 @@ export function PropertyManagementPopover({
     !isComputedPropertyType(columnType) &&
     columnType !== "blocks" &&
     (boundSourceFields.length > 0 || bindableSourceFields.length > 0);
-  // Whether deleting THIS property removes the last Blocks field of the type —
-  // i.e. the body. Drives the yellow warning in the delete dialog.
   const blocksFieldCount = (propertiesData?.properties ?? []).filter(
     (item) => item.definition.type === "blocks",
   ).length;
@@ -1711,6 +1688,7 @@ export function PropertyManagementPopover({
                   />
                 </button>
                 <Input
+                  size="sm"
                   ref={propertyNameInputRef}
                   value={name}
                   aria-label={t("editor.properties.propertyName")}
@@ -1722,7 +1700,6 @@ export function PropertyManagementPopover({
                       event.currentTarget.blur();
                     }
                   }}
-                  className="h-8"
                 />
               </div>
 
@@ -1858,11 +1835,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <Input
+                      size="sm"
                       value={newOption}
                       placeholder={t("editor.properties.addOption")}
                       onChange={(event) => setNewOption(event.target.value)}
                       onKeyDown={(event) => event.stopPropagation()}
-                      className="h-8"
                     />
                     <Button
                       type="submit"
@@ -2048,11 +2025,16 @@ export function PropertyManagementPopover({
             </div>
           ) : null}
           <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
+            <AlertDialogCancel
+              size="sm"
+              className="mt-0 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+            >
               {t("editor.properties.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
-              className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+              variant="destructive"
+              size="sm"
+              className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
               onClick={() => void deleteProperty()}
             >
               {t("editor.properties.deleteProperty")}
@@ -2563,6 +2545,9 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const mutation = useSetDocumentProperty(
     documentId,
     property.definition.databaseId!,
@@ -2571,8 +2556,10 @@ function FilesMediaValueEditor({
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploadFilesRef = useRef<File[] | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -2609,31 +2596,47 @@ function FilesMediaValueEditor({
     onDone();
   }
 
-  async function uploadFiles(files: FileList | null) {
-    const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0) return;
-    setUploading(true);
-    try {
-      const uploadedUrls: string[] = [];
-      for (const file of selectedFiles) {
-        uploadedUrls.push(await uploadImageFile(file));
+  const uploadFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      const selectedFiles = Array.from(files ?? []);
+      if (selectedFiles.length === 0) return;
+      if (!fileStorageConfigured) {
+        pendingUploadFilesRef.current = selectedFiles;
+        setStorageSetupOpen(true);
+        return;
       }
-      setItems((current) => [...current, ...uploadedUrls]);
-      toast.success(
-        t(
-          uploadedUrls.length === 1
-            ? "editor.properties.imageUploaded_one"
-            : "editor.properties.imageUploaded_other",
-          { count: uploadedUrls.length },
-        ),
-      );
-    } catch (error) {
-      toast.error(imageUploadErrorMessage(error));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+      setUploading(true);
+      try {
+        const uploadedUrls: string[] = [];
+        for (const file of selectedFiles) {
+          uploadedUrls.push(await uploadImageFile(file));
+        }
+        setItems((current) => [...current, ...uploadedUrls]);
+        toast.success(
+          t(
+            uploadedUrls.length === 1
+              ? "editor.properties.imageUploaded_one"
+              : "editor.properties.imageUploaded_other",
+            { count: uploadedUrls.length },
+          ),
+        );
+      } catch (error) {
+        toast.error(imageUploadErrorMessage(error));
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [fileStorageConfigured, t],
+  );
+
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingUploadFilesRef.current;
+    pendingUploadFilesRef.current = null;
+    if (pendingFiles) void uploadFiles(pendingFiles);
+  }, [fileStorageConfigured, uploadFiles]);
 
   return (
     <form
@@ -2720,15 +2723,32 @@ function FilesMediaValueEditor({
         type="file"
         accept="image/*"
         multiple
+        disabled={!fileStorageConfigured}
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
+      />
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={storageSetupOpen}
+        onOpenChange={(open, reason) => {
+          if (!open && reason === "dismiss") {
+            pendingUploadFilesRef.current = null;
+          }
+          setStorageSetupOpen(open);
+        }}
       />
       <div className="flex justify-end gap-2">
         <Button
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (fileStorageConfigured) {
+              fileInputRef.current?.click();
+            } else {
+              setStorageSetupOpen(true);
+            }
+          }}
           disabled={mutation.isPending || uploading}
         >
           <IconUpload className="size-3.5" />
@@ -2837,9 +2857,6 @@ function DateValueEditor({
         const submittedStartValue = formData.get("property-start-value");
         const submittedEndValue = formData.get("property-end-value");
 
-        // Native date controls can update their displayed DOM value before
-        // React receives the corresponding change event. Read the submitted
-        // form so Save never clears a date that is visibly present.
         void save(
           buildValue(
             typeof submittedStartValue === "string" ? submittedStartValue : "",
@@ -2854,7 +2871,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -2872,7 +2889,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -3516,8 +3533,6 @@ export function AddProperty({
     if (!onConnectSource || isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
-    // Radix keeps closing popovers mounted for their exit animation. Remove
-    // this one immediately so opening Sources cannot stack over it.
     setSourceHandoffClosing(true);
     setOpen(false);
     onConnectSource();
@@ -3533,7 +3548,7 @@ export function AddProperty({
         documentId,
         name: label,
         type,
-        options: defaultPropertyOptions(type),
+        options: type === "blocks" ? undefined : defaultPropertyOptions(type),
       });
       setTypeQuery("");
       setOpen(false);

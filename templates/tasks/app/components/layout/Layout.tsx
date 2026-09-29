@@ -3,6 +3,7 @@ import {
   focusAgentChat,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
@@ -25,11 +26,6 @@ interface LayoutProps {
 
 const SIDEBAR_COLLAPSE_KEY = "tasks.sidebar.collapsed";
 
-/**
- * Routes whose page renders its own toolbar. Layout still wraps these with the
- * left Sidebar and agent surfaces but skips the global Header so they don't
- * double-stack chrome.
- */
 function routeOwnsToolbar(pathname: string): boolean {
   return pathname === "/tasks" || pathname.startsWith("/extensions");
 }
@@ -39,6 +35,9 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
@@ -78,7 +77,7 @@ export function Layout({ children }: LayoutProps) {
             <IconMenu2 className="h-4 w-4" />
           </button>
         </div>
-      ) : (
+      ) : isSettingsRoute ? null : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
       <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
@@ -90,12 +89,14 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden md:block">
-          <Sidebar
-            collapsed={sidebarCollapsed}
-            onCollapsedChange={setSidebarCollapsed}
-          />
-        </div>
+        {isSettingsRoute ? null : (
+          <div className="hidden md:block">
+            <Sidebar
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </div>
+        )}
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
             <SheetTitle className="sr-only">

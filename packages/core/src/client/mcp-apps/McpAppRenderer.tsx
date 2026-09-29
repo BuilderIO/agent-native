@@ -5,7 +5,6 @@ import {
   type McpUiResourceCsp,
   type McpUiResourcePermissions,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import {
   useCallback,
@@ -22,9 +21,18 @@ import {
   AGENT_NATIVE_EMBED_VERSION,
 } from "../../embedding/protocol.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import {
+  loadOptionalPeer,
+  OptionalPeerDependencyError,
+} from "../../shared/optional-peer.js";
 import { sendToAgentChat, type AgentChatRequestMode } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+
+type CallToolResult = Parameters<
+  InstanceType<typeof AppBridge>["sendToolResult"]
+>[0];
 
 export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 650;
 export const MCP_APP_INITIALIZE_TIMEOUT_MS = 8000;
@@ -66,6 +74,7 @@ export function McpAppRenderer({
   maxHeight,
   readOnly = false,
 }: McpAppRendererProps) {
+  const t = useT();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const desiredHeightRef = useRef(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const modelContextRef = useRef<McpAppModelContext | null>(null);
@@ -109,24 +118,22 @@ export function McpAppRenderer({
       .then((srcDoc) => {
         if (active) setReadOnlySnapshot({ resourceHtml, srcDoc });
       })
-      .catch(() => {
-        if (active) setError("Failed to initialize MCP App.");
+      .catch((error: unknown) => {
+        if (!active) return;
+        setError(
+          error instanceof OptionalPeerDependencyError
+            ? t("agentChat.mcpApps.optionalPeerRequired", {
+                packageName: error.packageName,
+                installCommand: `pnpm add ${error.packageName}`,
+              })
+            : "Failed to initialize MCP App.",
+        );
       });
     return () => {
       active = false;
     };
-  }, [readOnly, resourceHtml]);
+  }, [readOnly, resourceHtml, t]);
 
-  // Keep the latest payload/permissions/csp reachable from the bridge effect
-  // without making them effect dependencies. The embedded resource identity is
-  // fully captured by `srcDoc`. The bridge effect must NOT re-run when a benign
-  // parent re-render hands us a new `app` object reference with identical
-  // content (common during chat streaming/polling): re-running tears down a
-  // live, already-initialized MCP App (teardownResource) and re-arms the
-  // initialize watchdog against a fresh host AppBridge that the embed shell
-  // will never re-handshake (its connect promise is memoized), surfacing a
-  // false "MCP App did not finish initializing." error after the app is
-  // visibly working.
   const appRef = useRef(app);
   const supportedPermissionsRef = useRef(supportedPermissions);
   const uiCspRef = useRef(appCsp);
@@ -308,12 +315,13 @@ export function McpAppRenderer({
         return errorToolResult(err?.message ?? "MCP App tool call failed.");
       }
     };
-    (bridge as any).onlisttools = async () =>
+    bridge.setRequestHandler("tools/list", async () =>
       readOnly
         ? { tools: [] }
         : postMcpAppEndpoint("list-tools", {
             serverId: appRef.current.serverId,
-          });
+          }),
+    );
     bridge.onreadresource = async ({ uri }) => {
       if (readOnly) throw new Error("This saved MCP App is read-only.");
       return postMcpAppEndpoint("read-resource", {
@@ -671,8 +679,10 @@ export async function createReadOnlyMcpAppSrcDoc(
 }
 
 async function sanitizeReadOnlyMcpAppHtml(html: string): Promise<string> {
-  // Unlike browser DOMParser, linkedom never starts resource loads while parsing.
-  const { parseHTML } = await import("linkedom/worker");
+  const { parseHTML } = await loadOptionalPeer(
+    "linkedom",
+    () => import("linkedom/worker"),
+  );
   const isDocument = /<!doctype\s+html|<html(?:\s|>)/i.test(html);
   const source = isDocument
     ? html

@@ -32,11 +32,6 @@ export async function resolveDocumentAccessForMutation(
   documentId: string,
   argumentName: DocumentArgumentName = "id",
 ): Promise<ResolvedAccess> {
-  // resolveAccess collapses "absent" and "no role" into null. Existence is
-  // probed with an id-only primary-key lookup — the same unscoped-by-access
-  // read the sharing layer performs internally before its access decision —
-  // so absent can say not-found while present-but-inaccessible stays
-  // ForbiddenError and no row data beyond existence leaves this check.
   const resolved = await resolveContentDocumentAccess(documentId);
   if (resolved) return resolved;
   const [existing] = await getDb()

@@ -491,9 +491,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
     }
   });
 
-  // The insert path copies markup into the running DOM and leaves the subject
-  // where it was, which is only correct for a board primitive. Applying it to
-  // any stored screen turns an ordinary move into a silent duplicate.
   it("reinterprets a drop into a live screen as an insert only from the board", () => {
     expect(
       resolveRuntimeStructureMoveExecutionMode({
@@ -521,7 +518,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
     const cases: Array<
       [Parameters<typeof resolveRuntimeStructureMoveExecutionMode>[0], string]
     > = [
-      // Stored → stored stays a plain source edit, live-ness unset.
       [
         {
           subjectRuntimeOnly: false,
@@ -531,7 +527,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "source-edit",
       ],
-      // A board drop onto a stored screen is still a stored move, not an insert.
       [
         {
           subjectRuntimeOnly: false,
@@ -542,7 +537,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "source-edit",
       ],
-      // Board → live is the one insert route.
       [
         {
           subjectRuntimeOnly: false,
@@ -554,10 +548,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "screen-bridge-insert",
       ],
-      // Board → live where the subject is itself a runtime node is a move
-      // copied from the canvas back into the running DOM. The board is still
-      // the source surface, even though the copied node retains runtime-only
-      // provenance from the live screen it came from.
       [
         {
           subjectRuntimeOnly: true,
@@ -569,8 +559,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "screen-bridge-insert",
       ],
-      // Stored → live: the destination has no editable stored document, so it
-      // may never fall back to the source-edit path.
       [
         {
           subjectRuntimeOnly: false,
@@ -581,7 +569,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "semantic-handoff",
       ],
-      // Live → live, same screen: the fast in-iframe bridge still owns it.
       [
         {
           subjectRuntimeOnly: true,
@@ -592,7 +579,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "screen-bridge",
       ],
-      // Live → different live screen: one screen-scoped bridge cannot span it.
       [
         {
           subjectRuntimeOnly: true,
@@ -1058,10 +1044,6 @@ describe("pending localhost structure history", () => {
   });
 });
 
-// The owner call site is the whole point of distinguishing `.map()` siblings:
-// their own JSX line is identical, and only the owner location names the file
-// and line a coding agent has to open. The handoff used to carry ownerKey
-// alone, which says WHICH instance without saying where it comes from.
 describe("owner provenance survives the coding-agent handoff", () => {
   const mappedInfo = {
     provenance: {
@@ -1114,9 +1096,6 @@ describe("owner provenance survives the coding-agent handoff", () => {
     });
     expect(JSON.stringify(redacted)).not.toContain("/Users/example");
 
-    // No safe project-relative owner path yet: keep the bounded Fiber path and
-    // mark it explicitly so the coding agent can inspect read-only or request
-    // the correct connection without mistaking it for a project-relative path.
     const unresolved = redactReactSourceAnchor(
       reactSourceAnchorForPendingEdit({ info: mappedInfo }),
     );
@@ -1143,8 +1122,6 @@ describe("owner provenance survives the coding-agent handoff", () => {
             rootPath: "/Users/example/project",
           })!,
           id: "subject",
-          // An authored element position with a transformed owner position:
-          // one shared precision field would overstate one of the two.
           method: "data-attribute",
         },
       ],

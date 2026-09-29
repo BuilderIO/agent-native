@@ -169,6 +169,40 @@ describe("refresh-localhost-preview-token", () => {
     });
   });
 
+  it("issues live-edit capabilities to the design owner", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: false,
+    });
+
+    expect(result.liveEditCapability).toBe(
+      deriveLiveEditCapability("stored-bridge-token", "design_1"),
+    );
+    expect(result.liveEditRegistrationCapability).toBe(
+      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
+    );
+  });
+
   it("rejects a connection that is not part of the design", async () => {
     await expect(
       action.run({

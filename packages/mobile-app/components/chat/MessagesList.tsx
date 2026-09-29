@@ -36,13 +36,23 @@ function buildRows(chat: AgentChatController): Row[] {
   ) {
     rows.push({ kind: "activity", label: chat.activity });
   } else if (chat.isStreaming) {
-    // No assistant output and no activity yet — mirror the web's pulsing
-    // "Thinking" placeholder until the first token or tool event lands.
     const last = chat.messages[chat.messages.length - 1];
     if (!last || last.role === "user") rows.push({ kind: "thinking" });
   }
   if (chat.error) {
     rows.push({ kind: "error", error: chat.error, errorCode: chat.errorCode });
+  } else if (chat.chatEligibility === "missing") {
+    rows.push({
+      kind: "error",
+      error: "No Builder AI or custom provider API key is connected.",
+      errorCode: "missing_api_key",
+    });
+  } else if (chat.chatEligibility === "unavailable") {
+    rows.push({
+      kind: "error",
+      error: "Chat setup could not be confirmed. Retry to check again.",
+      errorCode: "chat_setup_unavailable",
+    });
   }
   return rows;
 }
@@ -57,21 +67,22 @@ export function MessagesList({
   bottomInset,
   onMessageActions,
   onSignIn,
+  onOpenSettings,
+  onOpenConnections,
 }: {
   chat: AgentChatController;
-  /** Height of the floating composer + keyboard area to pad the scroll end. */
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
-  /** Opens the sign-in sheet when a run failed because the session expired. */
   onSignIn?: () => void;
+  /** Opens provider settings when chat has no eligible AI credentials. */
+  onOpenSettings?: () => void;
+  onOpenConnections?: () => void;
 }) {
   const { foreground } = useMobileThemeColors();
   const listRef = useRef<LegendListRef>(null);
   const [awayFromEnd, setAwayFromEnd] = useState(false);
   const rows = buildRows(chat);
   const lastMessageId = chat.messages.at(-1)?.id;
-  // Streaming turns animate in; opening an existing thread must not replay
-  // entry animations for the whole transcript.
   const animateFromIndex = useRef(chat.messages.length);
   if (!chat.isStreaming && !chat.historyLoading) {
     animateFromIndex.current = chat.messages.length;
@@ -92,14 +103,25 @@ export function MessagesList({
           <ErrorRow
             error={item.error}
             errorCode={item.errorCode}
-            onRetry={chat.retry}
+            onRetry={
+              item.errorCode === "chat_setup_unavailable"
+                ? chat.refreshChatEligibility
+                : chat.retry
+            }
             onSignIn={onSignIn}
+            onOpenSettings={onOpenSettings}
           />
         );
       }
       const animateIn = index >= animateFromIndex.current - 1;
       if (item.message.role === "user") {
-        return <UserMessage message={item.message} animateIn={animateIn} />;
+        return (
+          <UserMessage
+            message={item.message}
+            animateIn={animateIn}
+            onActions={onMessageActions}
+          />
+        );
       }
       const isLastMessage = item.message.id === lastMessageId;
       return (
@@ -108,8 +130,12 @@ export function MessagesList({
           animateIn={animateIn}
           showFooter={!chat.isStreaming || !isLastMessage}
           isStreamingMessage={chat.isStreaming && isLastMessage}
+          canChat={chat.canChat}
           onApprove={chat.approve}
           onDeny={chat.deny}
+          onOpenConnections={onOpenConnections}
+          onContinueAfterConnection={chat.continueAfterConnection}
+          onInvokeWidgetAction={chat.invokeWidgetAction}
           onActions={onMessageActions}
         />
       );
@@ -118,11 +144,16 @@ export function MessagesList({
       chat.approve,
       chat.deny,
       chat.retry,
+      chat.refreshChatEligibility,
       chat.isStreaming,
       lastMessageId,
       rows.length,
       onMessageActions,
       onSignIn,
+      onOpenSettings,
+      onOpenConnections,
+      chat.continueAfterConnection,
+      chat.invokeWidgetAction,
     ],
   );
 

@@ -24,6 +24,10 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/workspace-defaults.js";
+import {
+  projectSlidesDeckResult,
+  SLIDES_DECK_RESULT_RENDERER,
+} from "../shared/action-ui.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
@@ -40,6 +44,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 import getDesignSystem from "./get-design-system.js";
 
@@ -94,7 +99,6 @@ const SlideSchema = z.object({
     .describe("Exact context item versions that influenced this slide"),
 });
 
-// Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
 const SlidesSchema = z.preprocess(
   (v) => (v === undefined ? [] : typeof v === "string" ? JSON.parse(v) : v),
   z.array(SlideSchema),
@@ -183,7 +187,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; pass generationComplete=false on intermediate writes and true on the final write; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. The action resolves and attaches the effective default; use design-system context available before this call to author its slides, and use returned agentContext before adding slides in the empty-deck workflow. After all slide writes, call get-layout-overflows once for final verification and once more only after a repair; if measurements are unknown, report the unmeasured slides and wait for a new editor measurement before checking again. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -236,6 +240,11 @@ export default defineAction({
       .default([])
       .describe("Deck-wide exact context item versions used"),
   }),
+  chatUI: {
+    renderer: SLIDES_DECK_RESULT_RENDERER,
+    when: (_args, result) => projectSlidesDeckResult(result) !== null,
+    projectResult: (_args, result) => projectSlidesDeckResult(result),
+  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -390,8 +399,6 @@ export default defineAction({
       const resolvedTitle =
         repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
 
-      // Resolve the title form before the branches split so replacing a deck
-      // honors it the same way creating one does.
       const designSystemId =
         explicitDesignSystemId ??
         (designSystem
@@ -402,7 +409,6 @@ export default defineAction({
         if (designSystemId) {
           await assertAccess("design-system", designSystemId, "viewer");
         }
-        // Update existing deck — requires editor access.
         let existingDeck = browserOwnedDeck;
         if (!existingDeck) {
           await assertAccess("deck", deckId, "editor");
@@ -423,6 +429,7 @@ export default defineAction({
             existingDeck.title,
           ) ?? resolvedTitle;
         assertHumanReadableDeckTitle(existingDeckTitle);
+        assertNoDeckRenderArtifacts(existingDeck.data, { slides: rawSlides });
         const writeNow = nextDeckRevision(existingDeck.updatedAt);
         const prevData = JSON.parse(existingDeck.data);
         const previousDesignSystemId = resolveDeckDesignSystemId(
@@ -437,6 +444,16 @@ export default defineAction({
           aspectRatio: aspectRatio ?? prevData.aspectRatio,
           designSystemId: designSystemId ?? prevData.designSystemId,
           creativeContext: creativeContextProvenance,
+          ...(actionOwnsGenerationLifecycle
+            ? {
+                generationContext: incrementalGeneration
+                  ? {
+                      generationAttemptId,
+                      generationMode: "action",
+                    }
+                  : undefined,
+              }
+            : {}),
         };
         await db.transaction(async (tx: any) => {
           await createDeckVersionSnapshot(
@@ -473,8 +490,6 @@ export default defineAction({
             ...creativeContextProvenance,
             ...(elementProvenance.length ? { elementProvenance } : {}),
           });
-          // Broadcast to open editors (in-process SSE) + application-state
-          // refresh signal (cross-process polling fallback for serverless).
           await notifyClients(deckId);
           await writeAppStateForCurrentTab(
             "navigate",
@@ -564,6 +579,7 @@ export default defineAction({
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("no authenticated user");
       assertHumanReadableDeckTitle(resolvedTitle);
+      assertNoDeckRenderArtifacts(null, { slides: rawSlides });
 
       let resolvedDesignSystemId = designSystemId;
       if (resolvedDesignSystemId) {
@@ -580,7 +596,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(incrementalGeneration
+        ...(actionOwnsGenerationLifecycle && incrementalGeneration
           ? {
               generationContext: {
                 generationAttemptId,

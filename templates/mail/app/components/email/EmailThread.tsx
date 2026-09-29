@@ -1,6 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
   findPlainTextLinkRanges,
   renderPlainTextLinks,
@@ -46,7 +46,11 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { AiFilterDialog } from "@/components/email/AiFilterDialog";
+import {
+  AiFilterDialog,
+  type AiFilterDialogTarget,
+} from "@/components/email/AiFilterDialog";
+import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -54,6 +58,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import {
+  askAgentToDraftImportanceRules,
+  useAiPriorityFeedback,
+} from "@/hooks/use-ai-priority-feedback";
 import {
   applyDraftSaveResult,
   useComposeState,
@@ -70,6 +78,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
+  useLabels,
   releaseOwnedInboxRemoval,
   releaseSuppressionClaims,
 } from "@/hooks/use-emails";
@@ -84,6 +93,7 @@ import {
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
+import { mailLabelDisplayName } from "@/lib/label-display";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -160,17 +170,7 @@ export function EmailThread({
   activeThreadId?: string;
   onArchived?: (id: string) => void;
   emailIds?: string[];
-  /**
-   * Full thread summaries for the current view. Used to resolve thread keys
-   * back to their latestMessage (id, accountEmail) when bulk-archiving via
-   * shift+j/k multi-selection from the detail view.
-   */
   threads?: ThreadSummary[];
-  /**
-   * Multi-selection of thread keys (`threadId || id`). Shared with the list
-   * view so selections survive navigation between list and detail views, and
-   * shift+j/k in detail view can extend the same set.
-   */
   selectedIds?: Set<string>;
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
@@ -192,6 +192,7 @@ export function EmailThread({
     : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
+  const priorityFeedback = useAiPriorityFeedback();
 
   useEffect(() => {
     if (!threadId) return;
@@ -211,9 +212,6 @@ export function EmailThread({
     };
   }, [threadId]);
 
-  // Pull any messages we already have from the list cache (instant, no fetch).
-  // The emails query uses useInfiniteQuery so cached data is InfiniteData<{ emails: EmailMessage[] }>,
-  // not a flat array — flatten pages before searching.
   const cachedMessages = useMemo(() => {
     if (!threadId) return [];
     const allCached: EmailMessage[] = [];
@@ -230,7 +228,6 @@ export function EmailThread({
         "pages" in data &&
         Array.isArray((data as any).pages)
       ) {
-        // InfiniteData<EmailsPage> — flatten pages
         emails = (data as any).pages.flatMap(
           (p: any) => p.emails ?? [],
         ) as EmailMessage[];
@@ -243,7 +240,6 @@ export function EmailThread({
         }
       }
     }
-    // Dedupe by id and sort oldest-first
     const seen = new Set<string>();
     return allCached
       .filter((e) => {
@@ -254,11 +250,8 @@ export function EmailThread({
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [threadId, queryClient]);
 
-  // Fetch all messages in the thread (URL param is the real threadId)
   const { data: threadMessages } = useThreadMessages(threadId);
 
-  // Use the latestMessage from the threads prop as a last-resort preview (avoids
-  // full skeleton when the user just clicked from the list and we have the data).
   const previewMessage = useMemo(() => {
     if (!threadId || !threads.length) return undefined;
     const thread = threads.find(
@@ -267,9 +260,6 @@ export function EmailThread({
     return thread?.latestMessage;
   }, [threadId, threads]);
 
-  // Use full thread when loaded, fall back to list cache, then to the single
-  // preview message we already have from the list view — never show a full
-  // skeleton when we already have the subject/snippet visible in the list.
   const allMessages =
     threadMessages ??
     (cachedMessages.length > 0
@@ -277,7 +267,6 @@ export function EmailThread({
       : previewMessage
         ? [previewMessage]
         : []);
-  // Hide Superhuman reminder messages — they're noise in the thread view
   const messages = useMemo(
     () =>
       allMessages.filter(
@@ -293,20 +282,56 @@ export function EmailThread({
     [allMessages],
   );
 
-  // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const submitPriorityFeedback = useCallback(
+    async (decision: "important" | "not-important") => {
+      if (!email) return;
+      try {
+        const { totalVotes, recentVotes } = await priorityFeedback.mutateAsync({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          decision,
+          sender: email.from.name || email.from.email,
+          subject: email.subject,
+        });
+        if (totalVotes % 5 !== 0) return;
+        let showSuggestion = true;
+        try {
+          const key = "mail-priority-feedback-suggestion-count";
+          const shownCount = Number(localStorage.getItem(key) ?? 0);
+          showSuggestion = shownCount < totalVotes;
+          if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+          // coercion-ok: feedback was saved server-side; this only tracks a local reminder.
+        } catch {
+          // Feedback is saved server-side even when browser storage is unavailable.
+        }
+        if (!showSuggestion) return;
+        toast.info(t("mail.sort.priorityFeedbackSuggestion"), {
+          duration: 8_000,
+          action: {
+            label: t("mail.sort.priorityFeedbackAskAgent"),
+            onClick: () =>
+              askAgentToDraftImportanceRules(
+                t("mail.sort.priorityFeedbackSuggestion"),
+                recentVotes,
+              ),
+          },
+        });
+      } catch {
+        toast.error(t("mail.aiFilter.actionFailed"));
+      }
+    },
+    [email, navigate, priorityFeedback, t],
+  );
   const [aiFilterDialog, setAiFilterDialog] = useState<{
     action: "filter" | "keep";
-    targets: AiFilterTarget[];
+    targets: AiFilterDialogTarget[];
   } | null>(null);
 
-  // Simple loading check: do we have the full email body yet?
   const hasFullBody = !!(email?.bodyHtml || email?.body);
 
-  // Auto-expand latest + unread; user toggles override via this set
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
 
-  // Reset user overrides and search when navigating to a different thread
   useEffect(() => {
     setUserToggles({});
     setSearchOpen(false);
@@ -314,13 +339,11 @@ export function EmailThread({
     setSearchMatchIdx(0);
   }, [threadId]);
 
-  // In-thread search
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMatchIdx, setSearchMatchIdx] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Match counts per message for in-thread search
   const matchCountByMsg = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return new Map<string, number>();
@@ -368,20 +391,17 @@ export function EmailThread({
     [searchQuery, totalMatches, safeMatchIdx, messages, matchCountByMsg],
   );
 
-  // Compute which messages are expanded: latest + unread by default, user toggles override
   const expandedIds = useMemo(() => {
     const ids = new Set<string>();
     if (messages.length === 0) return ids;
-    ids.add(messages[messages.length - 1].id); // always expand latest
+    ids.add(messages[messages.length - 1].id);
     for (const msg of messages) {
       if (!msg.isRead) ids.add(msg.id);
     }
-    // Apply user overrides
     for (const [id, expanded] of Object.entries(userToggles)) {
       if (expanded) ids.add(id);
       else ids.delete(id);
     }
-    // Auto-expand messages with search matches
     if (searchQuery.trim()) {
       for (const msgId of matchCountByMsg.keys()) {
         ids.add(msgId);
@@ -390,12 +410,10 @@ export function EmailThread({
     return ids;
   }, [messages, userToggles, searchQuery, matchCountByMsg]);
 
-  // Focused message index for keyboard nav (n/p) — starts on latest
   const [focusedIndex, setFocusedIndex] = useState(-1);
   useEffect(() => {
     setFocusedIndex(messages.length > 0 ? messages.length - 1 : -1);
   }, [threadId]);
-  // Update if messages grow (full thread loaded)
   useEffect(() => {
     if (focusedIndex === -1 && messages.length > 0) {
       setFocusedIndex(messages.length - 1);
@@ -404,8 +422,6 @@ export function EmailThread({
   const focusedRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll so the most recent (last) message is at the top of the viewport.
-  // Pin for ~800ms to handle iframe resizes / async content.
   const scrolledForRef = useRef<string | undefined>(undefined);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -418,8 +434,6 @@ export function EmailThread({
     if (!el) return;
     const scrollToLatest = () => {
       if (lastMsg) {
-        // Use manual scrollTop instead of scrollIntoView to avoid
-        // scrolling ancestor overflow:hidden containers (causes header cutoff)
         el.scrollTop = lastMsg.offsetTop - el.offsetTop - 8;
       } else {
         el.scrollTop = el.scrollHeight;
@@ -482,9 +496,6 @@ export function EmailThread({
     [email, markRead, threadId],
   );
 
-  // Auto-mark all unread messages in this thread as read when viewed.
-  // Defer the mutation past the commit so its optimistic emails-cache update
-  // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
     if (
@@ -525,7 +536,6 @@ export function EmailThread({
     void navigate(`/${view}${routeSearchSuffix}`);
   }, [navigate, view, routeSearchSuffix, onNavigateThread]);
 
-  // Navigate between threads (j/k) — use ref to avoid stale closure
   const emailIdsRef = useRef(emailIds);
   emailIdsRef.current = emailIds;
 
@@ -565,9 +575,6 @@ export function EmailThread({
     ],
   );
 
-  // Shift+j/k extends multi-selection across siblings and auto-previews the
-  // newly selected thread. Selection is keyed by thread key (`threadId || id`)
-  // to match the list view so a selection can span both views seamlessly.
   const extendSelection = useCallback(
     (delta: number) => {
       if (!setSelectedIds) return;
@@ -601,9 +608,6 @@ export function EmailThread({
     ],
   );
 
-  // Prefetch only the currently open thread's closest siblings. That keeps
-  // j/k navigation smooth without spending a large Gmail quota burst in the
-  // background.
   useEffect(() => {
     if (emailIds.length === 0) return;
     const currentIdx = emailIds.findIndex((id) => id === threadId);
@@ -653,7 +657,6 @@ export function EmailThread({
     onNavigateThread,
   ]);
 
-  // Advance to next thread when current email is dismissed (snoozed/spam/muted)
   useEffect(() => {
     const handler = (e: Event) => {
       const { emailId } = (e as CustomEvent<{ emailId: string }>).detail;
@@ -665,7 +668,6 @@ export function EmailThread({
     return () => window.removeEventListener("email:snoozed", handler);
   }, [messages, advanceOrGoBack]);
 
-  // Navigate between messages within the thread (n/p)
   const focusMessage = useCallback(
     (delta: number) => {
       if (messages.length === 0) return;
@@ -695,7 +697,6 @@ export function EmailThread({
     [messages.length],
   );
 
-  // Toggle expand/collapse on focused message (Enter)
   const toggleFocused = useCallback(() => {
     if (focusedIndex < 0 || focusedIndex >= messages.length) return;
     const id = messages[focusedIndex].id;
@@ -703,12 +704,8 @@ export function EmailThread({
     setUserToggles((prev) => ({ ...prev, [id]: !isExpanded }));
   }, [focusedIndex, messages, expandedIds]);
 
-  // Mobile action bar
   const isMobile = useIsMobile();
 
-  // Resolve the set of thread keys the next action should operate on. If the
-  // user has a multi-selection (via shift+j/k in list or detail view), act on
-  // that; otherwise fall back to the currently viewed thread.
   const getActionThreadKeys = useCallback((): string[] => {
     if (selectedIds && selectedIds.size > 0) return Array.from(selectedIds);
     if (threadId) return [threadId];
@@ -717,30 +714,33 @@ export function EmailThread({
 
   const openAiFilterDialog = useCallback(
     (action: "filter" | "keep") => {
-      const targets = getActionThreadKeys().flatMap((key): AiFilterTarget[] => {
-        const thread = threads.find(
-          (candidate) =>
-            (candidate.latestMessage.threadId || candidate.latestMessage.id) ===
-            key,
-        );
-        const target =
-          thread?.latestMessage ??
-          (email && (email.threadId || email.id) === key ? email : undefined);
-        if (!target) return [];
-        return [
-          {
-            id: target.id,
-            threadId: target.threadId || target.id,
-            ...(target.accountEmail && target.accountEmail !== "local"
-              ? { accountEmail: target.accountEmail }
-              : {}),
-            sender: target.from.name
-              ? `${target.from.name} <${target.from.email}>`
-              : target.from.email,
-            subject: target.subject,
-          },
-        ];
-      });
+      const targets = getActionThreadKeys().flatMap(
+        (key): AiFilterDialogTarget[] => {
+          const thread = threads.find(
+            (candidate) =>
+              (candidate.latestMessage.threadId ||
+                candidate.latestMessage.id) === key,
+          );
+          const target =
+            thread?.latestMessage ??
+            (email && (email.threadId || email.id) === key ? email : undefined);
+          if (!target) return [];
+          return [
+            {
+              id: target.id,
+              threadId: target.threadId || target.id,
+              ...(target.accountEmail && target.accountEmail !== "local"
+                ? { accountEmail: target.accountEmail }
+                : {}),
+              sender: target.from.name
+                ? `${target.from.name} <${target.from.email}>`
+                : target.from.email,
+              subject: target.subject,
+              snippet: target.snippet,
+            },
+          ];
+        },
+      );
       if (targets.length === 0) {
         toast.error(t("mail.toasts.noEmailSelected"));
         return;
@@ -754,15 +754,12 @@ export function EmailThread({
     const threadKeys = getActionThreadKeys();
     if (threadKeys.length === 0) return;
 
-    // Resolve each thread key to its latestMessage via the threads prop, with
-    // a fallback to the current email when acting on the focused thread alone.
     const targets = threadKeys
       .map((key) => {
         const t = threads.find(
           (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
         );
         if (t) return t.latestMessage;
-        // Fallback: single-thread archive of the currently viewed thread.
         if (email && (email.threadId || email.id) === key) return email;
         return undefined;
       })
@@ -941,14 +938,20 @@ export function EmailThread({
 
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
-  const { allAccounts } = useAccountFilter();
+  const { activeAccounts, allAccounts } = useAccountFilter();
+  const { data: labels = [] } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
   const myEmails = useMemo(() => {
     const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
     if (settings?.email) emails.add(settings.email.toLowerCase());
     return emails;
   }, [allAccounts, settings?.email]);
 
-  // Inline reply: find any inline draft belonging to this thread
   const inlineReplyRef = useRef<InlineReplyHandle>(null);
   const inlineDraft = compose.drafts.find(
     (d) => d.inline && d.replyToThreadId === threadId,
@@ -957,7 +960,6 @@ export function EmailThread({
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
       void preloadInlineReplyComposer();
-      // If inline draft exists and no specific message, just focus it
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
       );
@@ -965,7 +967,6 @@ export function EmailThread({
         inlineReplyRef.current?.focusEditor();
         return;
       }
-      // Discard existing inline draft if switching to a different message
       if (existing) compose.discard(existing.id);
 
       const target = msg ?? email;
@@ -978,7 +979,6 @@ export function EmailThread({
   const handleReplyAll = useCallback(
     (msg?: EmailMessage) => {
       void preloadInlineReplyComposer();
-      // If inline draft exists and no specific message, just focus it
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
       );
@@ -1014,15 +1014,12 @@ export function EmailThread({
     handleForwardMsg(email);
   }, [email, handleForwardMsg]);
 
-  // Keyboard shortcuts
   useKeyboardShortcuts(
     [
       {
         key: "Escape",
         shouldHandle: () => !isMailSearchActive(),
         handler: () => {
-          // If a multi-selection is active, first Escape clears it; second
-          // Escape goes back to the list. Matches Gmail / Superhuman feel.
           if (selectedIds && selectedIds.size > 0) {
             setSelectedIds?.(new Set());
             return;
@@ -1047,7 +1044,8 @@ export function EmailThread({
         key: "o",
         meta: true,
         handler: () => {
-          if (githubPrUrl) window.open(githubPrUrl, "_blank");
+          if (githubPrUrl)
+            window.open(githubPrUrl, "_blank", "noopener,noreferrer");
         },
       },
       { key: "e", handler: handleArchive },
@@ -1158,19 +1156,17 @@ export function EmailThread({
     ],
   );
 
-  // Extract GitHub PR URL from any message in the thread
   const githubPrUrl = useMemo(() => {
     for (const msg of messages) {
       const text = msg.bodyHtml
         ? msg.bodyHtml.replace(/<[^>]+>/g, " ")
         : msg.body || "";
       const match = text.match(/https:\/\/github\.com\/[^\s"'<>]+\/pull\/\d+/);
-      if (match) return match[0].replace(/[.,;)]+$/, ""); // strip trailing punctuation
+      if (match) return match[0].replace(/[.,;)]+$/, "");
     }
     return null;
   }, [messages]);
 
-  // Extract unsubscribe info from thread messages (use the most recent with the header)
   const unsubscribeInfo = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const unsub = messages[i].unsubscribe;
@@ -1182,7 +1178,6 @@ export function EmailThread({
         };
       }
     }
-    // Fallback: scan HTML body for unsubscribe links
     for (let i = messages.length - 1; i >= 0; i--) {
       const html = messages[i].bodyHtml;
       if (!html) continue;
@@ -1199,9 +1194,9 @@ export function EmailThread({
   const handleUnsubscribe = useCallback(async () => {
     if (!unsubscribeInfo) return;
 
-    // If we only found a link in the body (no header), just open it
     if (!("messageId" in unsubscribeInfo)) {
-      if (unsubscribeInfo.url) window.open(unsubscribeInfo.url, "_blank");
+      if (unsubscribeInfo.url)
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -1221,22 +1216,23 @@ export function EmailThread({
 
       if (data.ok) {
         toast.success(t("mail.toasts.unsubscribeSent"));
-        // Also open the URL so user can confirm if needed
         if (data.url || unsubscribeInfo.url) {
-          window.open(data.url || unsubscribeInfo.url, "_blank");
+          window.open(
+            data.url || unsubscribeInfo.url,
+            "_blank",
+            "noopener,noreferrer",
+          );
         }
       } else {
-        // Fallback: open the unsubscribe URL directly
         if (unsubscribeInfo.url) {
-          window.open(unsubscribeInfo.url, "_blank");
+          window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
         } else {
           toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
     } catch {
-      // Fallback: open URL directly
       if (unsubscribeInfo.url) {
-        window.open(unsubscribeInfo.url, "_blank");
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       }
     } finally {
       setUnsubscribing(false);
@@ -1303,7 +1299,6 @@ export function EmailThread({
     return <ThreadLoadingState onBack={goBack} />;
   }
 
-  // Filter to user labels for display
   const systemLabels = new Set([
     "inbox",
     "sent",
@@ -1318,7 +1313,6 @@ export function EmailThread({
     (l) => !systemLabels.has(l),
   );
 
-  // Strip "Re: " / "Fwd: " prefixes for thread subject
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
   const isAiFiltered = email.labelIds.some(
     (label) => label.toLowerCase() === AI_FILTER_LABEL,
@@ -1359,7 +1353,12 @@ export function EmailThread({
                       style.text,
                     )}
                   >
-                    {labelId}
+                    {mailLabelDisplayName(
+                      labelNames.get(labelId) ??
+                        labelId
+                          .replace(/^label:/, "")
+                          .replace(/^CATEGORY_/, ""),
+                    )}
                   </span>
                 );
               })}
@@ -1435,7 +1434,15 @@ export function EmailThread({
                     {t("mail.actions.archive")} (E)
                   </TooltipContent>
                 </Tooltip>
-                {view !== "trash" && (
+                {email && (view === "inbox" || isAiFiltered) && (
+                  <ImportanceFeedbackMenu
+                    onFeedback={(decision) =>
+                      void submitPriorityFeedback(decision)
+                    }
+                    className="h-7 w-7"
+                  />
+                )}
+                {email && view !== "inbox" && view !== "trash" && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -1859,8 +1866,6 @@ function BodySkeleton() {
   );
 }
 
-// ─── Collapsed message row (Superhuman style) ────────────────────────────────
-
 const CollapsedMessageRow = forwardRef<
   HTMLDivElement,
   {
@@ -1894,8 +1899,6 @@ const CollapsedMessageRow = forwardRef<
     </div>
   );
 });
-
-// ─── Expanded message card (Superhuman style) ────────────────────────────────
 
 const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
@@ -2242,8 +2245,6 @@ const ExpandedMessageCard = forwardRef<
   );
 });
 
-// ─── Tracking footer (opens / clicks on sent messages) ───────────────────────
-
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const s = Math.floor(diff / 1000);
@@ -2283,9 +2284,6 @@ function TrackingFooter({ messageId }: { messageId: string }) {
   );
 }
 
-// ─── Plain text body with quoted text trimming ───────────────────────────────
-
-/** Detect where an email signature begins in plain text (standard "-- " separator) */
 function findSignatureStart(lines: string[], beforeLine?: number): number {
   const limit = beforeLine != null ? beforeLine : lines.length;
   for (let i = 0; i < limit; i++) {
@@ -2294,15 +2292,10 @@ function findSignatureStart(lines: string[], beforeLine?: number): number {
   return -1;
 }
 
-/** Detect where quoted/forwarded content begins in a plain text email */
 function findQuoteStart(lines: string[]): number {
   for (let i = 0; i < lines.length; i++) {
-    // "On ... wrote:" pattern (with optional em-dash/dash prefix)
     if (/^[—–-]*\s*On .+ wrote:$/i.test(lines[i].trim())) return i;
-    // "--- Original Message ---" / "--- Forwarded message ---"
     if (/^-{2,}\s*(Original|Forwarded)\s/i.test(lines[i].trim())) return i;
-    // Outlook/Word reply headers are often plain text blocks:
-    // From: ... / Sent: ... / To: ... / Subject: ...
     if (/^From:\s+/i.test(lines[i].trim())) {
       const headerWindow = lines
         .slice(i, i + 8)
@@ -2315,13 +2308,11 @@ function findQuoteStart(lines: string[]): number {
         return i > 0 && lines[i - 1].trim() === "" ? i - 1 : i;
       }
     }
-    // Block of consecutive ">" quoted lines (at least 2)
     if (
       lines[i].trimStart().startsWith(">") &&
       i + 1 < lines.length &&
       lines[i + 1].trimStart().startsWith(">")
     ) {
-      // Walk back to include any blank line or "On ... wrote:" right before
       let start = i;
       if (start > 0 && lines[start - 1].trim() === "") start--;
       if (start > 0 && /^On .+ wrote:$/i.test(lines[start - 1].trim())) start--;
@@ -2353,10 +2344,8 @@ function PlainTextBody({
   );
   const hasSig = sigStart >= 0;
 
-  // When searching, show all content (including quoted/sig) so matches aren't hidden
   const forceShowAll = !!searchTerm;
 
-  // Determine visible lines: body → [sig toggle] → [quote toggle]
   let visibleLines: string[];
   if (forceShowAll) {
     visibleLines = lines;
@@ -2368,7 +2357,6 @@ function PlainTextBody({
     visibleLines = lines;
   }
 
-  // Scroll active match into view
   useEffect(() => {
     if (activeLocalIdx == null || !containerRef.current) return;
     const mark = containerRef.current.querySelectorAll("mark[data-search]")[
@@ -2377,7 +2365,6 @@ function PlainTextBody({
     mark?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [activeLocalIdx]);
 
-  // Render text with search highlights
   const renderHighlighted = (text: string, globalMatchOffset: number) => {
     if (!searchTerm) {
       if (!text) return "\u00a0";
@@ -2479,7 +2466,6 @@ function PlainTextBody({
     return nodes;
   };
 
-  // Count matches in lines above the current one so we can track global match index per line
   const countMatchesInText = (text: string) => {
     if (!searchTerm) return 0;
     const q = searchTerm.toLowerCase();
@@ -2530,10 +2516,6 @@ function PlainTextBody({
   );
 }
 
-// ─── HTML email body (iframe) ────────────────────────────────────────────────
-
-// Let normalized dark-mode emails inherit the message card's themed surface.
-// The iframe and its document are transparent, so theme token changes stay in sync.
 const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
 
@@ -2612,10 +2594,7 @@ function buildEmailIframeCss(
 `;
 }
 
-// ─── Color utilities for dark-mode email processing ─────────────────────────
-
 const NAMED_COLORS: Record<string, [number, number, number]> = {
-  // Dark colors
   black: [0, 0, 0],
   navy: [0, 0, 128],
   darkblue: [0, 0, 139],
@@ -2632,7 +2611,6 @@ const NAMED_COLORS: Record<string, [number, number, number]> = {
   dimgrey: [105, 105, 105],
   gray: [128, 128, 128],
   grey: [128, 128, 128],
-  // Light/white colors (needed for background detection)
   white: [255, 255, 255],
   snow: [255, 250, 250],
   ivory: [255, 255, 240],
@@ -2647,7 +2625,6 @@ const NAMED_COLORS: Record<string, [number, number, number]> = {
   aliceblue: [240, 248, 255],
   mintcream: [245, 255, 250],
   lavender: [230, 230, 250],
-  // Mid-range colors
   red: [255, 0, 0],
   green: [0, 128, 0],
   blue: [0, 0, 255],
@@ -2671,7 +2648,6 @@ function parseColorToRgb(
     return { r, g, b };
   }
 
-  // Hex: #RGB or #RRGGBB
   const hexMatch = c.match(/^#([0-9a-f]{3,8})$/);
   if (hexMatch) {
     const hex = hexMatch[1];
@@ -2691,7 +2667,6 @@ function parseColorToRgb(
     }
   }
 
-  // rgb(r, g, b) or rgba(r, g, b, a)
   const rgbMatch = c.match(
     /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/,
   );
@@ -2716,7 +2691,6 @@ function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
 }
 
-/** Convert RGB to HSL (h: 0-360, s: 0-1, l: 0-1) */
 function rgbToHsl(
   r: number,
   g: number,
@@ -2738,7 +2712,6 @@ function rgbToHsl(
   return { h: h * 360, s, l };
 }
 
-/** Convert HSL back to RGB */
 function hslToRgb(
   h: number,
   s: number,
@@ -2766,34 +2739,18 @@ function hslToRgb(
   };
 }
 
-/**
- * Transform a dark color to its light equivalent for dark mode.
- * Preserves hue and saturation, lightens the color.
- * e.g. dark blue (#00008B) → light blue (#8B8BFF), black → #e4e4e7
- * Returns null if the color doesn't need transformation (already light enough).
- */
 function lightenColorForDarkMode(colorStr: string): string | null {
   const rgb = parseColorToRgb(colorStr);
   if (!rgb) return null;
   const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
-  // Don't transform colors that are already readable on dark bg
   if (lum >= 0.15) return null;
   const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-  // For near-black/gray (no saturation), use our standard light text color
   if (hsl.s < 0.1) return "#e4e4e7";
-  // Lighten: mirror the lightness around 0.5 and boost
-  // A dark color at L=0.2 becomes L=0.7, L=0.1 becomes L=0.75
   const newL = Math.min(0.85, Math.max(0.6, 1 - hsl.l));
   const newRgb = hslToRgb(hsl.h, Math.min(hsl.s, 0.85), newL);
   return `rgb(${newRgb.r}, ${newRgb.g}, ${newRgb.b})`;
 }
 
-/**
- * Check if the email has intentional colored (non-white) backgrounds
- * that indicate a designed layout. White/near-white backgrounds are NOT
- * considered "designed" — they're just the default and we override them to dark.
- * Returns true only for colored backgrounds (e.g. blue banners, gray sections).
- */
 function emailHasDesignedBackground(html: string): boolean {
   const lower = html.toLowerCase();
   if (
@@ -2807,14 +2764,10 @@ function emailHasDesignedBackground(html: string): boolean {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // Check for non-white background colors on body/html
   const checkBg = (colorStr: string): boolean => {
     const rgb = parseColorToRgb(colorStr.trim());
     if (!rgb) return false;
     const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
-    // White/near-white (lum > 0.85) → not "designed", just default
-    // Very dark (lum < 0.05) → already dark, no issue
-    // Everything else (colored backgrounds) → designed layout
     return lum <= 0.85 && lum >= 0.05;
   };
 
@@ -2829,7 +2782,6 @@ function emailHasDesignedBackground(html: string): boolean {
   const htmlBg = doc.documentElement?.getAttribute("bgcolor");
   if (htmlBg && checkBg(htmlBg)) return true;
 
-  // Check <style> blocks for body/html background
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
     const text = tag.textContent || "";
@@ -2839,8 +2791,6 @@ function emailHasDesignedBackground(html: string): boolean {
     if (ruleMatch && checkBg(ruleMatch[1])) return true;
   }
 
-  // Check for significant use of colored table cell backgrounds
-  // (common in marketing emails with colored sections)
   const coloredCells = doc.querySelectorAll(
     'td[bgcolor], th[bgcolor], td[style*="background"], th[style*="background"]',
   );
@@ -2853,7 +2803,7 @@ function emailHasDesignedBackground(html: string): boolean {
       )?.[1];
     if (bg && checkBg(bg)) {
       coloredCellCount++;
-      if (coloredCellCount >= 3) return true; // multiple colored cells → designed
+      if (coloredCellCount >= 3) return true;
     }
   }
 
@@ -2989,8 +2939,6 @@ function HtmlEmailBody({
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
-  // Only fall back to light bg when the email has actual designed colored backgrounds
-  // (not white/near-white which we override to dark). This matches Superhuman behavior.
   const hasDesignedBg = useMemo(() => emailHasDesignedBackground(html), [html]);
   const IFRAME_BG = hasDesignedBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
@@ -3007,12 +2955,11 @@ function HtmlEmailBody({
 
   const [showImagesForThread, setShowImagesForThread] = useState(false);
 
-  // Determine effective policy for this email
   const effectivePolicy = isEmbedded
     ? "block-all"
     : isTrusted || showImagesForThread
       ? imagePolicy === "block-all"
-        ? "block-trackers" // trusted senders still get tracker blocking if policy isn't "show"
+        ? "block-trackers"
         : imagePolicy
       : imagePolicy;
 
@@ -3137,9 +3084,6 @@ function HtmlEmailBody({
       createToggle(el, "quote-toggle", "quoted-hidden");
     };
 
-    // Bounded quantifiers ([^\n]{1,200}?) keep these regexes linear-time
-    // even on adversarial email bodies — unbounded `.+?` over malicious
-    // pattern-like text triggers catastrophic backtracking.
     const outlookHeaderPattern =
       /\bFrom:\s+[^\n]{1,200}?\bSent:\s+[^\n]{1,200}?\bTo:\s+[^\n]{1,200}?\bSubject:/i;
     const replyAttributionPattern =
@@ -3191,9 +3135,6 @@ function HtmlEmailBody({
         container.className = "quoted-hidden";
         start.parentNode.insertBefore(container, start);
         container.appendChild(start);
-        // Stop at an existing quoted-hidden/quote-toggle so we don't nest
-        // a later collapsed range inside this one. The closest() guard
-        // above handles already-wrapped starts; this protects siblings.
         while (container.nextSibling) {
           const next = container.nextSibling as HTMLElement;
           if (
@@ -3218,7 +3159,6 @@ function HtmlEmailBody({
       }
     };
 
-    // Hide quoted content (Gmail blockquotes, .gmail_quote, etc.) behind "..."
     const quoteSelectors = [
       ".gmail_quote",
       ".gmail_extra",
@@ -3240,13 +3180,8 @@ function HtmlEmailBody({
       collapseElement(blockquote);
     });
 
-    // Outlook/Word replies often have no quote class. They start the quoted
-    // history with a From/Sent/To/Subject header block, then put the old mail in
-    // ordinary sibling nodes. Collapse that whole tail as one quoted range.
     collapseOutlookHeaderRanges();
 
-    // ── Collapse signature blocks ──
-    // Gmail signatures
     const sigSelectors = [
       ".gmail_signature",
       '[data-smartmail="gmail_signature"]',
@@ -3258,9 +3193,6 @@ function HtmlEmailBody({
 
       if (hasMeaningfulPreviousText(sig)) return true;
 
-      // Some senders accidentally wrap the whole new message in
-      // .gmail_signature. If the signature candidate is the first meaningful
-      // content and reads like body copy, leave it visible.
       const startsLikeMessage =
         /^(hi|hello|hey|dear|sure|thanks for|thank you|just to|what about|apologies|separately)\b/i.test(
           text,
@@ -3279,27 +3211,23 @@ function HtmlEmailBody({
       createToggle(el, "sig-toggle", "sig-collapsed");
     });
 
-    // Detect "-- " signature separator in text nodes (standard email sig convention)
     if (sigs.length === 0) {
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
       let sigNode: HTMLElement | null = null;
       let textNode: Text | null;
       while ((textNode = walker.nextNode() as Text | null)) {
         const text = textNode.textContent || "";
-        // Standard sig separator: "-- " on its own line (or just "--")
         if (/^--\s*$/.test(text.trim())) {
           sigNode = textNode.parentElement;
           break;
         }
       }
       if (sigNode && !sigNode.closest(".quoted-hidden")) {
-        // Wrap the sig separator and all following siblings in a container
         const container = doc.createElement("div");
         container.className = "sig-collapsed";
         sigNode.parentNode?.insertBefore(container, sigNode);
         container.appendChild(sigNode);
         while (container.nextSibling) {
-          // Don't swallow quote toggles or quoted content
           if (
             (container.nextSibling as HTMLElement).classList?.contains(
               "quote-toggle",
@@ -3324,26 +3252,20 @@ function HtmlEmailBody({
       }
     }
 
-    // ── Force dark mode: transform colors for readability ──
     if (useDarkIframeCss) {
-      // Remove bgcolor attributes — replace white/light with nothing (our CSS
-      // sets dark bg), keep truly transparent
       doc.querySelectorAll("[bgcolor]").forEach((el) => {
         (el as HTMLElement).removeAttribute("bgcolor");
       });
 
-      // Walk elements with inline styles and transform colors
       const styledEls = doc.querySelectorAll<HTMLElement>("[style]");
       styledEls.forEach((el) => {
         const style = el.getAttribute("style") || "";
 
-        // Remove inline background colors (CSS handles it via !important)
         if (/background/i.test(style)) {
           el.style.backgroundColor = "transparent";
           el.style.backgroundImage = "none";
         }
 
-        // Transform dark text colors → light equivalents (preserving hue)
         const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
         if (colorMatch) {
           const lightened = lightenColorForDarkMode(colorMatch[1].trim());
@@ -3351,7 +3273,6 @@ function HtmlEmailBody({
         }
       });
 
-      // Transform <font color="..."> dark colors
       doc.querySelectorAll<HTMLElement>("font[color]").forEach((el) => {
         const c = el.getAttribute("color") || "";
         const lightened = lightenColorForDarkMode(c);
@@ -3372,7 +3293,6 @@ function HtmlEmailBody({
       });
     }
 
-    // Make all links open in a new browser tab (web) or new window (Electron)
     const links = doc.querySelectorAll("a[href]");
     const isElectron = navigator.userAgent.includes("Electron");
     links.forEach((a) => {
@@ -3380,7 +3300,6 @@ function HtmlEmailBody({
       a.setAttribute("rel", "noopener noreferrer");
     });
 
-    // Enhance Google Calendar RSVP buttons for inline response
     const rsvpLinks = doc.querySelectorAll(
       'a[href*="calendar.google.com/calendar/event"]',
     );
@@ -3389,7 +3308,6 @@ function HtmlEmailBody({
       "2": { response: "declined", label: "No" },
       "3": { response: "tentative", label: "Maybe" },
     };
-    // Extract the event ID from any RSVP link's eid param
     let calEventId: string | null = null;
     rsvpLinks.forEach((a) => {
       const href = a.getAttribute("href") || "";
@@ -3397,10 +3315,8 @@ function HtmlEmailBody({
         const url = new URL(href);
         const eid = url.searchParams.get("eid");
         if (eid && !calEventId) {
-          // eid is base64 — the event ID is the part before the space/email
           try {
             const decoded = atob(eid);
-            // Format: "eventId email" — take the first part
             calEventId = decoded.split(" ")[0] || null;
           } catch {
             calEventId = eid;
@@ -3420,7 +3336,6 @@ function HtmlEmailBody({
           const info = rst ? rstMap[rst] : null;
           if (!info) return;
 
-          // Style the button for inline RSVP
           const el = a as HTMLElement;
           el.style.cssText = useDarkIframeCss
             ? `
@@ -3450,7 +3365,6 @@ function HtmlEmailBody({
         } catch {}
       });
 
-      // Handle RSVP clicks inline
       handleRsvpClick = async (e: MouseEvent) => {
         const anchor = (e.target as Element)?.closest?.(
           'a[href*="calendar.google.com/calendar/event"]',
@@ -3466,12 +3380,10 @@ function HtmlEmailBody({
           e.preventDefault();
           e.stopPropagation();
 
-          // Highlight the clicked button
           anchor.style.background = "#22c55e !important";
           anchor.style.borderColor = "#22c55e !important";
           anchor.style.color = "#fff !important";
 
-          // Dim the others
           rsvpLinks.forEach((other) => {
             if (other !== anchor) {
               (other as HTMLElement).style.opacity = "0.3";
@@ -3479,7 +3391,6 @@ function HtmlEmailBody({
             }
           });
 
-          // Call our API
           try {
             const res = await fetch(appApiPath("/api/calendar/rsvp"), {
               method: "POST",
@@ -3490,7 +3401,6 @@ function HtmlEmailBody({
               }),
             });
             if (!res.ok) {
-              // Fallback: open the original link
               window.open(href, "_blank", "noopener,noreferrer");
             }
           } catch {
@@ -3506,7 +3416,6 @@ function HtmlEmailBody({
       if (!anchor) return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) return;
-      // Don't handle RSVP links here — they have their own handler
       if (href.includes("calendar.google.com/calendar/event")) return;
       e.preventDefault();
       if (isElectron && (window as any).require) {
@@ -3518,7 +3427,6 @@ function HtmlEmailBody({
     };
     doc.addEventListener("click", handleLinkClick);
 
-    // Forward keyboard events from iframe to parent
     const focusParentAfterShortcut = () => {
       window.focus();
       iframeRef.current?.blur();
@@ -3582,14 +3490,12 @@ function HtmlEmailBody({
     iframeLoadVersion,
   ]);
 
-  // Inject / clear search highlights in the iframe whenever searchTerm or content changes
   useEffect(() => {
     const injectHighlights = () => {
       const iframe = iframeRef.current;
       const doc = iframe?.contentDocument;
       if (!doc?.body) return;
 
-      // Remove existing marks and normalize text nodes
       doc.querySelectorAll("mark[data-search]").forEach((mark) => {
         const text = doc.createTextNode(mark.textContent || "");
         mark.parentNode?.replaceChild(text, mark);
@@ -3599,7 +3505,6 @@ function HtmlEmailBody({
       const q = searchTerm?.trim().toLowerCase();
       if (!q) return;
 
-      // Collect all matching text-node positions
       const matches: { node: Text; start: number; idx: number }[] = [];
       let matchIdx = 0;
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
@@ -3621,7 +3526,6 @@ function HtmlEmailBody({
         }
       }
 
-      // Wrap in reverse order so earlier indices stay valid
       for (let i = matches.length - 1; i >= 0; i--) {
         const { node: textNode, start, idx } = matches[i];
         try {
@@ -3638,17 +3542,14 @@ function HtmlEmailBody({
         }
       }
 
-      // Recalculate height after injecting marks
       const h = measureEmailDocumentHeight(doc);
       if (h > 0) setHeight(h);
     };
 
-    // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
   }, [searchTerm, processedEmailHtml.bodyHtml, iframeLoadVersion]);
 
-  // Update which mark is "active" and scroll it into view
   useEffect(() => {
     const iframe = iframeRef.current;
     const doc = iframe?.contentDocument;
@@ -3752,8 +3653,6 @@ function HtmlEmailBody({
     </div>
   );
 }
-
-// ─── In-thread search bar ─────────────────────────────────────────────────────
 
 function ThreadSearchBar({
   query,

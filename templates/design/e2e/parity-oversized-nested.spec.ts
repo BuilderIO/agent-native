@@ -24,14 +24,21 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px;bac
 
 function body(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
 }
 
+function frameRoot(page: Page) {
+  return page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+    .first()
+    .contentFrame();
+}
+
 async function guide(page: Page) {
-  return body(page)
+  return frameRoot(page)
     .locator("[data-agent-native-insertion-guide]")
     .evaluateAll(
       (els) =>
@@ -161,7 +168,6 @@ test("primary modifier oversized drop inserts into nested flow with held blue in
           })),
       )
       .toEqual({ parent: "nested", position: "static" });
-    // Inline-source structural edits are pending until the guarded Apply handoff.
     await expect
       .poll(() => indexHtml(page, id), { timeout: 5_000 })
       .toContain('data-agent-native-node-id="source"');

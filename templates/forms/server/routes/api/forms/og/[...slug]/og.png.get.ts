@@ -1,4 +1,7 @@
-import { agentNativeOgImageResponseHeaders } from "@agent-native/core/server";
+import {
+  agentNativeOgImageResponseHeaders,
+  stageOgImageResponseHeaders,
+} from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 import {
   defineEventHandler,
@@ -158,7 +161,10 @@ export default defineEventHandler(async (event: H3Event) => {
 
   if (getMethod(event) === "HEAD") {
     return new Response(null, {
-      headers: agentNativeOgImageResponseHeaders(0),
+      headers: stageOgImageResponseHeaders(
+        event,
+        agentNativeOgImageResponseHeaders(0),
+      ),
     });
   }
 
@@ -176,14 +182,20 @@ export default defineEventHandler(async (event: H3Event) => {
     if (!isResvgRuntimeUnavailableError(error)) throw error;
     const svg = renderFormOgImageSvg(imageInput);
     return new Response(svg, {
-      headers: agentNativeOgImageResponseHeaders(
-        textByteLength(svg),
-        "image/svg+xml; charset=utf-8",
+      headers: stageOgImageResponseHeaders(
+        event,
+        agentNativeOgImageResponseHeaders(
+          textByteLength(svg),
+          "image/svg+xml; charset=utf-8",
+        ),
       ),
     });
   }
 
   return new Response(pngBody(png), {
-    headers: agentNativeOgImageResponseHeaders(png.byteLength),
+    headers: stageOgImageResponseHeaders(
+      event,
+      agentNativeOgImageResponseHeaders(png.byteLength),
+    ),
   });
 });

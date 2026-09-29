@@ -23,10 +23,6 @@ export function useAddExternalCalendar() {
       }
     },
     onSuccess: (created) => {
-      // Surface the new calendar in the sidebar immediately, then let the
-      // events query refetch in the background. The calendar view keeps the
-      // user's existing events visible and shows a small spinner while the new
-      // feed's events stream in — no skeleton over everything.
       if (created) {
         queryClient.setQueryData<ExternalCalendar[]>(
           EXTERNAL_CALENDARS_KEY,
@@ -122,12 +118,6 @@ export function useRemoveExternalCalendar() {
         throw new Error("Failed to remove calendar");
       }
     },
-    // Removal is instant: drop the calendar from the sidebar and strip just its
-    // events out of every cached range. The user's own events stay exactly
-    // where they are — no skeleton, and we deliberately do NOT invalidate
-    // `list-events` (a full multi-source refetch is what made everything blink
-    // out for several seconds). The cache is already correct; later navigation
-    // refetches naturally.
     onMutate: async (id: string) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previousCalendars = queryClient.getQueryData<ExternalCalendar[]>(

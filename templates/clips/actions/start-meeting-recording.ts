@@ -1,13 +1,3 @@
-/**
- * Start recording for a meeting.
- *
- * Creates a `recordings` row in `uploading` status and links it to the
- * meeting (`meetings.recordingId`). Stamps `actualStart` if not yet set.
- *
- * Like `create-recording`, this only allocates the DB row — actual
- * MediaRecorder/native-capture is a UI/Tauri gesture.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -60,7 +50,6 @@ export default defineAction({
     if (!meeting) throw new Error(`Meeting not found: ${meetingId}`);
 
     if (meeting.recordingId) {
-      // Already linked — return the existing row instead of creating a duplicate.
       const [existing] = await db
         .select()
         .from(schema.recordings)
@@ -103,7 +92,6 @@ export default defineAction({
       })
       .where(eq(schema.meetings.id, meetingId));
 
-    // Tell the UI / Tauri tray app to start the actual capture.
     await writeAppState("record-intent", {
       mode: "meeting",
       recordingId,

@@ -39,7 +39,6 @@ export function partitionAllDayEvents(events: CalendarEvent[]) {
   return { workingLocations, regularEvents };
 }
 
-/** Determine which visible day columns an all-day event overlaps. */
 export function getAllDaySpan(
   event: CalendarEvent,
   days: Date[],
@@ -113,7 +112,6 @@ export function layoutAllDayEvents(
   return { placements, rowCount: rows.length };
 }
 
-/** Group visually adjacent placements while preserving each event's click target. */
 export function groupAdjacentAllDayPlacements(
   placements: AllDayPlacement[],
   getGroupKey: (placement: AllDayPlacement) => string,

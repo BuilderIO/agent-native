@@ -226,6 +226,9 @@ const messages = {
       noErrorMessage: "（エラーメッセージなし）",
     },
   },
+  settingsShortcut: {
+    command: "設定",
+  },
   agentPanel: {
     useBuilder: "ビルダーを使用する",
     openDesktopToEditCode: "デスクトップを開いてコードを編集する",
@@ -241,6 +244,7 @@ const messages = {
     newChat: "新しいチャット",
     newTerminal: "新しいターミナル",
     panelOptions: "エージェントパネルのオプション",
+    integrations: "連携",
     collapseSidebar: "サイドバーを折りたたむ",
     widenChat: "チャットを広げる",
     returnChatToLayout: "チャットをレイアウトに戻す",
@@ -266,6 +270,8 @@ const messages = {
     sharedKeyInEffect: "共有キーを使用しています。",
     useOrganizationKey: "組織のキーを使用",
     keyStatusUnavailable: "キーの状態を取得できません。",
+    saveScopeRoleUnavailable:
+      "組織でのロールを読み込めなかったため、まだキーを保存できません。",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -273,6 +279,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "閉じる",
     shareOptions: "共有オプション",
+    people: "人",
+    agents: "エージェント",
     link: "リンク",
     invite: "Invite",
     embed: "Embed",
@@ -645,6 +653,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "リストに戻る",
+    promoteMustContain: "返信に含めるテキスト…",
+    promoteMustContainOptional: "返信に含めるテキスト（任意）",
+    promoteMustContainLabel: "昇格した評価の返信に含めるテキスト",
+    promoteNeedsContains:
+      "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",
     type: "タイプ",
     name: "名前",
@@ -680,6 +693,7 @@ const messages = {
     reviewFeedback: "フィードバック",
     reviewOutput: "回答をレビュー",
     reviewPreview: "回答をプレビュー",
+    reviewPreviewUnavailable: "プレビューを利用できません",
     closePreview: "プレビューを非表示",
     addFeedback: "フィードバックを追加",
     draftInstruction: "指示を下書き",

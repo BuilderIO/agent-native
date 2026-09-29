@@ -86,8 +86,6 @@ describe("RouteTransitionIndicator", () => {
       "/slow",
     );
     expect(indicator?.getAttribute("aria-label")).toBe("Loading page...");
-    // The pathname stays a test/debug attribute. The user-facing surface is a
-    // top progress bar with an accessible loading message, not routing chrome.
     expect(indicator?.textContent).toBe("");
     expect(indicator?.className).toContain("top-0");
 

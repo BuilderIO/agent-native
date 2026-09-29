@@ -329,8 +329,6 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
     );
     await selectVector(page, "endpoint-line");
 
-    // The swap is one batched inspector action. Undo/redo must move only the
-    // endpoint pair while retaining the same selected source identity.
     await chooseEndpoint(page, "Start", "Diamond arrow");
     await chooseEndpoint(page, "End", "Round");
     await expect
@@ -411,9 +409,6 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
       });
     await expect(vector).toBeVisible();
 
-    // Removing one endpoint must use the structural rewrite too: the
-    // explicit `none` value persists while only that side's marker reference
-    // and definition disappear.
     await selectVector(page, "endpoint-line");
     await chooseEndpoint(page, "End", "None");
     await expect

@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
+    editorGroupTitle: "Editor",
     editorTitle: "VS Code extension",
     editorDescription:
       "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",
@@ -382,6 +383,12 @@ const messages = {
       shareAria: "Share {{noun}}",
       share: "Share {{noun}}",
       shareThis: "Share this {{noun}}",
+      teammateSuggestion: {
+        message: "Bring teammates into Plan.",
+        invite: "Invite teammates",
+        enableDomain: "Let anyone at @{{domain}} join",
+        enableFailed: "Could not enable domain joining. Try again.",
+      },
       hostedCopy:
         "This local {{noun}} has a hosted copy for sharing. Open the hosted {{noun}} to manage access.",
       publishDescription:
@@ -652,6 +659,7 @@ const messages = {
       createAccount: "Create account",
       signIn: "Sign in",
       haveAccount: "I have an account",
+      storageStatusUnavailable: "Could not check file storage.",
       retry: "Retry",
       sendFeedback: "Send feedback",
       feedbackPlaceholder:

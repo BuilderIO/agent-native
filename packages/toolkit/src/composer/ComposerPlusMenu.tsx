@@ -45,21 +45,11 @@ export interface ComposerTerminalModeControl {
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
   addAttachment?: (file: File) => Promise<unknown>;
+  attachmentsEnabled?: boolean;
+  onAttachmentRequest?: () => void;
   onAttachmentError?: (message: string) => void;
   attachmentAccept?: string;
-  /**
-   * Show the "Create Extension" entry. Extensions are optional and hidden
-   * unless the host explicitly enables their agent tool surface.
-   */
   extensionTools?: boolean;
-  /**
-   * "full" (default): full + menu with Upload File, Create Skill, Schedule Task,
-   * Automation, and MCP Server. Extension is included only when
-   * `extensionTools` is true. "upload-only": clicking + opens the file picker
-   * directly — no popover, no other modes. Use for prompt popovers where the
-   * only thing to attach is a file. "terminal": one new-terminal action plus
-   * the Terminal mode switch.
-   */
   mode?: "full" | "upload-only" | "terminal";
   terminalModeControl?: ComposerTerminalModeControl;
 }
@@ -241,11 +231,17 @@ function MenuItemHelp({
 
 function UploadOnlyAttachButton({
   addAttachment,
+  attachmentsEnabled,
+  onAttachmentRequest,
   onAttachmentError,
   attachmentAccept,
 }: Pick<
   ComposerPlusMenuProps,
-  "addAttachment" | "onAttachmentError" | "attachmentAccept"
+  | "addAttachment"
+  | "attachmentsEnabled"
+  | "onAttachmentRequest"
+  | "onAttachmentError"
+  | "attachmentAccept"
 >) {
   const composerRuntime = useComposerRuntime();
   const t = useComposerRuntimeAdapters().translate!;
@@ -272,17 +268,19 @@ function UploadOnlyAttachButton({
 
   return (
     <>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={attachmentAccept}
-        className="hidden"
-        onChange={(event) => {
-          void handleFilesSelected(event.target.files);
-          event.target.value = "";
-        }}
-      />
+      {attachmentsEnabled ? (
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={attachmentAccept}
+          className="hidden"
+          onChange={(event) => {
+            void handleFilesSelected(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      ) : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex shrink-0">
@@ -292,7 +290,10 @@ function UploadOnlyAttachButton({
               aria-label={t("agentChat.composer.upload", {
                 defaultValue: "Upload",
               })}
-              onClick={() => inputRef.current?.click()}
+              onClick={() => {
+                if (attachmentsEnabled) inputRef.current?.click();
+                else onAttachmentRequest?.();
+              }}
             >
               <IconPlus className="h-4 w-4" />
             </button>
@@ -309,6 +310,8 @@ function UploadOnlyAttachButton({
 export function ComposerPlusMenu({
   onSelectMode,
   addAttachment,
+  attachmentsEnabled = true,
+  onAttachmentRequest,
   onAttachmentError,
   attachmentAccept,
   extensionTools = false,
@@ -316,9 +319,12 @@ export function ComposerPlusMenu({
   terminalModeControl,
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
+    if (!attachmentsEnabled && !onAttachmentRequest) return null;
     return (
       <UploadOnlyAttachButton
         addAttachment={addAttachment}
+        attachmentsEnabled={attachmentsEnabled}
+        onAttachmentRequest={onAttachmentRequest}
         onAttachmentError={onAttachmentError}
         attachmentAccept={attachmentAccept}
       />
@@ -333,6 +339,8 @@ export function ComposerPlusMenu({
     <ComposerPlusMenuFull
       onSelectMode={onSelectMode}
       addAttachment={addAttachment}
+      attachmentsEnabled={attachmentsEnabled}
+      onAttachmentRequest={onAttachmentRequest}
       onAttachmentError={onAttachmentError}
       attachmentAccept={attachmentAccept}
       extensionTools={extensionTools}
@@ -410,12 +418,16 @@ function ComposerPlusMenuTerminal({
 function ComposerPlusMenuFull({
   onSelectMode,
   addAttachment,
+  attachmentsEnabled,
+  onAttachmentRequest,
   onAttachmentError,
   attachmentAccept,
   extensionTools,
 }: Pick<
   ComposerPlusMenuProps,
   | "addAttachment"
+  | "attachmentsEnabled"
+  | "onAttachmentRequest"
   | "onSelectMode"
   | "onAttachmentError"
   | "attachmentAccept"
@@ -438,8 +450,6 @@ function ComposerPlusMenuFull({
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const hasOrg = !!org?.orgId;
-  // Composer connections belong to the person asking for them. Organization
-  // sharing remains an explicit choice for owners and admins in the dialog.
   const defaultMcpScope = "user" as const;
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;
@@ -510,7 +520,7 @@ function ComposerPlusMenuFull({
   };
 
   const handleFilesSelected = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+    if (!attachmentsEnabled || !files || files.length === 0) return;
     try {
       await Promise.all(
         Array.from(files).map((file) =>
@@ -585,23 +595,31 @@ function ComposerPlusMenuFull({
     icon: React.ReactNode;
     label: string;
     desc: string;
-    action: () => void;
+    action: (anchor?: HTMLElement) => void;
     hoverAction?: () => void;
     isSkill?: boolean;
   }[] = [
-    {
-      icon: <IconUpload className="h-3.5 w-3.5" />,
-      label: t("agentChat.composer.menu.uploadFile", {
-        defaultValue: "Upload File",
-      }),
-      desc: t("agentChat.composer.menu.uploadFileDescription", {
-        defaultValue: "Images, PDFs, text/code, JSON, CSV",
-      }),
-      action: () => {
-        setOpen(false);
-        setTimeout(() => fileUploadRef.current?.click(), 0);
-      },
-    },
+    ...(attachmentsEnabled || onAttachmentRequest
+      ? [
+          {
+            icon: <IconUpload className="h-3.5 w-3.5" />,
+            label: t("agentChat.composer.menu.uploadFile", {
+              defaultValue: "Upload File",
+            }),
+            desc: t("agentChat.composer.menu.uploadFileDescription", {
+              defaultValue: "Images, PDFs, text/code, JSON, CSV",
+            }),
+            action: () => {
+              setOpen(false);
+              if (attachmentsEnabled) {
+                setTimeout(() => fileUploadRef.current?.click(), 0);
+              } else {
+                onAttachmentRequest?.();
+              }
+            },
+          },
+        ]
+      : []),
     {
       icon: <IconPhotoPlus className="h-3.5 w-3.5" />,
       label: t("agentChat.composer.menu.generateImage", {
@@ -698,6 +716,7 @@ function ComposerPlusMenuFull({
         multiple
         accept={attachmentAccept}
         className="hidden"
+        disabled={!attachmentsEnabled}
         onChange={(event) => {
           void handleFilesSelected(event.target.files);
           event.target.value = "";
@@ -786,7 +805,7 @@ function ComposerPlusMenuFull({
                   >
                     <button
                       type="button"
-                      onClick={item.action}
+                      onClick={(event) => item.action(event.currentTarget)}
                       className={cn(
                         "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start",
                       )}

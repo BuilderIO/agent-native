@@ -3,9 +3,6 @@ import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_LANE_REDIRECT_QUERY_PARAM,
-  BETA_LANE_RETURN_STORAGE_KEY,
-  BETA_LANE_RETURNED_STORAGE_KEY,
-  BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_STORAGE_KEY,
@@ -87,135 +84,50 @@ export function getSsrBetaRedirectScriptBody(
     return probePath;
   }
 
-  function returnFromAutomaticBetaRedirect() {
-    if (/AgentNativeDesktop/i.test((window.navigator && window.navigator.userAgent) || '')) return;
-
-    var returnTo;
-    var alreadyReturned;
-    try {
-      // The guard holds the deadline of the opt-out this tab last handed
-      // production, so it lapses exactly when that opt-out does. A permanent
-      // flag would block the legitimate second return in a tab left open
-      // longer than the opt-out, stranding the visitor on beta all over again.
-      var returnedUntil = Number(window.sessionStorage.getItem(${JSON.stringify(BETA_LANE_RETURNED_STORAGE_KEY)}));
-      alreadyReturned = Number.isFinite(returnedUntil) && returnedUntil > Date.now();
-      if (currentUrl.searchParams.get(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)}) !== null) {
-        currentUrl.searchParams.delete(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)});
-        // The client session gate replaces this URL with beta's sign-in page
-        // before the probe below resolves, so the production page the visitor
-        // was actually taken from has to be captured now or it is lost.
-        if (!alreadyReturned) {
-          window.sessionStorage.setItem(
-            ${JSON.stringify(BETA_LANE_RETURN_STORAGE_KEY)},
-            currentUrl.pathname + currentUrl.search + currentUrl.hash,
-          );
-        }
-        try {
-          window.history.replaceState(null, '', currentUrl.toString());
-        } catch (error) {
-          void error;
-        }
-      }
-      returnTo = window.sessionStorage.getItem(${JSON.stringify(BETA_LANE_RETURN_STORAGE_KEY)});
-    } catch (error) {
-      // Without session storage the single return cannot be bounded, and an
-      // unbounded return is a redirect loop between the two lanes. Staying on
-      // beta is the pre-existing behaviour, so this is the safe failure.
-      void error;
-      return;
+  // One session read per page: reuse the read the session bootstrap started,
+  // or publish this one in the same shape so the app reuses it. A probe that
+  // targets a different workspace mount than the app reads stays separate.
+  // Resolves to the session body, null when signed out (401/403), or undefined
+  // when the answer is unreadable.
+  function readSessionForProbe(url) {
+    var probePath = sessionProbePathFor(url);
+    var sharesAppRead = probePath === ${safeJsonForHtml(sessionPath)};
+    var read = sharesAppRead ? window.__agentNativeSessionBootstrap : undefined;
+    if (!read) {
+      read = window.fetch(probePath, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' }
+      }).then(function (response) {
+        if (!response) return { state: 'unavailable' };
+        if (!response.ok) return { state: 'unavailable', status: response.status };
+        return response.json().then(function (value) {
+          return { state: 'available', value: value };
+        }, function () {
+          return { state: 'unavailable', status: response.status };
+        });
+      }, function () {
+        return { state: 'unavailable' };
+      });
+      if (sharesAppRead) window.__agentNativeSessionBootstrap = read;
     }
-
-    if (alreadyReturned || typeof returnTo !== 'string' || !returnTo) return;
-    if (typeof window.fetch !== 'function') return;
-
-    window.fetch(sessionProbePathFor(currentUrl), {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' }
-    }).then(function (response) {
-      if (!response) return undefined;
-      if (response.status === 401 || response.status === 403) return null;
-      if (!response.ok) return undefined;
-      return response.json();
-    }).then(function (session) {
-      // Unreadable is not signed out. Bouncing on a transient failure would
-      // throw away a beta session that is actually fine.
-      if (session === undefined) return;
-      var authenticated = false;
-      if (session !== null) {
-        var sessionError = session && typeof session.error === 'string'
-          ? session.error.trim()
-          : '';
-        if (sessionError && sessionError !== 'Not authenticated') return;
-        if (!sessionError) {
-          authenticated = !!(session && typeof session.email === 'string' && session.email.trim());
-        }
-      }
-
-      if (authenticated) {
-        // The lane redirect worked: this visitor has a beta session and stays.
-        try {
-          window.sessionStorage.removeItem(${JSON.stringify(BETA_LANE_RETURN_STORAGE_KEY)});
-        } catch (error) {
-          void error;
-        }
-        return;
-      }
-
-      // One deadline for both: the opt-out production is asked to honour, and
-      // the guard that stops this tab returning again while it should hold.
-      var optOutUntil = Date.now() + ${BETA_OPT_OUT_DURATION_MS};
-      try {
-        window.sessionStorage.setItem(
-          ${JSON.stringify(BETA_LANE_RETURNED_STORAGE_KEY)},
-          String(optOutUntil),
-        );
-        window.sessionStorage.removeItem(${JSON.stringify(BETA_LANE_RETURN_STORAGE_KEY)});
-      } catch (error) {
-        void error;
-        return;
-      }
-
-      var latestHostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');
-      if (latestHostname !== hostname) return;
-
-      var target;
-      try {
-        // Build from the production origin and copy only the path parts. A
-        // stored value like "//evil.com" parses as protocol-relative, so it
-        // must never be allowed to supply the host, port, or credentials.
-        var storedTarget = new URL(returnTo, 'https://' + productionHost);
-        target = new URL('https://' + productionHost);
-        target.pathname = storedTarget.pathname;
-        target.search = storedTarget.search;
-        target.hash = storedTarget.hash;
-        // The opt-out is what stops production redirecting straight back here.
-        target.searchParams.set(
-          ${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)},
-          String(optOutUntil),
-        );
-      } catch (error) {
-        void error;
-        return;
-      }
-
-      try {
-        window.location.replace(target.toString());
-      } catch (error) {
-        void error;
-      }
-    }).catch(function (error) {
-      void error;
+    return read.then(function (result) {
+      if (result && result.state === 'available') return result.value;
+      if (result && (result.status === 401 || result.status === 403)) return null;
+      return undefined;
     });
   }
 
-  // On beta: undo an automatic lane redirect that landed on a host where the
-  // visitor has no session. Sessions are per-host, so the redirect that sent
-  // someone here right after they signed in on production cannot carry their
-  // session with it, and beta's sign-in page is a dead end they never asked
-  // for. A deliberate switch to beta carries no marker and is left alone.
   if (betaHost === hostname) {
-    returnFromAutomaticBetaRedirect();
+    // Older automatic arrivals carry this marker; beta must never send them back to production.
+    if (currentUrl.searchParams.has(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)})) {
+      currentUrl.searchParams.delete(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)});
+      try {
+        window.history.replaceState(null, '', currentUrl.toString());
+      } catch (error) {
+        void error;
+      }
+    }
     return;
   }
 
@@ -310,21 +222,12 @@ export function getSsrBetaRedirectScriptBody(
 
   if (typeof window.fetch !== 'function') return;
 
-  window.fetch(sessionProbePathFor(currentUrl), {
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers: { 'Accept': 'application/json' }
-  }).then(function (response) {
-    if (!response || !response.ok) {
-      if (response && (response.status === 401 || response.status === 403)) {
-        clearRedirectMarker();
-        return null;
-      }
-      return undefined;
-    }
-    return response.json();
-  }).then(function (session) {
+  readSessionForProbe(currentUrl).then(function (session) {
     if (session === undefined) return;
+    if (session === null) {
+      clearRedirectMarker();
+      return;
+    }
     var sessionError = session && typeof session.error === 'string'
       ? session.error.trim()
       : '';
@@ -373,7 +276,6 @@ export function getSsrBetaRedirectScriptBody(
     latestUrl.hostname = betaHost;
     latestUrl.port = '';
     latestUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
-    latestUrl.searchParams.set(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)}, '1');
     try {
       window.location.replace(latestUrl.toString());
     } catch (error) {

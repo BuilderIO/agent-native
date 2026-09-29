@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-/**
- * SQL persistence for the agent observability system.
- *
- * Creates and manages tables for traces, feedback, evals, experiments,
- * and satisfaction scores. Follows the same raw-SQL pattern as
- * run-store.ts and usage/store.ts — framework tables use getDbExec()
- * rather than Drizzle ORM (which is for template-level schemas).
- */
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -31,7 +23,10 @@ import type {
   ExperimentMetricResult,
   InstructionUpdate,
   HumanReviewSummary,
+  ObservabilityReviewThreadScope,
+  ObservabilityReviewRunScope,
 } from "./types.js";
+import { observabilityReviewThreadKey } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
   if (value === null || value === undefined) return fallback;
@@ -57,7 +52,9 @@ const persistedHumanReviewArtifactSchema = z
     const paths = {
       design: new RegExp(`^/(?:design|present)/${id}$`),
       slides: new RegExp(`^/deck/${id}(?:/present)?$`),
-      analytics: new RegExp(`^/(?:dashboards|analyses|adhoc)/${id}$`),
+      analytics: new RegExp(
+        `^(?:/(?:dashboards|analyses|adhoc)/${id}|/api/media/${id})$`,
+      ),
     };
     if (!paths[artifact.appId].test(artifact.path)) {
       ctx.addIssue({
@@ -114,10 +111,6 @@ function parseHumanReviewSummaryRow(
   };
 }
 
-// Tables whose rows are owned by an end user — drives the boot-time
-// user_id ALTER loop and the per-user composite indexes below. Every
-// new user-owned observability table must be added here so the upgrade
-// path and the per-user query plan stay in sync.
 const USER_SCOPED_TABLES = [
   "agent_trace_spans",
   "agent_trace_summaries",
@@ -125,17 +118,14 @@ const USER_SCOPED_TABLES = [
   "agent_evals",
   "agent_feedback",
   "agent_instruction_updates",
+  "agent_eval_datasets",
 ] as const;
 
 const MAX_REVIEW_THREAD_BYTES = 1_000_000;
+const MAX_REVIEW_FEEDBACK_THREAD_SCOPES = 600;
 export const MAX_REVIEW_TOOL_SPANS = 20;
 const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
 
-/**
- * Append an `AND user_id = ?` clause when a userId filter is requested.
- * Returns the fully-bound WHERE clause + args ready to splice into the
- * caller's SQL. Centralizes the pattern so tests can assert one shape.
- */
 function withUserFilter(
   baseWhere: string,
   baseArgs: any[],
@@ -284,7 +274,9 @@ export async function ensureObservabilityTables(): Promise<void> {
           description TEXT NOT NULL DEFAULT '',
           entries TEXT NOT NULL DEFAULT '[]',
           created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
+          updated_at BIGINT NOT NULL,
+          user_id TEXT,
+          idempotency_key TEXT
         )
       `;
 
@@ -328,7 +320,6 @@ export async function ensureObservabilityTables(): Promise<void> {
       `;
 
       {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
         await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
         await ensureTableExists(
           "agent_trace_summaries",
@@ -391,6 +382,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           "agent_feedback",
           "idempotency_key",
           `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_eval_datasets",
+          "idempotency_key",
+          `ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
         );
         await ensureIndexExists(
           "idx_trace_spans_run",
@@ -481,6 +477,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
         );
         await ensureIndexExists(
+          "idx_eval_datasets_idempotency",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)`,
+        );
+        await ensureIndexExists(
           "idx_experiment_results_exp",
           `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
         );
@@ -493,8 +493,6 @@ export async function ensureObservabilityTables(): Promise<void> {
   }
   return _initPromise;
 }
-
-// ─── Trace span CRUD ─────────────────────────────────────────────────
 
 export async function insertTraceSpan(span: TraceSpan): Promise<void> {
   await ensureObservabilityTables();
@@ -531,8 +529,6 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
 export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  // user_id and org_id are intentionally NOT updated on conflict — once a run's
-  // owner is recorded it shouldn't change under us.
   {
     await client.execute({
       sql: `INSERT INTO agent_trace_summaries
@@ -709,13 +705,81 @@ export async function getTraceSummaries(opts: {
         )
       )`
     : "";
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_trace_summaries
+  const select = opts.requireReviewContext
+    ? `SELECT * FROM (
+        SELECT review_candidates.*,
+          COUNT(*) OVER (
+            PARTITION BY org_id, review_group_owner_key, review_group_key
+          ) AS run_count,
+          ROW_NUMBER() OVER (
+            PARTITION BY org_id, review_group_owner_key, review_group_key
+            ORDER BY created_at DESC, run_id DESC
+          ) AS review_row_number,
+          JSON_AGG(run_id) OVER (
+            PARTITION BY org_id, review_group_owner_key, review_group_key
+            ORDER BY created_at DESC, run_id DESC
+            ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING
+          ) AS review_group_run_ids
+        FROM (
+          SELECT agent_trace_summaries.*,
+            -- ponytail: legacy spans lack resource IDs; historical resource backfill is the upgrade path.
+            CASE
+              WHEN NULLIF(
+                automation_span.metadata::jsonb ->> 'automationId', ''
+              ) IS NOT NULL
+                THEN 'automation:' || (
+                  automation_span.metadata::jsonb ->> 'automationId'
+                )
+              ELSE 'thread:' || agent_trace_summaries.thread_id
+            END AS review_group_key,
+            CASE
+              WHEN NULLIF(
+                automation_span.metadata::jsonb ->> 'automationId', ''
+              ) IS NOT NULL
+                AND automation_span.metadata::jsonb ->> 'scope' = 'organization'
+                THEN ''
+              ELSE COALESCE(agent_trace_summaries.user_id, '')
+            END AS review_group_owner_key,
+            CASE
+              WHEN automation_span.name IS NULL THEN NULL
+              ELSE COALESCE(
+                NULLIF(automation_span.metadata::jsonb ->> 'automation', ''),
+                SUBSTRING(
+                  automation_span.name
+                  FROM LENGTH('background_automation_run:') + 1
+                )
+              )
+            END AS review_group_label
+          FROM agent_trace_summaries
+          LEFT JOIN LATERAL (
+            SELECT review_span.name, review_span.metadata
+            FROM agent_trace_spans review_span
+            WHERE review_span.run_id = agent_trace_summaries.run_id
+              AND review_span.span_type = 'agent_run'
+              AND review_span.name LIKE 'background_automation_run:%'
+              AND (
+                review_span.org_id = agent_trace_summaries.org_id
+                OR review_span.org_id IS NULL
+              )
+            ORDER BY review_span.created_at DESC, review_span.id DESC
+            LIMIT 1
+          ) automation_span ON TRUE
+          WHERE ${where}
+          ${exclude}
+          ${reviewContext}
+        ) AS review_candidates
+      ) AS review_rollups
+      WHERE review_row_number = 1
+      ORDER BY created_at DESC
+      LIMIT ?`
+    : `SELECT * FROM agent_trace_summaries
       WHERE ${where}
       ${exclude}
       ${reviewContext}
       ORDER BY created_at DESC
-      LIMIT ?`,
+      LIMIT ?`;
+  const { rows } = await client.execute({
+    sql: select,
     args: [
       ...args,
       ...(opts.excludeSpanName
@@ -728,6 +792,63 @@ export async function getTraceSummaries(opts: {
     ],
   });
   return (rows as any[]).map(rowToTraceSummary);
+}
+
+export async function getRecentReviewRunsForReviewGroups(opts: {
+  runScopes: readonly ObservabilityReviewRunScope[];
+  sinceMs: number;
+}): Promise<{
+  runs: TraceSummary[];
+  runThreadScopes: Array<ObservabilityReviewThreadScope & { runId: string }>;
+}> {
+  const scopes = [
+    ...new Map(
+      opts.runScopes
+        .filter(({ orgId, runId }) => orgId && runId)
+        .map((scope) => [JSON.stringify([scope.orgId, scope.runId]), scope]),
+    ).values(),
+  ].slice(0, 1200);
+  if (scopes.length === 0) return { runs: [], runThreadScopes: [] };
+  await ensureObservabilityTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT summary.*,
+      EXISTS (
+        SELECT 1 FROM agent_trace_spans review_span
+        WHERE review_span.run_id = summary.run_id
+          AND review_span.org_id = summary.org_id
+          AND review_span.span_type = 'agent_run'
+          AND review_span.name = 'agent_run:observability:human-review-summary'
+      ) AS is_human_review_summary_run
+      FROM agent_trace_summaries summary
+      INNER JOIN chat_threads thread
+        ON thread.id = summary.thread_id AND thread.org_id = summary.org_id
+          AND LOWER(thread.owner_email) = LOWER(summary.user_id)
+      WHERE summary.created_at >= ? AND (${scopes
+        .map(() => "(summary.org_id = ? AND summary.run_id = ?)")
+        .join(" OR ")})
+      ORDER BY summary.created_at DESC, summary.run_id DESC`,
+    args: [
+      opts.sinceMs,
+      ...scopes.flatMap(({ orgId, runId }) => [orgId, runId]),
+    ],
+  });
+  const summaries = rows as Array<Record<string, unknown>>;
+  return {
+    runs: summaries
+      .filter((row) => !row.is_human_review_summary_run)
+      .map(rowToTraceSummary),
+    runThreadScopes: summaries.flatMap((row) =>
+      row.org_id && row.run_id && row.thread_id
+        ? [
+            {
+              orgId: String(row.org_id),
+              runId: String(row.run_id),
+              threadId: String(row.thread_id),
+            },
+          ]
+        : [],
+    ),
+  };
 }
 
 export async function getTraceSummary(
@@ -794,41 +915,66 @@ export async function getOrgScopedThreadTitles(
 }
 
 export async function getOrgScopedReviewThreads(
-  orgId: string,
-  requested: readonly { ownerEmail: string; threadId: string }[],
-): Promise<Map<string, { threadData: string | null; title: string | null }>> {
+  requested: readonly (ObservabilityReviewThreadScope & {
+    ownerEmail: string;
+  })[],
+): Promise<
+  Map<
+    string,
+    {
+      ownerEmail: string;
+      threadData: string | null;
+      title: string | null;
+      scopeType: string | null;
+      scopeId: string | null;
+      scopeLabel: string | null;
+    }
+  >
+> {
   const keys = [
     ...new Map(
       requested
-        .filter(({ ownerEmail, threadId }) => ownerEmail && threadId)
+        .filter(
+          ({ orgId, ownerEmail, threadId }) => orgId && ownerEmail && threadId,
+        )
         .map((key) => [
-          `${key.ownerEmail.toLowerCase()}\0${key.threadId}`,
+          `${observabilityReviewThreadKey(key.orgId, key.threadId)}\0${key.ownerEmail.toLowerCase()}`,
           key,
         ]),
     ).values(),
   ].slice(0, 100);
-  if (!orgId || keys.length === 0) return new Map();
+  if (keys.length === 0) return new Map();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id,
+    sql: `SELECT id, owner_email, org_id,
       CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END AS thread_data,
-      title FROM chat_threads
-      WHERE org_id = ? AND (${keys
-        .map(() => "(LOWER(owner_email) = LOWER(?) AND id = ?)")
+      title, scope_type, scope_id, scope_label FROM chat_threads
+      WHERE (${keys
+        .map(() => "(org_id = ? AND LOWER(owner_email) = LOWER(?) AND id = ?)")
         .join(" OR ")})`,
     args: [
       MAX_REVIEW_THREAD_BYTES,
-      orgId,
-      ...keys.flatMap(({ ownerEmail, threadId }) => [ownerEmail, threadId]),
+      ...keys.flatMap(({ orgId, ownerEmail, threadId }) => [
+        orgId,
+        ownerEmail,
+        threadId,
+      ]),
     ],
   });
   return new Map(
     (rows as Array<Record<string, unknown>>).map((row) => [
-      String(row.id),
+      observabilityReviewThreadKey(String(row.org_id), String(row.id)),
       {
+        ownerEmail: String(row.owner_email),
         threadData:
           typeof row.thread_data === "string" ? row.thread_data : null,
         title: typeof row.title === "string" ? row.title.slice(0, 240) : null,
+        scopeType: typeof row.scope_type === "string" ? row.scope_type : null,
+        scopeId: typeof row.scope_id === "string" ? row.scope_id : null,
+        scopeLabel:
+          typeof row.scope_label === "string"
+            ? row.scope_label.slice(0, 240)
+            : null,
       },
     ]),
   );
@@ -858,6 +1004,83 @@ export async function getHumanReviewSummaries(
   );
 }
 
+export async function getHumanReviewSummariesForThreads(
+  scopes: readonly ObservabilityReviewThreadScope[],
+  requestedRuns: readonly { orgId: string; runId: string }[] = [],
+): Promise<Map<string, HumanReviewSummary[]>> {
+  const uniqueScopes = [
+    ...new Map(
+      scopes
+        .filter(({ orgId, threadId }) => orgId && threadId)
+        .map((scope) => [
+          observabilityReviewThreadKey(scope.orgId, scope.threadId),
+          scope,
+        ]),
+    ).values(),
+  ].slice(0, 100);
+  if (uniqueScopes.length === 0) return new Map();
+  const uniqueRuns = [
+    ...new Map(
+      requestedRuns
+        .filter(({ orgId, runId }) => orgId && runId)
+        .map((run) => [JSON.stringify([run.orgId, run.runId]), run]),
+    ).values(),
+  ].slice(0, 1200);
+  await ensureObservabilityTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT review_summaries.* FROM (
+      SELECT review.*, trace.thread_id AS review_thread_id,
+        ROW_NUMBER() OVER (
+          PARTITION BY review.org_id, trace.thread_id
+          ORDER BY review.updated_at DESC, review.run_id DESC
+        ) AS thread_summary_number
+      FROM agent_human_review_summaries review
+      INNER JOIN agent_trace_summaries trace
+        ON trace.run_id = review.run_id AND trace.org_id = review.org_id
+      INNER JOIN chat_threads thread
+        ON thread.id = trace.thread_id AND thread.org_id = trace.org_id
+          AND LOWER(thread.owner_email) = LOWER(trace.user_id)
+      WHERE (${uniqueScopes
+        .map(() => "(review.org_id = ? AND trace.thread_id = ?)")
+        .join(" OR ")}${
+        uniqueRuns.length > 0
+          ? ` OR ${uniqueRuns
+              .map(() => "(review.org_id = ? AND trace.run_id = ?)")
+              .join(" OR ")}`
+          : ""
+      })
+    ) review_summaries
+    WHERE review_summaries.thread_summary_number = 1${
+      uniqueRuns.length > 0
+        ? ` OR (${uniqueRuns
+            .map(
+              () =>
+                "(review_summaries.org_id = ? AND review_summaries.run_id = ?)",
+            )
+            .join(" OR ")})`
+        : ""
+    }
+    ORDER BY review_summaries.updated_at DESC, review_summaries.run_id DESC`,
+    args: [
+      ...uniqueScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+      ...uniqueRuns.flatMap(({ orgId, runId }) => [orgId, runId]),
+      ...uniqueRuns.flatMap(({ orgId, runId }) => [orgId, runId]),
+    ],
+  });
+  const summaries = new Map<string, HumanReviewSummary[]>();
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const threadId = String(row.review_thread_id ?? "");
+    const orgId = String(row.org_id ?? "");
+    const key = observabilityReviewThreadKey(orgId, threadId);
+    if (threadId && orgId) {
+      const threadSummaries = summaries.get(key) ?? [];
+      threadSummaries.push(parseHumanReviewSummaryRow(row));
+      summaries.set(key, threadSummaries);
+    }
+  }
+  return summaries;
+}
+
 export async function upsertHumanReviewSummary(
   summary: HumanReviewSummary,
 ): Promise<boolean> {
@@ -885,7 +1108,6 @@ export async function upsertHumanReviewSummary(
   return Number(result.rowsAffected ?? 0) > 0;
 }
 
-/** Latest completed response in a thread, always scoped to its owner. */
 export async function getLatestTraceSummaryForThread(
   threadId: string,
   opts: { userId: string; excludeRunId: string },
@@ -902,8 +1124,6 @@ export async function getLatestTraceSummaryForThread(
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
 }
-
-// ─── Feedback CRUD ───────────────────────────────────────────────────
 
 export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
   await ensureObservabilityTables();
@@ -939,11 +1159,50 @@ export async function getFeedback(opts: {
   orgId?: string;
   source?: FeedbackEntry["source"];
   runIds?: readonly string[];
+  threadIds?: readonly string[];
+  threadScopes?: readonly ObservabilityReviewThreadScope[];
+  runScopes?: readonly ObservabilityReviewRunScope[];
+  perThreadLimit?: number;
 }): Promise<FeedbackEntry[]> {
   const runIds = opts.runIds
     ? [...new Set(opts.runIds.filter(Boolean))]
     : undefined;
   if (runIds?.length === 0) return [];
+  const threadIds = opts.threadIds
+    ? [...new Set(opts.threadIds.filter(Boolean))]
+    : undefined;
+  if (threadIds?.length === 0) return [];
+  const threadScopes = opts.threadScopes
+    ? [
+        ...new Map(
+          opts.threadScopes
+            .filter(({ orgId, threadId }) => orgId && threadId)
+            .map((scope) => [
+              observabilityReviewThreadKey(scope.orgId, scope.threadId),
+              scope,
+            ]),
+        ).values(),
+      ].slice(0, MAX_REVIEW_FEEDBACK_THREAD_SCOPES)
+    : undefined;
+  const runScopes = opts.runScopes
+    ? [
+        ...new Map(
+          opts.runScopes
+            .filter(({ orgId, runId }) => orgId && runId)
+            .map((scope) => [
+              JSON.stringify([scope.orgId, scope.runId]),
+              scope,
+            ]),
+        ).values(),
+      ].slice(0, 1200)
+    : undefined;
+  if (
+    (opts.threadScopes !== undefined || opts.runScopes !== undefined) &&
+    (threadScopes?.length ?? 0) === 0 &&
+    (runScopes?.length ?? 0) === 0
+  ) {
+    return [];
+  }
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -955,6 +1214,23 @@ export async function getFeedback(opts: {
   if (runIds) {
     conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
     args.push(...runIds);
+  }
+  const scopedRows = [
+    ...(threadScopes ?? []).map(({ orgId, threadId }) => ({
+      sql: "(org_id = ? AND thread_id = ?)",
+      args: [orgId, threadId],
+    })),
+    ...(runScopes ?? []).map(({ orgId, runId }) => ({
+      sql: "(org_id = ? AND run_id = ?)",
+      args: [orgId, runId],
+    })),
+  ];
+  if (scopedRows.length > 0) {
+    conditions.push(`(${scopedRows.map((scope) => scope.sql).join(" OR ")})`);
+    args.push(...scopedRows.flatMap((scope) => scope.args));
+  } else if (threadIds) {
+    conditions.push(`thread_id IN (${threadIds.map(() => "?").join(", ")})`);
+    args.push(...threadIds);
   }
   if (opts.sinceMs) {
     conditions.push("created_at >= ?");
@@ -978,10 +1254,40 @@ export async function getFeedback(opts: {
   }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = opts.limit ?? 100;
+  const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 6, 12));
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_feedback ${where} ORDER BY created_at DESC LIMIT ?`,
-    args: [...args, limit],
+    sql:
+      threadScopes || runScopes
+        ? `SELECT * FROM (
+        SELECT agent_feedback.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY org_id,
+              CASE WHEN run_id IS NULL THEN 'thread:' || COALESCE(thread_id, '')
+                ELSE 'run:' || run_id END
+            ORDER BY created_at DESC, id DESC
+          ) AS feedback_row_number
+        FROM agent_feedback ${where}
+      ) AS review_feedback
+      WHERE feedback_row_number <= ?
+      ORDER BY created_at DESC, id DESC`
+        : threadIds
+          ? `SELECT * FROM (
+        SELECT agent_feedback.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY thread_id ORDER BY created_at DESC, id DESC
+          ) AS feedback_row_number
+        FROM agent_feedback ${where}
+      ) AS review_feedback
+      WHERE feedback_row_number <= ?
+      ORDER BY created_at DESC, id DESC`
+          : `SELECT * FROM agent_feedback ${where}
+      ORDER BY created_at DESC LIMIT ?`,
+    args: [
+      ...args,
+      threadScopes || runScopes || threadIds
+        ? perThreadLimit
+        : (opts.limit ?? 100),
+    ],
   });
   return (rows as any[]).map(rowToFeedback);
 }
@@ -1056,11 +1362,31 @@ export async function getInstructionUpdates(opts: {
   limit?: number;
   userId?: string;
   orgId?: string;
+  threadIds?: readonly string[];
+  threadScopes?: readonly ObservabilityReviewThreadScope[];
+  perThreadLimit?: number;
 }): Promise<InstructionUpdate[]> {
   const runIds = opts.runIds
     ? [...new Set(opts.runIds.filter(Boolean))]
     : undefined;
   if (runIds?.length === 0) return [];
+  const threadIds = opts.threadIds
+    ? [...new Set(opts.threadIds.filter(Boolean))]
+    : undefined;
+  if (threadIds?.length === 0) return [];
+  const threadScopes = opts.threadScopes
+    ? [
+        ...new Map(
+          opts.threadScopes
+            .filter(({ orgId, threadId }) => orgId && threadId)
+            .map((scope) => [
+              observabilityReviewThreadKey(scope.orgId, scope.threadId),
+              scope,
+            ]),
+        ).values(),
+      ].slice(0, 100)
+    : undefined;
+  if (threadScopes?.length === 0) return [];
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -1072,6 +1398,19 @@ export async function getInstructionUpdates(opts: {
   if (runIds) {
     conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
     args.push(...runIds);
+  }
+  if (threadScopes) {
+    conditions.push(
+      `(${threadScopes
+        .map(() => "(org_id = ? AND thread_id = ?)")
+        .join(" OR ")})`,
+    );
+    args.push(
+      ...threadScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+    );
+  } else if (threadIds) {
+    conditions.push(`thread_id IN (${threadIds.map(() => "?").join(", ")})`);
+    args.push(...threadIds);
   }
   if (opts.sinceMs) {
     conditions.push("updated_at >= ?");
@@ -1087,15 +1426,37 @@ export async function getInstructionUpdates(opts: {
   }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 1, 12));
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_instruction_updates ${where}
+    sql: threadScopes
+      ? `SELECT * FROM (
+        SELECT agent_instruction_updates.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY org_id, thread_id ORDER BY updated_at DESC, id DESC
+          ) AS update_row_number
+        FROM agent_instruction_updates ${where}
+      ) AS review_updates
+      WHERE update_row_number <= ?
+      ORDER BY updated_at DESC, id DESC`
+      : threadIds
+        ? `SELECT * FROM (
+        SELECT agent_instruction_updates.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY thread_id ORDER BY updated_at DESC, id DESC
+          ) AS update_row_number
+        FROM agent_instruction_updates ${where}
+      ) AS review_updates
+      WHERE update_row_number <= ?
+      ORDER BY updated_at DESC, id DESC`
+        : `SELECT * FROM agent_instruction_updates ${where}
       ORDER BY updated_at DESC LIMIT ?`,
-    args: [...args, opts.limit ?? 500],
+    args: [
+      ...args,
+      threadScopes || threadIds ? perThreadLimit : (opts.limit ?? 500),
+    ],
   });
   return (rows as any[]).map(rowToInstructionUpdate);
 }
-
-// ─── Satisfaction scores CRUD ────────────────────────────────────────
 
 export async function upsertSatisfactionScore(
   score: SatisfactionScore,
@@ -1161,8 +1522,6 @@ export async function getSatisfactionScores(opts: {
   });
   return (rows as any[]).map(rowToSatisfaction);
 }
-
-// ─── Evals CRUD ──────────────────────────────────────────────────────
 
 export async function insertEvalResult(result: EvalResult): Promise<void> {
   await ensureObservabilityTables();
@@ -1240,15 +1599,13 @@ export async function getEvalStats(
   };
 }
 
-// ─── Eval datasets CRUD ──────────────────────────────────────────────
-
 export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_eval_datasets
-      (id, name, description, entries, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, name, description, entries, created_at, updated_at, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     args: [
       dataset.id,
       dataset.name,
@@ -1256,6 +1613,7 @@ export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
       JSON.stringify(dataset.entries),
       dataset.createdAt,
       dataset.updatedAt,
+      dataset.userId ?? null,
     ],
   });
 }
@@ -1278,6 +1636,157 @@ export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
   });
   if (rows.length === 0) return null;
   return rowToDataset(rows[0] as any);
+}
+
+export async function getEvalDatasetByName(
+  name: string,
+  opts: { userId?: string } = {},
+): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { where, args } = withUserFilter("name = ?", [name], opts.userId);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets WHERE ${where} ORDER BY updated_at DESC LIMIT 1`,
+    args,
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+const PROMOTED_DATASET_OWNER =
+  "(user_id = ? OR (? IS NULL AND user_id IS NULL))";
+
+async function selectPromotedEvalDatasetByKey(
+  idempotencyKey: string,
+  userId: string | null,
+): Promise<EvalDataset | null> {
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE idempotency_key = ?
+        AND ${PROMOTED_DATASET_OWNER}
+      LIMIT 1`,
+    args: [idempotencyKey, userId, userId],
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+/**
+ * The dataset already stored for this owner and source run, if any.
+ * A legacy row (same description, no key) is claimed in place so a concurrent
+ * insert cannot create a second promotion.
+ */
+export async function findPromotedEvalDataset(args: {
+  idempotencyKey: string;
+  description: string;
+  userId: string | null;
+}): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE ${PROMOTED_DATASET_OWNER}
+        AND (
+          idempotency_key = ?
+          OR (idempotency_key IS NULL AND description = ?)
+        )
+      ORDER BY CASE WHEN idempotency_key = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [
+      args.userId,
+      args.userId,
+      args.idempotencyKey,
+      args.description,
+      args.idempotencyKey,
+    ],
+  });
+  if (rows.length === 0) return null;
+  const dataset = rowToDataset(rows[0] as any);
+  if (dataset.idempotencyKey === args.idempotencyKey) return dataset;
+
+  try {
+    const updated = await client.execute({
+      sql: `UPDATE agent_eval_datasets
+        SET idempotency_key = ?
+        WHERE id = ?
+          AND idempotency_key IS NULL
+          AND description = ?
+          AND ${PROMOTED_DATASET_OWNER}`,
+      args: [
+        args.idempotencyKey,
+        dataset.id,
+        args.description,
+        args.userId,
+        args.userId,
+      ],
+    });
+    if (Number(updated.rowsAffected) > 0) {
+      return { ...dataset, idempotencyKey: args.idempotencyKey };
+    }
+  } catch (err) {
+    const winner = await selectPromotedEvalDatasetByKey(
+      args.idempotencyKey,
+      args.userId,
+    );
+    if (winner) return winner;
+    throw err;
+  }
+
+  const winner = await selectPromotedEvalDatasetByKey(
+    args.idempotencyKey,
+    args.userId,
+  );
+  return winner ?? dataset;
+}
+
+/**
+ * Insert a promoted dataset, or return the row that already owns its
+ * idempotency key. Concurrent promotions of the same run cannot both insert.
+ */
+export async function savePromotedEvalDataset(
+  dataset: EvalDataset,
+): Promise<EvalDataset> {
+  const idempotencyKey = dataset.idempotencyKey;
+  if (!idempotencyKey) {
+    await insertEvalDataset(dataset);
+    return dataset;
+  }
+  const userId = dataset.userId ?? null;
+  const existing = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (existing) return existing;
+
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_eval_datasets
+      (id, name, description, entries, created_at, updated_at, user_id, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (idempotency_key) DO NOTHING`,
+    args: [
+      dataset.id,
+      dataset.name,
+      dataset.description,
+      JSON.stringify(dataset.entries),
+      dataset.createdAt,
+      dataset.updatedAt,
+      userId,
+      idempotencyKey,
+    ],
+  });
+  if (Number(inserted.rowsAffected) > 0) return dataset;
+
+  const raced = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (raced) return raced;
+  throw new Error("Failed to save promoted eval dataset");
 }
 
 export async function updateEvalDataset(
@@ -1308,8 +1817,6 @@ export async function updateEvalDataset(
     args,
   });
 }
-
-// ─── Experiments CRUD ────────────────────────────────────────────────
 
 export async function insertExperiment(exp: Experiment): Promise<void> {
   await ensureObservabilityTables();
@@ -1352,9 +1859,6 @@ export async function updateExperiment(
     sets.push("status = ?");
     args.push(updates.status);
     if (updates.status === "running" && !updates.endedAt) {
-      // Preserve the original exposure window when a paused experiment
-      // resumes; resetting it would silently discard the first run period from
-      // the results.
       sets.push("started_at = COALESCE(started_at, ?)");
       args.push(Date.now());
     }
@@ -1398,8 +1902,6 @@ export async function getExperiment(id: string): Promise<Experiment | null> {
   if (rows.length === 0) return null;
   return rowToExperiment(rows[0] as any);
 }
-
-// ─── Experiment assignments CRUD ────────────────────────────────────
 
 export async function upsertAssignment(
   assignment: ExperimentAssignment,
@@ -1445,8 +1947,6 @@ export async function getAssignment(
   };
 }
 
-// ─── Experiment results CRUD ─────────────────────────────────────────
-
 export async function insertExperimentResult(
   result: ExperimentMetricResult,
 ): Promise<void> {
@@ -1485,8 +1985,6 @@ export async function getExperimentResults(
   return (rows as any[]).map(rowToExperimentResult);
 }
 
-// ─── Aggregate queries for dashboard ─────────────────────────────────
-
 export async function getObservabilityOverview(
   sinceMs: number,
   opts: { userId?: string } = {},
@@ -1502,10 +2000,6 @@ export async function getObservabilityOverview(
   await ensureObservabilityTables();
   const client = getDbExec();
 
-  // Three of the four sub-queries time-key on `created_at`; satisfaction
-  // uses `computed_at`. Each gets its own `withUserFilter` invocation so
-  // the args array isn't aliased across calls (some drivers mutate args
-  // for prepared-statement caching).
   const created = withUserFilter("created_at >= ?", [sinceMs], opts.userId);
   const computed = withUserFilter("computed_at >= ?", [sinceMs], opts.userId);
 
@@ -1561,8 +2055,6 @@ export async function getObservabilityOverview(
   };
 }
 
-// ─── Row mappers ─────────────────────────────────────────────────────
-
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
   const storedMetadata = safeJsonParse<Record<string, unknown> | null>(
     row.metadata,
@@ -1605,6 +2097,15 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
 }
 
 function rowToTraceSummary(row: Record<string, any>): TraceSummary {
+  const parsedReviewGroupRunIds = safeJsonParse<unknown>(
+    row.review_group_run_ids,
+    null,
+  );
+  const reviewGroupRunIds = (
+    Array.isArray(parsedReviewGroupRunIds) ? parsedReviewGroupRunIds : []
+  )
+    .filter((runId): runId is string => typeof runId === "string" && !!runId)
+    .slice(0, 6);
   return {
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
@@ -1621,6 +2122,11 @@ function rowToTraceSummary(row: Record<string, any>): TraceSummary {
     totalOutputTokens: Number(row.total_output_tokens ?? 0),
     model: String(row.model ?? ""),
     createdAt: Number(row.created_at),
+    ...(row.run_count == null ? {} : { runCount: Number(row.run_count) }),
+    ...(typeof row.review_group_label === "string"
+      ? { reviewGroupLabel: row.review_group_label }
+      : {}),
+    ...(reviewGroupRunIds.length > 0 ? { reviewGroupRunIds } : {}),
   };
 }
 
@@ -1693,6 +2199,8 @@ function rowToDataset(row: Record<string, any>): EvalDataset {
     entries: safeJsonParse(row.entries, []),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    userId: row.user_id ? String(row.user_id) : null,
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
   };
 }
 

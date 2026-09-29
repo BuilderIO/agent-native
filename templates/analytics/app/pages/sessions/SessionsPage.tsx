@@ -184,15 +184,6 @@ export function shouldShowZeroMinuteRecoveryAction(
   );
 }
 
-/**
- * Local input state for a URL-backed filter, debounced into the URL.
- *
- * `urlValue` only resyncs local state when it changes for a reason other
- * than this hook's own debounced write (back/forward navigation, an agent
- * driven URL change, etc). React Router commits `setSearchParams` inside a
- * transition, so without this guard the echo of our own write can land
- * after a newer keystroke and clobber it.
- */
 export function useDebouncedUrlFilter(
   urlValue: string,
   onCommit: (value: string) => void,
@@ -322,7 +313,7 @@ export default function SessionsPage() {
                 value={queryInput}
                 onChange={(event) => setQueryInput(event.target.value)}
                 placeholder={t("sessions.searchPlaceholder")}
-                className="h-9 ps-9"
+                className="ps-9"
               />
             </div>
             <Popover>
@@ -334,7 +325,7 @@ export default function SessionsPage() {
                       variant="outline"
                       size="icon"
                       className={cn(
-                        "h-9 w-9 shrink-0",
+                        "shrink-0",
                         popoverFiltered &&
                           "border border-primary/40 text-primary",
                       )}
@@ -361,10 +352,7 @@ export default function SessionsPage() {
                       value={range}
                       onValueChange={(value) => updateFilter("range", value)}
                     >
-                      <SelectTrigger
-                        className="h-9"
-                        aria-label={t("sessions.range")}
-                      >
+                      <SelectTrigger aria-label={t("sessions.range")}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -396,7 +384,6 @@ export default function SessionsPage() {
                       value={appInput}
                       onChange={(event) => setAppInput(event.target.value)}
                       placeholder={t("sessions.appPlaceholder")}
-                      className="h-9"
                     />
                   </div>
                   <div className="grid gap-1.5">
@@ -414,7 +401,6 @@ export default function SessionsPage() {
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9"
               onClick={() => {
                 void refetch();
                 if (shouldCheckForHiddenSessions) {
@@ -614,11 +600,7 @@ function FilteredEmptySessionsState({
   );
 }
 
-export function ReplayStorageHint({
-  embedded = false,
-}: {
-  embedded?: boolean;
-}) {
+export function ReplayStorageHint() {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -677,28 +659,21 @@ export function ReplayStorageHint({
 
   return (
     <Collapsible open={s3Expanded} onOpenChange={setS3Expanded}>
-      <div
-        className={cn(
-          !embedded &&
-            "mb-6 rounded-md border border-primary/30 bg-primary/5 p-4",
-        )}
-      >
+      <div className="mb-6 rounded-md border border-primary/30 bg-primary/5 p-4">
         <div className="flex flex-wrap items-center gap-4">
-          {!embedded ? (
-            <div className="flex min-w-[min(100%,24rem)] flex-1 items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
-                <IconCloud className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  {t("sessions.storageSetupTitle")}
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {t("sessions.storageSetupDescription")}
-                </p>
-              </div>
+          <div className="flex min-w-[min(100%,24rem)] flex-1 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
+              <IconCloud className="h-5 w-5" />
             </div>
-          ) : null}
+            <div className="min-w-0">
+              <div className="text-sm font-medium">
+                {t("sessions.storageSetupTitle")}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t("sessions.storageSetupDescription")}
+              </p>
+            </div>
+          </div>
           <div className="flex max-w-full flex-wrap items-center gap-3">
             <BuilderConnectPopover flow={builderConnect}>
               <Button
@@ -739,12 +714,7 @@ export function ReplayStorageHint({
           </div>
         </div>
         <CollapsibleContent>
-          <div
-            className={cn(
-              "mt-4 border-t pt-4",
-              embedded ? "border-border" : "border-primary/20",
-            )}
-          >
+          <div className="mt-4 border-t border-primary/20 pt-4">
             <p className="mb-4 text-xs text-muted-foreground">
               {t("settings.s3OwnBucketDescription")}
             </p>

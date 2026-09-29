@@ -15,11 +15,6 @@ export type RecordingProcessingTransition =
   | "ready"
   | null;
 
-/**
- * Resolve only transitions that belong to the same recording. A client-side
- * navigation establishes a new baseline so work from the previous clip cannot
- * complete or fail a notification for the next clip.
- */
 export function recordingProcessingTransition(
   previous: RecordingProcessingSnapshot | null,
   current: RecordingProcessingSnapshot,

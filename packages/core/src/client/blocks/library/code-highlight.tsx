@@ -27,7 +27,6 @@ type LowlightNode = {
   children?: LowlightNode[];
 };
 
-/** Common extension / shorthand → registered highlight.js language name. */
 const LANGUAGE_ALIASES: Record<string, string> = {
   cjs: "javascript",
   cts: "typescript",
@@ -50,12 +49,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   zsh: "bash",
 };
 
-/**
- * highlight.js token class → Tailwind classes. Colorful palette (keywords rose,
- * numbers/attrs sky, literals/titles violet, strings/tags emerald, types/builtins
- * amber) with `dark:` pairs so it reads in both themes. Kept value-identical to
- * the `code-tabs` block's map.
- */
 const TOKEN_CLASS_NAMES: Record<string, string> = {
   "hljs-addition": "text-emerald-700 dark:text-emerald-300",
   "hljs-attr": "text-sky-700 dark:text-sky-300",
@@ -96,10 +89,6 @@ const TOKEN_CLASS_NAMES: Record<string, string> = {
   language_: "text-amber-700 dark:text-amber-300",
 };
 
-/**
- * Normalize a user-supplied language hint to a registered highlight.js grammar,
- * or `null` when empty / unknown so callers fall back to plain text.
- */
 export function normalizeCodeLanguage(value?: string | null): string | null {
   const raw = value
     ?.trim()
@@ -110,7 +99,6 @@ export function normalizeCodeLanguage(value?: string | null): string | null {
   return lowlight.registered(normalized) ? normalized : null;
 }
 
-/** Best-effort language from a filename / path extension (e.g. `auth.ts` → ts). */
 export function inferLanguageFromFilename(
   filename?: string | null,
 ): string | null {
@@ -155,12 +143,6 @@ function hastToReact(children: LowlightNode[], keyPrefix: string): ReactNode[] {
   });
 }
 
-/**
- * Syntax-highlight `code` for an already-resolved language, returning React
- * token nodes. Pass a single line to highlight per-line (the annotated-code use)
- * or a whole snippet. Falls back to the raw string for empty / plaintext /
- * unknown languages or any grammar error, so it is always safe to render.
- */
 export function highlightCode(
   code: string,
   language?: string | null,

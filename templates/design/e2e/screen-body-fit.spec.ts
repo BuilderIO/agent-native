@@ -7,11 +7,6 @@ import {
   readSeedDesignId,
 } from "./helpers";
 
-/**
- * A screen whose document sets no height ended where its content ended, so its
- * fill and any border stopped short of the frame's edge while the frame kept
- * the board's size.
- */
 const SHORT_CONTENT_HTML = `<!DOCTYPE html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Short</title></head>
@@ -95,8 +90,6 @@ test("a screen's fill stays behind its child layers", async ({
   );
 
   expect(measured, "could not reach the screen iframe").not.toBeNull();
-  // Content here is 120px tall; pre-fix the body box matched the content and
-  // left the rest of the frame unpainted.
   expect(measured!.body).toBeGreaterThanOrEqual(measured!.frame - 1);
   expect(measured!.frameFill).toBe("rgb(255, 255, 255)");
   expect(

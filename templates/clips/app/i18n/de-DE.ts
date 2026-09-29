@@ -1,4 +1,12 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  agentChat: {
+    setup: {
+      checkingProvider: "KI-Verbindung wird geprüft…",
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+    common: { retry: "Erneut versuchen" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Klicken Sie zuerst diesen Abschnitt an und ziehen Sie dann die rote Linie nach rechts.",
@@ -112,6 +120,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Bibliothek",
+    screenshots: "Screenshots",
     sharedWithMe: "Mit mir geteilt",
     spaces: "Bereiche",
     meetings: "Treffen",
@@ -440,6 +449,10 @@ const messages = {
     agentEmptyTitle: "Mach bei der Unterhaltung mit",
     agentEmptyDescription:
       "Erstelle ein kostenloses Clips-Konto, um zu kommentieren, zu reagieren und Fragen zu diesem Clip zu stellen.",
+    commentSignupTitle:
+      "Bildschirmaufnahmen, die dein KI-Agent sehen und hören kann",
+    commentSignupDescription:
+      "Clips ist ein kostenloser Open-Source-Bildschirmrekorder, um Bugs, Feedback und Schritt-für-Schritt-Anleitungen mit KI-Agenten zu teilen.",
     agentEmptySignInPrompt: "Du hast bereits ein Konto?",
     signUp: "Registrieren",
     ownerInsights: "Eigentümer-Einblicke",
@@ -580,6 +593,9 @@ const messages = {
     saveThumbnail: "Thumbnail speichern",
   },
   shareDialog: {
+    redactionsPendingTitle: "Schwärzungen vor dem Teilen abschließen",
+    redactionsPendingBody:
+      "Ausstehende Schwärzungen: {{count}}. Wende sie im Editor an, bevor du teilst; das Video enthält noch den ursprünglichen Inhalt.",
     publicDescription:
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
@@ -635,9 +651,6 @@ const messages = {
     customizeEmbed: "Einbettung anpassen",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
-    redactionsPendingBody:
-      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter. Öffnen Sie den Editor, brennen Sie sie ein, und das Teilen steht wieder zur Verfügung.",
-    redactionsPendingTitle: "Schließen Sie die Schwärzungen zuerst ab",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
@@ -843,6 +856,12 @@ const messages = {
       "Aktiver Arbeitsbereich konnte nicht aktualisiert werden",
     whatsNew: "Neuigkeiten",
     changelogEmpty: "Noch keine Updates.",
+    changelogCommentSignup:
+      "Die leere Kommentar-Seitenleiste erklärt kurz, warum sich Clips lohnt, und bietet einen klaren Weg zur Registrierung.",
+    changelogCommentsEmptyState:
+      "Der leere Kommentarbereich erklärt jetzt, wie Bildschirmaufnahmen KI-Agenten helfen.",
+    changelogShareLink:
+      "Angemeldete Nutzer mit einem nicht verfügbaren, abgelaufenen oder privaten Freigabelink gelangen bei „Zur Startseite“ jetzt zu ihrer Bibliothek statt zur öffentlichen Marketingseite.",
     viewAllUpdates: "Alle Updates anzeigen",
     expand: "Erweitern",
     collapse: "Einklappen",
@@ -956,6 +975,52 @@ const messages = {
       "Clips löscht das gespeicherte Bot-Token für {{team}} und sendet keine abspielbaren Slack-Vorschauen mehr.",
     thisWorkspace: "dieser Arbeitsbereich",
     slackConnected: "Slack verbunden",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "Der Browser hat das Pop-up blockiert. Erlaube Pop-ups für diese Website und versuche es erneut.",
+    recordingsTab: "Aufnahmen",
+    meetingsTab: "Besprechungen",
+    yourDefaults: "Deine Standards",
+    orgDefault: "Standard für {{org}}",
+    playbackSpeed: "Wiedergabegeschwindigkeit",
+    playbackSpeedDescription: "Gilt, wenn du eine Aufnahme öffnest.",
+    visibility: "Sichtbarkeit",
+    visibilityDescription:
+      "Gilt für Aufnahmen, die du erstellst. Du kannst sie bei jeder Aufnahme ändern.",
+    useOrgDefault: "Standard von {{org}} verwenden ({{visibility}})",
+    useDefault: "Standard verwenden ({{visibility}})",
+    transcriptExport: "Transkript-Export",
+    logoDescription:
+      "Wird in Freigabe-E-Mails und auf öffentlichen Clip-Seiten angezeigt.",
+    change: "Ändern",
+    adminsOnly: "Nur Inhaber und Admins können das ändern.",
+    brandColorInvalid: "Gib einen Hex-Farbcode ein.",
+    loadFailed: "Diese Einstellungen konnten nicht geladen werden.",
+    emailGroup: "E-Mail",
+    calendarGroup: "Kalender",
+    googleCalendar: "Google Calendar",
+    connect: "Verbinden",
+    reconnect: "Neu verbinden",
+    connectedAs: "Verbunden als {{account}}",
+    needsReconnect: "{{account}} muss neu verbunden werden.",
+    disconnectFailed: "Der Kalender konnte nicht getrennt werden.",
+    disconnectCalendarDescription:
+      "Clips synchronisiert keine anstehenden Meetings mehr aus {{account}}.",
+    calendarApp: "Google Calendar-App",
+    desktopGroup: "Desktop-App",
+    meetingCapture: "Besprechungsaufzeichnung",
+    meetingCaptureDescription:
+      "Notizen, Autostart und Benachrichtigungen legst du auf jedem Gerät in Clips Desktop fest.",
+    openClipsDesktop: "Clips Desktop öffnen",
+    keySaved: "Gespeichert",
+    keyNotSaved: "Nicht gespeichert",
+    manage: "Verwalten",
+    add: "Hinzufügen",
+    linkPreviews: "Link-Vorschauen",
+    addWorkspace: "Arbeitsbereich hinzufügen",
+    storageAskAdmin:
+      "Bitte einen Inhaber oder Admin, den Speicher einzurichten.",
   },
   insightsHub: {
     title: "Einblicke",
@@ -1452,11 +1517,23 @@ const messages = {
     disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab. Andernfalls erlaube Pop-ups für diese Website und versuche es erneut.",
+    builderConnectError:
+      "Builder.io konnte nicht verbunden werden. Bitte erneut versuchen oder den Support kontaktieren.",
+    checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
       "Nach 5 Minuten kam keine Antwort von Builder. Prüfe das Popup und versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     connectBuilder: "Builder.io nutzen",
+    createBuilderAccount: "Builder.io-Konto erstellen",
+    signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
+    builderConsentPrefix:
+      "Mit der Erstellung eines Builder.io-Kontos stimmst du unseren",
+    builderTerms: "Nutzungsbedingungen",
+    builderConsentAnd: "und",
+    builderPrivacy: "Datenschutzrichtlinien",
     free: "Kostenlos",
     configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",
@@ -1560,7 +1637,7 @@ const messages = {
     deleteKey: "Entf",
     exportUnredactedTitle: "Brennen Sie die Schwärzungen zuerst ein",
     exportUnredactedWarning:
-      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter – und diese Kopie ebenfalls. Brennen Sie sie ein, dann steht dies wieder zur Verfügung.",
+      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber noch nicht eingebrannt. Die Datei zeigt also weiterhin alles darunter – und diese Kopie ebenfalls. Brennen Sie sie ein, dann steht dies wieder zur Verfügung.",
     redact: "Schwärzen",
     redactHint:
       "Etwas im Bild abdecken. Nichts ist verborgen, bis Sie es einbrennen.",
@@ -1621,10 +1698,98 @@ const messages = {
     startWithoutMic: "Ohne Ton aufnehmen",
     unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
+    takeScreenshot: "Screenshot aufnehmen",
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",
     import: "Import (Lokalisiert)",
     recordNew: "Neu aufnehmen",
+  },
+  screenshot: {
+    capturing: "Wird aufgenommen …",
+    saving: "Screenshot wird gespeichert …",
+    saved: "Screenshot gespeichert",
+    failed: "Screenshot fehlgeschlagen",
+    dragToSelect: "Ziehen Sie, um einen Bereich auszuwählen",
+    blur: "Schwärzen",
+    box: "Rahmen",
+    arrow: "Pfeil",
+    text: "Text",
+    edit: "Bearbeiten",
+    deleteMark: "Löschen",
+    textFont: "Schriftart",
+    textSize: "Schriftgröße",
+    textSizeHint: "Schriftgröße in den Pixeln des Screenshots",
+    textSmaller: "Kleinerer Text",
+    textLarger: "Größerer Text",
+    alignLeft: "Linksbündig",
+    alignCenter: "Zentriert",
+    alignRight: "Rechtsbündig",
+    editSave: "Speichern",
+    editSaved: "Screenshot aktualisiert",
+    editConfirm:
+      "Beim Speichern wird das geteilte Bild ersetzt, sodass alle diese Markierungen sehen. Sie können sie später weiterhin verschieben oder entfernen. Speichern?",
+    textPlaceholder: "Hier tippen. Zum Beenden außerhalb klicken",
+    undo: "Rückgängig",
+    redo: "Wiederholen",
+    redactSaving: "Wird gespeichert …",
+    redactFailed: "Der Screenshot konnte nicht gespeichert werden",
+    captureInsecure:
+      "Bildschirmaufnahme erfordert HTTPS oder localhost. Öffne Clips über eine sichere URL und versuche es erneut.",
+    captureUnavailable:
+      "Bildschirmaufnahme ist in diesem Browser nicht verfügbar.",
+    captureUnsupported:
+      "Dein Browser unterstützt keine Bildschirmaufnahme. Versuche eine aktuelle Version von Brave, Chrome, Edge, Safari oder Firefox.",
+    captureNoScreen: "Es wurde kein Bildschirm freigegeben.",
+    captureNoCanvas: "Dieser Browser konnte das Bild nicht vorbereiten.",
+    captureNoPicture:
+      "Der freigegebene Bildschirm hat nie ein Bild gesendet. Versuche es erneut oder gib stattdessen den ganzen Bildschirm frei.",
+    redactLoadFailed:
+      "Der Screenshot konnte nicht zum Bearbeiten geöffnet werden",
+    saveSelection: "Auswahl speichern",
+    saveWholeScreen: "Ganzen Bildschirm speichern",
+    fullscreen: "Vollbild",
+    exitFullscreen: "Vollbild beenden",
+    resizeHandle: "Ziehen, um die Größe zu ändern",
+    textWidthHandle: "Ziehen, um die Breite festzulegen",
+    crop: "Zuschneiden",
+    cropApply: "Zuschnitt anwenden",
+    cropApplyHint:
+      "Nur diesen Teil anzeigen. Der Rest bleibt erhalten, sodass Sie später wieder weiter zuschneiden können",
+    cropReset: "Ganzes Bild anzeigen",
+    kind: {
+      box: "Rahmen",
+      arrow: "Pfeil",
+      text: "Text",
+      redact: "Schwärzung",
+    },
+    markToolbar: "{{kind}} ändern",
+    duplicate: "{{kind}} duplizieren",
+    addText: "Neuen Text hinzufügen",
+    addArrow: "Neuen Pfeil hinzufügen",
+    addBox: "Neuen Rahmen hinzufügen",
+    addRedaction: "Neue Schwärzung hinzufügen",
+    colour: "Farbe",
+    fillBox: "Rahmen füllen",
+    shadow: "Schatten",
+    thickness: "Linienstärke",
+    thin: "Dünn",
+    thick: "Dick",
+    align: "Ausrichtung",
+    redactionStyle: "Schwärzungsstil",
+    background: "Hintergrund",
+    backgroundTitle: "Hintergrund hinzufügen",
+    backgroundNone: "Keiner",
+    notYetBurned:
+      "{{count}} Schwärzung(en) sind platziert, aber nicht eingebrannt. Noch ist nichts verborgen, und niemand sonst kann diesen Screenshot sehen, bis Sie sie einbrennen.",
+    editsUnreadable:
+      "Clips konnte die gespeicherten Screenshot-Bearbeitungen nicht lesen.",
+    burnInHint: "Das Verdeckte endgültig zerstören und das Original löschen",
+    burnInTitle: "{{count}} Schwärzung(en) in diesen Screenshot einbrennen?",
+    burnInWarning:
+      "Die verdeckten Bereiche werden in einer neuen Kopie des Screenshots zerstört, und die Originaldatei wird gelöscht. Dies lässt sich nicht rückgängig machen. Ihre Rahmen, Pfeile und Texte bleiben verschiebbar. Bereits heruntergeladene Kopien behalten ihren Inhalt.",
+    burning: "Wird eingebrannt …",
+    burned: "Schwärzungen eingebrannt",
+    burnFailed: "Die Schwärzungen konnten nicht eingebrannt werden",
   },
   playerSettings: {
     title: "Settings (Lokalisiert)",

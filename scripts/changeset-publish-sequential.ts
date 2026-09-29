@@ -570,10 +570,6 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   );
 }
 
-// Written from `getPublishPackages()`'s already-filtered list (excludes
-// private and non-allowlisted packages), not reconstructed from
-// `packages/*` directory names, so a reader of this output can't be handed a
-// package that was never actually eligible to publish.
 async function writePublishedPackagesOutput(
   packages: PublishPackage[],
 ): Promise<void> {
@@ -628,9 +624,6 @@ async function main() {
     console.log(
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
-    // Don't let one package's failure abort the whole release: keep going so
-    // packages that DID publish still get their git tags, then fail the run
-    // at the end with a summary of what broke.
     try {
       if (await publishPackage(pkg)) {
         packagesNeedingTags.push(pkg);
@@ -656,9 +649,6 @@ async function main() {
     }
   }
 
-  // npm publishes stay serial to avoid overlapping OIDC handshakes. Registry
-  // reads can settle together, so one slow package cannot consume the whole
-  // stable-release coordinator deadline before later packages are published.
   await Promise.all(
     packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
   );

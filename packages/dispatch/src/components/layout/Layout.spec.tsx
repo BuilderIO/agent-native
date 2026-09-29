@@ -9,11 +9,14 @@ import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
+  dispatchNavLinkTarget,
   formatThreadAge,
   isElectronEmbeddedSearch,
+  isSettingsShellPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
+  shouldQueryChatFirstApps,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
@@ -21,8 +24,7 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
-  // Stable identity: WorkspaceAppFrame's embed effect depends on this
-  // function, so a fresh mock per render would re-run the effect forever.
+  basePath: "",
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
@@ -53,8 +55,13 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
-  appBasePath: () => "",
-  appPath: (path: string) => path,
+  appBasePath: () => clientState.basePath,
+  appMountPath: () => "",
+  appMountedPath: (path: string) => path,
+  appPath: (path: string) =>
+    clientState.basePath && path.startsWith("/")
+      ? `${clientState.basePath}${path}`
+      : path,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -127,6 +134,22 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
   return null;
 }
 
+describe("Dispatch navigation paths", () => {
+  afterEach(() => {
+    clientState.basePath = "";
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps router-prefixed paths local and applies the mount prefix otherwise", () => {
+    clientState.basePath = "/dispatch";
+    vi.stubGlobal("window", { location: { pathname: "/dispatch/chat" } });
+    expect(dispatchNavLinkTarget("/apps")).toBe("/apps");
+
+    vi.stubGlobal("window", { location: { pathname: "/chat" } });
+    expect(dispatchNavLinkTarget("/apps")).toBe("/dispatch/apps");
+  });
+});
+
 describe("formatThreadAge", () => {
   const now = 2_000_000_000_000;
 
@@ -165,6 +188,32 @@ describe("Dispatch workspace app sidebar", () => {
     expect(shouldAutoCollapseDispatchSidebar("/apps/mail/settings")).toBe(true);
     expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
     expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
+  });
+
+  it.each([
+    [false, false, false],
+    [false, true, true],
+    [true, false, true],
+  ])(
+    "queries app data for a chat route or visible chat-first rail",
+    (isChatRoute, chatFirstMode, expected) => {
+      expect(shouldQueryChatFirstApps(isChatRoute, chatFirstMode)).toBe(
+        expected,
+      );
+    },
+  );
+});
+
+describe("Dispatch Settings frame", () => {
+  it("drops the Dispatch chrome on Settings", () => {
+    expect(isSettingsShellPath("/settings")).toBe(true);
+    expect(isSettingsShellPath("/settings/members")).toBe(true);
+    expect(isSettingsShellPath("/settings/app")).toBe(true);
+  });
+
+  it("keeps the Dispatch chrome off Settings", () => {
+    expect(isSettingsShellPath("/admin")).toBe(false);
+    expect(isSettingsShellPath("/apps/mail/settings")).toBe(false);
   });
 });
 
@@ -732,9 +781,6 @@ describe("chat-first surface panel toggle stacking", () => {
       container.querySelector("[data-chat-first-surface-toggle]")?.className ??
       "";
 
-    // Below 768px the panel becomes a full-screen absolute overlay at this
-    // z-index (surface-panel.tsx). The toggle is the only control that can
-    // dismiss it, so it must always paint above that overlay.
     const panelMobileZIndex = readMobileZIndexClass(panelClassName);
     const toggleZIndex = readUnprefixedZIndexClass(toggleClassName);
     expect(panelMobileZIndex).not.toBeNull();
@@ -784,9 +830,6 @@ describe("chat-first app surface tab chat rail", () => {
   it("does not mount a second full-screen chat rail while the mobile surface panel already covers the screen", async () => {
     const { container, root } = await renderAppTab(true);
 
-    // ChatFirstSurfacePanel is already a full-screen overlay below 768px
-    // (surface-panel.tsx). A nested AgentSidebar chat rail here would stack a
-    // second full-screen shell on top of it.
     expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
     expect(
       container.querySelector("[data-chat-first-app-pane]"),

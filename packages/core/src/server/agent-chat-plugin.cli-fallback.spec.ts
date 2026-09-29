@@ -81,7 +81,6 @@ describe("agent-chat-plugin CLI fallback action runner safety", () => {
 
     const validRunner = buildFallbackRunner("my-action");
 
-    // Rejects shell operators
     expect(await validRunner({ args: "; rm -rf /" })).toBe(
       "Error: shell operators are not permitted in action arguments",
     );
@@ -92,7 +91,6 @@ describe("agent-chat-plugin CLI fallback action runner safety", () => {
     );
     expect(bashEntry.run).not.toHaveBeenCalled();
 
-    // Properly quotes normal and special string args
     await validRunner({ args: "--message=\"hello world\" --user='alice'" });
     expect(bashEntry.run).toHaveBeenCalledWith({
       command: "pnpm action my-action '--message=hello world' '--user=alice'",

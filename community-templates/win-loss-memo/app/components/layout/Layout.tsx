@@ -4,6 +4,7 @@ import {
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agentkit-chat/rail";
 import { useT } from "@agent-native/core/client/i18n";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell/header-actions";
 import { IconMenu2 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -35,11 +36,6 @@ interface LayoutProps {
 
 const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
 
-/**
- * Routes whose page renders its own toolbar. Layout still wraps these with the
- * left Sidebar and agent surfaces but skips the global Header so they don't
- * double-stack chrome.
- */
 function routeOwnsToolbar(pathname: string): boolean {
   return (
     pathname === "/home" ||
@@ -56,6 +52,9 @@ export function Layout({ children }: LayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isChatRoute =
     location.pathname === "/home" || location.pathname.startsWith("/chat/");
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const settingsOwnsChrome = isSettingsPathname(location.pathname);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "chat",
     activePath: location.pathname,
@@ -130,7 +129,7 @@ export function Layout({ children }: LayoutProps) {
             <IconMenu2 className="h-4 w-4" />
           </button>
         </div>
-      ) : (
+      ) : settingsOwnsChrome ? null : (
         <Suspense fallback={<div className="h-12 shrink-0" />}>
           <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
         </Suspense>
@@ -144,15 +143,17 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="agent-layout-shell chat-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div
-          data-collapsed={sidebarCollapsed ? "true" : "false"}
-          className="agent-layout-left-drawer hidden md:block"
-        >
-          <Sidebar
-            collapsed={sidebarCollapsed}
-            onCollapsedChange={setSidebarCollapsed}
-          />
-        </div>
+        {settingsOwnsChrome ? null : (
+          <div
+            data-collapsed={sidebarCollapsed ? "true" : "false"}
+            className="agent-layout-left-drawer hidden md:block"
+          >
+            <Sidebar
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </div>
+        )}
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent
             side="left"

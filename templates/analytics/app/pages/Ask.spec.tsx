@@ -13,8 +13,17 @@ const clientMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentChatSurface: ({ composerSlot }: { composerSlot?: React.ReactNode }) => (
-    <div data-testid="chat">{composerSlot}</div>
+  AgentChatHome: ({
+    composerSlot,
+    homeIntroSlot,
+  }: {
+    composerSlot?: React.ReactNode;
+    homeIntroSlot?: React.ReactNode;
+  }) => (
+    <div data-testid="chat">
+      {composerSlot}
+      {homeIntroSlot}
+    </div>
   ),
   useAgentChatContext: () => ({
     items: clientMocks.contextItems,
@@ -100,6 +109,16 @@ describe("AskPage", () => {
     });
 
     expect(clientMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("keeps the empty Ask intro to its title", async () => {
+    await act(async () => {
+      root.render(<AskPage />);
+    });
+
+    expect(container.textContent).toContain("common.askIntroTitle");
+    expect(container.textContent).not.toContain("common.askIntroBody");
+    expect(container.querySelector(".analytics-chat-intro p")).toBeNull();
   });
 
   it("hides the Creative Context composer chip until its Lab is enabled", async () => {

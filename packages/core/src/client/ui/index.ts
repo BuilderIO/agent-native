@@ -78,6 +78,7 @@ export {
 export { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
 export {
   AppSidebar,
+  RouterSidebarLink,
   AppSidebarHeader,
   AppSidebarNavItem,
   AppSidebarNavGroup,
@@ -95,3 +96,9 @@ export {
   type AppSidebarItemDefinition,
   type AppSidebarContextValue,
 } from "./AppSidebar.js";
+export {
+  PrimitiveButton,
+  isGhostEmphasis,
+  resolvePrimitiveButtonEmphasis,
+  type PrimitiveButtonProps,
+} from "./PrimitiveButton.js";

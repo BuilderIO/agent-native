@@ -1,10 +1,3 @@
-/**
- * Agent sidebar shell.
- *
- * The layout and its interaction listeners stay eager; the chat panel and
- * realtime voice controller load only when the panel is needed.
- */
-
 import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import React, {
@@ -25,7 +18,6 @@ import {
   normalizeHostedHarnessRuntimes,
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
-import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -48,8 +40,11 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
-import { ScreenRefreshBoundary, URLSync } from "./agent-sidebar-url-sync.js";
-import { agentNativePath } from "./api-path.js";
+import {
+  ScreenRefreshBoundary,
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
 import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
@@ -59,7 +54,7 @@ import {
   usePerAppChatState,
 } from "./app-chat-sidebar.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
+import { writeClientAppState } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
@@ -67,6 +62,8 @@ import {
   getAgentChatViewTransitionStyle,
   startAgentChatViewTransition,
 } from "./chat-view-transition.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
@@ -79,8 +76,6 @@ import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-sta
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { useActionQuery } from "./use-action.js";
 import { cn } from "./utils.js";
-// These modules install window-level bridges used before the panel body is
-// loaded, including chat-running and MCP host message listeners.
 import "./agent-chat.js";
 import "./mcp-app-host.js";
 
@@ -90,7 +85,6 @@ const loadAgentSidebarPanel = () =>
   }));
 const AgentSidebarPanelLazy = lazy(loadAgentSidebarPanel);
 
-/** Start loading the panel body and its voice controller before opening. */
 export function preloadAgentChatSurface(): Promise<void> {
   return loadAgentSidebarPanel().then(() => undefined);
 }
@@ -146,10 +140,8 @@ function ResizeHandle({
   onDragRef.current = onDrag;
   onResizeStartRef.current = onResizeStart;
   onResizeEndRef.current = onResizeEnd;
-  const GRAB_ZONE = 5; // px on each side of the border
+  const GRAB_ZONE = 5;
 
-  // All drag logic runs via document-level listeners so the 1px-wide
-  // element doesn't need to capture pointer events itself.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -174,7 +166,6 @@ function ResizeHandle({
         onDragRef.current(position === "left" ? delta : -delta);
         return;
       }
-      // Hover cursor
       const rect = el!.getBoundingClientRect();
       const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
       const near = dist <= GRAB_ZONE;
@@ -195,13 +186,6 @@ function ResizeHandle({
       onResizeEndRef.current();
     }
 
-    // mouseup covers the normal release-inside-the-page case; window blur
-    // covers releasing the button outside the browser window/iframe (e.g.
-    // dragging the sidebar wide and letting go over the OS chrome), which
-    // never delivers a mouseup to this document. Without both, a drag that
-    // ends abnormally — or this effect re-running/unmounting mid-drag —
-    // could leave `document.body.style.userSelect` stuck at "none",
-    // silently breaking text selection/copy everywhere in the app.
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", endDrag);
@@ -212,10 +196,6 @@ function ResizeHandle({
       document.removeEventListener("mouseup", endDrag);
       window.removeEventListener("blur", endDrag);
       if (cursorActive) document.body.style.cursor = "";
-      // Always clear regardless of `dragging`/`cursorActive` state — this
-      // effect can unmount or re-run (position change, sidebar layout
-      // change) while a drag is in flight, and a stuck "none" here disables
-      // selection app-wide until reload.
       document.body.style.userSelect = "";
       dragging.current = false;
       onResizeEndRef.current();
@@ -269,137 +249,73 @@ function AgentSidebarPanelSkeleton() {
   );
 }
 
-// ─── AgentSidebar — wraps content with a toggleable agent panel ─────────────
-
 export interface AgentSidebarProps {
   children: React.ReactNode;
-  /** Keep the app surface mounted while temporarily disabling the chat panel. */
   enabled?: boolean;
-  /** Placeholder text for the empty chat state */
+  screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
-  /** Static or agent-authored next actions shown at the base of the chat. */
   suggestions?: AssistantChatProps["suggestions"];
-  /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
-  /** Optional controls rendered in the chat composer toolbar. */
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
-  /** Optional contextual content rendered just above the chat composer. */
   composerSlot?: AssistantChatProps["composerSlot"];
-  /** Observe the active chat composer's current plain text. */
   onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
-  /** Optional secondary model menu shown inside the chat composer model picker. */
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
-  /** Local or hosted agent runtimes shown above the model list. */
   availableAgents?: AssistantChatProps["availableAgents"];
-  /** Host-provided model catalog used by native chat surfaces. */
   availableModels?: AssistantChatProps["availableModels"];
-  /** Whether the host-provided model catalog is still loading. */
   modelListLoading?: AssistantChatProps["modelListLoading"];
-  /** Selected agent runtime identifier. */
   selectedAgent?: AssistantChatProps["selectedAgent"];
-  /** Callback when the user picks an agent runtime. */
   onAgentChange?: AssistantChatProps["onAgentChange"];
-  /** Route local runtime setup through the host's native bridge. */
   onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
-  /** Route hosted provider setup through the host's native bridge. */
   onConnectProvider?: AssistantChatProps["onConnectProvider"];
-  /** Bring-your-own runtime used by embedded hosts such as Electron. */
   runtime?: AssistantChatProps["runtime"];
-  /** Explicit key for recreating an injected runtime adapter. */
   adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
-  /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
   onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
-  /** Initial sidebar width in pixels. Mount-only; user resize and a saved
-   *  localStorage value override this. Default: 380 */
   defaultSidebarWidth?: number;
   /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
-  /** Which side the sidebar appears on. Default: "right" */
   position?: "left" | "right";
-  /** Whether the sidebar starts open. Default: false */
   defaultOpen?: boolean;
-  /** Whether to render the panel's header collapse button. Default: true. */
+  disableChatShortcut?: boolean;
   showCollapseButton?: boolean;
-  /** Animate the mobile overlay in a sheet-style slide transition. Default: true */
   animateMobile?: boolean;
-  /** Animate desktop open/close by resizing the sidebar. Default: true */
   animateDesktop?: boolean;
-  /**
-   * Apply the shared chat view-transition marker/name to the sidebar panel so a
-   * page-level AgentChatSurface can morph into it on navigation.
-   */
   chatViewTransition?: boolean;
-  /**
-   * Mark the initial panel mount as the destination of a page-to-sidebar chat
-   * handoff. This suppresses only the drawer's initial entry animation; normal
-   * sidebar open/close transitions remain enabled.
-   */
   chatViewTransitionHandoff?: boolean;
-  /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
-  /** Initial mode for the sidebar. Default: "chat" */
   defaultMode?: "chat" | "cli";
-  /** Restore the previously active chat thread on mount. Default: true. */
   restoreActiveThread?: boolean;
-  /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
   openStorageKey?: string;
-  /** API base URL used by the chat surface. */
   apiUrl?: string;
-  /** Runtime surface identity used for server-side chat capabilities. */
   agentChatSurface?: AgentChatSurfaceKind;
-  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
   desktopIdentityUnauthenticated?: AssistantChatProps["desktopIdentityUnauthenticated"];
-  /** Whether the desktop host has just established its authenticated identity session. */
   desktopIdentityAuthenticated?: AssistantChatProps["desktopIdentityAuthenticated"];
-  /** Show the chat thread tab row. Default: true. */
   showTabBar?: MultiTabAssistantChatProps["showTabBar"];
-  /** Keep inline app-opening results inside the current app chat. */
   suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
-  /** Placeholder shown in the chat composer. */
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
-  /** Open the sidebar when a chat run is active or reconnects. */
+  showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
   openOnChatRunning?: boolean;
-  /** Called when the user selects the full-view action from the chat sidebar. */
   onFullscreenRequest?: () => void;
-  /** Route settings requests to a host-owned settings surface. */
   onOpenSettings?: (section?: string) => void;
-  /** Start a desktop-owned CLI tab from the chat sidebar menu. */
   onNewCliTab?: () => void;
-  /** Return from a desktop-owned CLI tab to a UI chat tab. */
   onNewUiTab?: () => void;
-  /** Render a host-owned CLI tab; the built-in terminal is used when omitted. */
   renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
-  /** Select the mode used by the chat sidebar's new-tab affordances. */
   newTabMode?: "ui" | "cli";
-  /** Host-owned label for the desktop CLI tab action. */
   newCliTabLabel?: string;
-  /** Host-owned label for the desktop UI tab action. */
   newUiTabLabel?: string;
-  /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
-  /** Optional host-owned resource history used for chat-side reverts. */
   chatHistory?: AssistantChatProps["chatHistory"];
-  /** Identity used to route host-scoped sidebar toggle events. */
   toggleScopeId?: string;
-  /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
-  /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
-  /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
-  /** Optional link shown in Resources mode for the full Agent page. */
   agentPageHref?: string;
-  /** Suppress first-run onboarding while a deep-linked resource is open. */
   suppressFirstRunOnboarding?: boolean;
-  /** Pin how much model reasoning the chat shows. Omit to let the reader choose. */
   thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
-  /** Show the composer's model and effort picker. Defaults to true. */
   showModelSelector?: AssistantChatProps["showModelSelector"];
-  /** Keep the sidebar on chat mode. Defaults to true for embedded app sidebars. */
   chatOnly?: boolean;
 }
 
@@ -408,13 +324,10 @@ interface HostedHarnessStatus {
   runtimes: HostedHarnessRuntime[];
 }
 
-/**
- * Wraps app content with a toggleable agent sidebar.
- * Use AgentToggleButton in your header to open/close it.
- */
 export function AgentSidebar({
   children,
   enabled = true,
+  screenRefreshOnlyWhenPanelActive = false,
   emptyStateText = "How can I help you?",
   defaultMode = "chat",
   suggestions,
@@ -435,8 +348,9 @@ export function AgentSidebar({
   threadFooterSlot,
   defaultSidebarWidth,
   sidebarWidth,
-  position = "right",
-  defaultOpen = false,
+  position,
+  defaultOpen,
+  disableChatShortcut = false,
   showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
@@ -452,6 +366,7 @@ export function AgentSidebar({
   showTabBar = true,
   suppressInlineOpenApp,
   composerPlaceholder,
+  showMissingApiKeySetup,
   openOnChatRunning = false,
   onFullscreenRequest,
   onOpenSettings,
@@ -521,8 +436,8 @@ export function AgentSidebar({
         onAgentChange?.(agent);
       }
     : onAgentChange;
-  const effectivePosition = hostedHarnessUi ? "left" : position;
-  const effectiveDefaultOpen = hostedHarnessUi || defaultOpen;
+  const effectivePosition = position ?? "right";
+  const effectiveDefaultOpen = defaultOpen ?? hostedHarnessUi;
   const effectiveShowTabBar = hostedHarnessUi || showTabBar;
   const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
   const sidebarOpenStorageKey = openStorageKey ?? storageKey;
@@ -541,7 +456,9 @@ export function AgentSidebar({
   const [open, setOpen] = useState(
     () =>
       openOnChatRunning ||
-      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey),
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey, {
+        ignoreUrlOverride: !enabled,
+      }),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -568,7 +485,6 @@ export function AgentSidebar({
   const drawerExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isResizing, setIsResizing] = useState(false);
 
-  // Track mobile viewport so we can switch to overlay mode.
   const [isMobile, setIsMobile] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -603,13 +519,14 @@ export function AgentSidebar({
 
   const setOpenPersisted = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
+      if (!enabled) return;
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
         setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
         return value;
       });
     },
-    [sidebarOpenStorageKey],
+    [enabled, sidebarOpenStorageKey],
   );
 
   useEffect(() => {
@@ -644,44 +561,25 @@ export function AgentSidebar({
     hostedHarnessStorageKey,
   ]);
 
-  useEffect(() => {
-    if (hostedHarnessUi) setOpenPersisted(true);
-  }, [hostedHarnessUi, setOpenPersisted]);
-
   const applyUrlOpenOverride = useCallback(() => {
     const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
     if (override !== null) setOpenPersisted(override);
   }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     applyUrlOpenOverride();
     return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
-  }, [applyUrlOpenOverride]);
+  }, [applyUrlOpenOverride, enabled]);
 
   useEffect(() => {
-    if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
-  }, [isPerAppChatHosted, openOnChatRunning]);
+    if (enabled && openOnChatRunning && !isPerAppChatHosted) setOpen(true);
+  }, [enabled, isPerAppChatHosted, openOnChatRunning]);
 
-  // Track whether the frame is controlling the sidebar (code mode = frame active).
-  // Default to true when inside an iframe — assume the frame sidebar is active
-  // until told otherwise. This prevents both sidebars flashing after hot reloads.
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
   );
-  // Frame sidebar visibility: we don't know the frame's open/closed state at
-  // mount, so start at false and wait for the frame to dispatch its real
-  // state via the message handler below. Initializing to
-  // `shouldParentFrameOwnAgentPanel()` here was a category error — that
-  // helper reports ownership (which side renders the sidebar), not whether
-  // the sidebar is currently open. Mixing them up dispatched a stale
-  // "open: true" before the first frame message arrived.
   const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
-  // Has the frame told us its sidebar state yet? In frame-owned mode we
-  // don't know whether the sidebar is open or closed until the parent frame
-  // dispatches `agentNative.sidebarMode`. Emitting a synthetic
-  // `{ open: false }` before that message arrives makes downstream listeners
-  // flip a moment later when the real state lands, which is the same
-  // ownership-vs-open-state confusion the previous fix addressed.
   const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
   const [backgroundPanelActive, setBackgroundPanelActive] = useState(false);
   const [runningTabIds, setRunningTabIds] = useState<Set<string>>(
@@ -701,9 +599,6 @@ export function AgentSidebar({
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
-    // Skip the initial emit in frame-owned mode — wait until the frame has
-    // sent us its real sidebar state. Once we know, this effect re-runs and
-    // dispatches the correct value.
     if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
     dispatchAgentSidebarStateChange({
       open:
@@ -764,6 +659,7 @@ export function AgentSidebar({
   ]);
 
   useEffect(() => {
+    if (!enabled) return;
     const preparePanel = () => setBackgroundPanelActive(true);
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -799,9 +695,10 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, [isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
+  }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const replayAfterMount = (type: string, event: Event) => {
       if (shouldMountPanelRef.current) return;
 
@@ -836,9 +733,10 @@ export function AgentSidebar({
         handleOpenSettings,
       );
     };
-  }, [setOpenPersisted]);
+  }, [enabled, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
       const focusOnOpen =
@@ -857,7 +755,6 @@ export function AgentSidebar({
         return;
       }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
-        // Forward toggle to frame parent — the frame sidebar handles it
         window.parent.postMessage(
           { type: "agentNative.toggleSidebar" },
           parentFrameTargetOrigin(),
@@ -914,6 +811,7 @@ export function AgentSidebar({
   }, [
     frameCodeMode,
     frameSidebarOpen,
+    enabled,
     isPerAppChatHosted,
     open,
     perAppChatState.open,
@@ -921,11 +819,8 @@ export function AgentSidebar({
     toggleScopeId,
   ]);
 
-  // Listen for sidebar mode commands from the frame parent.
-  // When frame is in "code" mode, hide the app sidebar.
-  // When frame is in "app" mode, show the app sidebar, sync width and panel mode.
   useEffect(() => {
-    if (window.parent === window) return; // Not in an iframe
+    if (!enabled || window.parent === window) return;
 
     function handleMessage(event: MessageEvent) {
       if (event.data?.type !== "agentNative.sidebarMode") return;
@@ -940,13 +835,11 @@ export function AgentSidebar({
         placeholderWidth: framePlaceholderWidth,
       } = event.data.data || {};
       if (mode === "code") {
-        // Frame is showing its own sidebar — hide the app's
         setFrameCodeMode(true);
         setFrameSidebarOpen(frameOpen !== false);
         setHasFrameSidebarState(true);
         setOpenPersisted(false);
       } else if (mode === "app") {
-        // Frame deferred to the app — show and sync width + mode
         setFrameCodeMode(false);
         setFrameSidebarOpen(false);
         setHasFrameSidebarState(true);
@@ -970,7 +863,6 @@ export function AgentSidebar({
             setDrawerPlaceholderWidth(framePlaceholderWidth);
           }
         }
-        // Sync the panel mode from frame tab selection
         if (
           appMode === "cli" ||
           appMode === "resources" ||
@@ -986,11 +878,10 @@ export function AgentSidebar({
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [setOpenPersisted]);
+  }, [enabled, setOpenPersisted]);
 
-  // Cmd+\ / Ctrl+\ toggles the agent sidebar globally. Cmd+I / Ctrl+I focuses
-  // chat and attaches selected page text as one-shot context for the next turn.
   useEffect(() => {
+    if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -1004,7 +895,7 @@ export function AgentSidebar({
         );
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+      if (!disableChatShortcut && (e.metaKey || e.ctrlKey) && e.key === "i") {
         if (!shouldHandleAgentPanelChatShortcut(e.target)) return;
         e.preventDefault();
         let selectionText = "";
@@ -1014,19 +905,10 @@ export function AgentSidebar({
           // coercion-ok: selection capture is optional; the shortcut still opens chat.
         }
         if (selectionText) {
-          fetch(
-            agentNativePath(
-              "/_agent-native/application-state/pending-selection-context",
-            ),
-            {
-              method: "PUT",
-              keepalive: true,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: selectionText,
-                capturedAt: Date.now(),
-              }),
-            },
+          void writeClientAppState(
+            "pending-selection-context",
+            { text: selectionText, capturedAt: Date.now() },
+            { keepalive: true },
           ).catch(() => {});
           window.dispatchEvent(
             new CustomEvent("agent-panel:selection-attached", {
@@ -1039,9 +921,8 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [disableChatShortcut, enabled]);
 
-  // Hide sidebar during presentation mode
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== "agentNative.presentationMode") return;
@@ -1064,15 +945,6 @@ export function AgentSidebar({
       return next;
     });
   }, []);
-  // `view-transition-name` is only legal to carry while a transition is
-  // actually capturing. Left on permanently it makes the panel its own
-  // stacking context and the containing block for every fixed/absolute
-  // descendant, and enlists it as a captured group in unrelated transitions
-  // (any React Router `viewTransition` navigation), which is how overlays end
-  // up painted at stale offsets. Apply it only around the drawer morph, and
-  // flush it into the DOM first: `startViewTransition` captures the old state
-  // before it invokes the callback, so a name applied in a normal React commit
-  // would land too late to be captured.
   const [drawerMorphing, setDrawerMorphing] = useState(false);
   const runDrawerMorph = useCallback((apply: () => void) => {
     flushSync(() => setDrawerMorphing(true));
@@ -1169,13 +1041,8 @@ export function AgentSidebar({
     : wideDrawerEnabled
       ? "drawer"
       : "desktop";
-  // On desktop the resize handle is also the visual divider. Avoid painting a
-  // second panel border next to it.
   const showResizeHandle = !isMobile && !wideDrawerEnabled && panelOpen;
 
-  // On mobile the sidebar floats as a fixed overlay so the content below isn't
-  // squashed. On desktop it participates in the flex layout or becomes a
-  // fixed-width drawer when the user asks for more room.
   let panelStyle: AgentPanelStyle;
   if (isMobile) {
     panelStyle = {
@@ -1188,8 +1055,7 @@ export function AgentSidebar({
       maxWidth: "85vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_OVERLAY_Z_INDEX,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1208,8 +1074,7 @@ export function AgentSidebar({
       maxWidth: "100vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_DRAWER_Z_INDEX,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1223,8 +1088,7 @@ export function AgentSidebar({
       ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
       "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
@@ -1246,8 +1110,6 @@ export function AgentSidebar({
     };
   }
 
-  // Mount the live chat surface only while visible or actively needed. Keeping
-  // it mounted while closed starts app-state polling on every public page view.
   const sidebar = shouldRenderPanel ? (
     <>
       {showResizeHandle && !isLeft && (
@@ -1323,6 +1185,7 @@ export function AgentSidebar({
                 showTabBar={effectiveShowTabBar}
                 suppressInlineOpenApp={suppressInlineOpenApp}
                 composerPlaceholder={composerPlaceholder}
+                showMissingApiKeySetup={showMissingApiKeySetup}
                 missingApiKeySetupLayout="sidebar"
                 defaultMode={defaultMode}
                 onCollapse={() => setOpenPersisted(false)}
@@ -1414,6 +1277,7 @@ export function AgentSidebar({
         {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
+        <SettingsReturnPathRecorder />
         {shouldMountPanel ? (
           <URLSync browserTabId={resolvedBrowserTabId} />
         ) : null}
@@ -1424,7 +1288,7 @@ export function AgentSidebar({
         {isLeft && !presentationMode ? drawerPlaceholder : null}
         <div
           className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
-          data-agent-sidebar-main-position={position}
+          data-agent-sidebar-main-position={effectivePosition}
           data-agent-sidebar-main-state={
             !isMobile && !presentationMode && panelOpen ? "open" : "closed"
           }
@@ -1433,7 +1297,11 @@ export function AgentSidebar({
           {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          <ScreenRefreshBoundary
+            active={!screenRefreshOnlyWhenPanelActive || shouldMountPanel}
+          >
+            {children}
+          </ScreenRefreshBoundary>
         </div>
         {!isLeft && !presentationMode ? drawerPlaceholder : null}
         {!isLeft && !presentationMode ? sidebar : null}
@@ -1442,10 +1310,6 @@ export function AgentSidebar({
   );
 }
 
-/**
- * Focus the agent chat composer input.
- * Opens the sidebar if closed, then focuses the text input.
- */
 export function focusAgentChat() {
   void preloadAgentChatSurface();
   window.dispatchEvent(
@@ -1484,19 +1348,13 @@ function focusAgentChatComposer() {
   requestAnimationFrame(() => focusComposer());
 }
 
-/**
- * Button to toggle the agent sidebar. Place this in your app's header/toolbar.
- * Dispatches a custom event that AgentSidebar listens for.
- */
 export function AgentToggleButton({
   className,
   icon,
   showWhenOpen = false,
 }: {
   className?: string;
-  /** Icon rendered inside the toggle. */
   icon?: React.ReactNode;
-  /** Keep the toggle visible while the sidebar is open. */
   showWhenOpen?: boolean;
 }) {
   const t = useT();

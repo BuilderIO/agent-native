@@ -37,10 +37,6 @@ import type {
   DesignStateKind,
 } from "../../../shared/design-state.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 interface DesignStateRow {
   id: string;
   designId: string;
@@ -58,26 +54,15 @@ interface DesignStateRow {
 
 export interface StatesPanelProps {
   designId: string;
-  /** Currently active state id. `null` means the Default (live) state. */
   activeStateId: string | null;
-  /** Currently active breakpoint id, or `"auto"` for single-frame view. */
   activeBreakpointId: string;
-  /**
-   * Ordered list of breakpoint frames the canvas is currently showing.
-   * Each entry must have at least an id, label, and widthPx.
-   */
   breakpoints: Array<{ id: string; label: string; widthPx: number }>;
-  /** Whether the design's source supports live captures. */
   canCapture?: boolean;
   onStateSelect: (stateId: string | null, row?: DesignStateRow) => void;
   onBreakpointSelect: (breakpointId: string) => void;
   onAddBreakpoint?: () => void;
   onCapture?: () => void;
 }
-
-// ---------------------------------------------------------------------------
-// Breakpoint icon map
-// ---------------------------------------------------------------------------
 
 function BreakpointIcon({
   widthPx,
@@ -94,10 +79,6 @@ function BreakpointIcon({
   }
   return <IconDeviceMobile className={cn("size-3.5", className)} />;
 }
-
-// ---------------------------------------------------------------------------
-// State kind badge
-// ---------------------------------------------------------------------------
 
 const KIND_LABELS: Record<DesignStateKind, string> = {
   state: "State",
@@ -123,10 +104,6 @@ function KindBadge({ kind }: { kind: DesignStateKind }) {
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Single state row
-// ---------------------------------------------------------------------------
 
 function StateRow({
   row,
@@ -206,10 +183,6 @@ function StateRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main panel
-// ---------------------------------------------------------------------------
-
 export function StatesPanel({
   designId,
   activeStateId,
@@ -224,7 +197,6 @@ export function StatesPanel({
   const [isAdding, setIsAdding] = useState(false);
   const [newStateName, setNewStateName] = useState("");
 
-  // --- Data ---
   const { data, isLoading, refetch } = useActionQuery<{
     count: number;
     states: DesignStateRow[];
@@ -235,22 +207,18 @@ export function StatesPanel({
 
   const states = data?.states ?? [];
 
-  // --- Breakpoint control ---
   const handleBreakpointClick = (id: string) => {
     onBreakpointSelect(id);
   };
 
-  // --- Create state ---
   const handleCreateState = async () => {
     const name = newStateName.trim();
     if (!name) return;
-    // Optimistically close the form; restored below if the create fails.
     setIsAdding(false);
     setNewStateName("");
     try {
       await createState.mutateAsync({ designId, name, kind: "state" });
     } catch (error) {
-      // Reopen the form with the typed name so the user's input isn't lost.
       setIsAdding(true);
       setNewStateName(name);
       toast.error(
@@ -263,7 +231,6 @@ export function StatesPanel({
     await refetch();
   };
 
-  // --- Delete state ---
   const handleDeleteState = async (id: string) => {
     try {
       await deleteState.mutateAsync({ id, designId });
@@ -527,10 +494,6 @@ export function StatesPanel({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Breakpoint button helper
-// ---------------------------------------------------------------------------
 
 function BreakpointButton({
   id,

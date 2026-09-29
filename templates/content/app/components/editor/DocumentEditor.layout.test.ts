@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { mergeDocumentBodyIntents } from "@shared/document-intent-merge";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,13 +23,18 @@ import {
   isSuggestionConflictActionError,
   lifecycleKeepaliveDisposition,
   metadataUpdatesWithPendingTitle,
+  type OwnContentSaveLineage,
+  ownConfirmedContentBase,
   pendingCommentTargetMatches,
   pageEditorSessionKey,
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
+  recordOwnContentSave,
   refreshUnchangedContentSaveWatermark,
   sameAnchoredCommentPosition,
   suggestionPresentation,
+  titleRenamedByAnotherWriter,
+  suggestionPresentations,
   suggestionDecisionPreviewContent,
   sameSuggestionAnchorIds,
   suggestionAmendmentTargetIsResolved,
@@ -48,9 +54,23 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
-import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
+import {
+  markdownSuggestionOperation,
+  markdownSuggestionOperations,
+} from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("keeps an open comment when its portalled menus are clicked", () => {
+    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
+      encoding: "utf8",
+    });
+    // The @ menu, emoji picker, and model menu render in portals; React still
+    // bubbles their clicks through the page's dismissal handler.
+    expect(source).toContain(
+      "if (target && !event.currentTarget.contains(target)) return;",
+    );
+  });
+
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
       hasUpdates: false,
@@ -329,9 +349,6 @@ describe("document editor layout", () => {
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    // One effect, keyed on the selection. Keying it on the whole pending
-    // comment resets the target to invalid for a frame on every keystroke,
-    // which flashes the "select text" alert inside the open composer.
     expect(
       source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
     ).toHaveLength(1);
@@ -447,7 +464,7 @@ describe("document editor layout", () => {
       flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
     );
     expect(source).toContain(
-      "isSuggesting &&\n          amendmentDraftIsDirty &&\n          suggestionAmendmentConflict",
+      "amendmentDraftIsDirty && suggestionAmendmentConflict",
     );
   });
 
@@ -477,6 +494,20 @@ describe("document editor layout", () => {
       from: insertion.anchor.from,
       to: insertion.anchor.from + insertion.after.changedText.length,
     });
+  });
+  it("shows precise regions for an existing broad suggestion without splitting its decision", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const saved = markdownSuggestionOperation(before, after)!;
+    const precise = suggestionPresentations(
+      { id: "existing", status: "pending", operations: [saved] },
+      before,
+    );
+
+    expect(precise).toHaveLength(2);
+    expect(precise.map((part) => part.id)).toEqual(["existing", "existing"]);
+    expect(precise.map((part) => part.beforeText)).toEqual([",", "good"]);
+    expect(precise.map((part) => part.afterText)).toEqual(["", "excellent"]);
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
@@ -769,8 +800,8 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
-    expect(source).toContain("contentBase: reconcileBase");
-    expect(source).toContain("if (!result.contentPersisted)");
+    expect(source).toContain("const contentBase = reconcileBase");
+    expect(source).toContain("return result.contentPersisted;");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
@@ -1334,6 +1365,137 @@ describe("document editor layout", () => {
     ).toBe(lastSaved);
   });
 
+  it("rebases an edit made during this editor's in-flight save onto that save", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:31:b", {
+      baseRevision: "body:30:a",
+      editGeneration: 2,
+    });
+    const latest = {
+      content: "Intro\n<empty-block/>",
+      updatedAt: "2026-09-28T15:35:54.963Z",
+      revision: "body:31:b",
+    };
+    const captured = {
+      content: "Intro",
+      updatedAt: "2026-09-28T15:35:32.985Z",
+      revision: "body:30:a",
+    };
+
+    const rebased = ownConfirmedContentBase({
+      captured,
+      latest,
+      lineage,
+      editGeneration: 3,
+    });
+    expect(rebased).toBe(latest);
+
+    const incoming = {
+      writerId: "browser:alice:session",
+      operationId: "session:3",
+      generation: 3,
+    };
+    const ownSave = {
+      writerId: "browser:alice:session",
+      operationId: "session:2",
+      generation: 2,
+      authoredBaseRevision: 30,
+      committedRevision: 31,
+      affectedBlockIndexes: [],
+      canonicalChanged: true,
+    };
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: captured.content,
+        authoredCandidateContent: "Intro\ntmp2",
+        currentContent: latest.content,
+        currentRevision: 31,
+        incoming: { ...incoming, authoredBaseRevision: 30 },
+        priorIntents: [ownSave],
+      }),
+    ).toEqual({ status: "preservation-required", reason: "structure" });
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: rebased!.content,
+        authoredCandidateContent: "Intro\ntmp2",
+        currentContent: latest.content,
+        currentRevision: 31,
+        incoming: { ...incoming, authoredBaseRevision: 31 },
+        priorIntents: [ownSave],
+      }),
+    ).toMatchObject({ status: "resolved", content: "Intro\ntmp2" });
+  });
+
+  it("rebases across a chain of this editor's earlier saves", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:31", {
+      baseRevision: "body:30",
+      editGeneration: 2,
+    });
+    recordOwnContentSave(lineage, "body:32", {
+      baseRevision: "body:31",
+      editGeneration: 3,
+    });
+    const latest = { content: "c", updatedAt: null, revision: "body:32" };
+
+    expect(
+      ownConfirmedContentBase({
+        captured: { content: "a", updatedAt: null, revision: "body:30" },
+        latest,
+        lineage,
+        editGeneration: 4,
+      }),
+    ).toBe(latest);
+  });
+
+  it("keeps the captured base across revisions this editor did not author first", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:31", {
+      baseRevision: "body:30",
+      editGeneration: 5,
+    });
+    const captured = { content: "a", updatedAt: null, revision: "body:30" };
+
+    expect(
+      ownConfirmedContentBase({
+        captured,
+        latest: { content: "agent", updatedAt: null, revision: "body:32" },
+        lineage,
+        editGeneration: 6,
+      }),
+    ).toBeNull();
+    expect(
+      ownConfirmedContentBase({
+        captured,
+        latest: { content: "later", updatedAt: null, revision: "body:31" },
+        lineage,
+        editGeneration: 5,
+      }),
+    ).toBeNull();
+    expect(
+      ownConfirmedContentBase({
+        captured: { content: "b", updatedAt: null, revision: "body:29" },
+        latest: { content: "later", updatedAt: null, revision: "body:31" },
+        lineage,
+        editGeneration: 6,
+      }),
+    ).toBeNull();
+  });
+
+  it("bounds this editor's save lineage", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    for (let revision = 1; revision <= 40; revision++) {
+      recordOwnContentSave(lineage, `body:${revision}`, {
+        baseRevision: `body:${revision - 1}`,
+        editGeneration: revision,
+      });
+    }
+
+    expect(lineage.size).toBe(32);
+    expect(lineage.has("body:8")).toBe(false);
+    expect(lineage.has("body:40")).toBe(true);
+  });
+
   it("flushes a pending title with an icon update", () => {
     expect(
       metadataUpdatesWithPendingTitle(
@@ -1593,14 +1755,18 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("editor.toolbar.createShareableCopy");
+    expect(source).toContain("editor.toolbar.sharePeople");
+    expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
     expect(source).toContain("showCommentsControl ?");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
-    expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
+    expect(source).toContain("quickCopy={{");
+    expect(source).toContain("agentTabContent={");
+    expect(source).not.toContain("shareLinkContent=");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
     expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
@@ -1705,8 +1871,6 @@ describe("document editor layout", () => {
       },
     ).replace(/\r\n/g, "\n");
 
-    // Every SQL-backed reader keeps the scoped collaboration subscription for
-    // presence, but only editors bind the rendered body to Yjs.
     expect(documentEditorSource).toContain(
       "const collabEnabled = !isLocalFileDocument;",
     );
@@ -1740,8 +1904,6 @@ describe("document editor layout", () => {
       'awareness.setLocalStateField("canFlushDocument", false)',
     );
 
-    // Viewers can read comments; only comment-capable roles get composer
-    // affordances inside the shared sidebar.
     expect(documentEditorSource).toContain(
       "!isLocalFileDocument ? documentId : null",
     );
@@ -1923,9 +2085,8 @@ describe("document editor layout", () => {
     expect(teardown).toContain("const baseUpdatedAt");
     expect(teardown).toContain("const loadedContentWasEmpty");
     expect(teardown).toContain("const loadedUpdatedAt");
-    expect(teardown).toContain("lastSavedContentRef.current.content");
-    expect(teardown).toContain("documentRevisionRef.current !==");
-    expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("pending.contentBase.content");
+    expect(teardown).toContain("pending.contentBase.revision");
     expect(teardown).not.toContain("const optimisticAt");
     expect(teardown).not.toContain("lastSavedContentRef.current =");
     expect(teardown).not.toContain(
@@ -2015,7 +2176,8 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "suggestionDraftOperations(base, suggestionDraft)",
     );
-    expect(source).toContain("persistSuggestionDraftOperations(");
+    expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
+    expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
     expect(source).toContain("baseRevision: base.baseRevision");
   });
@@ -2099,7 +2261,7 @@ describe("document editor layout", () => {
     expect(source).toContain("decisionRefreshInFlightRef.current = true");
     expect(source).toContain("decisionRefreshInFlightRef.current = false");
     expect(source).toMatch(
-      /decisionRefreshFailed &&\s+pendingSuggestionDecision/,
+      /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
     expect(source).toContain(
       "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",
@@ -2565,6 +2727,87 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("builds breadcrumbs from the navigation path without a document list", () => {
+    const path = Array.from({ length: 7 }, (_, index) => ({
+      id: `level-${index + 1}`,
+      parentId: index === 0 ? null : `level-${index}`,
+      title: `Level ${index + 1}`,
+      icon: null,
+      databaseId: "personal",
+    }));
+    const deepest = path[6]!;
+    const items = documentEditorBreadcrumbItems(
+      {
+        ...deepest,
+        databaseMembership: {
+          databaseId: "personal",
+          databaseDocumentId: "personal-files",
+          databaseTitle: "Personal",
+          position: 0,
+        },
+      },
+      path,
+    );
+
+    expect(items.map((item) => item.title)).toEqual([
+      "Personal",
+      ...path.map((entry) => entry.title),
+    ]);
+    const navigation = documentEditorBreadcrumbNavigationItems(
+      items,
+      [],
+      [{ filesDocumentId: "personal-files", name: "Personal" }],
+      undefined,
+      path,
+    );
+    expect(navigation[0]?.siblings).toBeUndefined();
+    expect(navigation[0]?.menuItems?.map((item) => item.title)).toEqual([
+      "Personal",
+    ]);
+    expect(navigation[1]).toMatchObject({
+      filesDatabaseId: "personal",
+      siblings: { filesDatabaseId: "personal", parentId: null },
+    });
+    expect(navigation[7]?.siblings).toEqual({
+      filesDatabaseId: "personal",
+      parentId: "level-6",
+    });
+  });
+
+  it("stops breadcrumbs and peer menus at an unreadable ancestor", () => {
+    const path = [
+      {
+        id: "shared-child",
+        parentId: "private-parent",
+        title: "Shared child",
+        icon: null,
+        databaseId: "team",
+      },
+      {
+        id: "draft",
+        parentId: "shared-child",
+        title: "Draft",
+        icon: null,
+        databaseId: "team",
+      },
+    ];
+    const items = documentEditorBreadcrumbItems(path[1]!, path);
+    expect(items.map((item) => item.title)).toEqual(["Shared child", "Draft"]);
+
+    const navigation = documentEditorBreadcrumbNavigationItems(
+      items,
+      [],
+      [],
+      undefined,
+      path,
+    );
+    expect(navigation[0]?.siblings).toBeUndefined();
+    expect(navigation[1]?.siblings).toEqual({
+      filesDatabaseId: "team",
+      parentId: "shared-child",
+    });
+  });
+
   it("links a top-level Files database back to Workspaces", () => {
     const items = documentEditorBreadcrumbNavigationItems(
       [{ id: "personal-files", title: "Personal" }],
@@ -2611,5 +2854,30 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("updatedAt: sqlUpdatedAt ?? persisted.updatedAt");
     expect(source).toContain("updatedAt: document.updatedAt");
+  });
+
+  it("saves a new page after its own title edit instead of parking it in a draft", () => {
+    // A new page: the query already holds the typed title, the save base is "".
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Fourth",
+        titleBase: "",
+        title: "Fourth",
+      }),
+    ).toBe(false);
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Renamed elsewhere",
+        titleBase: "",
+        title: "Fourth",
+      }),
+    ).toBe(true);
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Anything",
+        titleBase: undefined,
+        title: "Fourth",
+      }),
+    ).toBe(false);
   });
 });

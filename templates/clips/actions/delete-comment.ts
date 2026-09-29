@@ -1,10 +1,3 @@
-/**
- * Delete a comment (and its replies).
- *
- * Usage:
- *   pnpm action delete-comment --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -33,9 +26,6 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = !!userEmail && existing.authorEmail === userEmail;
 
-    // Any signed-in viewer with access to the recording may delete their own
-    // comment, matching add-comment's top-level comment gate; a non-author
-    // still needs editor+ (checked below).
     const access = await assertAccess(
       "recording",
       existing.recordingId,
@@ -63,8 +53,6 @@ export default defineAction({
       }
     }
 
-    // Gather the complete descendant tree before deleting so nested replies
-    // cannot survive with a missing parent after the root is removed.
     const deletedIds = new Set([existing.id]);
     let frontier = [existing.id];
     while (frontier.length > 0) {

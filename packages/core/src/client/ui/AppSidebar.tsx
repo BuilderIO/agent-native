@@ -10,19 +10,35 @@ import {
   type AppSidebarFooterProps as ToolkitAppSidebarFooterProps,
 } from "@agent-native/toolkit/app-shell";
 import { forwardRef } from "react";
-import { Link } from "react-router";
+import { useHref, useLinkClickHandler } from "react-router";
 
 import { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
 import { EnvironmentBadge } from "../EnvironmentBadge.js";
 import { FeedbackButton } from "../FeedbackButton.js";
 
-const RouterSidebarLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
-  ({ to, href, children, ...props }, ref) => (
-    <Link ref={ref} to={to ?? href ?? "/"} {...props}>
+export const RouterSidebarLink = forwardRef<
+  HTMLAnchorElement,
+  AppSidebarLinkProps
+>(({ to, href, children, onClick, target, ...props }, ref) => {
+  const destination = to ?? href ?? "/";
+  const resolvedHref = useHref(destination);
+  const handleRouterClick = useLinkClickHandler(destination, { target });
+
+  return (
+    <a
+      ref={ref}
+      href={resolvedHref}
+      target={target}
+      {...props}
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) handleRouterClick(event);
+      }}
+    >
       {children}
-    </Link>
-  ),
-);
+    </a>
+  );
+});
 RouterSidebarLink.displayName = "RouterSidebarLink";
 
 export interface AppSidebarHeaderProps extends ToolkitAppSidebarHeaderProps {

@@ -1,3 +1,4 @@
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentNativePath } from "../api-path.js";
 
@@ -7,6 +8,25 @@ export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
 const FIRST_RUN_STATUS_TIMEOUT_MS = 10_000;
 
 let firstRunStatusRequest: Promise<boolean> | null = null;
+
+export type FirstRunCookieState = "present" | "absent" | "unreadable";
+
+export function readFirstRunOnboardingCookieState(): FirstRunCookieState {
+  if (typeof document === "undefined") return "present";
+  const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
+  try {
+    const present = document.cookie.split(";").some((cookie) => {
+      const entry = cookie.trim();
+      return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
+    });
+    return present ? "present" : "absent";
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "SecurityError") {
+      return "unreadable";
+    }
+    throw error;
+  }
+}
 
 export interface FirstRunOnboardingStatusDetail {
   firstRun: boolean;
@@ -54,8 +74,6 @@ async function requestFirstRunOnboardingStatus(): Promise<boolean> {
     dispatchFirstRunOnboardingStatus(firstRun);
     return firstRun;
   } catch (error) {
-    // The safe UI behavior for an unavailable eligibility check is to show no
-    // onboarding. Callers can still surface the error through their own path.
     dispatchFirstRunOnboardingStatus(false);
     throw error;
   } finally {
@@ -63,7 +81,6 @@ async function requestFirstRunOnboardingStatus(): Promise<boolean> {
   }
 }
 
-/** Save the optional role selected during the shared first-run flow. */
 export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
   const browserSessionId = getOrCreateAnalyticsSessionId();
   const response = await fetch(
@@ -85,7 +102,6 @@ export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
   }
 }
 
-/** Fetch the server-owned first-run decision and notify other initial flows. */
 export function fetchFirstRunOnboardingStatus(): Promise<boolean> {
   if (firstRunStatusRequest) return firstRunStatusRequest;
   firstRunStatusRequest = requestFirstRunOnboardingStatus().finally(() => {

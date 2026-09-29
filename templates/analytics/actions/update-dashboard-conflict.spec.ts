@@ -1,15 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Reproduces the 2026-09-24 data-loss bug: a panel delete and a panel edit
- * from a stale (pre-delete) client snapshot land as two full-`config`
- * `update-dashboard` calls. Without a concurrency fence, the second
- * (stale) full-config write silently overwrites the first, resurrecting the
- * deleted panel. This models `upsertDashboard`'s real `expectedUpdatedAt`
- * fencing (see `server/lib/dashboards-store.ts`) with an in-memory "row" so
- * the test exercises the same compare-and-swap contract the real store
- * enforces, without touching Postgres.
- */
 const mocks = vi.hoisted(() => {
   class DashboardConflictError extends Error {
     constructor(id: string) {
@@ -50,10 +40,6 @@ vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: mocks.dryRunQuery,
 }));
 
-// In-memory stand-in for the `dashboards` row this action reads/writes,
-// fencing writes exactly like the real `upsertDashboard(..., expectedUpdatedAt)`:
-// a write whose `expectedUpdatedAt` doesn't match the row's current
-// `updatedAt` is rejected with `DashboardConflictError` instead of applying.
 let row: { config: Record<string, unknown>; updatedAt: string } | null = null;
 let nextUpdatedAt = 0;
 
@@ -84,8 +70,6 @@ vi.mock("../server/lib/dashboards-store", () => ({
 
 const { default: updateDashboard } = await import("./update-dashboard");
 
-// `source: "demo"` needs no real database/schema probe (unlike "first-party"
-// or "bigquery"), keeping this concurrency test isolated and fast.
 function panel(id: string) {
   return {
     id,
@@ -104,7 +88,6 @@ describe("update-dashboard config-replace concurrency fence", () => {
   });
 
   it("rejects a stale full-config save instead of resurrecting a panel a concurrent delete removed", async () => {
-    // Initial load: dashboard has panel A (TMP event inventory) and panel B.
     const initial = { name: "Growth health", panels: [panel("a"), panel("b")] };
     const created: any = await updateDashboard.run({
       dashboardId: "growth-health",
@@ -113,7 +96,6 @@ describe("update-dashboard config-replace concurrency fence", () => {
     const loadedUpdatedAt = created.updatedAt;
     expect(loadedUpdatedAt).toBeDefined();
 
-    // Tab deletes panel A, saving the config it observed after loading.
     const afterDelete: any = await updateDashboard.run({
       dashboardId: "growth-health",
       config: { name: "Growth health", panels: [panel("b")] },
@@ -121,9 +103,6 @@ describe("update-dashboard config-replace concurrency fence", () => {
     });
     expect(afterDelete.panelOrder).toEqual(["b"]);
 
-    // Without reloading, the same tab edits panel B — but the payload is
-    // built from the PRE-delete snapshot (still fenced by `loadedUpdatedAt`),
-    // exactly like a stale client cache or a second tab would send.
     const staleEditWithA = {
       name: "Growth health",
       panels: [panel("a"), { ...panel("b"), title: "Weekly active users v2" }],
@@ -137,8 +116,6 @@ describe("update-dashboard config-replace concurrency fence", () => {
       }),
     ).rejects.toThrow(/changed .* since you loaded it/i);
 
-    // The rejected write must not have applied: panel A stays deleted and
-    // panel B keeps the value the delete's own save persisted.
     expect(row?.config).toEqual({
       name: "Growth health",
       panels: [panel("b")],
@@ -159,9 +136,6 @@ describe("update-dashboard config-replace concurrency fence", () => {
       expectedUpdatedAt: created.updatedAt,
     });
 
-    // A follow-up edit fenced against the DELETE's own returned `updatedAt`
-    // (what the fixed client now tracks) must succeed — the fence only
-    // rejects writes based on stale reads, not legitimate same-tab chains.
     const editedB = {
       name: "Growth health",
       panels: [{ ...panel("b"), title: "Weekly active users v2" }],

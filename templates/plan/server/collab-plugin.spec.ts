@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { resolvePlanIdFromCollabDocId } from "./plugins/collab.js";
 
-/**
- * Plan collab docs are keyed `plan:${planId}:${blockId}`. The collab plugin
- * enforces access at the parent plan level, so the resolver must recover the
- * planId from the docId and reject anything that isn't a plan collab doc — a
- * bad id resolves to null → 404, never leaking across plans.
- */
 describe("resolvePlanIdFromCollabDocId", () => {
   it("extracts the plan id from a per-block collab doc id", () => {
     expect(resolvePlanIdFromCollabDocId("plan:plan-abc:block-123")).toBe(

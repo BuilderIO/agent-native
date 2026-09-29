@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. Cloudflare Pages routes through a generated **dispatcher worker**, a small script at `dist/_worker.js` that reads the incoming path and forwards the request to the matching app. Netlify uses one function per app plus generated redirects. Vercel writes a workspace-level `.vercel/output` using the Build Output API.
+Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. **Netlify** is the default: one function per app plus generated redirects. **Vercel** writes a workspace-level `.vercel/output` using the Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ Publish the build for your platform:
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (default)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (default)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ Publish the build for your platform:
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },

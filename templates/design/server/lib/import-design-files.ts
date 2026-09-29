@@ -38,7 +38,6 @@ export interface ImportedDesignFile {
   filename: string;
   fileType: "html" | "css" | "jsx" | "asset";
   content: string;
-  /** Stable retry marker for a browser import request. */
   operationSource?: string;
   source?: Record<string, unknown>;
   preferredFrame?: {
@@ -56,13 +55,6 @@ export interface SaveImportedDesignFilesInput {
   sourceType: string;
   warnings?: string[];
   preserveExactContent?: boolean;
-  /**
-   * Operation-source prefix shared by every request of one import. Its files'
-   * preferredFrame x/y are relative to one origin, taken right of every screen
-   * when the first batch lands and stored as `importOriginX` in each frame's
-   * metadata, so later batches keep the arrangement even after the user edits
-   * or adds screens mid-import. Group files need `source.operationSource`.
-   */
   placementGroup?: string;
 }
 
@@ -76,11 +68,9 @@ export interface SavedImportedDesignFile {
 export interface ImportedOperationFile {
   file: SavedImportedDesignFile;
   operationSource: string;
-  /** False when the row landed but its canvas placement never committed. */
   placed: boolean;
 }
 
-/** Files already saved under one operation-source prefix, e.g. an import batch. */
 export async function findImportedDesignFilesByOperationSourcePrefix(
   designId: string,
   prefix: string,
@@ -164,11 +154,6 @@ function nextImportedFrameZ(currentCanvasFrames: unknown): number {
       .map((frame) => frame.z)
       .filter((z): z is number => typeof z === "number" && Number.isFinite(z)),
   );
-  // canvasFrames is the durable screen-frame map. Board placement is stored
-  // separately, so every entry contributes to the screen stack.
-  // Screens without persisted z use their source order as the fallback. The
-  // count keeps a new import above those entries too, while persisted z wins
-  // for designs that already have an explicit stack.
   return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
 }
 
@@ -437,7 +422,6 @@ export async function saveImportedDesignFiles(
         .where(eq(schema.designs.id, designId))
         .limit(1);
       if (!design) throw new Error(`Design ${designId} was not found.`);
-      // Refuse before inserting files, so invalid data never gains orphans.
       parseDesignDataObject(designId, design.data);
 
       const existingFiles = await tx
@@ -496,8 +480,6 @@ export async function saveImportedDesignFiles(
             usedFilenames,
           );
         const fileId = existing?.id ?? nanoid();
-        // Exact native clones are immutable source evidence. Other imports are
-        // annotated before persistence so editor operations can address nodes.
         const annotatedContent = input.preserveExactContent
           ? file.content
           : annotateScreenHtmlForPersist(file.content, file.fileType);

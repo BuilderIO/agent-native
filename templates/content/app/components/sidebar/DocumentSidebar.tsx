@@ -18,7 +18,6 @@ import type {
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentSidebarViewOrder,
-  ContentNavigationContext,
   Document,
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
@@ -28,7 +27,6 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSettings,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -81,10 +79,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  contentFilesCollectionFilter,
+  contentRowTargets,
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
+import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
-  invalidateContentDatabaseNavigationQueries,
+  contentDatabaseNavigationQueryFilter,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -103,6 +107,7 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  useContentNavigationContext,
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
@@ -112,8 +117,10 @@ import {
   useMoveDocument,
   useUpdateDocument,
   documentQueryFilter,
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
+  seedCreatedDocumentNavigation,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
@@ -121,6 +128,7 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import { filesNavigationOrder } from "@/lib/files-navigation";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -385,9 +393,6 @@ function useDeferredFilesDatabaseId(
       };
     }
 
-    // An already-expanded workspace can contain thousands of files. Give the
-    // selected page's critical read one turn before starting that inventory;
-    // direct expansion remains immediate.
     setReady(false);
     const timeout = window.setTimeout(
       () => setReady(true),
@@ -396,11 +401,6 @@ function useDeferredFilesDatabaseId(
     return () => window.clearTimeout(timeout);
   }, [databaseId, deferUntilDocumentId, expanded]);
 
-  // `databaseId` stays stable across the defer window so the query key never
-  // changes; only `enabled` pauses the fetch. Swapping `databaseId` itself to
-  // null here would move the tree to a disabled, never-fetched query key and
-  // drop the rows already on screen for the whole deferred window instead of
-  // just holding off the refetch.
   return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
@@ -514,9 +514,15 @@ function WorkspaceSidebarItem({
     expanded,
     deferInitialReadUntilDocumentId,
   );
+  // The paged tree draws cloud Files; only local-source matching needs rows.
+  const needsFilesRows = localFileMode || localWorkingCopies.length > 0;
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled, systemRole: "files" },
+    {
+      enabled: deferredFilesDatabase.enabled,
+      systemRole: "files",
+      ...(needsFilesRows ? {} : { limit: 0 }),
+    },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -617,12 +623,7 @@ function WorkspaceSidebarItem({
   const pagedOverrides = filesPersonalView.data?.overrides;
   const { activeViewId, order: sidebarOrder } = localFileMode
     ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
-    : {
-        activeViewId: pagedOverrides?.activeViewId ?? "default",
-        order: pagedOverrides?.views.find(
-          (view) => view.id === (pagedOverrides.activeViewId ?? "default"),
-        )?.sidebarOrder ?? { mode: "custom" as const, itemIds: [] },
-      };
+    : filesNavigationOrder(pagedOverrides);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -993,9 +994,7 @@ export function DocumentSidebar({
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
 
   const restoreDocument = useRestoreDocument();
-  const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
-  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const ensureContentSpaces = useEnsureContentSpaces();
@@ -1356,16 +1355,23 @@ export function DocumentSidebar({
         // Space selection remains usable when best-effort agent context sync fails.
       });
   }, [selectedSpace]);
-  const removeLocalFileSource = useActionMutation<
+  const removeLocalFileSource = useContentActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
-  >("remove-local-file-source");
+  >("remove-local-file-source", {
+    invalidates: [
+      contentDatabaseNavigationQueryFilter(),
+      ["action", "get-document"],
+      ["action", "get-content-database"],
+      ["action", "get-content-navigation-context"],
+      ["action", "get-content-recent"],
+      ["action", "list-content-spaces"],
+    ],
+  });
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
   }, []);
-  // Track user-expanded nodes only; active ancestors are derived below so they
-  // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
   const [isResizing, setIsResizing] = useState(false);
   const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
@@ -1375,6 +1381,12 @@ export function DocumentSidebar({
     () => normalizeCollapsedSections(storedCollapsedSections),
     [storedCollapsedSections],
   );
+  const { data: trashedDocuments } = useTrashedDocuments({
+    enabled: !collapsedSections.trash,
+  });
+  const { data: trashedDatabases } = useTrashedContentDatabases({
+    enabled: !collapsedSections.trash,
+  });
   useEffect(() => {
     try {
       if (
@@ -1442,11 +1454,7 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const navigationContextQuery = useActionQuery<ContentNavigationContext>(
-    "get-content-navigation-context",
-    activeDocumentId ? { id: activeDocumentId } : undefined,
-    { enabled: Boolean(activeDocumentId) },
-  );
+  const navigationContextQuery = useContentNavigationContext(activeDocumentId);
   useEffect(() => {
     const filesDatabaseId =
       navigationContextQuery.data?.workspaceFilesDatabaseId ?? null;
@@ -1606,13 +1614,17 @@ export function DocumentSidebar({
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
-      // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
         return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        rootFilesDatabaseId ?? null,
+      );
       if (rootFilesDatabaseId) {
         const optimisticItem: ContentDatabaseItem = {
           id: `optimistic-${id}`,
@@ -1647,8 +1659,6 @@ export function DocumentSidebar({
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
         settleOptimisticListRefresh(id);
         if (rootFilesDatabaseId) {
@@ -1666,6 +1676,7 @@ export function DocumentSidebar({
         );
         settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
             contentDatabaseByIdQueryKey(rootFilesDatabaseId),
@@ -1737,6 +1748,12 @@ export function DocumentSidebar({
         });
       }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        contentSpaces.find((space) => space.id === rootSpaceId)
+          ?.filesDatabaseId ?? null,
+      );
       navigateToDocument(id);
       onNavigate?.();
 
@@ -1776,6 +1793,7 @@ export function DocumentSidebar({
           );
         }
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         settleOptimisticListRefresh(id);
         if (window.location.pathname === `/page/${id}`) {
           void navigate(previousPath, {
@@ -1986,7 +2004,6 @@ export function DocumentSidebar({
         { id, isFavorite },
         {
           onError: (error) => {
-            // Recent shows pin state optimistically; reload its truth.
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-content-recent"],
             });
@@ -2006,7 +2023,11 @@ export function DocumentSidebar({
   const moveDocument = useMoveDocument();
   const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+    onSuccess: (_result, { documentId }) =>
+      invalidateContentQueries(queryClient, [
+        ...contentRowTargets(queryClient, [documentId]),
+        contentFilesCollectionFilter(),
+      ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
   const sidebarPageActions = useMemo<SidebarPageActions>(
@@ -2051,7 +2072,6 @@ export function DocumentSidebar({
     }),
     [duplicateDocument, selectedSpace?.id, t, updateDocument],
   );
-  // Any space the viewer may add pages to, plus the Page's own space.
   const moveSpaces = useMemo(
     () =>
       contentSpaces.filter(
@@ -2068,7 +2088,6 @@ export function DocumentSidebar({
         { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
         {
           onSuccess: () => {
-            // Reveal the Page where it landed.
             if (parentId) handleDocumentExpandedChange(parentId, true);
             if (crossSpace) {
               const space = contentSpaces.find(
@@ -2246,8 +2265,8 @@ export function DocumentSidebar({
           type="button"
           aria-label={t("sidebar.search")}
           variant="ghost"
-          size="icon"
-          className="size-10 text-muted-foreground hover:text-foreground"
+          size="icon-lg"
+          className="text-muted-foreground hover:text-foreground"
           onClick={handleOpenSearch}
         >
           <IconSearch size={16} />
@@ -2316,8 +2335,8 @@ export function DocumentSidebar({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="size-8 shrink-0 hover:bg-sidebar-accent/60"
+            size="icon-sm"
+            className="shrink-0 hover:bg-sidebar-accent/60"
             aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
             disabled={createDocument.isPending || createDatabase.isPending}
           >
@@ -2462,8 +2481,6 @@ export function DocumentSidebar({
 
   const renderTrashSection = () => {
     const trashActive = location.pathname.startsWith("/trash");
-    // Lifecycle destinations sit in their own fixed group below the scrolling
-    // navigation, so Trash never hides beneath a long Files tree.
     return (
       <div className="shrink-0 border-t border-border/70 px-2 py-2">
         <Link
@@ -2715,16 +2732,6 @@ export function DocumentSidebar({
             footerExtras={
               <>
                 {isCodeMode ? <DevDatabaseLink /> : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link to="/settings" aria-label={t("navigation.settings")}>
-                      <IconSettings className="size-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("navigation.settings")}
-                  </TooltipContent>
-                </Tooltip>
                 {collapseButton}
               </>
             }
@@ -2890,16 +2897,6 @@ export function DocumentSidebar({
         footerExtras={
           <>
             {isCodeMode ? <DevDatabaseLink /> : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/settings" aria-label={t("navigation.settings")}>
-                  <IconSettings className="size-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("navigation.settings")}
-              </TooltipContent>
-            </Tooltip>
             {collapseButton}
           </>
         }

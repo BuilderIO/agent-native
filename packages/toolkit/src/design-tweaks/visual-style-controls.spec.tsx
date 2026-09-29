@@ -375,10 +375,6 @@ describe("visual style controls", () => {
     );
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(input);
-    // Staying focused means useDesignHotkeys' editable-target guard would
-    // otherwise swallow a Cmd+Z pressed right after this commit — the field
-    // must opt back in via the same attribute DesignColorPicker's popover
-    // uses (see isDesignHistoryHotkeyTarget).
     expect(input.getAttribute("data-design-history-hotkeys")).toBe("true");
   });
 

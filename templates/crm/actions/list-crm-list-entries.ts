@@ -76,8 +76,6 @@ export default defineAction({
     const bySlug = indexAttributes(attributes);
 
     const resolver = new CrmEntryFieldResolver(bySlug);
-    // Filters and sorts are resolved before the query is built: resolving a
-    // field is what registers the LEFT JOIN it needs.
     const conditions: SQL[] = (args.filters ?? []).map((filter) =>
       buildEntryFilter(resolver, filter),
     );

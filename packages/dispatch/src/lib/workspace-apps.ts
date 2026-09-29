@@ -18,6 +18,7 @@ export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  defaultDescriptionKey?: string;
   path: string;
   homePath?: string;
   url?: string | null;
@@ -94,11 +95,6 @@ function clientEnvironmentLane(): "production" | "beta" {
   return targets?.betaHost === hostname ? "beta" : "production";
 }
 
-/**
- * The workspace SSO action only accepts an exact registered app identity and
- * origin. The catalog's boolean is a server-derived projection for custom
- * registrations; the URL check keeps malformed metadata out of the action.
- */
 export function isWorkspaceSsoApp(
   app: WorkspaceAppHrefSource & { id: string },
 ): boolean {
@@ -133,11 +129,6 @@ function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
   }
 }
 
-/**
- * A mounted app URL leaves Dispatch's `/apps/:id` host route. Canonical
- * first-party origins can stay inline even at `/`, while external published
- * apps must open at their own origin regardless of their path.
- */
 export function isPathMountedWorkspaceApp(
   app: WorkspaceAppHrefSource,
 ): boolean {
@@ -165,6 +156,32 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
 ): boolean {
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
+
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
+};
 
 function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
@@ -236,11 +253,6 @@ function workspaceAppMountPath(
   return normalizedWorkspaceAppMountPath(app.path?.trim() || "/");
 }
 
-/**
- * Convert a child app route into Dispatch's shareable workspace-app route.
- * Mounted workspace apps may report their full mount path, while hosted apps
- * normally report only the app-local path, so accept both forms here.
- */
 export function workspaceAppRouteForChildPath(
   app: Pick<WorkspaceAppSummary, "id" | "path" | "url">,
   childPath: string,
@@ -326,6 +338,15 @@ export function workspaceAppTargetPath(app: {
   return normalizeWorkspaceAppHomePath(undefined);
 }
 
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
 export function workspaceAppEmbedTarget(
   app: Pick<WorkspaceAppSummary, "path" | "url">,
 ): { path?: string; url?: string } {
@@ -336,10 +357,6 @@ export function workspaceAppEmbedTarget(
   return path.startsWith("/") ? { path } : path ? { url: path } : {};
 }
 
-/**
- * Resolve an app route without an embed ticket so the target can render its
- * own error document when session setup fails.
- */
 export function workspaceAppDirectHref(
   app: WorkspaceAppHrefSource,
   targetPath: string,
@@ -409,8 +426,6 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  // Standard browser iframes stay inline; Builder and native shells need the
-  // app as the top-level document so browser APIs such as WebMCP bind to it.
   return isInBuilderFrame() || getClientSurface() !== "web";
 }
 
@@ -432,28 +447,60 @@ export function navigateToWorkspaceApp(href: string): boolean {
   }
 }
 
-/**
- * Keep the chat-first rail useful before a workspace manifest is populated.
- * Mounted workspace rows still win, so custom names and routes remain the
- * source of truth once an app exists in the workspace.
- */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  grantedApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+  }[] = [],
 ): WorkspaceAppSummary[] {
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      // The five default rows are hosted sibling apps, not routes owned by
-      // Dispatch. Keep a mounted path for legacy callers, but give embed
-      // session resolution the exact canonical origin.
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    const id = app.id.trim().toLowerCase();
+    const fallback = merged.get(id);
+    merged.set(id, {
+      ...app,
+      id,
+      description: app.description ?? fallback?.description,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.description
+          ? fallback?.defaultDescriptionKey
+          : undefined,
+    });
+  }
+
+  const existingIds = new Set(
+    [...merged.values()].map((app) => app.id.trim().toLowerCase()),
+  );
+  for (const app of grantedApps) {
+    const id = app.id.trim().toLowerCase();
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
+    });
+  }
 
   return [...merged.values()];
 }

@@ -24,6 +24,11 @@ const messages = {
     retry: "다시 시도",
     search: "검색",
   },
+  chatHome: {
+    description:
+      "Native SQL과 연결된 레코드 전반에서 허용된 계정 정보, 후속 작업, 근거를 살펴보세요.",
+    placeholder: "CRM에 대해 질문하기",
+  },
   commandMenu: {
     placeholder: "레코드, 목록, 명령 검색…",
     groupRecords: "레코드",
@@ -66,6 +71,8 @@ const messages = {
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
     languageLabel: "인터페이스 언어",
+    mcpAbout:
+      "CRM을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 CRM에서 레코드를 찾고, 필드를 업데이트하고, 작업을 관리할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   connection: {
     tab: "연결",

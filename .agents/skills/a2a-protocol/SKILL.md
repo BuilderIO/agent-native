@@ -94,7 +94,7 @@ Four ways to create it, all writing the same row:
 
 | Surface | Where |
 | --- | --- |
-| Settings → Manage agent → Connected Agents (A2A) | any app with the settings panel |
+| Settings → Agent → Sub-agents → Connect agent (owners and admins) | any app with the Settings shell |
 | Agent page → Connections | apps mounting `AgentTabsPage` |
 | Dispatch → Agents → Add external agent | workspace dispatch |
 | The agent itself | `resources` tool, `action: "write"`, `--scope shared` |

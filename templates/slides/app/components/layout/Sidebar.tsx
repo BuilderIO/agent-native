@@ -11,7 +11,7 @@ import {
   IconLayoutGrid,
   IconComponents,
   IconSearch,
-  IconSettings,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
@@ -44,19 +44,16 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       active: isItemActive("/home"),
     },
     {
+      to: "/templates",
+      label: t("templatesPage.title"),
+      icon: IconTemplate,
+      active: isItemActive("/templates"),
+    },
+    {
       to: "/design-systems",
       label: t("navigation.designSystems"),
       icon: IconComponents,
       active: isItemActive("/design-systems"),
-    },
-  ];
-
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: isItemActive("/settings"),
     },
   ];
 
@@ -73,7 +70,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.searchDecks")}
         >
@@ -93,7 +90,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       appId="slides"
       brandHref="/home"
       items={items}
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={

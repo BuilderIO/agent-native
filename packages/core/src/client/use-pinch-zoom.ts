@@ -9,47 +9,17 @@ import {
 } from "./zoom-gesture.js";
 
 export interface UsePinchZoomOptions {
-  /** Scrolling viewport that receives the gesture. The scaled content should
-   *  live inside this element. */
   containerRef: React.RefObject<HTMLElement | null>;
-  /** Current zoom as a percentage (100 = 100%). */
   zoom: number;
-  /** Setter for the zoom value (called with the next percentage). */
   setZoom: (next: number) => void;
-  /**
-   * Apply a frame's visual zoom without scheduling a React render. When this
-   * is supplied, `onZoomEnd` receives the settled value after the gesture has
-   * been idle for one camera-debounce interval and owns the state commit.
-   */
   onZoomFrame?: (next: number) => void;
-  /** Commit the final visual zoom after a frame-driven gesture settles. */
   onZoomEnd?: (next: number) => void;
-  /** Minimum zoom percentage. Default 25. */
   min?: number;
-  /** Maximum zoom percentage. Default 400. */
   max?: number;
-  /** When true (default), adjusts container scroll so the point under the
-   *  cursor stays under the cursor during wheel-zoom. Assumes the scaled
-   *  content uses `transform-origin: top left` (or equivalent — e.g. resizing
-   *  the inner container's width proportionally to zoom). Disable for layouts
-   *  with `transform-origin: center center`. */
   zoomToCursor?: boolean;
-  /** Disable the hook entirely without unmounting it. */
   enabled?: boolean;
 }
 
-/**
- * Pinch-to-zoom for canvas-style editors. Wires the trackpad pinch / Cmd+scroll
- * wheel gesture and 2-pointer touchscreen pinch onto a scrolling container.
- *
- * Trackpad pinch is detected via `wheel` events with `ctrlKey: true` — browsers
- * have synthesized that since ~2015 specifically so web apps can intercept the
- * gesture. `metaKey` is also accepted so Cmd+scroll on Mac feels native.
- *
- * The hook only calls `setZoom(next)` — it doesn't render anything. Templates
- * decide how to translate the zoom percentage into visual scaling (CSS
- * `transform: scale()`, width/height, etc.).
- */
 export function usePinchZoom({
   containerRef,
   zoom,
@@ -70,18 +40,12 @@ export function usePinchZoom({
   const zoomGestureGenerationRef = useRef(0);
   if (zoomPropRef.current !== zoom) {
     zoomPropRef.current = zoom;
-    // A controlled zoom update is authoritative unless it is the value just
-    // painted by this gesture. Invalidate the settle timer when a preset,
-    // sync, or camera command arrives during the debounce window.
     if (imperativeZoomRef.current !== zoom) {
       imperativeZoomRef.current = null;
       zoomRef.current = zoom;
       zoomGestureGenerationRef.current += 1;
     }
   }
-  // An unrelated render can land between two wheel frames. Keep the
-  // imperative camera value until the owning state commit reaches this hook;
-  // otherwise the next gesture frame would jump back to the stale prop.
   if (imperativeZoomRef.current === zoom) {
     imperativeZoomRef.current = null;
   }
@@ -97,24 +61,6 @@ export function usePinchZoom({
 
     const clamp = (n: number) => Math.max(min, Math.min(max, n));
 
-    // rAF coalescing: multiple wheel/pointermove events can fire per frame
-    // (trackpad pinch and touch pinch both deliver many events between
-    // paints). Instead of calling setZoom() synchronously per event — which
-    // schedules a React re-render per event — stash the latest pending zoom
-    // (and its cursor-anchored scroll delta) in a ref and flush once per
-    // animation frame with the last-wins value. This preserves the exact
-    // zoom-to-cursor math; it just applies it at most once per frame.
-    //
-    // Within a burst the DOM's real scrollLeft/scrollTop do NOT move until
-    // flush() runs, so per-event math must not read them directly — every
-    // event after the first in the same frame would anchor against the
-    // pre-burst scroll position instead of where the (not-yet-committed)
-    // previous events in the burst would have scrolled to. Track a simulated
-    // running scroll position (`simScrollLeft`/`simScrollTop`, seeded from the
-    // real scroll position when a new burst starts) and use that as the
-    // anchor base, so each event's math composes exactly as if the prior
-    // events in the burst had already been applied — matching the
-    // pre-coalescing, one-setZoom-per-event behavior.
     let pendingZoom: number | null = null;
     let pendingScrollDelta: { dx: number; dy: number } | null = null;
     let simScrollLeft = 0;
@@ -168,8 +114,6 @@ export function usePinchZoom({
 
     const handleWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
-      // Chrome sends non-cancelable wheel events during a fling; cancelling one
-      // is a no-op that logs an Intervention per event and still scrolls.
       if (e.cancelable) e.preventDefault();
 
       gestureDevice = resolveZoomGestureDevice({
@@ -180,9 +124,6 @@ export function usePinchZoom({
         atMs: e.timeStamp,
         previous: gestureDevice,
       });
-      // Use the latest not-yet-applied zoom (if a flush is pending) so rapid
-      // wheel events within the same frame compound correctly instead of
-      // each computing off the last-committed React state.
       const currentZoom = pendingZoom ?? zoomRef.current;
       const factor = clampZoomFactor(
         zoomFactorForWheelDelta(
@@ -195,9 +136,6 @@ export function usePinchZoom({
       if (nextZoom === currentZoom) return;
 
       if (zoomToCursor) {
-        // Starting a new burst (nothing pending yet): seed the simulated
-        // scroll position from the container's real, currently-committed
-        // scroll offset.
         if (pendingScrollDelta === null) {
           simScrollLeft = container.scrollLeft;
           simScrollTop = container.scrollTop;
@@ -208,8 +146,6 @@ export function usePinchZoom({
         const ratio = nextZoom / currentZoom;
         const dx = cx * (ratio - 1);
         const dy = cy * (ratio - 1);
-        // Advance the simulated scroll position so the next event in this
-        // same burst anchors against where this event would have left it.
         simScrollLeft += dx;
         simScrollTop += dy;
         pendingZoom = nextZoom;
@@ -247,8 +183,6 @@ export function usePinchZoom({
         const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const nextZoom = clamp(initialZoom * (distance / initialDistance));
         if (nextZoom !== (pendingZoom ?? zoomRef.current)) {
-          // Touch pinch has no cursor-anchoring math, so last-wins is simply
-          // the newest zoom value — no scroll delta to accumulate.
           pendingZoom = nextZoom;
           scheduleFlush();
         }

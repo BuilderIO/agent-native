@@ -49,6 +49,7 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../agent/app-model-defaults.js";
+import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
@@ -80,7 +81,6 @@ import {
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
-  readPersistedActionSurface,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
@@ -89,9 +89,16 @@ import {
   subscribeToRun,
   type ActionEntry,
   type AgentActionSurfaceDetails,
+  type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import {
+  applyProviderModelSelection,
+  providerForEngineName,
+  resolveProviderModelSelectionAtScope,
+  type EffectiveProviderModelSelection,
+} from "../agent/provider-model-selection.js";
 import type { ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
@@ -145,10 +152,12 @@ import {
   updateThreadData,
   withThreadDataLock,
   deleteThread,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   setThreadSourceIfMissing,
   isAppOwnedChatScope,
   threadScopeMismatch,
+  type QueuedMessage,
+  type ThreadQueuedMessageMutation,
   type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
@@ -172,6 +181,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
+import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import {
   McpClientManager,
   mcpToolsToActionEntries,
@@ -204,6 +214,7 @@ import {
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
+import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -485,6 +496,75 @@ export async function runPostAgentTurnAutosave(
   }
 }
 
+export async function runPostAgentRunComplete(
+  callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: ActiveRun,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "post-agent-run-observer",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+      },
+    });
+    console.error("[agent-chat] post-agent-run observer failed:", error);
+  }
+}
+
+export async function runPreAgentTurnAutosave(
+  callback: AgentChatPluginOptions["onAgentTurnStart"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: Pick<ActiveRun, "threadId" | "runId">,
+): Promise<void> {
+  if (!callback || !scope) return;
+
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "pre-agent-turn-autosave",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+        scopeType: scope.type,
+        scopeId: scope.id,
+      },
+    });
+    console.error("[agent-chat] pre-agent-turn autosave failed:", error);
+  }
+}
+
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1],
+  run: Pick<
+    ActiveRun,
+    "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+  >,
+) {
+  return foldAssistantTurn(repo, assistantMsg, {
+    runId: run.runId,
+    turnId: run.turnId,
+    parentId: run.parentId,
+    agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+  });
+}
+
 /**
  * The model this mount runs with, when the caller does not pass one per request.
  *
@@ -658,6 +738,116 @@ export function resolveProductionCodeExecutionForActionSurface(
   // cannot uphold a hard per-request allowlist. Keep sandboxed run-code, whose
   // bridge is filtered against the current request, as the safe equivalent.
   return hasRequestScopedSurface && mode === "trusted" ? "sandboxed" : mode;
+}
+
+const observabilityReviewSummaryActions = [
+  "get-observability-review-summary-source",
+  "save-observability-review-summary",
+] as const;
+const MAX_OBSERVABILITY_REVIEW_SUMMARY_BATCH = 25;
+const observabilityFeedbackImprovementActions = [
+  "get-observability-review-summary-source",
+  "save-observability-instruction-update",
+] as const;
+
+export async function resolveObservabilityReviewSummaryActionSurface(
+  details: AgentActionSurfaceDetails,
+  resolveHostSurface?: (
+    details: AgentActionSurfaceDetails,
+  ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>,
+): Promise<AgentActionSurfaceResolution> {
+  if (details.actionScope?.kind === "observability-review-summary") {
+    const scopedRunId = details.actionScope.runId;
+    if (
+      typeof scopedRunId !== "string" ||
+      scopedRunId.trim().length === 0 ||
+      scopedRunId.trim().length > 200
+    ) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: "A valid runId is required for summary review.",
+      });
+    }
+    const runId = scopedRunId.trim();
+    if (
+      observabilityReviewSummaryActions.some(
+        (name) => !details.availableActionNames.includes(name),
+      )
+    ) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Summary review actions are unavailable.",
+      });
+    }
+    return {
+      allowedActionNames: [...observabilityReviewSummaryActions],
+      actionScope: { kind: "observability-review-summary", runId },
+    };
+  }
+  if (details.actionScope?.kind === "observability-review-summary-batch") {
+    const candidateRunIds = details.actionScope.runIds;
+    if (
+      !Array.isArray(candidateRunIds) ||
+      candidateRunIds.length === 0 ||
+      candidateRunIds.length > MAX_OBSERVABILITY_REVIEW_SUMMARY_BATCH ||
+      !candidateRunIds.every(
+        (runId): runId is string =>
+          typeof runId === "string" &&
+          runId.trim().length > 0 &&
+          runId.trim().length <= 200,
+      )
+    ) {
+      throw createError({
+        statusCode: 400,
+        statusMessage:
+          "A valid bounded run batch is required for summary review.",
+      });
+    }
+    const runIds = [...new Set(candidateRunIds.map((runId) => runId.trim()))];
+    if (
+      observabilityReviewSummaryActions.some(
+        (name) => !details.availableActionNames.includes(name),
+      )
+    ) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Summary review actions are unavailable.",
+      });
+    }
+    return {
+      allowedActionNames: [...observabilityReviewSummaryActions],
+      actionScope: { kind: "observability-review-summary-batch", runIds },
+    };
+  }
+  if (details.actionScope?.kind === "observability-feedback-improvement") {
+    const scopedRunId = details.actionScope.runId;
+    if (
+      typeof scopedRunId !== "string" ||
+      scopedRunId.trim().length === 0 ||
+      scopedRunId.trim().length > 200
+    ) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: "A valid runId is required for feedback improvement.",
+      });
+    }
+    const runId = scopedRunId.trim();
+    if (
+      observabilityFeedbackImprovementActions.some(
+        (name) => !details.availableActionNames.includes(name),
+      )
+    ) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Feedback improvement actions are unavailable.",
+      });
+    }
+    return {
+      allowedActionNames: [...observabilityFeedbackImprovementActions],
+      actionScope: { kind: "observability-feedback-improvement", runId },
+    };
+  }
+  return resolveHostSurface ? resolveHostSurface(details) : { mode: "default" };
 }
 
 /**
@@ -1591,11 +1781,13 @@ export function createAgentChatPlugin(
       }
       let browserSessionTools: Record<string, ActionEntry> = {};
       try {
-        const { createBrowserSessionActionEntries } =
-          await import("../browser-sessions/actions.js");
-        browserSessionTools = createBrowserSessionActionEntries({
-          getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
-        });
+        if (frameworkTools.isEnabled("browserSessions")) {
+          const { createBrowserSessionActionEntries } =
+            await import("../browser-sessions/actions.js");
+          browserSessionTools = createBrowserSessionActionEntries({
+            getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
+          });
+        }
       } catch {}
       let remoteBrowserTools: Record<string, ActionEntry> = {};
       try {
@@ -2156,12 +2348,15 @@ export function createAgentChatPlugin(
           // prompt, and capabilities. The A2A agent IS the app's agent.
           const { resolveOwnerEngineApiKey } =
             await import("../agent/production-agent.js");
-          const { apiKey: ownerApiKey, apiKeyEnvVar: ownerApiKeyEnvVar } =
-            await resolveOwnerEngineApiKey({
-              engineOption: options?.engine,
-              ownerEmail: userEmail,
-              anthropicFallback: options?.apiKey,
-            });
+          const {
+            apiKey: ownerApiKey,
+            apiKeyEnvVar: ownerApiKeyEnvVar,
+            credentialProvenance: ownerApiKeyProvenance,
+          } = await resolveOwnerEngineApiKey({
+            engineOption: options?.engine,
+            ownerEmail: userEmail,
+            anthropicFallback: options?.apiKey,
+          });
           // A2A runs are reconstructed in a fresh processor request, so they
           // do not pass through the interactive handler's prepareRun hook.
           // Seed the same mutable run context before resolving the engine and
@@ -2196,6 +2391,7 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
+            apiKeyProvenance: ownerApiKeyProvenance,
             appId: options?.appId,
           });
 
@@ -2873,6 +3069,7 @@ export function createAgentChatPlugin(
               engineOption: options?.engine,
               apiKey: ownerApiKey.apiKey,
               apiKeyEnvVar: ownerApiKey.apiKeyEnvVar,
+              apiKeyProvenance: ownerApiKey.credentialProvenance,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -3184,7 +3381,7 @@ export function createAgentChatPlugin(
         }
         const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
-        // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
+        // `thread_data` writers (mutateThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
         // queued-message save can clobber the assistant message we just
         // appended here, or vice versa.
@@ -3235,14 +3432,7 @@ export function createAgentChatPlugin(
           }
           if (!Array.isArray(repo.messages)) repo.messages = [];
 
-          repo = foldAssistantTurn(repo, assistantMsg, {
-            runId: run.runId,
-            turnId:
-              typeof run.turnId === "string" && run.turnId
-                ? run.turnId
-                : undefined,
-            parentId: run.parentId,
-          });
+          repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
 
           // Store debug metadata so we can inspect what the LLM actually
           // received (system prompt, model, engine) when diagnosing issues.
@@ -3272,6 +3462,11 @@ export function createAgentChatPlugin(
         // a serverless invocation exits.
         await runPostAgentTurnAutosave(
           options?.onAgentTurnComplete,
+          chatScope,
+          run,
+        );
+        await runPostAgentRunComplete(
+          options?.onAgentRunComplete,
           chatScope,
           run,
         );
@@ -4187,7 +4382,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message,
           };
         },
-        resolveActionSurface: options?.resolveActionSurface,
+        resolveActionSurface: (details) =>
+          resolveObservabilityReviewSummaryActionSurface(
+            details,
+            options?.resolveActionSurface,
+          ),
         skipFilesContext,
         jevContextCompact: leanPrompt || lazyContext,
         initialToolNames: effectiveInitialToolNames,
@@ -4212,6 +4411,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
+          await runPreAgentTurnAutosave(
+            options?.onAgentTurnStart,
+            runCtx?.chatScope,
+            { threadId, runId },
+          );
         },
         onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
@@ -4246,7 +4450,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               jevContextCompact: true,
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
-              resolveActionSurface: options?.resolveActionSurface,
+              resolveActionSurface: (details) =>
+                resolveObservabilityReviewSummaryActionSurface(
+                  details,
+                  options?.resolveActionSurface,
+                ),
               skipFilesContext: true,
               initialToolNames: effectiveInitialToolNames,
               onEngineResolved: (engine, model) => {
@@ -4317,37 +4525,41 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           databaseTools: databaseToolsMode,
         });
         const localDevActionNames = new Set(Object.keys(devScriptRegistry));
-        const resolveDevActionSurface = options?.resolveActionSurface
-          ? async (details: AgentActionSurfaceDetails) => {
-              const appActionNames = details.availableActionNames.filter(
-                (name) => !localDevActionNames.has(name),
-              );
-              const surface = await options.resolveActionSurface!({
-                ...details,
-                availableActionNames: appActionNames,
-              });
-              const normalizedSurface =
-                normalizeAgentActionSurfaceResolution(surface);
-              if (normalizedSurface.mode === "default") return surface;
-              if (normalizedSurface.actionScope) {
-                return {
-                  allowedActionNames: normalizedSurface.allowedActionNames,
-                  actionScope: normalizedSurface.actionScope,
-                };
-              }
-              const localActionNames = details.availableActionNames.filter(
-                (name) => localDevActionNames.has(name),
-              );
-              return {
-                allowedActionNames: [
-                  ...new Set([
-                    ...normalizedSurface.allowedActionNames,
-                    ...localActionNames,
-                  ]),
-                ],
-              };
-            }
-          : undefined;
+        const resolveDevActionSurface = async (
+          details: AgentActionSurfaceDetails,
+        ) => {
+          const appActionNames = details.availableActionNames.filter(
+            (name) => !localDevActionNames.has(name),
+          );
+          const appDetails = {
+            ...details,
+            availableActionNames: appActionNames,
+          };
+          const surface = await resolveObservabilityReviewSummaryActionSurface(
+            appDetails,
+            options?.resolveActionSurface,
+          );
+          const normalizedSurface =
+            normalizeAgentActionSurfaceResolution(surface);
+          if (normalizedSurface.mode === "default") return surface;
+          if (normalizedSurface.actionScope) {
+            return {
+              allowedActionNames: normalizedSurface.allowedActionNames,
+              actionScope: normalizedSurface.actionScope,
+            };
+          }
+          const localActionNames = details.availableActionNames.filter((name) =>
+            localDevActionNames.has(name),
+          );
+          return {
+            allowedActionNames: [
+              ...new Set([
+                ...normalizedSurface.allowedActionNames,
+                ...localActionNames,
+              ]),
+            ],
+          };
+        };
         const devActions = attachToolSearch(
           leanPrompt
             ? { ...devScriptRegistry, ...leanActions }
@@ -4539,6 +4751,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            await runPreAgentTurnAutosave(
+              options?.onAgentTurnStart,
+              runCtx?.chatScope,
+              { threadId, runId },
+            );
           },
           onRunComplete: async (
             run: ActiveRun,
@@ -4695,6 +4912,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   engineOption: options?.engine,
                   apiKey: resolvedKey.apiKey,
                   apiKeyEnvVar: resolvedKey.apiKeyEnvVar,
+                  apiKeyProvenance: resolvedKey.credentialProvenance,
                   appId: options?.appId,
                 });
                 const modelCandidate =
@@ -4792,6 +5010,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         orgId?: string | null;
       }) => {
         registerBuiltinEngines();
+        // This select writes the organization's default, so it offers the
+        // organization's checked models, not the viewer's personal ones.
+        const selectionScope = ctx.orgId ? "org" : "user";
+        const selections = new Map<
+          string,
+          Promise<EffectiveProviderModelSelection>
+        >();
+        const modelsFor = async (entry: {
+          name: string;
+          supportedModels: readonly string[];
+        }) => {
+          const provider = providerForEngineName(entry.name);
+          if (!provider) return { supportedModels: entry.supportedModels };
+          let pending = selections.get(provider);
+          if (!pending) {
+            pending = resolveProviderModelSelectionAtScope(
+              provider,
+              selectionScope,
+              { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
+            );
+            selections.set(provider, pending);
+          }
+          const selection = await pending;
+          return {
+            supportedModels: applyProviderModelSelection(
+              entry.supportedModels,
+              selection,
+            ),
+            modelSelection: { state: selection.state },
+          };
+        };
         return runWithRequestContext(
           {
             userEmail: ctx.userEmail,
@@ -4804,7 +5053,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 label: entry.label,
                 description: entry.description,
                 defaultModel: entry.defaultModel,
-                supportedModels: entry.supportedModels,
+                ...(await modelsFor(entry)),
                 requiredEnvVars: entry.requiredEnvVars,
                 installPackage: entry.installPackage,
                 packageInstalled: isAgentEnginePackageInstalled(entry),
@@ -4820,10 +5069,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const buildModelDefaultsPayload = async (event: any, appId: string) => {
         const ctx = await resolveModelDefaultsContext(event);
         if (!ctx.ok) return ctx;
-        const settings = await readAgentAppModelDefaultSettings(
-          { userEmail: ctx.userEmail, orgId: ctx.orgId },
-          appId,
-        );
+        const scope = { userEmail: ctx.userEmail, orgId: ctx.orgId };
+        const [settings, orgDefault] = await Promise.all([
+          readAgentAppModelDefaultSettings(scope, appId),
+          readDefaultAgentEngineSetting(scope),
+        ]);
         return {
           ok: true as const,
           ...settings,
@@ -4831,6 +5081,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           orgId: ctx.orgId,
           orgName: ctx.orgName,
           role: ctx.role,
+          // What the app falls back to while it sets no default of its own.
+          orgDefault:
+            typeof orgDefault?.engine === "string"
+              ? {
+                  engine: orgDefault.engine,
+                  model:
+                    typeof orgDefault.model === "string"
+                      ? orgDefault.model
+                      : null,
+                }
+              : null,
           engines: await listModelDefaultEngineOptions(ctx),
         };
       };
@@ -4965,6 +5226,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const secretKey =
             PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
 
+          const { resolvePersonalProviderKeySaveDenial } =
+            await import("./personal-provider-key-policy.js");
+          const denial = await resolvePersonalProviderKeySaveDenial(
+            event,
+            ownerEmail,
+            secretKey,
+          );
+          if (denial) {
+            setResponseStatus(event, 403);
+            return { error: denial };
+          }
+
           try {
             const { writeAppSecret } = await import("../secrets/storage.js");
             await writeAppSecret({
@@ -5095,16 +5368,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             source: "codebase" | "resource";
           }> = [];
           const seenNames = new Set<string>();
+          const skillLabVisibility = new Map<string, Promise<boolean>>();
+          const isSkillLabEnabled = (labKey: string): Promise<boolean> => {
+            let available = skillLabVisibility.get(labKey);
+            if (!available) {
+              available = import("./agents-bundle.js").then(
+                async ({ getEnabledSkillLabsForUser }) =>
+                  (
+                    await getEnabledSkillLabsForUser(
+                      [labKey],
+                      getRequestUserEmail(),
+                    )
+                  ).has(labKey),
+              );
+              skillLabVisibility.set(labKey, available);
+            }
+            return available;
+          };
 
           // Bundled template skills are available in production via the
           // virtual agents bundle, not the runtime filesystem. Surface them in
           // the slash/skill picker so production users can explicitly invoke
           // the same skills that are present in the prompt and docs-search.
           try {
-            const { loadAgentsBundle, getRuntimeSkills } =
+            const { loadAgentsBundle, getRuntimeSkillsForUser } =
               await import("./agents-bundle.js");
             const bundle = await loadAgentsBundle();
-            for (const skill of getRuntimeSkills(bundle)) {
+            for (const skill of await getRuntimeSkillsForUser(
+              bundle,
+              getRequestUserEmail(),
+            )) {
               const fm = parseSkillFrontmatter(skill.content);
               if (fm.userInvocable === false) continue;
               const skillName = skill.meta.name || fm.name;
@@ -5176,6 +5469,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
                     if (!isRuntimeVisibleScope(fm.scope)) continue;
+                    if (
+                      fm.requiresLab &&
+                      !(await isSkillLabEnabled(fm.requiresLab))
+                    ) {
+                      continue;
+                    }
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -5207,9 +5506,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             event,
             options?.resolveOrgId,
           );
+          let resourceSkills: Awaited<
+            ReturnType<typeof resourceListAccessible>
+          > = [];
           try {
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
-            const resourceSkills = skillsOwner
+            resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/", {
                   userEmail: skillsOwner,
                   orgId: skillsOrgId,
@@ -5222,62 +5524,60 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     orgId: skillsOrgId,
                   })),
                 ];
-            resourceSkills.sort((a, b) => {
-              const ownerOrder =
-                (a.owner === skillsOwner
-                  ? 0
-                  : a.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(a.owner)
-                      ? 2
-                      : 3) -
-                (b.owner === skillsOwner
-                  ? 0
-                  : b.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(b.owner)
-                      ? 2
-                      : 3);
-              if (ownerOrder !== 0) return ownerOrder;
-              const pathOrder =
-                (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-                (b.path.endsWith("/SKILL.md") ? 0 : 1);
-              if (pathOrder !== 0) return pathOrder;
-              return a.path.localeCompare(b.path);
-            });
-            for (const r of resourceSkills) {
-              // Try to get content to parse frontmatter
-              let skillName = getSkillNameFromPath(r.path);
-              let description: string | undefined;
-              let userInvocable: boolean | undefined;
-              try {
-                const full = await resourceGet(r.id, {
-                  userEmail: skillsOwner,
-                  orgId: skillsOrgId,
-                });
-                if (full) {
-                  const fm = parseSkillFrontmatter(full.content);
-                  if (!isRuntimeVisibleScope(fm.scope)) continue;
-                  if (fm.name) skillName = fm.name;
-                  description = fm.description;
-                  userInvocable = fm.userInvocable;
-                }
-              } catch {
-                // Could not read resource content — use path-based name
-              }
-              if (userInvocable === false) continue;
-              if (!seenNames.has(skillName)) {
-                seenNames.add(skillName);
-                skills.push({
-                  name: skillName,
-                  description,
-                  path: r.path,
-                  source: "resource",
-                });
-              }
-            }
           } catch {
             // Resources not available — skip
+          }
+
+          resourceSkills.sort((a, b) => {
+            const ownerOrder =
+              (a.owner === skillsOwner
+                ? 0
+                : a.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(a.owner)
+                    ? 2
+                    : 3) -
+              (b.owner === skillsOwner
+                ? 0
+                : b.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(b.owner)
+                    ? 2
+                    : 3);
+            if (ownerOrder !== 0) return ownerOrder;
+            const pathOrder =
+              (a.path.endsWith("/SKILL.md") ? 0 : 1) -
+              (b.path.endsWith("/SKILL.md") ? 0 : 1);
+            if (pathOrder !== 0) return pathOrder;
+            return a.path.localeCompare(b.path);
+          });
+          for (const r of resourceSkills) {
+            let full;
+            try {
+              full = await resourceGet(r.id, {
+                userEmail: skillsOwner,
+                orgId: skillsOrgId,
+              });
+            } catch {
+              // Unreadable skill metadata cannot establish runtime access.
+              continue;
+            }
+            if (!full) continue;
+            const fm = parseSkillFrontmatter(full.content);
+            if (!isRuntimeVisibleScope(fm.scope)) continue;
+            if (fm.requiresLab && !(await isSkillLabEnabled(fm.requiresLab))) {
+              continue;
+            }
+            const skillName = fm.name || getSkillNameFromPath(r.path);
+            if (fm.userInvocable === false || seenNames.has(skillName))
+              continue;
+            seenNames.add(skillName);
+            skills.push({
+              name: skillName,
+              description: fm.description,
+              path: r.path,
+              source: "resource",
+            });
           }
 
           const result: {
@@ -6209,6 +6509,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           title: typeof r.title === "string" ? r.title : "",
           preview: typeof r.preview === "string" ? r.preview : "",
           messageCount,
+          ...(typeof r.fromMessageId === "string"
+            ? { fromMessageId: r.fromMessageId }
+            : {}),
           ...(Object.prototype.hasOwnProperty.call(r, "scope")
             ? { scope: parseScopeFromBody(r.scope) }
             : {}),
@@ -6289,7 +6592,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (method === "PUT") {
               // Hold the thread_data lock for the full read-modify-write so
               // periodic saves from the frontend don't race with
-              // onRunComplete / setThreadQueuedMessages / setThreadEngineMeta.
+              // onRunComplete / mutateThreadQueuedMessages / setThreadEngineMeta.
               // Without the lock, a client save that lands during an agent
               // run could clobber the assistant message the server just
               // appended (and vice versa).
@@ -6397,10 +6700,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               });
             }
 
-            // POST /threads/:id/queued — debounced writes from the client
-            // when the user adds/removes/dequeues a queued message. Keeps
-            // queued messages durable across reloads without piggybacking
-            // on full-thread saves.
+            // POST /threads/:id/queued — apply a single queue mutation against
+            // the latest durable thread state, without piggybacking on saves.
             if (method === "POST" && isThreadSubroute("queued")) {
               const thread = await resolveThreadAccess(
                 owner,
@@ -6412,16 +6713,91 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              const body = await readBody(event);
-              const queued = Array.isArray(body?.queuedMessages)
-                ? body.queuedMessages
-                : [];
-              const saved = await setThreadQueuedMessages(threadId, queued);
-              if (!saved) {
+              const body = (await readBody(event)) as {
+                mutation?: unknown;
+              } | null;
+              const rawMutation = body?.mutation;
+              const record =
+                rawMutation &&
+                typeof rawMutation === "object" &&
+                !Array.isArray(rawMutation)
+                  ? (rawMutation as Record<string, unknown>)
+                  : null;
+              const message = (value: unknown): QueuedMessage | null => {
+                if (
+                  !value ||
+                  typeof value !== "object" ||
+                  Array.isArray(value)
+                ) {
+                  return null;
+                }
+                const queued = value as Record<string, unknown>;
+                if (
+                  typeof queued.id !== "string" ||
+                  !queued.id ||
+                  typeof queued.text !== "string" ||
+                  (queued.threadId !== undefined &&
+                    queued.threadId !== threadId) ||
+                  (queued.createdAt !== undefined &&
+                    typeof queued.createdAt !== "string") ||
+                  (queued.attachments !== undefined &&
+                    !Array.isArray(queued.attachments)) ||
+                  (queued.metadata !== undefined &&
+                    (!queued.metadata ||
+                      typeof queued.metadata !== "object" ||
+                      Array.isArray(queued.metadata)))
+                ) {
+                  return null;
+                }
+                return { ...queued, threadId } as QueuedMessage;
+              };
+              let mutation: ThreadQueuedMessageMutation | null = null;
+              if (record?.type === "append" || record?.type === "restore") {
+                const queued = message(record.message);
+                if (queued) {
+                  mutation =
+                    record.type === "append"
+                      ? { type: "append", message: queued }
+                      : typeof record.index === "number" &&
+                          Number.isInteger(record.index) &&
+                          (record.index as number) >= 0
+                        ? {
+                            type: "restore",
+                            message: queued,
+                            index: record.index as number,
+                          }
+                        : null;
+                }
+              } else if (
+                (record?.type === "remove" ||
+                  record?.type === "moveToTop" ||
+                  record?.type === "claim") &&
+                typeof record.messageId === "string" &&
+                record.messageId
+              ) {
+                mutation = {
+                  type: record.type,
+                  messageId: record.messageId,
+                };
+              }
+              if (!mutation) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid queue mutation" };
+              }
+              if (mutation.type === "append" || mutation.type === "moveToTop") {
+                await runWithRequestContext({ userEmail: owner, orgId }, () =>
+                  requireAgentChatAiSetup(),
+                );
+              }
+              const result = await mutateThreadQueuedMessages(
+                threadId,
+                mutation,
+              );
+              if (!result) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              return { ok: true };
+              return result;
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {
@@ -6729,17 +7105,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
+        const isBackgroundWorker = Boolean(
+          (event as any).context?.__agentChatBackgroundBody,
+        );
 
         return runWithAgentRunContext(
           {
             event,
             ownerContext,
             resolveOrgId: options?.resolveOrgId,
-            isBackgroundWorker: Boolean(
-              (event as any).context?.__agentChatBackgroundBody,
-            ),
+            isBackgroundWorker,
           },
-          () => {
+          async () => {
+            // Public anonymous readers use the host-owned read-only lane, and
+            // durable workers resume a request that already passed this gate.
+            if (!ownerContext.anonymous && !isBackgroundWorker) {
+              await requireAgentChatAiSetup();
+            }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the
             // prod handler (no shell / no fs); the prompt block injected by
@@ -7081,21 +7463,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 persistedClientPlatform;
             }
 
-            // Durable owner context: this self-dispatch is cookieless (HMAC-only).
-            // Resolve the owner from the persisted run row, never the request
-            // body, then invoke the normal handler. The shared agent-run context
-            // helper expands that owner into the same user/org AsyncLocalStorage
-            // context the foreground request uses, so credential and data scoping
-            // stay aligned.
-            const persistedSurface = readPersistedActionSurface(
-              workerBody,
-              "__resolvedActionSurface",
-            );
-            await seedBackgroundAgentRunOwnerContext(
-              event,
-              prepared.runId,
-              persistedSurface?.orgId,
-            );
+            // This self-dispatch is cookieless (HMAC-only). Restore the verified
+            // per-turn initiator captured before dispatch; the shared thread
+            // owner is not necessarily the member who submitted this turn.
+            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
@@ -7216,6 +7587,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           appId: options?.appId,
         };
         runNowSchedulerDeps = schedulerDeps;
+        const processFailureAlertRetries = async () => {
+          const { processPendingAutomationFailureAlerts } =
+            await import("../jobs/run-history.js");
+          return processPendingAutomationFailureAlerts();
+        };
 
         // Platform schedulers use the existing durable background function as
         // the long-lived worker. Keeping the sweep behind a signed, fixed
@@ -7276,6 +7652,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { runRecurringSweepHandlers } =
+              await import("../jobs/sweep-hooks.js");
+            const sweepContext = {
+              deadlineAt: Date.now() + RECURRING_SWEEP_BUDGET_MS,
+            };
+            const appSweepHandlers =
+              await runRecurringSweepHandlers(sweepContext);
             // Rides the same site-tick as the reap above, for the same reason:
             // it is the only durable driver on serverless. Never fatal to the
             // job sweep, and its own failure is a distinguishable outcome
@@ -7288,6 +7671,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const automationFailureAlerts =
+              await processFailureAlertRetries().catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] durable automation-failure alert retry failed:",
+                  error,
+                );
+                return null;
+              });
             const { sweepUnclaimedBackgroundRuns } =
               await import("./unclaimed-background-runs.js");
             const unclaimedBackgroundRuns = await sweepUnclaimedBackgroundRuns({
@@ -7306,17 +7697,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: false,
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
                 jobsSkipped: true,
                 jobsSkippedReason: "unclaimed-background-sweep-failed",
               };
             }
             if (!triggerAvailability.available) {
+              if (
+                appSweepHandlers.failed.length > 0 ||
+                automationFailureAlerts === null
+              ) {
+                setResponseStatus(event, 500);
+              }
               return {
-                ok: true,
+                ok:
+                  appSweepHandlers.failed.length === 0 &&
+                  automationFailureAlerts !== null,
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
                 jobsSkipped: true,
                 jobsSkippedReason: triggerAvailability.reason,
               };
@@ -7327,11 +7730,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
+              if (
+                appSweepHandlers.failed.length > 0 ||
+                automationFailureAlerts === null
+              ) {
+                setResponseStatus(event, 500);
+                return {
+                  ok: false,
+                  staleRunsReaped,
+                  chatHealth,
+                  automationFailureAlerts,
+                  unclaimedBackgroundRuns,
+                  appSweepHandlers,
+                };
+              }
               return {
                 ok: true,
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
               };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
@@ -7340,7 +7759,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
               };
             }
           }),
@@ -7362,6 +7783,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // Start after a 10-second delay to let the server fully initialize
           lifecycle.startTimeout(() => {
             lifecycle.startInterval(() => {
+              processFailureAlertRetries().catch((error: unknown) => {
+                console.error(
+                  "[recurring-jobs] automation-failure alert retry failed:",
+                  error,
+                );
+              });
               processRecurringJobs(schedulerDeps).catch((err) => {
                 console.error(
                   "[recurring-jobs] Scheduler error:",

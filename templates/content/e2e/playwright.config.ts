@@ -1,17 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/*
- * Browser E2E for the Agent-Native Content app.
- *
- * Runs against an already-running dev server (CONTENT_BASE_URL, default :8090).
- * Auth is established once in global-setup and reused via storageState. Retries
- * absorb transient HMR reloads while other agents edit the app.
- *
- * This config + the registry-blocks spec verify the editor-unification claim:
- * content's VisualEditor mounts core's RegistryBlockNode -> RegistryBlockNodeView
- * -> BlockView -> the block's React Read component for an inline NFM registry
- * block, i.e. the SAME render path already browser-proven in the plan app.
- */
 export default defineConfig({
   testDir: ".",
   testMatch:

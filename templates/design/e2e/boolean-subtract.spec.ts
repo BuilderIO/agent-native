@@ -274,8 +274,6 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
       page.getByRole("heading", { name: "Stroke", exact: true }),
     ).toBeVisible();
 
-    // Duplicate while the new result is selected, then verify every cloned
-    // SVG mask id remains unique and locally resolvable.
     await page.keyboard.press(`${MOD}+d`);
     const duplicateFrame = designFrame(page, indexScreen.id);
     await expect(
@@ -306,7 +304,6 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
     });
     expect(refs).toEqual({ idsAreUnique: true, masksResolve: true });
 
-    // Undo the duplicate and then the Boolean operation, followed by redo.
     await page.keyboard.press(`${MOD}+z`);
     await expect(
       designFrame(page, indexScreen.id).locator(
@@ -354,9 +351,6 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
       .poll(async () => (await booleanMaskPixels(frame)).outside?.[3])
       .toBeLessThanOrEqual(129);
 
-    // Boolean results expose editable stroke paint. The group mask clips the
-    // doubled centerline stroke to its filled result, which is Figma's default
-    // inside alignment and also follows the subtraction edge.
     await layerRow(page, "Subtract").first().click();
     await page.getByRole("button", { name: "Add stroke", exact: true }).click();
     await setInspectorValue(page, "Weight", "4");
@@ -368,9 +362,6 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
       fullPage: true,
     });
 
-    // A rotated Boolean keeps its root transform while an operand moves on
-    // both axes through the real inspector. The rendered mask is rasterized
-    // without that outer rotation so the local cutout displacement is exact.
     await layerRow(page, "Subtract").first().click();
     await setInspectorValue(page, "Rotation", "45");
     await expect
@@ -593,9 +584,6 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
         .evaluate((root) => getComputedStyle(root).transform),
     ).not.toBe("none");
 
-    // The native shortcut must reach the editor through the focused preview
-    // iframe. Both operands are in this same Screen while the editor remains
-    // in overview mode.
     await expandAllLayers(page);
     await layerRow(page, "Hotkey Base").click();
     await layerRow(page, "Hotkey Cutter").click({ modifiers: ["Shift"] });
@@ -615,8 +603,6 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
       .poll(() => layerRow(page, "Subtract").last().textContent())
       .toContain("Subtract");
 
-    // Follow the native tutorial order: create the Boolean, then set its
-    // rotation and result radius through the inspector.
     const originalBounds = await shortcutRoot.boundingBox();
     expect(originalBounds?.width).toBeGreaterThan(0);
     await setInspectorValue(page, "Rotation", "45");
@@ -844,8 +830,6 @@ test("inside stroke follows exposed cutter edges without drawing overlap seams",
     expect(pixels.cutEdge?.[3]).toBeGreaterThan(0);
     expect(pixels.internalSeam?.[3]).toBe(0);
 
-    // A stroke edit on another Boolean in this file must not mutate this
-    // group's cutter outline variables.
     const initialContent = await designContent(page, designId, "index.html");
     const overlapStrokeBefore = booleanCutterStrokeMarkup(
       initialContent,

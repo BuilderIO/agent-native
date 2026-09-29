@@ -1,23 +1,4 @@
-/**
- * Server-side Sentry initialization for Nitro.
- *
- * Errors thrown inside Nitro routes (the framework's own /_agent-native/*
- * handlers, the template's API routes, action handlers, agent-chat streams)
- * never reach the CLI's Sentry init — that only covers the developer's
- * machine. Without server-side Sentry the only signal a 500 ever produces
- * is a server-side console.error that lives and dies with the request.
- *
- * This module is the third Sentry init point in the framework:
- *   - cli/index.ts          → @sentry/node, hardcoded DSN, "agent-native-cli"
- *   - client/analytics.ts   → @sentry/browser, VITE_SENTRY_CLIENT_DSN / runtime config
- *   - server/sentry.ts      → @sentry/node, SENTRY_SERVER_DSN / SENTRY_DSN
- *
- * The browser and server can share a Sentry project/DSN. Separate projects
- * are an operational choice for noise, ownership, or quotas; not a runtime
- * requirement.
- */
-import * as Sentry from "@sentry/node";
-
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import type { AuthSession } from "./auth.js";
 import {
   resolveDeployEnvironment,
@@ -30,7 +11,8 @@ import {
 import { getRequestContext } from "./request-context.js";
 import { resolveServerSentryDsn } from "./sentry-config.js";
 
-let _initStarted = false;
+let Sentry: typeof import("@sentry/node") | undefined;
+let _initPromise: Promise<boolean> | undefined;
 let _initSucceeded = false;
 
 function parseTracesSampleRate(): number {
@@ -41,19 +23,8 @@ function parseTracesSampleRate(): number {
   return n;
 }
 
-/**
- * Initialize server-side Sentry. Idempotent — safe to call from multiple
- * plugin entrypoints. Returns `true` if initialization actually happened
- * (DSN was set), `false` if Sentry is disabled (no DSN).
- *
- * No DSN is hardcoded: unlike the CLI (a published binary that always wants
- * to phone home crashes), the server runs in customer environments. Operators
- * set `SENTRY_SERVER_DSN` or the common `SENTRY_DSN` when they want their own
- * Sentry project to receive these events; without one the module no-ops.
- */
-export function initServerSentry(): boolean {
-  if (_initStarted) return _initSucceeded;
-  _initStarted = true;
+export function initServerSentry(): Promise<boolean> {
+  if (_initPromise) return _initPromise;
 
   const dsn = resolveServerSentryDsn();
   if (!dsn) {
@@ -62,86 +33,77 @@ export function initServerSentry(): boolean {
         "[agent-native] SENTRY_SERVER_DSN/SENTRY_DSN not set — server Sentry disabled.",
       );
     }
-    return false;
+    _initPromise = Promise.resolve(false);
+    return _initPromise;
   }
 
-  Sentry.init({
-    dsn,
-    environment: resolveDeployEnvironment(),
-    release: resolveServerRelease(),
-    tracesSampleRate: parseTracesSampleRate(),
-    // sendDefaultPii MUST stay false — the framework runs inside customer
-    // environments and we never want to silently ship request headers,
-    // cookies, or process.env contents to Sentry without explicit consent.
-    sendDefaultPii: false,
-    beforeSend(event) {
-      event.tags = {
-        ...event.tags,
-        deployment_environment: resolveDeployEnvironment(),
-      };
+  _initPromise = loadOptionalPeer("@sentry/node", () => import("@sentry/node"))
+    .then((sentry) => {
+      Sentry = sentry;
+      sentry.init({
+        dsn,
+        environment: resolveDeployEnvironment(),
+        release: resolveServerRelease(),
+        tracesSampleRate: parseTracesSampleRate(),
+        sendDefaultPii: false,
+        beforeSend(event) {
+          event.tags = {
+            ...event.tags,
+            deployment_environment: resolveDeployEnvironment(),
+          };
 
-      // Drop rules live in `error-noise-filter.ts` so every backend applies
-      // the same ones — they describe which server errors are non-bugs in
-      // this framework, not a Sentry preference.
-      if (!shouldReportErrorSignal(errorSignalFromSentryEvent(event))) {
-        return null;
-      }
+          if (!shouldReportErrorSignal(errorSignalFromSentryEvent(event))) {
+            return null;
+          }
 
-      // Defense in depth: scrub PII even if some integration auto-attached
-      // request metadata despite sendDefaultPii: false.
-      if (event.request) {
-        if (event.request.headers) {
-          const headers = event.request.headers as Record<string, string>;
-          for (const k of Object.keys(headers)) {
-            const lk = k.toLowerCase();
-            if (
-              lk === "cookie" ||
-              lk === "authorization" ||
-              lk === "set-cookie" ||
-              lk === "proxy-authorization"
-            ) {
-              delete headers[k];
+          if (event.request) {
+            if (event.request.headers) {
+              const headers = event.request.headers as Record<string, string>;
+              for (const k of Object.keys(headers)) {
+                const lk = k.toLowerCase();
+                if (
+                  lk === "cookie" ||
+                  lk === "authorization" ||
+                  lk === "set-cookie" ||
+                  lk === "proxy-authorization"
+                ) {
+                  delete headers[k];
+                }
+              }
+            }
+            delete (event.request as Record<string, unknown>).cookies;
+          }
+
+          if (event.user) {
+            const user = event.user as Record<string, unknown>;
+            delete user.ip_address;
+            const hasIdentity =
+              typeof user.id === "string" ||
+              typeof user.email === "string" ||
+              typeof user.username === "string";
+            if (!hasIdentity) {
+              delete event.user;
             }
           }
-        }
-        // Cookies live in their own field too.
-        delete (event.request as Record<string, unknown>).cookies;
-      }
 
-      // Keep user info that was explicitly set via Sentry.setUser
-      // (id/email/username) so we can attribute crashes back to a real
-      // operator. Always strip ip_address — auto-collected, no consent.
-      if (event.user) {
-        const user = event.user as Record<string, unknown>;
-        delete user.ip_address;
-        const hasIdentity =
-          typeof user.id === "string" ||
-          typeof user.email === "string" ||
-          typeof user.username === "string";
-        if (!hasIdentity) {
-          delete event.user;
-        }
-      }
+          if (event.contexts && typeof event.contexts === "object") {
+            delete (event.contexts as Record<string, unknown>).runtime_env;
+          }
 
-      // Sentry's contexts can carry process.env snapshots — strip env-shaped
-      // contexts so we don't leak deployment secrets.
-      if (event.contexts && typeof event.contexts === "object") {
-        delete (event.contexts as Record<string, unknown>).runtime_env;
-      }
-
-      return event;
-    },
-  });
-
-  _initSucceeded = true;
-  return true;
+          return event;
+        },
+      });
+      _initSucceeded = true;
+      return true;
+    })
+    .catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`[agent-native] Server Sentry disabled: ${detail}`);
+      return false;
+    });
+  return _initPromise;
 }
 
-/**
- * `true` once `initServerSentry()` has succeeded with a DSN. Plugins that
- * want to skip work when Sentry is disabled can check this before calling
- * the helpers below.
- */
 export function isServerSentryEnabled(): boolean {
   return _initSucceeded;
 }
@@ -159,7 +121,7 @@ export function isServerSentryEnabled(): boolean {
  * never throws into the request path.
  */
 export function setSentryUserForRequest(session: AuthSession | null): void {
-  if (!_initSucceeded) return;
+  if (!_initSucceeded || !Sentry) return;
   try {
     const scope = Sentry.getIsolationScope();
     if (!session) {
@@ -182,24 +144,11 @@ export function setSentryUserForRequest(session: AuthSession | null): void {
   }
 }
 
-/**
- * Pin a user/org onto the current isolation scope from a lighter
- * `RequestContext`-shaped payload. Used by the request-context observer so
- * action handlers, agent-chat runs, and integration webhook processors —
- * all of which already wrap their work in `runWithRequestContext({ userEmail,
- * orgId, ... })` — automatically tag Sentry events with the right user even
- * when the Nitro `request` hook didn't see a cookie (e.g. webhook delivery,
- * A2A calls, internal background runs).
- *
- * Skips overwriting a richer user identity already set by
- * `setSentryUserForRequest` — the cookie-resolved session has
- * userId/username on top of email, which we shouldn't clobber.
- */
 export function setSentryRequestContext(ctx: {
   userEmail?: string;
   orgId?: string;
 }): void {
-  if (!_initSucceeded) return;
+  if (!_initSucceeded || !Sentry) return;
   try {
     const scope = Sentry.getIsolationScope();
     if (ctx.userEmail) {
@@ -216,16 +165,6 @@ export function setSentryRequestContext(ctx: {
   }
 }
 
-/**
- * Capture an error from one of the auth attempt routes (login / signup)
- * with the email pinned to the event so support can filter by user. Sets
- * Sentry level to `warning` (not `error`) — bad-password attempts aren't
- * actionable, but a sustained spike of warnings on a route IS the signal
- * we care about.
- *
- * Caller should still return their normal HTTP response (401/409/etc.);
- * this just records the error for observability.
- */
 export function captureAuthError(
   error: unknown,
   context: {
@@ -241,21 +180,21 @@ export function captureAuthError(
       // for the specific sub-path.
       | "better-auth";
     email?: string;
-    /** The specific request path, for the `"better-auth"` catch-all route. */
     path?: string;
   },
 ): string | undefined {
   if (getRequestContext()?.isSyntheticTraffic) return undefined;
-  if (!_initSucceeded) return undefined;
+  if (!_initSucceeded || !Sentry) return undefined;
+  const sentry = Sentry;
   try {
-    return Sentry.withScope((scope) => {
+    return sentry.withScope((scope) => {
       scope.setLevel("warning");
       scope.setTag("auth", context.route);
       if (context.path) scope.setTag("path", context.path);
       if (context.email) {
         scope.setUser({ id: context.email, email: context.email });
       }
-      return Sentry.captureException(error);
+      return sentry.captureException(error);
     });
   } catch {
     return undefined;
@@ -263,42 +202,23 @@ export function captureAuthError(
 }
 
 export interface RouteErrorContext {
-  /** The full request path (e.g. `/_agent-native/agent-chat`). */
   route?: string;
-  /** HTTP method (e.g. `GET`, `POST`). */
   method?: string;
-  /** Caller's `User-Agent` header. */
   userAgent?: string;
-  /** Free-form extra tags to add to the event (low-cardinality). */
   tags?: Record<string, string | undefined>;
-  /**
-   * High-cardinality / structured payload — not searchable but visible in
-   * the Sentry event detail (recording IDs, byte counts, compression
-   * metadata, response body tails, etc.).
-   */
   extra?: Record<string, unknown>;
-  /**
-   * Grouped contexts shown as separate cards in the Sentry event UI.
-   */
   contexts?: Record<string, Record<string, unknown>>;
 }
 
-/**
- * Capture an exception that surfaced in a Nitro route handler with the
- * request's route/method/userAgent attached as searchable Sentry tags.
- *
- * Non-throwing: if Sentry isn't initialized or the underlying capture
- * fails, this is a no-op. Returns the Sentry event ID when capture
- * succeeded, otherwise `undefined`.
- */
 export function captureRouteError(
   error: unknown,
   context: RouteErrorContext = {},
 ): string | undefined {
   if (getRequestContext()?.isSyntheticTraffic) return undefined;
-  if (!_initSucceeded) return undefined;
+  if (!_initSucceeded || !Sentry) return undefined;
+  const sentry = Sentry;
   try {
-    return Sentry.withScope((scope) => {
+    return sentry.withScope((scope) => {
       if (context.route) scope.setTag("route", context.route);
       if (context.method) scope.setTag("method", context.method);
       if (context.userAgent) scope.setTag("userAgent", context.userAgent);
@@ -317,7 +237,7 @@ export function captureRouteError(
           scope.setContext(k, v);
         }
       }
-      return Sentry.captureException(error);
+      return sentry.captureException(error);
     });
   } catch {
     return undefined;

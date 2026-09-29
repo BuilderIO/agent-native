@@ -1,12 +1,15 @@
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { isImageRecording } from "@shared/recording-kind";
+import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
   IconLock,
   IconWorld,
   IconUsersGroup,
+  IconPhoto,
   IconPlayerPlay,
   IconShare,
   IconFolder,
@@ -47,7 +50,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
@@ -124,10 +126,6 @@ export function RecordingCard({
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
-  // A thumbnail URL that is present but does not load — the row still carries
-  // one while a redaction burn is pending, and that request is held back — put
-  // the card back on the placeholder it uses when there is no thumbnail at
-  // all, rather than leaving a broken image box in the grid.
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
@@ -155,7 +153,10 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
-  const showPlaybackChrome = !displayFailed && !waitingForStorage;
+  // A screenshot has nothing to play and no length to show, so the card drops
+  // the play overlay and the duration badge rather than claiming "0:00".
+  const isImage = isImageRecording(recording);
+  const showPlaybackChrome = !displayFailed && !waitingForStorage && !isImage;
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
@@ -319,9 +320,11 @@ export function RecordingCard({
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-                {showPlaybackChrome && (
+                {isImage ? (
+                  <IconPhoto className="h-10 w-10 text-primary/40" />
+                ) : showPlaybackChrome ? (
                   <IconPlayerPlay className="h-10 w-10 text-primary/40" />
-                )}
+                ) : null}
               </div>
             )}
 

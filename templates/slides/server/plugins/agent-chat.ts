@@ -7,7 +7,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
-import { deckVersionChatContextFromRun } from "../lib/deck-versions.js";
+import {
+  createDeckChatBeginningSnapshot,
+  deckVersionChatContextFromRun,
+} from "../lib/deck-versions.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -15,6 +18,7 @@ const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "get-layout-overflows",
+  "audit-contrast",
   "list-decks",
   "get-deck",
   "get-design-system",
@@ -44,11 +48,7 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
-  // Read-only; the selected-text edit rule in mcp.instructions depends on it.
   "view-screen",
-  // Pairs with view-screen: an external agent that can read the screen but
-  // cannot move it has to drive the browser to change screens, which is the
-  // UI automation the WebMCP contract exists to avoid.
   "navigate",
   "list-decks",
   "get-deck",
@@ -138,6 +138,7 @@ async function autosaveDeckAfterAgentTurn(
   },
 ): Promise<void> {
   if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
+  if (!run.threadId || !run.runId) return;
 
   const access = await assertAccess("deck", scope.id, "editor");
   const deck = access.resource as {
@@ -147,15 +148,35 @@ async function autosaveDeckAfterAgentTurn(
     ownerEmail: string;
   };
   const { createDeckVersionSnapshot } = await import("../lib/deck-versions.js");
+  const chatContext = deckVersionChatContextFromRun(run);
   await createDeckVersionSnapshot(deck, {
     force: true,
     label: "Chat autosave",
-    chatContext: deckVersionChatContextFromRun(run),
+    chatContext: chatContext ? { ...chatContext, phase: "end" } : undefined,
+  });
+}
+
+async function autosaveDeckBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  if (scope.type !== "deck" || !run.threadId || !run.runId) return;
+  const access = await assertAccess("deck", scope.id, "editor");
+  const deck = access.resource as {
+    id: string;
+    title: string;
+    data: string;
+    ownerEmail: string;
+  };
+  await createDeckChatBeginningSnapshot(deck, {
+    threadId: run.threadId,
+    runId: run.runId,
   });
 }
 
 export default createAgentChatPlugin({
   appId: "slides",
+  onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
@@ -164,37 +185,24 @@ export default createAgentChatPlugin({
     instructions:
       "Latest-message rule: a newer user message or correction supersedes unresolved earlier work. Before any write after a correction or ambiguous target, call view-screen again and use its slide/selection IDs; never infer a slide from semantic wording or prior tool output. If update-slide rejects a stale target, do not retry that slideId — re-read view-screen and rebase once. " +
       "Cross-slide selection rule: when view-screen returns selectionSlideId different from currentSlideId, use selectionSlideId and selectionSlideContentHash for the update; never pair a selectionSlideId with currentSlideContentHash. " +
-      'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. Before the first slide you author in a deck, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions (create-deck already returns it in full); reuse it for every later slide instead of re-reading it. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash when available; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId and the same hash when available instead of fetching the full deck. For every content-only request, preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling; change only the requested text or content value with a bounded edit. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Before a multi-slide content patch, make one get-deck read with compact=false; use slideIds when target IDs are known, otherwise read the full deck once. Send each matching contentHash as baseContentHash in the same patch-deck call. Set styleOnly=true for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. After the write, verify once with get-deck slideIds and compact=false; do not read back each slide after per-slide writes. Use update-slide for one targeted slide. Read it back once; delegated ask_app output remains unverified until persisted state confirms it.',
+      'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. For a selected or retrieved designSystem with scope summary, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions; reuse it instead of re-reading it. For a short generated deck, pass every slide to one create-deck call using design-system context already available. When create-deck is called with slides: [], apply its returned full agentContext before adding slides. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash when available; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId and the same hash when available instead of fetching the full deck. For every content-only request, preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling; change only the requested text or content value with a bounded edit. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Before a multi-slide content patch, make one get-deck read with compact=false; use slideIds when target IDs are known, otherwise read the full deck once. Send each matching contentHash as baseContentHash in the same patch-deck call. Set styleOnly=true for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. After the write, verify once with get-deck slideIds and compact=false; do not read back each slide after per-slide writes. Use update-slide for one targeted slide. Read it back once; delegated ask_app output remains unverified until persisted state confirms it.',
   },
   externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   a2aAgentDelegation: true,
-  // Customer and product activity data belongs to Analytics. Keep raw DB
-  // tools out of both the interactive and A2A Slides agent surfaces so the
-  // agent cannot bypass the Analytics data dictionary with local SQL.
   frameworkTools: { database: "off" },
-  // Enable sandboxed JavaScript execution so Slides agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Google Drive endpoint.
   codeExecution: { production: "sandboxed" },
-  // Upload routes and action routes must use the same session/org resolver.
-  // Reading getOrgContext directly here skipped the upload route's session
-  // fallback and could reject a freshly uploaded reference after a transient
-  // org lookup or active-org transition.
   resolveOrgId: async (event) => {
     const authContext = await resolveSlidesRequestAuthContext(event);
     return authContext.orgId === undefined ? null : authContext.orgId;
   },
-  // Guest access requests authenticate with a signed deck capability and the
-  // requester email, so this action must reach its own validation without a
-  // browser session.
   actionRoutePublicPaths: [
     "/_agent-native/actions/get-deck-access-status",
     "/_agent-native/actions/request-deck-access",
   ],
   prepareRequest: prepareSlidesChatAttachments,
-  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. A request to create or generate a presentation starts a new deck even when chat is scoped to an open deck or follows an earlier creation request; edit the open deck only when the user asks to change it. For a newly created presentation, use create-deck with slides: [] only when you are creating the deck yourself, then add every generated slide sequentially with full rendered HTML so each write preserves per-slide Creative Context provenance. Use patch-deck for deck fields, ordering, or multi-slide edits; before a multi-slide content patch, make one get-deck compact=false read of every target's full source and contentHash, using slideIds when target IDs are known and reading the full deck once when they are not. Send each matching hash as baseContentHash in one patch-deck call. Set styleOnly=true only when the requested batch changes CSS while preserving text, markup, element order, and protected layout CSS. Verify once after the batch by reading the same slideIds with compact=false. Use update-slide for one targeted slide or when active editing needs per-slide content hashes. Never issue parallel writes to the same deck. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow. When speaker notes are requested, keep presenter-only text in each slide's notes field rather than the slide HTML, and preserve notes during source-preserving edits.
+  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. A request to create or generate a presentation starts a new deck even when chat is scoped to an open deck or follows an earlier creation request; edit the open deck only when the user asks to change it. For a short, fully planned presentation, pass every slide to one create-deck call. For long or live in-app generation, create the deck with slides: [] and add slides sequentially as they are authored so each write preserves per-slide Creative Context provenance. Use patch-deck for deck fields, ordering, or multi-slide edits; before a multi-slide content patch, make one get-deck compact=false read of every target's full source and contentHash, using slideIds when target IDs are known and reading the full deck once when they are not. Send each matching hash as baseContentHash in one patch-deck call. Set styleOnly=true only when the requested batch changes CSS while preserving text, markup, element order, and protected layout CSS. Verify once after the batch by reading the same slideIds with compact=false. Use update-slide for one targeted slide or when active editing needs per-slide content hashes. Never issue parallel writes to the same deck. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow. When speaker notes are requested, keep presenter-only text in each slide's notes field rather than the slide HTML, and preserve notes during source-preserving edits.
 
 Explicit source import rule: an attachment is reference context by default and must not write slides just because it was provided. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call view-screen when the deckId is not already known, then call import-file with the persisted filePath, matching format, deckId, and importIntoDeck: true. This is the deterministic Slides conversion path and returns imported: true with a slide count; do not use extraction-only import-file and recreate the pages with add-slide. Use import-pptx with deckId only when the user explicitly asks to replace the current deck, because that action replaces all slides. For a Google Slides URL, call import-google-slides-reference with presentationUrl; it deterministically exports and parses the presentation into a new editable Slides deck. The Import from controls and these explicit requests are the only import triggers.
 
@@ -263,11 +271,13 @@ format=true on update-slide when readable line breaks should be persisted. Use
 fullContent only for an intentional full rewrite. Pass compact=true when you
 only need a lightweight check of that slide. Content writes return immediately
 after persistence with layoutFit.status=pending, the resulting content hash,
-and a write-specific layoutFitRevision. Do not wait for or loop on fit checks;
-continue independent slide edits. Before a same-slide follow-up or a final
-layout claim, call get-layout-overflows once and use only measurements whose
-contentHash and layoutFitRevision match the latest write. Unknown means the
-browser has not reported yet, not that the slide fits.
+and a write-specific layoutFitRevision. Do not wait for fit checks between
+writes. Finish all slide edits, then call get-layout-overflows once for final
+verification. If you repair a measured overflow, call it once more after the
+repair. Use only measurements whose contentHash and layoutFitRevision match the
+latest write. Unknown means the browser has not reported yet, not that the
+slide fits; list the unmeasured slides and do not call again this turn unless a
+new editor measurement has arrived.
 
 For click-to-reveal animations, keep the slide HTML as the visual source and store reveals only in the slide's animations metadata. Read the target slide's full HTML, preserve its existing structure, and patch the complete ordered animations list with elementPath values from that final HTML. Leave labels and headings visible by omitting them from the list. Never simulate reveals by adding duplicate elements, visibility:hidden, fmd-layout-spacer, fmd-freeform-object, absolute positioning, transforms, or placeholder markup. If content and reveals both change, send them together in one patch-deck patch-slide operation. If a user asks to remove or revert reveals, send the existing content with animations: [], then re-read the slide; do not use a simplified replacement or rely on update-slide text alone.
 
@@ -275,10 +285,12 @@ When the active Slides editor is already showing the deck you just changed, do n
 
 For source-faithful PDF slides, keep whatever the import produced — positioned text boxes and images for a page that carried them, the page image for one that did not — and style around it with restrained design-system chrome such as a frame, edge treatment, caption, or safe overlay; never replace an imported slide with a retyped approximation of its text. For PPTX slides, preserve the imported positioned HTML and every uploaded source image. The patch-deck and update-slide actions enforce these preservation rules by default; pass preserveSource=false only when the user explicitly requests a rewrite of that slide.
 
-For new decks, resolve precedence in this order: an explicit designSystemId or exact-title designSystem wins, then the caller's personal default, then the workspace default; create-deck applies this itself. Call get-design-system once before the first slide you author, then reuse it. For an existing deck, get-deck's designSystem and deckStyle are the source of truth. For an unlinked deck where the user asks for on-brand styling, call get-workspace-defaults, link its usable design system with patch-deck, then call get-design-system once. When no design system or measured reference is available, establish a deliberate deck-level visual contract before writing slide HTML: thesis and audience, one background family, text/surface/accent roles, type pairing, spacing scale, radius, and image treatment. Record the contract as semantic --deck-* custom properties on each fmd-slide wrapper and keep those values fixed across the deck. Never alternate light and dark canvases, swap fonts or palettes per slide, or import a provider/brand look by default. Vary composition, rhythm, and information hierarchy instead. Apply the Impeccable-inspired quality bar as a review lens: clear hierarchy, subtraction, contrast, purposeful whitespace, meaningful visuals, realistic copy, and no decorative card grid, gradient text, glass panel, fake logo, or filler bullet. Every slide still needs intentional composition - for example a labeled title block, a two-column split, a metric treatment, a rule, a callout, a visual placeholder, or a simple diagram - not an unstyled text dump. Never omit the padded fmd-slide wrapper or let body copy touch the canvas edge.
+For new decks, resolve precedence in this order: an explicit designSystemId or exact-title designSystem wins, then the caller's personal default, then the workspace default; create-deck applies this itself. If the user selected a design system or get-workspace-defaults returned one, call get-design-system once before authoring and reuse it. Otherwise, rely on create-deck to attach the default; when using the empty-deck workflow, use its returned agentContext before adding slides. For an existing deck, get-deck's designSystem and deckStyle are the source of truth. For an unlinked deck where the user asks for on-brand styling, call get-workspace-defaults, link its usable design system with patch-deck, then call get-design-system once. When no design system or measured reference is available, establish a deliberate deck-level visual contract before writing slide HTML: thesis and audience, one background family, text/surface/accent roles, type pairing, spacing scale, radius, and image treatment. Record the contract as semantic --deck-* custom properties on each fmd-slide wrapper and keep those values fixed across the deck. Never alternate light and dark canvases, swap fonts or palettes per slide, or import a provider/brand look by default. Vary composition, rhythm, and information hierarchy instead. Apply the Impeccable-inspired quality bar as a review lens: clear hierarchy, subtraction, contrast, purposeful whitespace, meaningful visuals, realistic copy, and no decorative card grid, gradient text, glass panel, fake logo, or filler bullet. Every slide still needs intentional composition - for example a labeled title block, a two-column split, a metric treatment, a rule, a callout, a visual placeholder, or a simple diagram - not an unstyled text dump. Never omit the padded fmd-slide wrapper or let body copy touch the canvas edge.
 When adding slides to an existing deck, first read get-deck and match the established visual treatment - background, foreground, typography, spacing, and component language - unless the user explicitly asks to change the theme. Never default continuation slides to a new white or dark theme.
 
-Layout-fit workflow is strict. After creating or structurally rewriting slides, verify their layout in the same turn even when the user did not explicitly ask about overflow. At the final verification point, call get-layout-overflows once and use only measurements whose contentHash and layoutFitRevision match the current persisted slides. If measurements are unknown, do not claim the deck fits. For each measured overflow, read that slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded structural repair pass with one patch-slide operation per affected slide in a single patch-deck call. Wait for the repair action result and verify the persisted HTML with get-deck slideId=<id> compact=true before saying it is fixed. If a fresh measurement still reports overflow, make at most one focused follow-up repair based on that measurement; never loop, repeatedly re-measure, or claim success after a chat response alone. When the user asks to fix an existing overflow, first call view-screen and inspect the deck-wide layout-fit section, then follow this same bounded workflow.
+Layout-fit workflow is strict. After creating or structurally rewriting slides, finish the deck edits, then call get-layout-overflows once in the same turn even when the user did not ask about overflow. Use only measurements whose contentHash and layoutFitRevision match the current persisted slides. If any slide is unknown, name its slide number and ID, do not claim the deck fits, and do not recheck this turn unless the editor has produced a new measurement. For each measured overflow, read that slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded repair pass with one patch-slide operation per affected slide in a single patch-deck call. Wait for the repair result, verify persisted HTML with get-deck slideId=<id> compact=true, then call get-layout-overflows once more. If overflow remains after that recheck, report it and stop; do not repair or measure repeatedly. When the user asks to fix an existing overflow, first call view-screen and inspect the deck-wide layout-fit section, then follow this same bounded workflow.
+
+Contrast verification is the last step of any turn that created or changed slides, even when the user did not ask about contrast. After every other edit, including layout-fit repairs, and right before the final response, call audit-contrast once for the deck. If it cannot run because the deck is not open in the editor, say contrast was not checked instead of claiming it passes. For contrast, readability, or accessibility questions about text color, call audit-contrast instead of computing ratios from hex values yourself; hand-computed ratios miss overlays, inherited colors, and design-system tokens as rendered. Fix failures in one bounded pass by adjusting the deck's color role (--deck-muted, --deck-ink, a surface) rather than recoloring one element, audit once more, then report what remains. Every replacement color must match the deck's theme: when a design system is linked, choose a passing color from that system's own palette, and if none passes, keep the token and report it rather than inventing a color; otherwise reuse a color already in the deck or shift the failing color's lightness while keeping its hue. Never introduce an unrelated hue to pass contrast. Claim the deck passes only when canClaimContrastPasses is true; report unverified text and skipped slides as not checked. If slides come back skipped as stale-render, call audit-contrast once more before reporting. Remaining unverified text sits over an image, gradient, or visual effect; name those slides and objects, and do not call them risky or fine without a measurement.
 
 Fit means the main content fits the native content area. A small outer-wrapper spill is tolerated by the measurement, but cards, text, columns, and other visible content must fit. Never use zoom, transform: scale(), overflow: hidden/scroll, clipping, or a smaller-than-16px body font to hide overflow. Preserve manually positioned freeform objects and their data-slide-object-id values; repair normal-flow structure, copy, gaps, or slide padding instead. A successful action result must include the affected slide IDs; if it does not, report that no verified write occurred.
 
@@ -301,8 +313,6 @@ When a Google Drive or Google Slides request needs authentication, tell the user
         search: async (query: string) => {
           const db = getDb();
           const access = accessFilter(decks, deckShares);
-          // Project only id/title — decks.data is the full deck JSON (every
-          // slide) and must not be pulled into this per-keystroke search.
           const mentionColumns = { id: decks.id, title: decks.title };
           const rows = query
             ? await db

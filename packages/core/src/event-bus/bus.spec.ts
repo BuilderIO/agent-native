@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   __resetEventBus,
   emit,
+  emitAsync,
   listSubscriptions,
   subscribe,
   unsubscribe,
@@ -14,7 +15,6 @@ describe("event-bus", () => {
   beforeEach(() => {
     __resetEventBus();
     __resetEventRegistry();
-    // Silence the bus's intentional console warnings/errors for negative paths.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -44,7 +44,6 @@ describe("event-bus", () => {
       expect(typeof meta.eventId).toBe("string");
       expect(meta.eventId.length).toBeGreaterThan(0);
       expect(typeof meta.emittedAt).toBe("string");
-      // emittedAt is an ISO timestamp.
       expect(Number.isNaN(Date.parse(meta.emittedAt))).toBe(false);
     });
 
@@ -64,7 +63,6 @@ describe("event-bus", () => {
       emit("e", {});
 
       expect(handler).not.toHaveBeenCalled();
-      // Second unsubscribe of the same id is a no-op false.
       expect(unsubscribe(id)).toBe(false);
       expect(listSubscriptions("e")).toHaveLength(0);
     });
@@ -108,6 +106,49 @@ describe("event-bus", () => {
 
       expect(order).toEqual([1, 2, 3]);
     });
+
+    it("awaits all handlers and preserves a caller-supplied event id", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const received: string[] = [];
+      subscribe("queued.event", async (_payload, meta) => {
+        await gate;
+        received.push(meta.eventId);
+      });
+      subscribe("queued.event", async (_payload, meta) => {
+        received.push(meta.eventId);
+      });
+
+      let settled = false;
+      const emission = emitAsync(
+        "queued.event",
+        { ok: true },
+        { eventId: "stable-event-1", owner: "alice@example.com" },
+      ).then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      release();
+      await emission;
+
+      expect(received).toEqual(["stable-event-1", "stable-event-1"]);
+    });
+
+    it("rejects when a handler fails to accept an awaited event", async () => {
+      const accepted = vi.fn();
+      subscribe("queued.failure", async () => {
+        throw new Error("queue unavailable");
+      });
+      subscribe("queued.failure", accepted);
+
+      await expect(
+        emitAsync("queued.failure", {}, { eventId: "retry-me" }),
+      ).rejects.toThrow(/failed to accept/);
+      expect(accepted).toHaveBeenCalledOnce();
+    });
   });
 
   describe("handler error isolation", () => {
@@ -132,7 +173,6 @@ describe("event-bus", () => {
 
       expect(() => emit("e", {})).not.toThrow();
       expect(after).toHaveBeenCalledTimes(1);
-      // Let the rejected microtask settle so the .catch runs.
       await Promise.resolve();
       await Promise.resolve();
       expect(console.error).toHaveBeenCalledWith(
@@ -152,7 +192,6 @@ describe("event-bus", () => {
       emit("e", {});
       expect(late).not.toHaveBeenCalled();
 
-      // But it does run on the next emission.
       emit("e", {});
       expect(late).toHaveBeenCalledTimes(1);
     });
@@ -167,10 +206,8 @@ describe("event-bus", () => {
       secondId = subscribe("e", () => calls.push("second"));
 
       emit("e", {});
-      // "second" was in the snapshot taken before dispatch, so it still fires.
       expect(calls).toEqual(["first", "second"]);
 
-      // On the next emission "second" is gone.
       calls.length = 0;
       emit("e", {});
       expect(calls).toEqual(["first"]);
@@ -230,7 +267,6 @@ describe("event-bus", () => {
       registerEvent({
         name: "async.event",
         description: "test",
-        // A schema whose validate() returns a Promise — unsupported path.
         payloadSchema: {
           "~standard": {
             version: 1,
@@ -244,7 +280,6 @@ describe("event-bus", () => {
 
       emit("async.event", { raw: 1 });
 
-      // Falls through to dispatching the original (unvalidated) payload.
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler.mock.calls[0][0]).toEqual({ raw: 1 });
       expect(console.warn).toHaveBeenCalledWith(

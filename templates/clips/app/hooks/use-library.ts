@@ -2,18 +2,20 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import type { RecordingKind } from "@shared/recording-kind";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
 export interface RecordingSummary {
   id: string;
-  /** Redaction boxes drawn but not yet burned into the file. */
   pendingRedactions?: number;
   title: string;
   titleSource?: "default" | "context" | "upload" | "ai" | "manual";
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   description: string;
+  /** "image" rows are screenshots: no duration, no transcript, no player. */
+  kind: RecordingKind;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   durationMs: number;
@@ -45,6 +47,8 @@ export interface RecordingSummary {
 
 export interface ListRecordingsArgs {
   view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" is the Screenshots view; omitted means clips and screenshots. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -73,10 +77,6 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
-      // Keep a short poll only while uploads/processors are active so the
-      // library card does not get stuck if the global refresh signal is
-      // missed. Generated titles arrive through the shared DB sync transport;
-      // polling completed recordings forever is both redundant and expensive.
       refetchInterval: (q) => {
         const recs = (q.state.data as any)?.recordings as
           | RecordingSummary[]
@@ -87,12 +87,6 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
   );
 }
 
-/**
- * Count-only variant for surfaces like the sidebar badge that need a total but
- * not the rows. Hits `list-recordings` with `countOnly`, so it skips the row
- * payload server-side and doesn't share (or pay for) the full-list query or its
- * title polling.
- */
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
 ) {
@@ -163,6 +157,22 @@ export function useCreateSpace() {
   >("create-space");
 }
 
+export function useCreateScreenshot() {
+  return useActionMutation<
+    { id: string; kind: "image"; imageUrl: string | null },
+    {
+      dataUrl: string;
+      width: number;
+      height: number;
+      title?: string;
+      sourceAppName?: string | null;
+      sourceWindowTitle?: string | null;
+      folderId?: string | null;
+      spaceIds?: string[];
+    }
+  >("create-screenshot");
+}
+
 export function useRenameFolder() {
   return useActionMutation<any, { id: string; name: string }>("rename-folder");
 }
@@ -210,19 +220,11 @@ export function useTagRecording() {
   >("tag-recording");
 }
 
-// ── Folders / spaces / organizations ──────────────────────────────────────────
-// Derived from `list-organization-state` which ships with the template. All
-// three hooks hit the same endpoint and slice.
-
 export function useOrganizationState(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
   const enabled = options.enabled ?? true;
-  // Callers usually pass the id they just read from the active-org result, so
-  // an explicit `{ organizationId }` key would refetch the same org as a
-  // second, serial request. Serve the active query unless a different org is
-  // asked for.
   const active = useActionQuery<any>("list-organization-state", undefined, {
     enabled,
   });
@@ -260,11 +262,6 @@ export interface FolderPathEntry {
   name: string;
 }
 
-/**
- * Walks `parentId` from `folderId` up to the root, returning ancestors first
- * and the folder itself last. Guards against a parentId cycle so a bad row
- * can't hang the breadcrumb in an infinite loop.
- */
 export function getFolderAncestorPath(
   folders: readonly { id: string; name: string; parentId?: string | null }[],
   folderId: string | undefined,
@@ -294,9 +291,6 @@ export function useSpaces(
 }
 
 export function useOrganizations(options: { enabled?: boolean } = {}) {
-  // list-organization-state only returns the current organization. We surface
-  // it as a single-item list so the switcher has something to render; the
-  // framework team will replace this with a proper `list-organizations` later.
   const { data, isLoading } = useOrganizationState(undefined, options);
   const organizations = data?.organization ? [data.organization] : [];
   return {

@@ -19,8 +19,10 @@ export const APP_ACTION_MENU_CONTENT_CLASS = "w-48";
 export interface AppOpenActionLabels {
   addApp: string;
   openApp: string;
+  openAppAccessible?: string;
   openInline: string;
   openInNewTab: string;
+  moreOptions?: string;
 }
 
 export interface AppOpenActionMenuItem {
@@ -96,7 +98,11 @@ export function AppOpenActions({
         disabled={!canOpen}
         onClick={onOpen}
         type={primaryUsesHref ? undefined : "button"}
-        aria-label={!primaryUsesHref ? `Open ${name}` : undefined}
+        aria-label={
+          !primaryUsesHref
+            ? (labels.openAppAccessible ?? `Open ${name}`)
+            : undefined
+        }
       >
         {primaryUsesHref ? (
           <a href={href ?? undefined} target={target} rel={rel}>
@@ -114,7 +120,7 @@ export function AppOpenActions({
               size="sm"
               variant="outline"
               className="app-open-actions__menu size-7 rounded-none border-0 p-0 text-xs"
-              aria-label={`Open options for ${name}`}
+              aria-label={labels.moreOptions ?? `Open options for ${name}`}
             >
               <IconChevronDown size={15} />
             </Button>

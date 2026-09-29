@@ -1,8 +1,3 @@
-/**
- * Localized strings for ResponsiveInteractBar — the responsive Interact
- * mode's device/zoom chrome bar.
- * Used in: app/components/design/ResponsiveInteractBar.tsx.
- */
 export const responsiveInteractOverrides = {
   "en-US": {
     designEditor: {

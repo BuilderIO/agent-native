@@ -34,6 +34,10 @@ const messages = {
     pinChat: "Fixar chat",
     pinned: "Fixados",
     recents: "Recentes",
+    retryPreviousRequest:
+      "Tente novamente minha solicitação anterior agora que o provedor do modelo está conectado.",
+    retryAttachmentUnavailable:
+      "O Chat não consegue reabrir este anexo para tentar novamente. Adicione uma URL de arquivo acessível e tente outra vez.",
     renameChat: "Renomear chat",
     renameFailed: "Falha ao renomear",
     renameThread: "Renomear conversa",

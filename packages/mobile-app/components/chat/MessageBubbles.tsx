@@ -1,3 +1,4 @@
+import { normalizeConnectRequiredResult } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -6,6 +7,7 @@ import {
   IconCopy,
   IconDots,
   IconExternalLink,
+  IconPlugConnected,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +24,7 @@ import { messageText } from "@/lib/agent-chat/types";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 import { MarkdownText } from "./MarkdownText";
+import { NativeInteractiveResult } from "./NativeInteractiveResult";
 import { ShineText } from "./ShineText";
 import { MessageContext } from "./StreamingFade";
 import { ToolCallCard } from "./ToolCallCard";
@@ -36,10 +39,13 @@ function formatTime(timestamp: number): string {
 export const UserMessage = memo(function UserMessage({
   message,
   animateIn,
+  onActions,
 }: {
   message: ChatMessage;
   animateIn: boolean;
+  onActions?: (message: ChatMessage) => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const images = message.parts.filter((part) => part.type === "image");
   const text = messageText(message);
   const bubble = (
@@ -61,6 +67,21 @@ export const UserMessage = memo(function UserMessage({
             </Text>
           </View>
         )}
+        {onActions ? (
+          <View className="flex-row items-center gap-1.5 self-end">
+            <Pressable
+              className="p-1 active:opacity-75"
+              onPress={() => onActions(message)}
+              accessibilityRole="button"
+              accessibilityLabel="Message actions"
+            >
+              <IconDots color={mutedForeground} size={16} strokeWidth={2} />
+            </Pressable>
+            <Text className="text-status-gray text-[11px]">
+              {formatTime(message.createdAt)}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -72,10 +93,6 @@ export const UserMessage = memo(function UserMessage({
   );
 });
 
-/**
- * Web-parity reasoning cell: open and labelled "Thinking" while the thought
- * streams, auto-collapses to "Thought" when the stream moves on.
- */
 function ReasoningPart({
   text,
   streaming,
@@ -138,22 +155,82 @@ function ReasoningPart({
   );
 }
 
+function connectionRequestForToolCall(
+  part: Extract<ChatContentPart, { type: "tool-call" }>,
+): Extract<ChatContentPart, { type: "connection-request" }> | null {
+  if (!part.resultText) return null;
+  let result: unknown;
+  try {
+    result = JSON.parse(part.resultText) as unknown;
+    // coercion-ok: Plain-text tool output cannot define a structured native connection card.
+  } catch {
+    return null;
+  }
+
+  const connectRequired = normalizeConnectRequiredResult(result);
+  if (connectRequired) {
+    return {
+      type: "connection-request",
+      id: part.toolCallId,
+      provider: connectRequired.providerLabel,
+      reason: connectRequired.reason,
+      detail: connectRequired.reason,
+    };
+  }
+
+  const card = result as Record<string, unknown> | null;
+  if (
+    !card ||
+    typeof card !== "object" ||
+    card.kind !== "connect-builder-card"
+  ) {
+    return null;
+  }
+  return {
+    type: "connection-request",
+    id: part.toolCallId,
+    provider: "Builder.io",
+    detail:
+      typeof card.prompt === "string" && card.prompt.trim()
+        ? card.prompt.trim()
+        : undefined,
+  };
+}
+
 function AssistantPart({
   part,
   streaming,
+  canChat,
   durationMs,
   embedded = false,
   onApprove,
   onDeny,
+  onOpenConnections,
+  onContinueAfterConnection,
+  onInvokeWidgetAction,
 }: {
   part: ChatContentPart;
-  /** True while this part is the live tail of a streaming message. */
   streaming: boolean;
+  canChat: boolean;
   durationMs?: number | null;
   embedded?: boolean;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
+  onOpenConnections?: () => void;
+  onContinueAfterConnection?: (requestId: string, provider: string) => void;
+  onInvokeWidgetAction?: (
+    widgetId: string,
+    action: string,
+    payload?: unknown,
+  ) => Promise<void>;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
+  const connectionRequest =
+    part.type === "connection-request"
+      ? part
+      : part.type === "tool-call"
+        ? connectionRequestForToolCall(part)
+        : null;
   if (part.type === "text") return <MarkdownText text={part.text} />;
   if (part.type === "reasoning") {
     return (
@@ -175,28 +252,215 @@ function AssistantPart({
       />
     );
   }
+  if (connectionRequest) {
+    const provider = connectionRequest.provider.trim() || "this integration";
+    const connecting = connectionRequest.status === "connecting";
+    const connected = connectionRequest.status === "connected";
+    return (
+      <View className="mx-0.5 rounded-2xl border border-border-dark bg-card-dark p-4 gap-3">
+        <View className="flex-row items-start gap-3">
+          <View className="mt-0.5 rounded-xl bg-primary/10 p-2">
+            <IconPlugConnected
+              color={mutedForeground}
+              size={18}
+              strokeWidth={2}
+            />
+          </View>
+          <View className="flex-1 gap-1">
+            <Text className="text-foreground text-[14px] font-semibold">
+              Connect {provider}
+            </Text>
+            <Text className="text-text-muted text-[13px] leading-5">
+              {connectionRequest.detail ??
+                `Connect ${provider} to continue this request.`}
+            </Text>
+          </View>
+        </View>
+        <View className="flex-row gap-2">
+          <Pressable
+            disabled={connecting || connected}
+            accessibilityRole="button"
+            accessibilityLabel={`Connect ${provider}`}
+            className="min-h-10 flex-1 items-center justify-center rounded-lg bg-primary px-3 active:opacity-75"
+            onPress={onOpenConnections}
+          >
+            <Text className="text-primary-foreground text-[13px] font-bold">
+              Connect
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Continue after connecting ${provider}`}
+            disabled={!canChat || connecting || connected}
+            className="min-h-10 flex-1 items-center justify-center rounded-lg border border-border-dark px-3 active:opacity-75 disabled:opacity-45"
+            onPress={() =>
+              onContinueAfterConnection?.(connectionRequest.id, provider)
+            }
+          >
+            <Text className="text-foreground text-[13px] font-semibold">
+              {connecting
+                ? "Connecting…"
+                : connected
+                  ? "Connected"
+                  : "I connected it"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+  if (part.type === "widget") {
+    return (
+      <WidgetCard
+        widget={part.widget}
+        canChat={canChat}
+        onInvokeWidgetAction={onInvokeWidgetAction}
+      />
+    );
+  }
+  if (part.type !== "tool-call") return null;
   return (
-    <ToolCallCard
-      part={part}
-      isActiveTail={streaming && part.status === "running"}
-      onApprove={onApprove}
-      onDeny={onDeny}
-    />
+    <View className="gap-2">
+      {part.mcpApp || part.chatUI ? (
+        <NativeInteractiveResult part={part} />
+      ) : null}
+      <ToolCallCard
+        part={part}
+        isActiveTail={streaming && part.status === "running"}
+        onApprove={onApprove}
+        onDeny={onDeny}
+      />
+    </View>
+  );
+}
+
+function WidgetCard({
+  widget,
+  canChat,
+  onInvokeWidgetAction,
+}: {
+  widget: Extract<ChatContentPart, { type: "widget" }>["widget"];
+  canChat: boolean;
+  onInvokeWidgetAction?: (
+    widgetId: string,
+    action: string,
+    payload?: unknown,
+  ) => Promise<void>;
+}) {
+  const { mutedForeground, destructive } = useMobileThemeColors();
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const data =
+    widget.data &&
+    typeof widget.data === "object" &&
+    !Array.isArray(widget.data)
+      ? (widget.data as Record<string, unknown>)
+      : {};
+  const titleValue = [data.title, data.label, data.name].find(
+    (item): item is string => typeof item === "string",
+  );
+  const title = widget.title ?? titleValue ?? "Update";
+  const description = [
+    data.description,
+    data.message,
+    data.summary,
+    data.text,
+  ].find((item): item is string => typeof item === "string");
+
+  return (
+    <View className="mx-0.5 rounded-2xl border border-border-dark bg-card-dark p-4 gap-3">
+      <View className="gap-1">
+        <Text className="text-foreground text-[14px] font-semibold">
+          {title}
+        </Text>
+        {description ? (
+          <Text className="text-text-muted text-[13px] leading-5">
+            {description}
+          </Text>
+        ) : null}
+      </View>
+      {widget.actions?.length ? (
+        <View className="flex-row flex-wrap gap-2">
+          {widget.actions.map((action) => (
+            <Pressable
+              key={action.id}
+              disabled={
+                !canChat ||
+                action.disabled ||
+                pendingAction !== null ||
+                !action.action
+              }
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+              className={`min-h-9 items-center justify-center rounded-lg px-3 ${action.kind === "primary" ? "bg-primary" : "border border-border-dark"} active:opacity-75`}
+              onPress={() => {
+                if (!action.action || !onInvokeWidgetAction) return;
+                setPendingAction(action.id);
+                setError(null);
+                void onInvokeWidgetAction(
+                  widget.id,
+                  action.action,
+                  action.payload,
+                )
+                  .catch((reason: unknown) => {
+                    setError(
+                      reason instanceof Error
+                        ? reason.message
+                        : "Action failed.",
+                    );
+                  })
+                  .finally(() => setPendingAction(null));
+              }}
+            >
+              <Text
+                className={
+                  action.kind === "primary"
+                    ? "text-primary-foreground text-[13px] font-semibold"
+                    : "text-foreground text-[13px] font-semibold"
+                }
+              >
+                {pendingAction === action.id ? "Working…" : action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {error ? (
+        <Text style={{ color: destructive }} className="text-[12px]">
+          {error}
+        </Text>
+      ) : null}
+      <Text style={{ color: mutedForeground }} className="text-[11px]">
+        {widget.kind}
+      </Text>
+    </View>
   );
 }
 
 function WorkSummary({
   parts,
   streaming,
+  canChat,
   durationMs,
   onApprove,
   onDeny,
+  onOpenConnections,
+  onContinueAfterConnection,
+  onInvokeWidgetAction,
 }: {
   parts: Array<{ part: ChatContentPart; index: number }>;
   streaming: boolean;
+  canChat: boolean;
   durationMs?: number | null;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
+  onOpenConnections?: () => void;
+  onContinueAfterConnection?: (requestId: string, provider: string) => void;
+  onInvokeWidgetAction?: (
+    widgetId: string,
+    action: string,
+    payload?: unknown,
+  ) => Promise<void>;
 }) {
   const { mutedForeground } = useMobileThemeColors();
   const [open, setOpen] = useState(false);
@@ -234,9 +498,13 @@ function WorkSummary({
               }
               part={part}
               streaming={streaming}
+              canChat={canChat}
               embedded={part.type === "reasoning"}
               onApprove={onApprove}
               onDeny={onDeny}
+              onOpenConnections={onOpenConnections}
+              onContinueAfterConnection={onContinueAfterConnection}
+              onInvokeWidgetAction={onInvokeWidgetAction}
             />
           ))}
         </View>
@@ -250,19 +518,29 @@ export const AssistantMessage = memo(function AssistantMessage({
   animateIn,
   showFooter,
   isStreamingMessage = false,
+  canChat,
   onApprove,
   onDeny,
   onActions,
+  onOpenConnections,
+  onContinueAfterConnection,
+  onInvokeWidgetAction,
 }: {
   message: ChatMessage;
   animateIn: boolean;
-  /** Hidden while this message is still streaming in. */
   showFooter: boolean;
-  /** True when this is the live message of an in-flight turn. */
   isStreamingMessage?: boolean;
+  canChat: boolean;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
   onActions?: (message: ChatMessage) => void;
+  onOpenConnections?: () => void;
+  onContinueAfterConnection?: (requestId: string, provider: string) => void;
+  onInvokeWidgetAction?: (
+    widgetId: string,
+    action: string,
+    payload?: unknown,
+  ) => Promise<void>;
 }) {
   const { mutedForeground } = useMobileThemeColors();
   const contextValue = useMemo(
@@ -310,7 +588,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   > = [];
   for (let index = 0; index < message.parts.length; index += 1) {
     const part = message.parts[index]!;
-    if (showWorkSummary && isCollapsibleWorkPart(part)) {
+    const isConnectionGate =
+      part.type === "tool-call" && connectionRequestForToolCall(part) !== null;
+    if (showWorkSummary && isCollapsibleWorkPart(part) && !isConnectionGate) {
       const previous = partGroups[partGroups.length - 1];
       if (previous?.kind === "work") {
         previous.parts.push({ part, index });
@@ -334,11 +614,15 @@ export const AssistantMessage = memo(function AssistantMessage({
               key={`work-${group.parts[0]?.index ?? groupIndex}`}
               parts={group.parts}
               streaming={false}
+              canChat={canChat}
               durationMs={
                 groupIndex === firstWorkGroupIndex ? workDurationMs : undefined
               }
               onApprove={onApprove}
               onDeny={onDeny}
+              onOpenConnections={onOpenConnections}
+              onContinueAfterConnection={onContinueAfterConnection}
+              onInvokeWidgetAction={onInvokeWidgetAction}
             />
           );
         }
@@ -352,11 +636,15 @@ export const AssistantMessage = memo(function AssistantMessage({
             }
             part={part}
             streaming={isStreamingMessage && index === message.parts.length - 1}
+            canChat={canChat}
             durationMs={
               index === firstReasoningIndex ? workDurationMs : undefined
             }
             onApprove={onApprove}
             onDeny={onDeny}
+            onOpenConnections={onOpenConnections}
+            onContinueAfterConnection={onContinueAfterConnection}
+            onInvokeWidgetAction={onInvokeWidgetAction}
           />
         );
       })}
@@ -407,15 +695,19 @@ export function ErrorRow({
   errorCode,
   onRetry,
   onSignIn,
+  onOpenSettings,
 }: {
   error: string;
   errorCode: string | null;
   onRetry?: () => void;
   onSignIn?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const { accentOrange, mutedForeground, foreground } = useMobileThemeColors();
   const [copied, setCopied] = useState(false);
-  const isCreditLimit = error.toLowerCase().includes("credit");
+  const isCreditLimit =
+    errorCode?.toLowerCase().includes("credit") ||
+    error.toLowerCase().includes("credit");
 
   const handleCopy = async () => {
     await Clipboard.setStringAsync(error);
@@ -428,32 +720,77 @@ export function ErrorRow({
   };
 
   const isAuth = errorCode === "auth";
-  const displayedError =
-    errorCode === "missing_api_key"
-      ? "The agent needs an API key. Open the settings to add one."
-      : isAuth
-        ? "Your session expired. Sign in again to keep chatting."
-        : error;
+  const isMissingAiKey = errorCode === "missing_api_key";
+  const isSetupUnavailable = errorCode === "chat_setup_unavailable";
+  const displayedError = isMissingAiKey
+    ? "Connect Builder AI or a custom provider API key in settings to start chatting."
+    : isAuth
+      ? "Your session expired. Sign in again to keep chatting."
+      : error;
+
+  if (isMissingAiKey) {
+    return (
+      <View className="mx-4 my-2 flex-row items-center justify-between gap-3 rounded-xl border border-border bg-card-dark p-4">
+        <Text className="flex-1 text-[14px] leading-5 text-foreground">
+          {displayedError}
+        </Text>
+        {onOpenSettings && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open AI provider settings"
+            className="min-h-9 items-center justify-center rounded-lg bg-primary px-3 active:opacity-75"
+            onPress={onOpenSettings}
+          >
+            <Text className="text-xs font-bold text-primary-foreground">
+              Connect
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
+  if (isSetupUnavailable) {
+    return (
+      <View className="mx-4 my-2 flex-row items-center justify-between gap-3 rounded-xl border border-border bg-card-dark p-4">
+        <Text className="flex-1 text-[14px] leading-5 text-foreground">
+          Chat setup could not be checked. Try again.
+        </Text>
+        {onRetry && (
+          <Pressable
+            accessibilityRole="button"
+            className="min-h-9 items-center justify-center rounded-lg bg-white/10 px-3 active:opacity-75"
+            onPress={onRetry}
+          >
+            <Text className="text-xs font-bold text-foreground">Retry</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
+  if (isCreditLimit) {
+    return (
+      <View className="mx-4 my-2 flex-row items-center justify-between gap-3 rounded-xl border border-border bg-card-dark p-4">
+        <Text className="flex-1 text-[14px] leading-5 text-foreground">
+          You’re out of AI credits. Upgrade your plan on Builder to continue.
+        </Text>
+        <Pressable
+          accessibilityRole="link"
+          onPress={handleUpgrade}
+          className="min-h-9 flex-row items-center justify-center gap-1 rounded-lg bg-primary px-3 active:opacity-75"
+        >
+          <Text className="text-xs font-bold text-primary-foreground">
+            Upgrade
+          </Text>
+          <IconExternalLink color={foreground} size={13} strokeWidth={2.5} />
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View className="mx-4 my-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4.5 gap-3">
-      {isCreditLimit && (
-        <View className="flex-row items-center justify-between pb-2 border-b border-zinc-800/40">
-          <Text className="text-foreground text-[14px] leading-5 flex-1 pr-4">
-            You've reached the monthly AI credits limit for your current plan.
-          </Text>
-          <Pressable
-            onPress={handleUpgrade}
-            className="bg-primary rounded-lg flex-row items-center gap-1 px-3 py-1.5 active:opacity-75"
-          >
-            <Text className="text-primary-foreground text-xs font-bold">
-              Upgrade at builder.io
-            </Text>
-            <IconExternalLink color={foreground} size={13} strokeWidth={2.5} />
-          </Pressable>
-        </View>
-      )}
-
       <View className="flex-row items-start gap-3">
         <View className="mt-0.5 bg-amber-500/10 rounded-lg p-1.5 text-amber-500">
           <IconAlertTriangle color={accentOrange} size={16} strokeWidth={2.5} />

@@ -19,7 +19,7 @@ async function applyMigrations(
 }
 
 describe("observability release migrations", () => {
-  it("backfills trace orgs only through matching thread owners", async () => {
+  it("backfills legacy feedback within its matching org without replacing assigned orgs", async () => {
     const db = await createTestPglite();
     await applyMigrations(db, CHAT_THREAD_SCHEMA_MIGRATIONS);
     await db.exec(`
@@ -30,6 +30,12 @@ describe("observability release migrations", () => {
         id TEXT PRIMARY KEY, run_id TEXT, thread_id TEXT, user_id TEXT,
         org_id TEXT, span_type TEXT, name TEXT, status TEXT, created_at BIGINT
       );
+      CREATE TABLE agent_feedback (
+        id TEXT PRIMARY KEY, run_id TEXT, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
+      CREATE TABLE agent_instruction_updates (
+        id TEXT PRIMARY KEY, run_id TEXT, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
       INSERT INTO chat_threads (id, owner_email, org_id, created_at, updated_at)
         VALUES ('thread-a', 'alice@example.com', 'org-a', 1, 1),
                ('thread-b', 'bob@example.com', 'org-b', 1, 1);
@@ -37,10 +43,28 @@ describe("observability release migrations", () => {
         VALUES ('run-a', 'thread-a', 'ALICE@example.com'),
                ('run-b', 'thread-b', 'bob@example.com'),
                ('run-mismatch', 'thread-a', 'mallory@example.com');
+      INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+        VALUES ('run-null-thread', NULL, 'alice@example.com', 'org-a');
       INSERT INTO agent_trace_spans (id, run_id, thread_id, user_id, span_type, name, status, created_at)
         VALUES ('span-a', 'run-a', 'thread-a', 'alice@example.com', 'tool_call', 'create_design', 'success', 1),
                ('span-mismatch', 'run-a', 'thread-a', 'mallory@example.com', 'tool_call', 'create_design', 'success', 1),
                ('span-b', 'run-b', 'thread-b', 'bob@example.com', 'tool_call', 'create_design', 'success', 1);
+      INSERT INTO agent_feedback (id, run_id, thread_id, user_id)
+        VALUES ('feedback-a', 'run-a', 'thread-a', 'ALICE@example.com'),
+               ('feedback-b', 'run-b', 'thread-b', 'bob@example.com'),
+               ('feedback-mismatch', 'run-a', 'thread-a', 'mallory@example.com'),
+               ('feedback-null-thread', 'run-null-thread', NULL, 'alice@example.com'),
+               ('feedback-unlinked', NULL, 'thread-a', 'alice@example.com');
+      INSERT INTO agent_feedback (id, run_id, thread_id, user_id, org_id)
+        VALUES ('feedback-assigned', 'run-a', 'thread-a', 'alice@example.com', 'org-existing');
+      INSERT INTO agent_instruction_updates (id, run_id, thread_id, user_id)
+        VALUES ('instruction-a', 'run-a', 'thread-a', 'alice@example.com'),
+               ('instruction-b', 'run-b', 'thread-b', 'bob@example.com'),
+               ('instruction-mismatch', 'run-a', 'thread-a', 'mallory@example.com');
+      INSERT INTO agent_instruction_updates (id, run_id, thread_id, user_id)
+        VALUES ('instruction-null-thread', 'run-null-thread', NULL, 'alice@example.com');
+      INSERT INTO agent_instruction_updates (id, run_id, thread_id, user_id, org_id)
+        VALUES ('instruction-assigned', 'run-a', 'thread-a', 'alice@example.com', 'org-existing');
     `);
 
     await applyMigrations(db, OBSERVABILITY_MIGRATIONS);
@@ -55,6 +79,7 @@ describe("observability release migrations", () => {
       { run_id: "run-a", org_id: "org-a" },
       { run_id: "run-b", org_id: "org-b" },
       { run_id: "run-mismatch", org_id: null },
+      { run_id: "run-null-thread", org_id: "org-a" },
     ]);
 
     const spans = await db
@@ -65,6 +90,57 @@ describe("observability release migrations", () => {
       { id: "span-b", org_id: "org-b" },
       { id: "span-mismatch", org_id: null },
     ]);
+
+    const feedback = await db
+      .prepare("SELECT id, org_id FROM agent_feedback ORDER BY id")
+      .all();
+    expect(feedback).toEqual([
+      { id: "feedback-a", org_id: "org-a" },
+      { id: "feedback-assigned", org_id: "org-existing" },
+      { id: "feedback-b", org_id: "org-b" },
+      { id: "feedback-mismatch", org_id: null },
+      { id: "feedback-null-thread", org_id: "org-a" },
+      { id: "feedback-unlinked", org_id: null },
+    ]);
+
+    const updates = await db
+      .prepare("SELECT id, org_id FROM agent_instruction_updates ORDER BY id")
+      .all();
+    expect(updates).toEqual([
+      { id: "instruction-a", org_id: "org-a" },
+      { id: "instruction-assigned", org_id: "org-existing" },
+      { id: "instruction-b", org_id: "org-b" },
+      { id: "instruction-mismatch", org_id: null },
+      { id: "instruction-null-thread", org_id: "org-a" },
+    ]);
+
+    const orgAFeedback = await db
+      .prepare("SELECT id FROM agent_feedback WHERE org_id = ? ORDER BY id")
+      .all("org-a");
+    expect(orgAFeedback).toEqual([
+      { id: "feedback-a" },
+      { id: "feedback-null-thread" },
+    ]);
+    const orgBFeedback = await db
+      .prepare("SELECT id FROM agent_feedback WHERE org_id = ? ORDER BY id")
+      .all("org-b");
+    expect(orgBFeedback).toEqual([{ id: "feedback-b" }]);
+
+    const orgAUpdates = await db
+      .prepare(
+        "SELECT id FROM agent_instruction_updates WHERE org_id = ? ORDER BY id",
+      )
+      .all("org-a");
+    expect(orgAUpdates).toEqual([
+      { id: "instruction-a" },
+      { id: "instruction-null-thread" },
+    ]);
+    const orgBUpdates = await db
+      .prepare(
+        "SELECT id FROM agent_instruction_updates WHERE org_id = ? ORDER BY id",
+      )
+      .all("org-b");
+    expect(orgBUpdates).toEqual([{ id: "instruction-b" }]);
 
     const indexes = await db
       .prepare(

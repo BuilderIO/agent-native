@@ -8,7 +8,6 @@ const source = readFileSync(
   "utf8",
 );
 
-/** A screen is a rectangle. Rounding its selection chrome implied a device. */
 describe("screen selection chrome", () => {
   it.each([
     ["data-passive-frame-selection-box", "PassiveSelectionBox"],

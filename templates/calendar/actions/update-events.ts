@@ -43,11 +43,6 @@ function dateOnly(value: string): string {
   return value.split("T")[0] ?? value;
 }
 
-/**
- * The range actually written for one event. All-day targets take date-only
- * bounds, so a timed range is truncated here and can collapse to a zero-day
- * span even when the original timestamps were ordered.
- */
 function effectiveRange(
   event: { start: string; end: string; allDay?: boolean },
   args: { start?: string; end?: string; shiftMinutes?: number },

@@ -3,16 +3,6 @@ import { describe, expect, it } from "vitest";
 import { readSSEStreamRaw } from "./sse-event-processor.js";
 import type { ContentPart } from "./sse-event-processor.js";
 
-// Regression coverage for the reported tool-call flicker: while a chat run
-// streams, tool cards must not "show then hide then show again" and must not
-// "pop between newer and older states". These tests drive realistic SSE event
-// sequences through the same processor the live UI uses and assert that the
-// per-event snapshot trace is monotonic:
-//   1. a tool card, once shown, never disappears and reappears; and
-//   2. a tool call, once completed, never regresses to pending.
-// They also assert a sane final state (each logical call rendered exactly once)
-// so an anti-hide fix cannot instead leak duplicate cards.
-
 function eventsStream(events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -25,11 +15,6 @@ function eventsStream(events: object[]): ReadableStream<Uint8Array> {
   });
 }
 
-/**
- * Run a sequence of SSE events through the real reconnect/stream processor and
- * capture the ordered list of content snapshots the UI would render — one per
- * meaningful update, plus the final settled array.
- */
 async function captureSnapshots(events: object[]): Promise<ContentPart[][]> {
   const snapshots: ContentPart[][] = [];
   const content: ContentPart[] = [];
@@ -58,21 +43,18 @@ function toolCallParts(
   );
 }
 
-/** Stable identity for a logical tool call, independent of the transient id. */
 function toolSignature(
   part: Extract<ContentPart, { type: "tool-call" }>,
 ): string {
   return `${part.toolName}#${part.argsText}`;
 }
 
-/** Signatures of tool cards a user would see as a real (non-placeholder) card. */
 function shownToolSignatures(snapshot: ContentPart[]): string[] {
   return toolCallParts(snapshot)
     .filter((part) => part.activity !== true)
     .map(toolSignature);
 }
 
-/** Signatures of tool cards that have settled with a result. */
 function completedToolSignatures(snapshot: ContentPart[]): string[] {
   return toolCallParts(snapshot)
     .filter((part) => part.result !== undefined)
