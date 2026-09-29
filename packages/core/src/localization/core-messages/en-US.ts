@@ -1313,6 +1313,9 @@ const messages = {
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
   "usage.builderCredits": "Builder credits",
+  "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
+  "featureFlags.builderCreditReferrals.description":
+    "Show connected Builder workspace referral details in Usage.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",

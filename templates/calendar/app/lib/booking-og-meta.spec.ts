@@ -10,6 +10,7 @@ const database = vi.hoisted(() => ({
     isActive: boolean;
   } | null,
 }));
+const configuredBasePath = vi.hoisted(() => ({ value: "" }));
 const where = vi.hoisted(() =>
   vi.fn((conditions: Array<{ column: string; value: unknown }>) => ({
     limit: async () =>
@@ -30,7 +31,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  getConfiguredAppBasePath: () => "",
+  getConfiguredAppBasePath: () => configuredBasePath.value,
 }));
 
 vi.mock("../../server/db", () => ({
@@ -47,10 +48,12 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { bookingOgLoader, bookingOgMeta } from "../routes/booking-og-meta";
+import { bookingOgMeta } from "../routes/booking-og-meta";
+import { bookingOgLoader } from "./booking-og-loader.server";
 
 describe("booking OG meta", () => {
   beforeEach(() => {
+    configuredBasePath.value = "";
     database.link = {
       title: "Discovery call",
       description: "Talk through the launch plan.",
@@ -78,6 +81,19 @@ describe("booking OG meta", () => {
       "2026-09-25T18:00:00.000Z",
     );
     expect(where).toHaveBeenCalled();
+  });
+
+  it("uses the configured app base path for its OG image URL", async () => {
+    configuredBasePath.value = "/calendar";
+    const loaderData = await bookingOgLoader({
+      params: { slug: "meet-steve" },
+      request: new Request("https://calendar.example.test/book/meet-steve"),
+    } as unknown as Parameters<typeof bookingOgLoader>[0]);
+
+    expect(loaderData.basePath).toBe("/calendar");
+    expect(new URL(loaderData.ogImageUrl).pathname).toBe(
+      "/calendar/api/public/booking-links/meet-steve/og.png",
+    );
   });
 
   it("uses the link title and description in crawler metadata", async () => {
