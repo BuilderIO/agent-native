@@ -1952,6 +1952,7 @@ export function DesignCanvas({
     registrationHandoffKey: string | null;
   } | null>(null);
   const liveEditRestartInFlightRef = useRef(false);
+  const liveEditHealthProbeGenerationRef = useRef(0);
   const liveEditRestartAttemptRef = useRef(0);
   const liveEditSameInstanceElapsedMsRef = useRef(0);
   const liveEditSameInstanceDelayRef = useRef(LIVE_EDIT_READY_TIMEOUT_MS);
@@ -2756,10 +2757,12 @@ export function DesignCanvas({
     if (!bridgeUrl || !effectivePreviewToken) return;
     if (liveEditRestartInFlightRef.current) return;
     liveEditRestartInFlightRef.current = true;
-    const healthProbeGeneration =
+    const healthProbeGeneration = ++liveEditHealthProbeGenerationRef.current;
+    const registrationGeneration =
       bridgeRegistrationAttemptGenerationRef.current;
     const isHealthProbeCurrent = () =>
-      bridgeRegistrationAttemptGenerationRef.current === healthProbeGeneration;
+      liveEditHealthProbeGenerationRef.current === healthProbeGeneration &&
+      bridgeRegistrationAttemptGenerationRef.current === registrationGeneration;
     try {
       const response = await fetch(healthEndpointUrl(bridgeUrl));
       const payload = (await response.json().catch(() => null)) as {
@@ -2876,7 +2879,9 @@ export function DesignCanvas({
         message: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      liveEditRestartInFlightRef.current = false;
+      if (liveEditHealthProbeGenerationRef.current === healthProbeGeneration) {
+        liveEditRestartInFlightRef.current = false;
+      }
     }
   }, [
     bridgeUrl,
@@ -3704,6 +3709,12 @@ export function DesignCanvas({
           editorChromeReadyRef.current = false;
           liveRoutePathRef.current = null;
           onBootStart?.();
+          liveEditHealthProbeGenerationRef.current += 1;
+          liveEditRestartInFlightRef.current = false;
+          if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
+            window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
+            liveEditSameInstanceRearmTimerRef.current = undefined;
+          }
           setIframeReloadSequence((sequence) => sequence + 1);
           setReadyIframeDocumentIdentity(null);
           const pendingDelete =

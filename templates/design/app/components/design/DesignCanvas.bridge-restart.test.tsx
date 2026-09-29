@@ -278,6 +278,59 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(healthCallCount()).toBeGreaterThanOrEqual(1);
   });
 
+  it("ignores a health probe that rejects after the replacement document is ready", async () => {
+    let rejectHealthProbe: ((reason?: unknown) => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return new Promise((_resolve, reject) => {
+          rejectHealthProbe = reject;
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(1);
+    expect(rejectHealthProbe).toBeDefined();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+      rejectHealthProbe?.(new Error("stale health probe"));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent ?? "").not.toContain(
+      "Live editor connection failed",
+    );
+    expect(registrationCallCount()).toBe(1);
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+  });
+
   it("does NOT tear down the iframe or show an error when /health reports the SAME bridgeInstanceId at the first 4s timeout — it re-arms the watchdog instead (regression coverage)", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url =
