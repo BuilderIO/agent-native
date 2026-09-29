@@ -8,7 +8,6 @@ import type {
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
-/** Files larger than this are routed through the GCS signed-URL flow. */
 const LARGE_FILE_THRESHOLD_BYTES = 30 * 1024 * 1024;
 const UPLOAD_TIMEOUT_MS = 120_000;
 const SMALL_FILE_RETRY_DELAYS_MS = [600, 1800];
@@ -45,7 +44,6 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
 }
 
 function setStableUrlQueryParam(url: URL): void {
-  // Stable URLs let Builder compress asynchronously without changing the media URL.
   url.searchParams.set("stableUrl", "true");
 }
 
@@ -79,7 +77,6 @@ async function uploadLargeFileViaSignedUrl(
     `[builder-upload] large-file path: ${name} ${mb}MB ${bareMimeType}`,
   );
 
-  // Step 1 — request a signed URL.
   console.log(`[builder-upload] step 1: requesting signed URL`);
   const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
     authorization,
@@ -90,8 +87,6 @@ async function uploadLargeFileViaSignedUrl(
   );
   console.log(`[builder-upload] step 1 ok: assetId=${assetId}`);
 
-  // Step 2 — PUT bytes directly to GCS. Only requiredHeaders; no Authorization
-  // (signed URL carries its own auth — extra signed headers break the signature).
   console.log(`[builder-upload] step 2 [${assetId}]: PUT ${mb}MB to GCS`);
   const step2Res = await fetchWithTimeout(uploadUrl, {
     method: "PUT",
@@ -103,7 +98,6 @@ async function uploadLargeFileViaSignedUrl(
     `[builder-upload] step 2 ok [${assetId}]: GCS ${step2Res.status} etag=${step2Res.headers.get("etag") ?? "none"}`,
   );
 
-  // Step 3 — register the asset and get the CDN URL.
   console.log(
     `[builder-upload] step 3: registering asset - ${assetId}, ${input.filename}`,
   );
@@ -199,9 +193,6 @@ async function completeBuilderUpload(
   return { url: json.url, id: json.id };
 }
 
-// Retry transient 5xx once with backoff. Builder.io's upload service
-// occasionally returns a bodyless 500 ("Internal Error") on the first
-// attempt — usually GCS write hiccups that succeed on retry.
 async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
   let response: Response | null = null;
   let lastErrorBody = "";
@@ -211,7 +202,7 @@ async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
     attempt <= SMALL_FILE_RETRY_DELAYS_MS.length;
     attempt++
   ) {
-    const retryDelay = SMALL_FILE_RETRY_DELAYS_MS[attempt]; // undefined on last attempt
+    const retryDelay = SMALL_FILE_RETRY_DELAYS_MS[attempt];
     try {
       response = await fetchWithTimeout(url.toString(), init);
     } catch (err) {
@@ -233,11 +224,6 @@ async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
   );
 }
 
-/**
- * Builder gates every `/api/v1/upload/*` endpoint on `builder:assets:write`.
- * Legacy `bpk-` keys skip that check, which is why uploads kept working for
- * older connections while OAuth-only ones could not upload at all.
- */
 async function assetAuthorization(): Promise<{
   authorization: string;
   apiKey?: string;
@@ -278,14 +264,6 @@ async function assetAuthorization(): Promise<{
   return { authorization, apiKey: publicKey };
 }
 
-/**
- * Built-in Builder.io file upload provider.
- * Uses the same Builder connection as the browser/background-agent flows, so
- * connecting Builder once (via the sidebar "Connect Builder" action)
- * automatically enables file uploads.
- *
- * Upload API: https://www.builder.io/c/docs/upload-api
- */
 export const builderFileUploadProvider: FileUploadProvider = {
   id: "builder",
   name: "Builder.io",
@@ -303,12 +281,6 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const { data, filename, mimeType } = input;
     const { authorization, apiKey } = await assetAuthorization();
 
-    // Strip any media-type parameters (e.g. `;codecs=avc1,opus` from
-    // MediaRecorder blobs) — Builder's upload API parses the body as raw
-    // binary only when Content-Type is a bare MIME type. A parameterized
-    // Content-Type falls through to the multipart/base64 paths which look
-    // for an `image` field, and returns "No image specified" when it
-    // doesn't find one.
     const bareMimeType = (mimeType || "application/octet-stream")
       .split(";")[0]
       .trim();
@@ -526,9 +498,6 @@ export const builderFileUploadProvider: FileUploadProvider = {
         headers: { "Content-Length": "0" },
         body: new Uint8Array(0),
       });
-      // GCS returns 499 for a successful JSON API cancellation. A session
-      // that is already gone is also fully cleaned up from this retry's point
-      // of view, so treat its terminal 404/410 responses as success.
       if (
         response.ok ||
         response.status === 404 ||

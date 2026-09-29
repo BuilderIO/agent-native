@@ -14,7 +14,8 @@ vi.mock("./first-run-enabled.js", () => ({
   isFirstRunOnboardingEnabled: mocks.enabled,
 }));
 
-vi.mock("./first-run-status.js", () => ({
+vi.mock("./first-run-status.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./first-run-status.js")>()),
   fetchFirstRunOnboardingStatus: mocks.fetchStatus,
 }));
 
@@ -32,7 +33,10 @@ vi.mock("./FirstRunOnboarding.js", () => ({
 }));
 
 import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
-import { FirstRunOnboardingStartupGate } from "./first-run-startup-gate.js";
+import {
+  FirstRunOnboardingStartupGate,
+  useFirstRunOnboardingGateOwnsSurface,
+} from "./first-run-startup-gate.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -49,6 +53,11 @@ let nextMountId = 0;
 function StatefulApp() {
   const [mountId] = React.useState(() => ++nextMountId);
   return <div data-testid="stateful-app" data-mount-id={mountId} />;
+}
+
+function GateOwnershipProbe() {
+  const ownsSurface = useFirstRunOnboardingGateOwnsSurface();
+  return <div data-testid="gate-ownership">{String(ownsSurface)}</div>;
 }
 
 describe("FirstRunOnboardingStartupGate", () => {
@@ -82,6 +91,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     act(() => {
       root.render(
         <FirstRunOnboardingStartupGate>
+          <GateOwnershipProbe />
           <div data-testid="app-content">app</div>
         </FirstRunOnboardingStartupGate>,
       );
@@ -89,11 +99,44 @@ describe("FirstRunOnboardingStartupGate", () => {
 
     expect(mocks.fetchStatus).not.toHaveBeenCalled();
     expect(
+      container.querySelector("[data-testid='gate-ownership']")?.textContent,
+    ).toBe("false");
+    expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
     expect(
       container.querySelector("[data-first-run-startup-loading]"),
     ).toBeNull();
+  });
+
+  it("diagnoses an inaccessible cookie and skips the startup gate", () => {
+    const cookie = vi
+      .spyOn(document, "cookie", "get")
+      .mockImplementation(() => {
+        throw new DOMException("Sandboxed document", "SecurityError");
+      });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      act(() => {
+        root.render(
+          <FirstRunOnboardingStartupGate>
+            <div data-testid="app-content">app</div>
+          </FirstRunOnboardingStartupGate>,
+        );
+      });
+    } finally {
+      cookie.mockRestore();
+    }
+
+    expect(mocks.fetchStatus).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[onboarding] first-run cookie is unreadable; skipping startup gate",
+    );
+    warn.mockRestore();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
   });
 
   it("holds the app behind a neutral screen while eligibility is unresolved", () => {
@@ -103,18 +146,24 @@ describe("FirstRunOnboardingStartupGate", () => {
     act(() => {
       root.render(
         <FirstRunOnboardingStartupGate>
+          <GateOwnershipProbe />
           <div data-testid="app-content">app</div>
         </FirstRunOnboardingStartupGate>,
       );
     });
 
     expect(mocks.fetchStatus).toHaveBeenCalledOnce();
-    expect(
-      container.querySelector("[data-first-run-startup-loading]"),
-    ).not.toBeNull();
+    const loading = container.querySelector("[data-first-run-startup-loading]");
+    expect(loading?.getAttribute("role")).toBe("status");
+    expect(loading?.getAttribute("aria-label")).toBe("Loading application");
+    expect(loading?.hasAttribute("inert")).toBe(false);
+    expect(loading?.querySelector("[inert]")).not.toBeNull();
     expect(
       container.querySelector("[data-first-run-app-hidden]"),
     ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='gate-ownership']")?.textContent,
+    ).toBe("true");
   });
 
   it("reveals an existing-organization member without mounting onboarding", async () => {
@@ -124,6 +173,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     act(() => {
       root.render(
         <FirstRunOnboardingStartupGate>
+          <GateOwnershipProbe />
           <div data-testid="app-content">app</div>
         </FirstRunOnboardingStartupGate>,
       );
@@ -144,6 +194,9 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-testid='first-run-onboarding']"),
     ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='gate-ownership']")?.textContent,
+    ).toBe("false");
   });
 
   it("does not remount the app when eligibility resolves", async () => {
@@ -211,6 +264,105 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBe(mountId);
   });
 
+  it("suppresses the onboarding surface without remounting the app", async () => {
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <GateOwnershipProbe />
+          <StatefulApp />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    await act(async () => {
+      status.resolve(true);
+      await status.promise;
+    });
+
+    const mountId = container
+      .querySelector("[data-testid='stateful-app']")
+      ?.getAttribute("data-mount-id");
+    expect(
+      container.querySelector("[data-testid='first-run-onboarding']"),
+    ).not.toBeNull();
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate suppressSurface>
+          <GateOwnershipProbe />
+          <StatefulApp />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
+    expect(
+      container.querySelector("[data-testid='first-run-onboarding']"),
+    ).toBeNull();
+    expect(
+      container
+        .querySelector("[data-testid='stateful-app']")
+        ?.getAttribute("data-mount-id"),
+    ).toBe(mountId);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <GateOwnershipProbe />
+          <StatefulApp />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-testid='first-run-onboarding']"),
+      ).not.toBeNull();
+    });
+    expect(
+      container
+        .querySelector("[data-testid='stateful-app']")
+        ?.getAttribute("data-mount-id"),
+    ).toBe(mountId);
+  });
+
+  it("keeps the app visible while a suppressed onboarding check is pending", async () => {
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate suppressSurface>
+          <GateOwnershipProbe />
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-first-run-startup-loading]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='gate-ownership']")?.textContent,
+    ).toBe("false");
+
+    await act(async () => {
+      status.resolve(true);
+      await status.promise;
+    });
+
+    expect(
+      container.querySelector("[data-testid='first-run-onboarding']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+  });
+
   it("keeps the app hidden and owns the onboarding surface for a new user", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
@@ -218,6 +370,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     act(() => {
       root.render(
         <FirstRunOnboardingStartupGate>
+          <GateOwnershipProbe />
           <div data-testid="app-content">app</div>
         </FirstRunOnboardingStartupGate>,
       );
@@ -236,6 +389,9 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-first-run-app-hidden]"),
     ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='gate-ownership']")?.textContent,
+    ).toBe("true");
     expect(
       container
         .querySelector("[data-testid='first-run-onboarding']")

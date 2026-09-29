@@ -28,6 +28,7 @@ const guards = [
   "guard:netlify-prebuilt-workflow",
   "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
+  "guard:design-e2e-workflow",
   "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",
@@ -36,6 +37,7 @@ const guards = [
   "guard:shared-ui-singletons",
   "guard:modal-layer-integrity",
   "guard:no-core-client-barrel-imports",
+  "guard:core-package-dependency-budget",
   "guard:toolkit-must-not-import-core",
   "guard:template-ui-imports",
   "guard:controller-boundaries",
@@ -113,7 +115,6 @@ if (args.unknown.length > 0) {
 
 const concurrency = resolveConcurrency(args.concurrency);
 
-/** Skips are tolerable on a shallow local clone; in CI they mean nothing was reviewed. */
 const strictSkips = Boolean(process.env.CI) && !process.env.GUARD_ALLOW_SKIPS;
 
 if (args.dryRun) {

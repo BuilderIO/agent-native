@@ -140,8 +140,6 @@ describe("executeCodeAgentRun", () => {
     });
     const lastEvent = listCodeAgentTranscriptEvents(run.id).at(-1);
     expect(lastEvent?.message).toContain("No LLM provider key was found");
-    // Structured marker so UI consumers don't have to regex-match the hint
-    // text (see isCredentialGapCodeAgentEvent).
     expect(lastEvent?.signal).toBe("credential-gap");
   });
 
@@ -1088,8 +1086,6 @@ describe("executeCodeAgentRun", () => {
     );
     process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
     const output = createStringOutput();
-    // No `engine` in metadata — the Codex CLI runner must be selected purely
-    // from AGENT_ENGINE, the same fallback resolveExecutorEngine already uses.
     const run = createCodeAgentRunRecord({
       goalId: "task",
       title: "Use Codex via AGENT_ENGINE",
@@ -1533,18 +1529,12 @@ describe("executeCodeAgentRun", () => {
     await executePendingCodeAgentApproval(run.id, { stdout: output.stream });
 
     const updated = getCodeAgentRunRecord(run.id);
-    // The approved command should have run.
     expect(fs.existsSync(target)).toBe(false);
-    // Approval metadata is always recorded regardless of auto-resume outcome.
     expect(updated?.metadata?.lastApproval).toMatchObject({
       id: "approval-test",
       exitCode: 0,
     });
-    // pendingApproval must be cleared.
     expect(updated?.metadata?.pendingApproval).toBeUndefined();
-    // After approval, the run auto-resumes. In the test environment there is
-    // no LLM provider, so the resumed run terminates with missing-credentials.
-    // Verify it progressed past approval (not stuck in needs-approval).
     expect(updated?.status).not.toBe("needs-approval");
     expect(output.read()).toContain("Approved command finished");
   });
@@ -1589,9 +1579,6 @@ describe("classifyCodeAgentCommandPermission", () => {
     });
   });
 
-  // The shell strips quoting before the command word exists, so each of these
-  // runs exactly what the unquoted form runs. Matching the raw text alone let
-  // every one of them through as a plain `write`.
   it.each([
     ["git 'checkout' main", "forbidden"],
     ['git "checkout" main', "forbidden"],
@@ -1605,8 +1592,6 @@ describe("classifyCodeAgentCommandPermission", () => {
     expect(classifyCodeAgentCommandPermission(command)).toMatchObject({ kind });
   });
 
-  // Each of these executes a forbidden operation whose tokens never appear in
-  // the source string, so "no rule matched" proves nothing about what will run.
   it.each([
     "$'\\x67it' checkout main",
     "$(printf git) $(printf checkout) main",
@@ -1623,9 +1608,6 @@ describe("classifyCodeAgentCommandPermission", () => {
     ).toMatchObject({ kind: "forbidden" });
   });
 
-  // Single quotes make substitution literal, so nothing is hidden and the
-  // command is not escalated. (The read-only allowlist separately refuses any
-  // raw `$(`, which is why this lands on `write` rather than `read`.)
   it("does not escalate substitution syntax that single quotes make literal", () => {
     expect(classifyCodeAgentCommandPermission("rg '$(foo)' src")).toMatchObject(
       { kind: "write" },
@@ -1798,10 +1780,6 @@ async function waitForFile(filePath: string): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// buildStructuredMessagesFromEvents unit tests
-// ---------------------------------------------------------------------------
-
 describe("buildStructuredMessagesFromEvents", () => {
   function event(
     id: string,
@@ -1864,7 +1842,6 @@ describe("buildStructuredMessagesFromEvents", () => {
 
     const msgs = buildStructuredMessagesFromEvents(events);
 
-    // user, assistant (tool-call), user (tool-result), assistant (text)
     expect(msgs).toHaveLength(4);
     expect(msgs[0].role).toBe("user");
 
@@ -1887,7 +1864,6 @@ describe("buildStructuredMessagesFromEvents", () => {
       toolName: "bash",
       content: "All tests passed.",
     });
-    // toolCallId must match the id from the tool-call part
     expect((toolResultPart as { toolCallId: string }).toolCallId).toBe(
       (toolCallPart as { id: string }).id,
     );
@@ -1918,7 +1894,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe("user");
     expect(msgs[1].role).toBe("assistant");
-    // No content from thinking event
     const allText = msgs
       .flatMap((m) => m.content)
       .filter((p: EngineContentPart) => p.type === "text")
@@ -1968,14 +1943,12 @@ describe("buildStructuredMessagesFromEvents", () => {
   });
 
   it("handles malformed events without throwing", () => {
-    // Events with missing or null metadata
     const events = [
       event("e1", "status", "no type in metadata", {}),
       event("e2", "status", "null metadata"),
     ];
     expect(() => buildStructuredMessagesFromEvents(events)).not.toThrow();
     const msgs = buildStructuredMessagesFromEvents(events);
-    // Neither event maps to a user/assistant message
     expect(msgs).toHaveLength(0);
   });
 
@@ -2005,7 +1978,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     ];
 
     const msgs = buildStructuredMessagesFromEvents(events);
-    // user, assistant(bash call), user(bash result), assistant(read call), user(read result)
     expect(msgs).toHaveLength(5);
 
     const bashCall = msgs[1].content.find(
@@ -2029,10 +2001,6 @@ describe("buildStructuredMessagesFromEvents", () => {
     expect(readResult?.toolCallId).toBe(readCall?.id);
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildRepoInstructionsBlock + buildCodeAgentSystemPrompt unit tests
-// ---------------------------------------------------------------------------
 
 describe("buildRepoInstructionsBlock", () => {
   it("returns empty string when content is empty", () => {

@@ -4,9 +4,6 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Forms",
-    screenshotPath: "/auth-marketing/forms.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/forms",
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",

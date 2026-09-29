@@ -1,6 +1,8 @@
+import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
 import englishMessages from "./core-messages/en-US.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
+import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
@@ -23,6 +25,7 @@ export type AgentChatTranslation = Record<string, string> & {
 };
 
 const legacyAgentChatAliases = [
+  ["onboarding.fileStorage", "onboarding.fileStorage"],
   ["agentPanel.addOwnKeys", "composer.addOwnKeys"],
   ["agentPanel.builderModelCredits", "composer.builderModelCredits"],
   ["agentPanel.builderOrOwnKeys", "setup.builderOrOwnKeys"],
@@ -37,6 +40,7 @@ const legacyAgentChatAliases = [
   ["agentPanel.toggleAgent", "shell.toggleAgent"],
   ["agentPanel.voiceMode", "voiceMode"],
   ["contextXray", "contextXray"],
+  ["mcpIntegrations", "mcpIntegrations"],
 ] as const;
 
 function getNestedMessage(
@@ -147,6 +151,24 @@ function nestAgentChatMessages(
   return messages;
 }
 
+function observabilitySummaryMessages(messages: AgentChatTranslation) {
+  return {
+    summarizeWithAgent: messages["observability.summarizeWithAgent"],
+    regenerateSummary: messages["observability.regenerateSummary"],
+    summarizeWithAgentHelp: messages["observability.summarizeWithAgentHelp"],
+    regenerateSummaryHelp: messages["observability.regenerateSummaryHelp"],
+    summarySending: messages["observability.summarySending"],
+    summaryQueued: messages["observability.summaryQueued"],
+    summaryFailed: messages["observability.summaryFailed"],
+    summaryExpired: messages["observability.summaryExpired"],
+    promoteMustContain: messages["observability.promoteMustContain"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
+    promoteMustContainOptional:
+      messages["observability.promoteMustContainOptional"],
+    promoteNeedsContains: messages["observability.promoteNeedsContains"],
+  };
+}
+
 const coreMessageLoaders = {
   "en-US": async () => ({ default: englishAgentChatMessages }),
   "zh-CN": () => import("./core-messages/zh-CN.js"),
@@ -202,7 +224,10 @@ export async function loadCoreMessagesForLocale(
   ]);
   return {
     ...nestAgentChatMessages(agentChatMessages),
+    agentResources: agentResourcePackMessagesForLocale(locale),
+    observability: observabilitySummaryMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
+    iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
       ...supplementalMessages.mcpSettingsMessages,
       ...supplementalMessages.privacySettingsMessages,
@@ -212,17 +237,21 @@ export async function loadCoreMessagesForLocale(
 
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
+  agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
+  observability: observabilitySummaryMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
+  iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {
     ...englishSupplementalMessages.mcpSettingsMessages,
     ...englishSupplementalMessages.privacySettingsMessages,
   },
 };
 
-// Non-English chat and settings catalogs load with the app locale.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
   if (locale === DEFAULT_LOCALE || !isLocaleCode(locale)) {
     return englishCoreMessages;
   }
-  return { environmentBadge: environmentBadgeMessagesForLocale(locale) };
+  return {
+    environmentBadge: environmentBadgeMessagesForLocale(locale),
+  };
 }

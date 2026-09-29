@@ -4,6 +4,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useContentActionMutation } from "./use-content-action-mutation";
+
 export type ContentSpaceSummary = {
   id: string;
   name: string;
@@ -12,6 +14,7 @@ export type ContentSpaceSummary = {
   filesDocumentId: string;
   orgId: string | null;
   role: "owner" | "editor" | "viewer";
+  canCreateDatabase?: boolean;
   catalogItemId: string;
   catalogDocumentId: string;
   catalogPosition: number;
@@ -73,7 +76,7 @@ export function useEnsureContentSpaces() {
 
 export function useCreateContentSpace() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       spaceId: string;
       filesDatabaseId: string;
@@ -90,6 +93,7 @@ export function useCreateContentSpace() {
       propertyValues?: Record<string, unknown>;
     }
   >("create-content-space", {
+    invalidates: [],
     onSuccess: async () => {
       await Promise.all([
         queryClient.refetchQueries({
@@ -105,10 +109,16 @@ export function useCreateContentSpace() {
 
 export function useDeleteContentSpace() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     { success: boolean; spaceId: string; deletedDocuments: number },
     { spaceId: string }
   >("delete-content-space", {
+    invalidates: [
+      ["action", "get-content-recent"],
+      ["action", "list-trashed-documents"],
+      ["action", "list-trashed-content-databases"],
+      ["action", "list-content-trash"],
+    ],
     onSuccess: async () => {
       await Promise.all([
         queryClient.refetchQueries({

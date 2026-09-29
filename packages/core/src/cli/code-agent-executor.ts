@@ -99,7 +99,6 @@ export interface ExecuteCodeAgentRunOptions {
   reasoningEffort?: ReasoningEffort;
   attachments?: AgentPromptAttachment[];
   stdout?: NodeJS.WritableStream;
-  /** Keep tool output in transcript events when the caller has a structured UI. */
   streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }
@@ -141,18 +140,8 @@ const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
 
 type CodeAgentToolProfile = typeof RECAP_SOURCE_TOOL_PROFILE;
 
-/**
- * Number of most-recent transcript events reconstructed as native
- * EngineMessage objects (with proper tool-call / tool-result pairing).
- * Events older than this cap are summarised into a single compact text
- * preamble so the model retains broad context without token waste.
- */
 const STRUCTURED_HISTORY_RECENT_EVENTS = 40;
 
-/**
- * Per-tool-result text cap when reconstructing history.  Matches the overall
- * tool-output cap so old results don't balloon the context.
- */
 const STRUCTURED_HISTORY_RESULT_CAP = MAX_TOOL_OUTPUT_CHARS;
 
 export async function executeCodeAgentRun(
@@ -168,9 +157,6 @@ export async function executeCodeAgentRun(
   const rawAttachments =
     options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
 
-  // Split attachments: images (dataUrl) go as engine image parts; text/file
-  // attachments are still inlined into the prompt text. This prevents 2 MB
-  // images from consuming ~700 K tokens of garbage when treated as plain text.
   const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
   const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
   const executionPrompt = formatPromptWithAttachments(
@@ -226,9 +212,6 @@ export async function executeCodeAgentRun(
     metadata: { status: "running", phase: "executing" },
   });
 
-  // Fall back to AGENT_ENGINE here too, mirroring resolveExecutorEngine below.
-  // Without it, `AGENT_ENGINE=codex-cli` skips this Codex branch and is handed
-  // to resolveEngine (LLM providers only), which throws `Unknown engine`.
   const requestedEngine = normalizeRequestedEngine(
     metadataString(existing, "engine") ?? getAppConfig().agent.engine,
   );
@@ -326,8 +309,6 @@ export async function executeCodeAgentRun(
     process.env.AGENT_NATIVE_CODE_TOOL_PROFILE,
   );
 
-  // Holds structured metadata emitted by the coding tools side-channel.
-  // Keyed by tool name; consumed when the matching tool_start / tool_done fires.
   const pendingToolMeta = new Map<string, StructuredToolMetadata>();
 
   const actions = createLocalCodeAgentActions(
@@ -335,12 +316,9 @@ export async function executeCodeAgentRun(
     permissionMode,
     existing.id,
     (toolName, _phase, meta) => {
-      // Both "start" and "done" phases update the map; done has richer data.
       pendingToolMeta.set(toolName, meta);
     },
     (chunk) => {
-      // Structured desktop transcripts render tool output separately from
-      // assistant text. Keep the legacy terminal stream opt-in for them.
       if (streamToolOutputToStdout) {
         options.stdout?.write(chunk);
       }
@@ -376,8 +354,6 @@ export async function executeCodeAgentRun(
   let assistantText = "";
   const outputSmoother = createCodeAgentOutputSmoother(options.stdout);
 
-  // Accumulate thinking text across deltas so we can persist a single event
-  // per reasoning block rather than one event per delta chunk.
   let pendingThinkingText = "";
   let thinkingFlushTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -397,7 +373,6 @@ export async function executeCodeAgentRun(
 
   const send = (event: AgentChatEvent) => {
     if (event.type === "text") {
-      // Flush any buffered thinking when real content arrives.
       if (thinkingFlushTimer !== undefined) {
         clearTimeout(thinkingFlushTimer);
         flushThinkingEvent();
@@ -408,7 +383,6 @@ export async function executeCodeAgentRun(
     }
     if (event.type === "thinking") {
       pendingThinkingText += event.text;
-      // Debounce: flush 300ms after the last delta so rapid chunks are merged.
       if (thinkingFlushTimer !== undefined) clearTimeout(thinkingFlushTimer);
       thinkingFlushTimer = setTimeout(flushThinkingEvent, 300);
       return;
@@ -487,8 +461,6 @@ export async function executeCodeAgentRun(
     );
     loopUsage = usageResult ?? null;
     writeCodeAgentUsageSnapshot(cwd, loopUsage);
-    // Persist cumulative token totals from this turn into the run record so
-    // the UI can display per-run usage statistics.
     if (loopUsage) {
       updateCodeAgentRunRecord(existing.id, (record) => ({
         metadata: {
@@ -732,10 +704,6 @@ async function executeClaudeCliRun(options: {
         });
       }
       result = await runClaudeCodeParticipant({
-        // Claude's driver uses acceptEdits, which is the closest available
-        // mapping for auto-edit and full-auto. Keep ask-before-edit on the
-        // read-only watchdog path because this non-interactive runner has no
-        // approval channel to honor an edit prompt safely.
         role:
           options.permissionMode === "auto-edit" ||
           options.permissionMode === "full-auto"
@@ -1551,8 +1519,6 @@ function runLocalCliProcess(options: {
     child.on("close", (exitCode, exitSignal) =>
       finish({ exitCode, exitSignal }),
     );
-    // Pi and OpenCode receive the prompt as a positional argument. Close the
-    // pipe without sending it a second time.
     child.stdin?.end();
   });
 }
@@ -1604,10 +1570,6 @@ async function executeCodexCliRun(options: {
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const additionalSkillsRoot =
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
-  // Desktop has already resolved and capability-scoped its MCP catalog before
-  // spawning the packaged runner. Reading persisted settings again here would
-  // both widen that boundary and require the app's native database binding in
-  // the standalone runner process.
   const mcpConfig =
     process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null;
   const args = [
@@ -1935,11 +1897,6 @@ export async function executeExistingCodeAgentRun(
   return executeCodeAgentRun({ ...options, runId, appendUserEvent: false });
 }
 
-/**
- * Add the pending approval command to the per-project allowlist, then approve
- * and auto-resume.  Future occurrences of this exact command will bypass the
- * approval gate without prompting.
- */
 export async function executeApproveAlwaysCodeAgentApproval(
   runId: string,
   options: CodeAgentApprovalExecutionOptions = {},
@@ -2040,8 +1997,6 @@ export async function executePendingCodeAgentApproval(
       timedOut: result.timedOut,
     },
   });
-  // Clear the pending approval and immediately auto-resume so the model sees
-  // the command result and can continue — no manual "Resume" click needed.
   updateCodeAgentRunRecord(runId, {
     status: "running",
     phase: "approval-resuming",
@@ -2068,11 +2023,6 @@ export async function executePendingCodeAgentApproval(
   });
 }
 
-/**
- * Deny a pending approval: record the denial, feed it back to the model as a
- * "command denied by user" result, and immediately resume the run so the model
- * can adapt its plan without leaving the run dangling.
- */
 export async function executeDenyCodeAgentApproval(
   runId: string,
   options: CodeAgentApprovalExecutionOptions = {},
@@ -2335,8 +2285,6 @@ function buildCodeAgentMessages(
 ): EngineMessage[] {
   const allEvents = listCodeAgentTranscriptEvents(run.id);
 
-  // Split events into an "older" prefix (summarised) and a "recent" tail
-  // (reconstructed as native structured messages).
   const splitAt = Math.max(
     0,
     allEvents.length - STRUCTURED_HISTORY_RECENT_EVENTS,
@@ -2344,9 +2292,6 @@ function buildCodeAgentMessages(
   const olderEvents = allEvents.slice(0, splitAt);
   const recentEvents = allEvents.slice(splitAt);
 
-  // Build a compact text preamble from any events that pre-date the recent
-  // window.  Reuses the old flat-text approach so the model still has broad
-  // context without paying for full token cost on every old tool result.
   let preamble = "";
   if (olderEvents.length > 0) {
     const summaryLines = olderEvents
@@ -2380,16 +2325,8 @@ function buildCodeAgentMessages(
     }
   }
 
-  // Reconstruct the recent events as native EngineMessage objects.
-  // We build up a sequence of user/assistant messages, pairing tool-call
-  // events (from tool_start metadata) with their matching tool-result events
-  // (from tool_done metadata), and accumulating assistant text from system
-  // events with role=assistant.
   const structuredMessages = buildStructuredMessagesFromEvents(recentEvents);
 
-  // Separate image attachments from text attachments. Images are passed as
-  // proper EngineImagePart entries rather than inlined base64 text (which
-  // would consume ~700K tokens per megabyte of image data).
   const imageParts: import("../agent/engine/types.js").EngineImagePart[] = [];
   const unsupportedImageNotes: string[] = [];
 
@@ -2406,7 +2343,6 @@ function buildCodeAgentMessages(
           mime as import("../agent/engine/types.js").EngineImagePart["mediaType"],
       });
     } else {
-      // Unsupported format — inject a note so the model understands what happened.
       const label = att.name ? `"${att.name}"` : "An image";
       unsupportedImageNotes.push(
         `[${label} could not be processed — unsupported image format (${mime}). ` +
@@ -2420,7 +2356,6 @@ function buildCodeAgentMessages(
       ? `\n\n${unsupportedImageNotes.join("\n")}`
       : "";
 
-  // The current prompt (plus optional preamble) becomes the final user message.
   const promptText = [preamble, prompt, notesBlock]
     .filter(Boolean)
     .join("\n\n");
@@ -2428,22 +2363,15 @@ function buildCodeAgentMessages(
   const promptContent: import("../agent/engine/types.js").EngineContentPart[] =
     [...imageParts, { type: "text", text: promptText }];
 
-  // If there are structured messages from the recent window and the last one
-  // is a user message that already contains the current prompt (happens when
-  // appendUserEvent added a "user" event that got included), de-duplicate by
-  // using the structured messages as-is but replacing the last user message's
-  // content with the enriched content (images + prompt).
   if (structuredMessages.length > 0) {
     const lastMsg = structuredMessages[structuredMessages.length - 1];
     if (lastMsg.role === "user") {
-      // Replace last user message content with the enriched prompt content.
       structuredMessages[structuredMessages.length - 1] = {
         role: "user",
         content: promptContent,
       };
       return structuredMessages;
     }
-    // Last message is assistant — append a new user message.
     return [...structuredMessages, { role: "user", content: promptContent }];
   }
 
@@ -2472,7 +2400,6 @@ function buildCodeAgentMessages(
 export function buildStructuredMessagesFromEvents(
   events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
 ): EngineMessage[] {
-  // We accumulate into a flat list and then merge adjacent same-role messages.
   type PendingMessage =
     | {
         role: "user";
@@ -2485,12 +2412,9 @@ export function buildStructuredMessagesFromEvents(
 
   const pending: PendingMessage[] = [];
 
-  // Track in-flight tool-call IDs keyed by event id so tool_done can
-  // reference the corresponding call.
   const toolCallIdByEventOrder = new Map<string, string>();
 
   for (const event of events) {
-    // Exclude thinking — ephemeral reasoning, never replayed to model.
     if (event.kind === "status" && event.metadata?.type === "thinking") {
       continue;
     }
@@ -2502,7 +2426,6 @@ export function buildStructuredMessagesFromEvents(
       continue;
     }
 
-    // Assistant text (persisted after a turn completes).
     if (event.kind === "system" && event.metadata?.role === "assistant") {
       const text = event.message.trim();
       if (!text) continue;
@@ -2510,7 +2433,6 @@ export function buildStructuredMessagesFromEvents(
       continue;
     }
 
-    // Tool call start — emit an assistant tool-call part.
     if (event.kind === "status" && event.metadata?.type === "tool_start") {
       const tool =
         typeof event.metadata?.tool === "string" && event.metadata.tool
@@ -2518,7 +2440,6 @@ export function buildStructuredMessagesFromEvents(
           : null;
       if (!tool) continue;
 
-      // Generate a stable ID from the event id so tool_done can reference it.
       const toolCallId = `tc-${event.id}`;
       toolCallIdByEventOrder.set(event.id, toolCallId);
 
@@ -2534,8 +2455,6 @@ export function buildStructuredMessagesFromEvents(
       continue;
     }
 
-    // Tool result — emit a user tool-result part paired with the last
-    // unmatched tool_start for the same tool name.
     if (event.kind === "status" && event.metadata?.type === "tool_done") {
       const tool =
         typeof event.metadata?.tool === "string" && event.metadata.tool
@@ -2543,7 +2462,6 @@ export function buildStructuredMessagesFromEvents(
           : null;
       if (!tool) continue;
 
-      // Find the most recent tool_start event id for this tool.
       const matchedCallId = findMatchingToolCallId(
         toolCallIdByEventOrder,
         events,
@@ -2574,8 +2492,6 @@ export function buildStructuredMessagesFromEvents(
           content: resultText,
         });
       } else {
-        // Orphaned tool result (no matching call in the recent window) — fall
-        // back to plain text so the model still sees the output.
         appendOrMerge(pending, "user", {
           type: "text",
           text: `[Tool result for ${tool}]: ${resultText}`,
@@ -2588,10 +2504,6 @@ export function buildStructuredMessagesFromEvents(
   return pending;
 }
 
-/**
- * Append a content part to the last message if it has the same role, or
- * start a new message otherwise.
- */
 function appendOrMerge(
   pending: Array<{
     role: "user" | "assistant";
@@ -2608,18 +2520,12 @@ function appendOrMerge(
   }
 }
 
-/**
- * Find the toolCallId generated for the most recent tool_start event that
- * matches the given tool name and precedes the current tool_done event.
- * Returns null if no match exists in the recent window.
- */
 function findMatchingToolCallId(
   toolCallIdByEventOrder: Map<string, string>,
   events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
   doneEvent: import("./code-agent-runs.js").CodeAgentTranscriptEvent,
   toolName: string,
 ): string | null {
-  // Walk backwards from doneEvent's position to find the nearest unmatched start.
   const doneIndex = events.indexOf(doneEvent);
   for (let i = doneIndex - 1; i >= 0; i--) {
     const e = events[i];
@@ -2630,7 +2536,6 @@ function findMatchingToolCallId(
     ) {
       const id = toolCallIdByEventOrder.get(e.id);
       if (id) {
-        // Consume it so a second done for the same tool gets the next start.
         toolCallIdByEventOrder.delete(e.id);
         return id;
       }
@@ -2647,10 +2552,6 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
-/**
- * Maximum character length for inlined AGENTS.md content in the system prompt.
- * Content beyond this cap is truncated with a note so the model knows more exists.
- */
 const AGENTS_MD_INLINE_CAP = 16_000;
 
 /**
@@ -2680,8 +2581,6 @@ export async function buildCodeAgentSystemPrompt(
       .filter(Boolean),
   });
 
-  // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos
-  // use that name for agent instructions (e.g. Claude Code projects).
   let agentsMdContent = bundle.developmentAgentsMd ?? bundle.agentsMd;
   if (
     !agentsMdContent.trim() &&
@@ -2832,7 +2731,6 @@ function createLocalCodeAgentActions(
         if (permissionError) return permissionError;
       }
       if (permission.kind === "approval-required") {
-        // Skip the approval gate when the user has allowlisted this command.
         if (isCodeAgentCommandAllowed(command)) return null;
         const approval = requestCodeAgentApproval(runId, {
           tool: "bash",
@@ -2899,10 +2797,6 @@ export function classifyCodeAgentCommandPermission(
   const normalized = command.trim().toLowerCase();
   if (!normalized) return { kind: "read" };
 
-  // Match every rule below against the quote-stripped form as well as the raw
-  // one. The shell removes quoting before the command word exists, so
-  // `git 'checkout' main` runs the branch operation these rules forbid while
-  // matching none of them verbatim.
   const { canonical, unanalyzable } = canonicalizeShellCommand(command);
   const canonicalized = canonical.trim().toLowerCase();
   const matches = (pattern: RegExp): boolean =>
@@ -3081,8 +2975,6 @@ export function writeCodeAgentUsageSnapshot(
     // into a failed recap when the optional sidecar cannot be written.
   }
 }
-
-// --------------- Token usage accumulator ---------------
 
 interface StoredTokenUsage {
   inputTokens: number;

@@ -45,7 +45,9 @@ const mocks = vi.hoisted(() => {
       settings.set(key, value);
     }),
     getOrgSetting: vi.fn(async () => null),
-    isWorkspaceAppAccessAllowed: vi.fn(async () => true),
+    isWorkspaceAppAccessAllowed: vi.fn(
+      async (): Promise<boolean | "unavailable"> => true,
+    ),
     resolveAccess: vi.fn(async () => ({
       role: "viewer",
       resource: {},
@@ -798,6 +800,18 @@ describe("listWorkspaceApps", () => {
     });
   });
 
+  it("does not expose Dispatch when its access check is unavailable", async () => {
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce("unavailable");
+
+    const apps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+  });
+
   it("does not expose the workspace app registry without an authenticated user", async () => {
     stubNoPendingContext();
     stubManifest([
@@ -860,7 +874,7 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
-  it("reconciles renamed manifest records and refreshes trusted metadata", async () => {
+  it("refreshes renamed manifest records and keeps rows absent from the manifest", async () => {
     stubNoPendingContext();
     stubManifest([
       { id: "dispatch", name: "Dispatch", path: "/dispatch" },
@@ -913,12 +927,6 @@ describe("listWorkspaceApps", () => {
           rowsAffected: 0,
         };
       }
-      if (sql.startsWith("SELECT id FROM workspace_apps WHERE org_id = ?")) {
-        return {
-          rows: records.map(({ id }) => ({ id })),
-          rowsAffected: 0,
-        };
-      }
       return { rows: [], rowsAffected: 1 };
     });
     mocks.getDbExec.mockReturnValue({ execute });
@@ -957,17 +965,11 @@ describe("listWorkspaceApps", () => {
       "WHERE id = ? AND org_id IS NULL",
     );
 
-    const removal = execute.mock.calls.find(([statement]) =>
-      String((statement as { sql?: unknown })?.sql ?? "").includes(
-        "WITH removed AS",
+    expect(
+      execute.mock.calls.some(([statement]) =>
+        /\bDELETE\b/i.test(String((statement as { sql?: unknown })?.sql ?? "")),
       ),
-    );
-    expect(removal?.[0]).toMatchObject({
-      args: ["assets", "org-123"],
-    });
-    expect(String((removal?.[0] as { sql?: unknown })?.sql ?? "")).toContain(
-      "DELETE FROM workspace_app_shares",
-    );
+    ).toBe(false);
   });
 
   it("does not project manifest ownership over an empty SQL owner record", async () => {
@@ -1190,12 +1192,6 @@ describe("listWorkspaceApps", () => {
         const ids = new Set(args as string[]);
         return {
           rows: records.filter((record) => ids.has(record.id)),
-          rowsAffected: 0,
-        };
-      }
-      if (sql.startsWith("SELECT id FROM workspace_apps WHERE org_id = ?")) {
-        return {
-          rows: records.map(({ id }) => ({ id })),
           rowsAffected: 0,
         };
       }
@@ -1782,10 +1778,6 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.message).not.toContain(leakedProjectId);
   });
 
-  // The reported dead end: chat said "Builder isn't connected" with nothing to
-  // click. Every Builder authorization failure used to collapse into
-  // `builder-error` ("try again in a moment"), so neither the agent nor the
-  // create-app UI could offer the Connect control they already implement.
   it("classifies a disconnected Builder as builder-not-connected with a connect action", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
@@ -1828,8 +1820,6 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
   });
 
-  // Revocation upstream is not an outage: the stored credential is present but
-  // rejected, so retry prose sends the user back into the same wall.
   it("treats a Builder-rejected credential as reconnectable, not transient", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();

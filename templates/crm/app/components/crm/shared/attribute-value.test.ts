@@ -30,9 +30,6 @@ describe("the shared registry", () => {
 });
 
 describe("editor seeds round-trip through the parser", () => {
-  // The regression this collapse exists to prevent: the grid used to seed its
-  // editor with the *formatted* value, so opening a currency cell and pressing
-  // Enter failed as "not a number" while the record panel was fine.
   it("re-parses a formatted currency amount", () => {
     const currency = attribute({
       attributeType: "currency",
@@ -90,10 +87,6 @@ describe("managed options", () => {
 });
 
 describe("inline editor drafts", () => {
-  // The regression: the record panel re-seeded its draft from the `attribute`
-  // object, which its callers rebuild on every render. The reset landed
-  // mid-edit, the browser dropped the selection, and a select-all-and-retype
-  // of "Won" over "Negotiation" stored the literal value "WonNegotiation".
   it("replaces a selected value rather than interleaving with it", () => {
     const stage = attribute();
     let state = editorDraftFor(
@@ -102,11 +95,8 @@ describe("inline editor drafts", () => {
     );
     expect(state.draft).toBe("Negotiation");
 
-    // Select all, retype.
     state = { ...state, draft: "Won" };
 
-    // A re-render with a brand new attribute object and the same committed
-    // value must leave the in-progress draft alone.
     state = editorDraftFor(
       state,
       attributeInputValue(attribute(), "Negotiation"),
@@ -139,10 +129,6 @@ describe("inline editor drafts", () => {
 });
 
 describe("editorInputType", () => {
-  // The regression, reproduced in a browser and confirmed in SQL: the record
-  // panel rendered `amount` as <input type="number">. Mid-typing "91e" the
-  // control reports value "" with validity.badInput, the parser read "" as
-  // "cleared", and Enter stored amount = NULL for a value the user had typed.
   it("never renders a numeric attribute as type=number", () => {
     for (const attributeType of ["number", "currency", "rating"] as const) {
       expect(editorInputType(attribute({ attributeType }))).toEqual({
@@ -181,8 +167,6 @@ describe("reference values", () => {
         }),
       ),
     ).toBe("account");
-    // Two allowed types cannot be expressed as one `kind`; narrowing to the
-    // first would hide exactly the record the user is searching for.
     expect(
       referenceSearchKind(
         attribute({

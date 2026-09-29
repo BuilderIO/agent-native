@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
-import { resolveHasCompleteBuilderConnection } from "@agent-native/core/server";
+import {
+  BuilderCredentialLookupError,
+  resolveHasBuilderGatewayCredential,
+  resolveHasCompleteBuilderConnection,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -10,16 +14,6 @@ import {
 } from "../server/lib/generation.js";
 import { isObjectStorageConfigured } from "../server/lib/storage.js";
 
-/**
- * Surface the server-side `BUILDER_IMAGE_GENERATION_ENABLED` env flag so
- * the settings UI can decide whether to offer the "Connect Builder.io"
- * path. With the flag set to `"false"` the generation pipeline refuses
- * Builder-managed runs (see `generateWithManagedImageProvider` in
- * `generation.ts:217`), so the settings page would otherwise lead users
- * down a setup path that can't succeed.
- *
- * Kept advisory — generation actions still check the flag themselves.
- */
 export default defineAction({
   description:
     "Returns the deployment's asset-generation config and any recent setup issue.",
@@ -28,8 +22,16 @@ export default defineAction({
   readOnly: true,
   run: async () => {
     const builderEnabled = isBuilderImageGenerationEnabled();
+    let builderConnected = false;
+    let builderLookupFailed = false;
+    try {
+      builderConnected = await resolveHasBuilderGatewayCredential();
+    } catch (error) {
+      if (!(error instanceof BuilderCredentialLookupError)) throw error;
+      builderLookupFailed = true;
+    }
     const [
-      builderConnected,
+      builderStorageConnected,
       geminiConfigured,
       openaiConfigured,
       objectStorageConfigured,
@@ -50,6 +52,8 @@ export default defineAction({
     return {
       builderEnabled,
       builderConnected,
+      builderLookupFailed,
+      builderStorageConnected,
       geminiConfigured,
       openaiConfigured,
       objectStorageConfigured,

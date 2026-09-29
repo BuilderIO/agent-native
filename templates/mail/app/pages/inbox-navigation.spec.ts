@@ -57,35 +57,32 @@ describe("Inbox navigation commands", () => {
     );
   });
 
-  it("selects the first label by default on a plain inbox route", () => {
+  it("routes a plain inbox to the All tab by default", () => {
     const source = inboxSource();
 
     expect(source).toContain("settingsLoading");
     expect(source).toContain("settingsError ||");
     expect(source).toContain("!settings ||");
     expect(source).toContain("resolveDefaultMailHref({");
+    expect(source).toContain("showAllTab: settings?.showAllTab");
     expect(source).toContain("navigate(defaultHref, { replace: true })");
     expect(source).toContain(
       "const combineInbox = settings?.combineInbox === true;",
     );
     expect(source).toContain("combineInbox\n    )");
-    expect(source).toContain("!combineInbox && isPinnedTab");
+    expect(source).toContain("resolveInboxEmailQueryScope({");
     expect(source).toContain("!combineInbox &&\n    activeInboxTab");
   });
 
   it("loads legacy custom-label inbox links from the whole mailbox", () => {
     const source = inboxSource();
 
-    expect(source).toContain("const mailboxWideLabelTab =");
-    expect(source).toContain('activeLabelRecord?.type !== "user"');
     expect(source).toContain(
-      "const clientSliceTab =\n    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
+      "const activeLabelIsInboxScoped = isInboxScopedLabel(",
     );
-    expect(source).toContain(
-      'const emailView = activeSavedFilter\n    ? "inbox"',
-    );
-    // The inbox view itself now fetches through `useInboxThreads` instead —
-    // this useEmails call stays disabled while on /inbox.
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("clientSliceTab,");
+    expect(source).toContain("emailView,");
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel, {\n    enabled: !isInboxView,\n  })",
     );
@@ -94,14 +91,32 @@ describe("Inbox navigation commands", () => {
   it("falls back to the useEmails search path when /inbox has a `q` param", () => {
     const source = inboxSource();
 
-    // The store path (list-inbox-threads) has no notion of a free-text
-    // search, so `isInboxView` (which gates rawEmails/pagination between the
-    // store and useEmails) must turn off for a non-empty `q` — only the tab
-    // bar's useInboxThreads stays keyed on the route alone.
     expect(source).toContain(
       'const isInboxView = view === "inbox" && !searchParams.get("q");',
     );
     expect(source).toContain('{ enabled: view === "inbox" },');
+  });
+
+  it("shows the row skeleton while the selected inbox tab loads", () => {
+    const source = inboxSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "const isLoading = isInboxView ? inboxThreads.isLoading || inboxThreads.isPlaceholderData || inboxStillSyncingEmpty : emailsIsLoading;",
+    );
+  });
+
+  it("lets Priority render a scored inbox page before later pages finish", () => {
+    const page = inboxSource();
+    const loadingStart = page.indexOf("const emailListLoading =");
+    const loading = page.slice(
+      loadingStart,
+      page.indexOf("const emails = useMemo(", loadingStart),
+    );
+
+    expect(loading).not.toContain("inboxExtraPages");
+    expect(emailListSource()).toContain(
+      "priorityWindowEmails.length > cachedPriorityScores.size",
+    );
   });
 
   it("navigates the inbox tab bar when an agent command sets `tab`", () => {
@@ -119,12 +134,8 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
     const emailList = emailListSource();
 
-    expect(source).toContain(
-      'if (!jevAvailability.isSuccess) return;\n    if (!jevConfigured && sortMode === "priority")',
-    );
-    expect(source).toContain(
-      'if (navCommand.sort === "priority" && jevAvailability.isLoading) {',
-    );
+    expect(source).toContain('localStorage.getItem("mail-sort-mode")');
+    expect(source).toContain('localStorage.setItem("mail-sort-mode", mode)');
     expect(source).toContain(
       'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
     );
@@ -133,23 +144,43 @@ describe("Inbox navigation commands", () => {
     );
     expect(source).toContain("showPrioritySort={showPrioritySort}");
     expect(emailList).toContain(
-      'showPrioritySort && view === "inbox" && !searchQuery && !labelParam',
+      'view === "inbox" && !searchQuery && !labelParam',
     );
     expect(emailList).toContain("{showPrioritySort && (");
+    expect(emailList).toContain("!showPrioritySort &&");
+    expect(emailList).toContain("jevAvailabilityError ? (");
+    expect(emailList).toContain('variant="menu-item"');
     expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
     expect(source).not.toContain("refetchOnWindowFocus: false");
+  });
+
+  it("keeps Jev refresh callbacks stable for the inbox header actions", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "const { refetch: refetchJevAvailability } = jevAvailability;",
+    );
+    expect(source).toContain(
+      "const onJevAvailabilityChange = useCallback(() => {\n    void refetchJevAvailability();\n  }, [refetchJevAvailability]);",
+    );
+    expect(source).toContain("onJevConnected={onJevAvailabilityChange}");
+    expect(source).toContain("onJevRetry={onJevAvailabilityChange}");
+    expect(source).not.toContain(
+      "onJevConnected={() => void jevAvailability.refetch()}",
+    );
+    expect(source).not.toContain(
+      "onJevRetry={() => void jevAvailability.refetch()}",
+    );
   });
 
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
-    expect(source).toContain("const shouldNormalizeCombinedInboxRoute =");
-    expect(source).toContain("activeLabelIsInboxScoped ||");
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("shouldNormalizeCombinedInboxRoute,");
     expect(source).toContain('nextParams.delete("label")');
     expect(source).toContain('nextParams.delete("tab")');
-    expect(source).toContain(
-      "const effectiveLabel = shouldNormalizeCombinedInboxRoute",
-    );
+    expect(source).toContain("effectiveLabel,");
     expect(source).toContain(
       "if (shouldNormalizeCombinedInboxRoute) return filtered;",
     );
@@ -173,9 +204,6 @@ describe("Inbox navigation commands", () => {
     expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
     expect(navigationHookSource()).toContain("sort?: MailSortMode;");
-    // The inbox view reports the server-resolved tab id (falls back to the
-    // raw URL param before the first response lands) so the agent sees the
-    // actual active tab, including the default when the URL has none.
     expect(inboxSource()).toContain(
       'activeInboxTab:\n        view === "inbox"\n          ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)\n          : (activeInboxTab ?? undefined)',
     );
@@ -195,12 +223,13 @@ describe("Inbox navigation commands", () => {
     expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
-  it("filters the view-screen snapshot to the active Other partition", () => {
+  it("filters the view-screen snapshot using the resolved inbox tab", () => {
     const source = viewScreenSource();
 
     expect(source).toContain("activeInboxTab?: string");
     expect(source).toContain("activeAccounts?: string[]");
-    expect(source).toContain("activeInboxTab === OTHER_INBOX_TAB_PARAM");
+    expect(source).toContain('activeTab?.kind === "other"');
+    expect(source).toContain("resolveActiveTabId(activeInboxTab, inboxTabs)");
     expect(source).toContain("augmentSelfSentLabels");
     expect(source).toContain("selectedAccountSet");
     expect(source).toContain("accountEmails:");
@@ -276,7 +305,7 @@ describe("Inbox navigation commands", () => {
   it("disambiguates custom labels that share a system label name", () => {
     const source = inboxSource();
 
-    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain("isInboxScopedLabel(activeLabel, labels)");
     expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
     expect(source).toContain("const activeLabelIsInboxScoped =");
   });
@@ -284,8 +313,6 @@ describe("Inbox navigation commands", () => {
   it("treats a needs_reauth account as incomplete coverage, not just error", () => {
     const source = inboxSource();
 
-    // A reconnect-needed account has unread rows we couldn't read either, so
-    // it must suppress the false Inbox Zero the same as a sync error.
     expect(source).toContain(
       'account.state === "error" || account.state === "needs_reauth"',
     );
@@ -334,8 +361,6 @@ describe("Inbox pagination", () => {
       "const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;",
     );
     expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
-    // Priority preloads its bounded evaluation window; other routes start
-    // from the newly-active tab's page 0.
     expect(source).toContain("showPrioritySort,\n    resolvedInboxTab");
   });
 
@@ -380,7 +405,6 @@ describe("Inbox load-more pagination error recovery", () => {
     );
     expect(hook).toContain("if (lastPage?.isError)");
     expect(hook).toContain("return lastPage.refetch().then(() => undefined);");
-    // Only reached once the failed-page retry branch above returns early.
     expect(hook).toContain("setInboxExtraPageCount((count) => count + 1);");
   });
 });

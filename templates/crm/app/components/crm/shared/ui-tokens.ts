@@ -16,12 +16,9 @@ export const BOARD_COLUMN_WIDTH = 268;
 export const BOARD_CARD_GAP = 8;
 export const BOARD_COLUMN_HEADER_HEIGHT = 36;
 
-/** Record page is two panes: a resizable left panel plus main content. */
 export const RECORD_PANEL_MIN_WIDTH = 320;
 export const RECORD_MAIN_MIN_WIDTH = 350;
 
-/** Milliseconds, mirroring --motion-* in global.css. Use these only for JS
- *  timers; anything CSS can express should use the vars instead. */
 export const MOTION = {
   fast: 80,
   comfortable: 140,
@@ -30,22 +27,14 @@ export const MOTION = {
   sloth: 400,
 } as const;
 
-/** Cell selection ring geometry. The ring overlaps the shared 1px divider on
- *  three sides so a range reads as one outline rather than a double line. */
 export const SELECTION_RING_INSET = "-1px -1px -1px 0";
 
 export interface OverlayOptions {
   selected?: boolean;
-  /** Cells: select with the content color at 8% instead of the accent at 10%,
-   *  because the row underneath already carries the accent tint. */
   soft?: boolean;
   className?: string;
 }
 
-/**
- * The one hover/selection implementation. Returns the overlay class plus the
- * state attribute it keys off; spread it onto the row, cell, or card.
- */
 export function overlayProps(options: OverlayOptions = {}): {
   className: string;
   "data-selected"?: "true";
@@ -69,12 +58,6 @@ export interface SelectionEdges {
   left: boolean;
 }
 
-/**
- * A selected range is drawn per cell, so a corner may only round where the two
- * border segments that form it are both present. Rounding by cell position
- * instead of by edge pair is the usual bug: it rounds interior corners that
- * have no visible border and the range reads as loose tiles.
- */
 export function selectionCornerRadius(
   edges: SelectionEdges,
   radius = 4,

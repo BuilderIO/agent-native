@@ -8,10 +8,6 @@ import { dashboardComponents } from "./registry";
 
 const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
 
-// Single shared loading placeholder used across hydration → exists-check →
-// Suspense → dashboard config load. Matches the real SqlChartCard shape (Card
-// chrome + title row + chart-body skeleton) so the user sees one continuous
-// skeleton state rather than four different ones morphing into each other.
 function SqlDashboardLoader() {
   return (
     <Suspense fallback={<DashboardSkeleton />}>
@@ -29,7 +25,6 @@ export default function AdhocRouter() {
     if (Component) incrementItemView("dashboard", id);
   }, [Component, id]);
 
-  // Code-based dashboards take priority
   if (Component) {
     return (
       <Suspense fallback={<DashboardSkeleton />}>

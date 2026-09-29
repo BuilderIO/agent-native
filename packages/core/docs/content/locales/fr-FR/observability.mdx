@@ -19,7 +19,7 @@ Ces trois pages sont faciles à confondre. Choisissez en fonction de la question
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                  | "L'agent fait-il ce qu'il faut sur cette entrée fixe ?"                    | Actif, déterministe, une porte CI/déploiement         | Qualité         |
 | **[Observational Memory](/docs/observational-memory)**         | "Est-ce que ce long fil reste bon marché et à l'intérieur de la fenêtre ?" | Compactage en arrière-plan sur les threads longs      | Coût / contexte |
 
-L'observabilité et CI Eval Gate obtiennent tous deux une _qualité_ mais à partir d'extrémités opposées : notation passive post-hoc du trafic réel par rapport aux contrôles actifs de réussite/d'échec sur les entrées fixes. La mémoire observationnelle n'est pas liée à la qualité ; il s'agit du coût des jetons et de la pression de la fenêtre contextuelle.
+L'observabilité et CI Eval Gate obtiennent tous deux une _qualité_ mais à partir d'extrémités opposées : notation passive post-hoc du trafic réel par rapport aux contrôles actifs de réussite/d'échec sur les entrées fixes. La mémoire observationnelle n'est pas liée à la qualité ; il s'agit du coût des jetons et de la pression de la fenêtre contextuelle. Promouvez une trace de production terminée en cas `*.eval.ts` (tableau de bord **Promote to eval**, action `promote-trace-eval`, ou `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Voir [Depuis une trace de production](/docs/evals#from-trace).
 
 ## Ce qui est capturé automatiquement {#captured}
 
@@ -108,15 +108,26 @@ export default function ObservabilityPage() {
 
 Toutes les données sont limitées à l'utilisateur connecté ; il n'existe pas de vue d'administration multi-utilisateurs aujourd'hui.
 
-Le tableau de bord comporte 5 onglets :
+Le tableau de bord comporte 6 onglets :
 
-| Onglet             | Ce que cela montre                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| **Vue d'ensemble** | Mesures clés : exécutions, coût, latence, taux de réussite de l'outil, satisfaction, score d'évaluation |
-| **Conversations**  | Liste de traces avec exploration vers des étendues individuelles (agent_run, llm_call, tool_call)       |
-| **Évaluations**    | Scores d'évaluation automatisés par critères, tendances au fil du temps                                 |
-| **Expériences**    | Liste de tests A/B avec badges de statut, résultats des variantes avec intervalles de confiance         |
-| **Commentaires**   | Flux de pouces vers le haut/vers le bas, répartition par catégorie, scores de frustration               |
+| Onglet             | Ce que cela montre                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| **Vue d'ensemble** | Mesures clés : exécutions, coût, latence, taux de réussite de l'outil, satisfaction, score d'évaluation     |
+| **Conversations**  | Liste de traces avec exploration vers des étendues individuelles (agent_run, llm_call, tool_call)           |
+| **Évaluations**    | Scores d'évaluation automatisés par critères, tendances au fil du temps                                     |
+| **Expériences**    | Liste de tests A/B avec badges de statut, résultats des variantes avec intervalles de confiance             |
+| **Commentaires**   | Flux de pouces vers le haut/vers le bas, répartition par catégorie, scores de frustration                   |
+| **Revue humaine**  | Examiner la demande et la réponse, noter un retour et préparer un brouillon de mise à jour des instructions |
+
+### Détails des conversations {#conversations}
+
+L’onglet Conversations affiche les exécutions enregistrées. Sélectionnez-en une pour examiner ses étendues, puis développez une étendue pour voir les entrées, sorties, erreurs et métadonnées des outils qui ont été capturées. **Ouvrir la conversation complète** ouvre le fil de discussion associé.
+
+La capture des arguments et résultats des outils est désactivée par défaut. Activez `captureToolArgs` et `captureToolResults` dans la configuration `observability` pour les stocker. Les champs sensibles et les messages d’erreur des outils sont expurgés avant l’enregistrement.
+
+### Revue humaine {#review}
+
+L’onglet Revue humaine présente la demande et la réponse de chaque exécution, permet de noter un retour et d’enregistrer un brouillon de modification des instructions pour examen humain. L’enregistrement du brouillon ne modifie pas automatiquement les instructions.
 
 ## Commentaires des utilisateurs {#feedback}
 
@@ -287,23 +298,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 Tous montés automatiquement sur `/_agent-native/observability/` :
 
-| Méthode | Chemin                     | Objectif                                |
-| ------- | -------------------------- | --------------------------------------- |
-| GET     | `/`                        | Statistiques générales                  |
-| GET     | `/traces`                  | Liste des résumés de trace              |
-| GET     | `/traces/:runId`           | Détails de la trace (résumé + étendues) |
-| GET     | `/traces/:runId/evals`     | Évaluations pour une exécution          |
-| POST    | `/feedback`                | Envoyer des commentaires                |
-| GET     | `/feedback`                | Répertorier les commentaires            |
-| GET     | `/feedback/stats`          | Agrégation de commentaires              |
-| GET     | `/satisfaction`            | Notes de satisfaction                   |
-| GET     | `/evals/stats`             | Statistiques d'évaluation               |
-| POST    | `/experiments`             | Créer un test                           |
-| GET     | `/experiments`             | Liste des tests                         |
-| GET     | `/experiments/:id`         | Obtenir les détails du test             |
-| PUT     | `/experiments/:id`         | Mettre à jour le test                   |
-| POST    | `/experiments/:id/results` | Calculer les résultats                  |
-| GET     | `/experiments/:id/results` | Obtenir des résultats                   |
+| Méthode | Chemin                     | Objectif                                     |
+| ------- | -------------------------- | -------------------------------------------- |
+| GET     | `/`                        | Statistiques générales                       |
+| GET     | `/traces`                  | Liste des résumés de trace                   |
+| GET     | `/traces/:runId`           | Détails de la trace (résumé + étendues)      |
+| GET     | `/traces/:runId/evals`     | Évaluations pour une exécution               |
+| POST    | `/traces/:runId/promote`   | Promouvoir une exécution terminée en eval CI |
+| POST    | `/feedback`                | Envoyer des commentaires                     |
+| GET     | `/feedback`                | Répertorier les commentaires                 |
+| GET     | `/feedback/stats`          | Agrégation de commentaires                   |
+| GET     | `/satisfaction`            | Notes de satisfaction                        |
+| GET     | `/evals/stats`             | Statistiques d'évaluation                    |
+| POST    | `/experiments`             | Créer un test                                |
+| GET     | `/experiments`             | Liste des tests                              |
+| GET     | `/experiments/:id`         | Obtenir les détails du test                  |
+| PUT     | `/experiments/:id`         | Mettre à jour le test                        |
+| POST    | `/experiments/:id/results` | Calculer les résultats                       |
+| GET     | `/experiments/:id/results` | Obtenir des résultats                        |
 
 Tous les points de terminaison prennent en charge les paramètres de requête `?since=N` (horodatage ms) et `?limit=N`.
 

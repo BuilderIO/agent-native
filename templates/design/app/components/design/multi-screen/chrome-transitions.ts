@@ -1,7 +1,3 @@
-// During a zoom gesture the constant-size selection chrome is frozen (we don't
-// re-render); on commit it recomputes to its fixed screen size. These transitions
-// are enabled only for that brief settle, so normal selection, resize, and
-// screen-switch geometry stays pinned to the frame.
 export const CHROME_SETTLE_MS = 150;
 const CHROME_OPACITY_TRANSITION = "opacity 150ms ease-out";
 const CHROME_BORDER_SETTLE_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
@@ -25,8 +21,6 @@ export function getChromeHandleTransition(chromeSettling: boolean) {
     : CHROME_OPACITY_TRANSITION;
 }
 
-/** Frame labels and their action button should ease into their settled geometry
- * after zooming, but stay pinned during the live gesture. */
 export function getChromeLabelTransition(chromeSettling: boolean) {
   return chromeSettling
     ? CHROME_LABEL_SETTLE_TRANSITION

@@ -5,7 +5,6 @@ export interface ConnectedAppSummary {
   name: string;
   description?: string;
   url: string;
-  /** Canonical app-home URL used for launchers; `url` remains the A2A endpoint. */
   homeUrl?: string;
   color?: string;
   source?: "builtin" | "custom" | "workspace";
@@ -48,7 +47,7 @@ export function filterOtherApps(
         seen.has(id)
       )
         return false;
-      if (app.source === "workspace") return false;
+      if (app.source !== "custom") return false;
       if (!isHttpUrl(app.url)) return false;
       seen.add(id);
       return true;

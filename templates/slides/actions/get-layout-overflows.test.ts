@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
 const mockReadAppStateForCurrentTab = vi.fn();
-const mockWriteAppStateForCurrentTab = vi.fn();
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (action: unknown) => action,
@@ -15,8 +14,6 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("./_tab-state.js", () => ({
   readAppStateForCurrentTab: (...args: unknown[]) =>
     mockReadAppStateForCurrentTab(...args),
-  writeAppStateForCurrentTab: (...args: unknown[]) =>
-    mockWriteAppStateForCurrentTab(...args),
 }));
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -59,6 +56,10 @@ beforeEach(() => {
 });
 
 describe("get-layout-overflows", () => {
+  it("is a read-only snapshot of current editor measurements", () => {
+    expect(action.readOnly).toBe(true);
+  });
+
   it("uses the current slide measurement when the deck aggregate says all slides fit", async () => {
     const deckFitState = {
       deckId: "deck-1",
@@ -127,6 +128,41 @@ describe("get-layout-overflows", () => {
       status: "unknown",
       measuredSlideCount: 1,
       unknownSlideIds: ["slide-a"],
+      unknownSlides: [{ slideId: "slide-a", slideNumber: 1 }],
+      overflows: [],
+      canClaimDeckFits: false,
+      guidance: expect.stringContaining(
+        "Rechecking in this turn will not change this result",
+      ),
+    });
+  });
+
+  it("keeps legacy FNV measurements unknown until the browser remeasures", async () => {
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": {
+              ...measurement(slideAContent),
+              contentHash: "1ca88cd3",
+            },
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      measuredSlideCount: 1,
+      slideCount: 2,
+      unknownSlideIds: ["slide-a"],
+      unknownSlides: [{ slideId: "slide-a", slideNumber: 1 }],
       overflows: [],
       canClaimDeckFits: false,
     });
@@ -169,114 +205,45 @@ describe("get-layout-overflows", () => {
       status: "unknown",
       measuredSlideCount: 1,
       unknownSlideIds: ["slide-a"],
+      unknownSlides: [{ slideId: "slide-a", slideNumber: 1 }],
       overflows: [],
       canClaimDeckFits: false,
     });
   });
 
-  it("tells the agent to stop re-checking after repeated unresolved overflow", async () => {
-    let history: { deckId: string; count: number; lastCheckAt: number } | null =
-      null;
-    const deckFitState = {
-      deckId: "deck-1",
-      aspectRatio: "16:9",
-      slides: {
-        "slide-a": measurement(slideAContent, 225),
-        "slide-b": measurement(slideBContent),
-      },
-    };
+  it("names unmeasured slide numbers and IDs without persisting poll counts", async () => {
     mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
-      if (key === "layout-overflow-check-history:deck-1") return history;
-      if (key === "deck-fit-checks") return deckFitState;
       return null;
     });
-    mockWriteAppStateForCurrentTab.mockImplementation(
-      async (_key: string, value: typeof history) => {
-        history = value;
-      },
-    );
-
-    let result;
-    for (let i = 0; i < 3; i += 1) {
-      result = await action.run({ deckId: "deck-1" });
-    }
-
-    expect(result).toMatchObject({
-      status: "measured",
-      canClaimDeckFits: false,
-      guidance: expect.stringContaining("checked 3 times"),
-    });
-    expect(result!.guidance).toContain("overflow still present");
-    expect(result!.guidance).not.toContain(
-      "measurements are still unavailable",
-    );
-  });
-
-  it("keeps incrementing through unknown (not-yet-measured) results, not just overflow", async () => {
-    let history: { deckId: string; count: number; lastCheckAt: number } | null =
-      null;
-    // No deck-fit-checks/slide-fit-check state at all -> every slide is
-    // unknown, overflows stays empty, but canClaimDeckFits is still false.
-    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
-      if (key === "layout-overflow-check-history:deck-1") return history;
-      return null;
-    });
-    mockWriteAppStateForCurrentTab.mockImplementation(
-      async (_key: string, value: typeof history) => {
-        history = value;
-      },
-    );
-
-    let result;
-    for (let i = 0; i < 3; i += 1) {
-      result = await action.run({ deckId: "deck-1" });
-    }
+    const result = await action.run({ deckId: "deck-1" });
 
     expect(result).toMatchObject({
       status: "unknown",
       canClaimDeckFits: false,
-      guidance: expect.stringContaining("checked 3 times"),
+      unknownSlides: [
+        { slideId: "slide-a", slideNumber: 1 },
+        { slideId: "slide-b", slideNumber: 2 },
+      ],
+      guidance: expect.stringContaining("Slides 1 (slide-a), 2 (slide-b)"),
     });
-    expect(result!.guidance).toContain("measurements are still unavailable");
-    expect(result!.guidance).not.toContain("overflow still present");
+    expect(mockReadAppStateForCurrentTab).toHaveBeenCalledTimes(2);
   });
 
-  it("tracks separate decks independently instead of one shared record", async () => {
-    const stores = new Map<string, unknown>();
-    mockReadAppStateForCurrentTab.mockImplementation(
-      async (key: string) => stores.get(key) ?? null,
-    );
-    mockWriteAppStateForCurrentTab.mockImplementation(
-      async (key: string, value: unknown) => {
-        stores.set(key, value);
-      },
-    );
-
-    // Interleave checks for deck-1 and deck-2, both unresolved (unknown).
-    await action.run({ deckId: "deck-1" });
-    await action.run({ deckId: "deck-2" });
-    await action.run({ deckId: "deck-1" });
-    await action.run({ deckId: "deck-2" });
-    const deck1Result = await action.run({ deckId: "deck-1" });
-    const deck2Result = await action.run({ deckId: "deck-2" });
-
-    expect(deck1Result.guidance).toContain("checked 3 times");
-    expect(deck2Result.guidance).toContain("checked 3 times");
-  });
-
-  it("resets the repeat count once the deck fits", async () => {
+  it("gives a dimension-specific repair hint for every measured overflow", async () => {
+    const currentSlideState = {
+      ...measurement(slideAContent, 40),
+      contentWidth: 752,
+      horizontalOverflow: 12,
+      slideId: "slide-a",
+      deckId: "deck-1",
+    };
     mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
-      if (key === "layout-overflow-check-history:deck-1") {
-        return { deckId: "deck-1", count: 5, lastCheckAt: Date.now() };
-      }
+      if (key === "slide-fit-check") return currentSlideState;
       if (key === "deck-fit-checks") {
         return {
           deckId: "deck-1",
           aspectRatio: "16:9",
-          slides: {
-            "slide-a": measurement(slideAContent),
-            "slide-b": measurement(slideBContent),
-          },
+          slides: { "slide-b": measurement(slideBContent) },
         };
       }
       return null;
@@ -284,11 +251,19 @@ describe("get-layout-overflows", () => {
 
     const result = await action.run({ deckId: "deck-1" });
 
-    expect(result).toMatchObject({ canClaimDeckFits: true });
-    expect(result.guidance).toBeUndefined();
-    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith(
-      "layout-overflow-check-history:deck-1",
-      { deckId: "deck-1", count: 0, lastCheckAt: expect.any(Number) },
+    expect(result.overflows).toEqual([
+      expect.objectContaining({
+        slideId: "slide-a",
+        slideNumber: 1,
+        verticalOverflow: 40,
+        horizontalOverflow: 12,
+        hint: expect.stringContaining(
+          "Reduce vertical content by at least 40 px",
+        ),
+      }),
+    ]);
+    expect(result.overflows[0].hint).toContain(
+      "Reduce horizontal content by at least 12 px",
     );
   });
 });

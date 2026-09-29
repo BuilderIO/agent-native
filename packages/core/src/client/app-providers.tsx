@@ -1,58 +1,3 @@
-/**
- * Shared provider shell for agent-native template roots.
- *
- * Composes the providers every template needs:
- *   QueryClientProvider → ThemeProvider → TooltipProvider → Toaster
- *
- * Templates keep their own `createAgentNativeQueryClient(overrides)` call and
- * pass the result in as `queryClient`. AppProviders never creates a client
- * internally so each template can apply its own query defaults (e.g. calendar's
- * `refetchOnWindowFocus: true`, mail's focus-refresh throttle).
- *
- * Public-path SSR pattern (calendar/clips/content):
- *   Some templates have routes that must SSR real content for first-visit
- *   signed-out users and crawlers, bypassing the `<ClientOnly>` gate.
- *   Pass `isPublicPath` and `clientOnlyFallback` to activate this branch:
- *
- *     <AppProviders
- *       queryClient={queryClient}
- *       isPublicPath={isPublicBookingPath(location.pathname)}
- *       clientOnlyFallback={<AppShellSkeleton />}
- *     >
- *       ...
- *     </AppProviders>
- *
- *   When `isPublicPath` is true the providers render without `<ClientOnly>` or
- *   a session gate, streaming real markup to the client. When false (the
- *   default), `<ClientOnly>` hydrates the shared SSR shell and
- *   `<RequireSession>` redirects signed-out visitors to the framework sign-in
- *   page before private app chrome mounts. When `clientOnlyFallback` is
- *   omitted, `<AppShellSkeleton />` is used.
- *
- * Customisation props:
- *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
- *                              Defaults to "class". Use ["class", "data-theme"]
- *                              when CSS variables are also keyed off a data-theme
- *                              attribute (mail template).
- *   tooltipDelayDuration     — passed to Radix TooltipProvider `delayDuration`
- *                              (ms). Omit to use the Radix default (700 ms).
- *   toaster                  — custom Toaster element rendered after children.
- *                              Pass `null` to suppress the built-in Toaster when
- *                              children already include a styled one.
- *                              Defaults to a rich-color bottom-left toaster raised above
- *                              the environment badge.
- *   disableThemeTransitions  — passed to next-themes ThemeProvider
- *                              `disableTransitionOnChange`. Defaults to `true`
- *                              (suppresses CSS transitions during theme switches,
- *                              which is the shadcn recommendation and avoids
- *                              flash artefacts). Set to `false` when the template
- *                              intentionally animates theme changes (e.g. content).
- *   disableWebMcp             — skips the automatic page-local WebMCP action
- *                              registration. Defaults to `false`.
- *   webMcpExcludeActionNames  — omits named server actions when a page provides
- *                              a safer or more specific replacement.
- */
-
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
@@ -67,7 +12,10 @@ import {
 import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
 import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath, frameworkRoutePrefix } from "./api-path.js";
-import { AppShellSkeleton } from "./AppShellSkeleton.js";
+import {
+  AppShellSkeleton,
+  type AppShellSkeletonLayout,
+} from "./AppShellSkeleton.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
@@ -86,90 +34,39 @@ import {
 } from "./theme.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 import { useSession } from "./use-session.js";
+import { SettingsShortcut } from "./use-settings-shortcut.js";
 
 export interface AppProvidersProps {
-  /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
   queryClient: QueryClient;
 
-  /**
-   * Default theme passed to next-themes `ThemeProvider`.
-   * Defaults to `"system"`.  Dark-first templates (slides, analytics)
-   * pass `"dark"`.
-   */
   defaultTheme?: string;
 
-  /**
-   * Passed to next-themes ThemeProvider `attribute`.
-   * Defaults to "class". Pass ["class", "data-theme"] when your CSS variables
-   * are also keyed off a data-theme attribute (mail template).
-   */
   themeAttribute?: Attribute | Attribute[];
 
-  /**
-   * Passed to Radix TooltipProvider `delayDuration` (ms).
-   * Omit to use the Radix default (700 ms).
-   */
   tooltipDelayDuration?: number;
 
-  /**
-   * Custom Toaster element rendered after children inside TooltipProvider.
-   * Pass `null` to suppress the built-in Toaster when children already
-   * include a styled one.
-   * Defaults to a rich-color bottom-left toaster raised above the environment badge.
-   */
   toaster?: React.ReactNode | null;
 
-  /**
-   * Passed to next-themes ThemeProvider `disableTransitionOnChange`.
-   * Defaults to `true` (suppresses CSS transitions on theme switch, per the
-   * shadcn recommendation). Set to `false` when the template intentionally
-   * animates theme changes (e.g. content's 3-way theme cycle).
-   */
   disableThemeTransitions?: boolean;
 
-  /**
-   * Skip the automatic page-local WebMCP action registration.
-   * Defaults to false so every AppProviders surface exposes its actions.
-   */
   disableWebMcp?: boolean;
 
-  /**
-   * Omit named server actions from the automatic registration when a page
-   * provides a safer or more specific replacement.
-   */
   webMcpExcludeActionNames?: readonly string[];
 
-  /** Render the environment badge in the shared app shell. */
   showEnvironmentBadge?: boolean;
 
-  /**
-   * Optional localization runtime configuration. When omitted, AppProviders
-   * still mounts the i18n provider with an English fallback so templates can
-   * call useT/useLocale before they add catalogs. Pass false to opt out.
-   */
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
 
-  /**
-   * When true the providers render without a `<ClientOnly>` gate so SSR
-   * streams real markup for public/unauthenticated paths.
-   * Defaults to false (authenticated app shell, ClientOnly-gated).
-   */
   isPublicPath?: boolean;
 
-  /**
-   * Fallback rendered by `<ClientOnly>` while JS hydrates on private paths.
-   * Defaults to `<AppShellSkeleton />`.
-   */
   clientOnlyFallback?: React.ReactNode;
 
-  /**
-   * Skip the default client-side session gate on a private path. Use only for
-   * surfaces that authenticate by another mechanism, such as an MCP embed with
-   * its own scoped token. Public/SEO routes should use `isPublicPath` instead.
-   */
+  skeletonLayout?: AppShellSkeletonLayout;
+
   sessionBypass?: boolean;
 
-  /** Fallback used if route metadata leaves the browser title empty or structured. */
+  skipFirstRunOnboarding?: boolean;
+
   documentTitleFallback?: string;
 
   children: React.ReactNode;
@@ -211,7 +108,11 @@ function EarlySessionBootstrapScript() {
   );
 }
 
-function RoutedAppEnhancements() {
+function RoutedAppEnhancements({
+  settingsShortcut,
+}: {
+  settingsShortcut: boolean;
+}) {
   const isInRouter = useInRouterContext();
   if (!isInRouter) return null;
 
@@ -219,6 +120,7 @@ function RoutedAppEnhancements() {
     <>
       <AgentNativeRouteWarmup />
       <RouteTransitionIndicator />
+      {settingsShortcut ? <SettingsShortcut /> : null}
     </>
   );
 }
@@ -290,9 +192,6 @@ function SessionGatedAgentNativeWebMcpRegistration({
     // Previously an unavailable session registered anyway ("best-effort");
     // that traded a known-bad manifest fetch for zero benefit.
     if (status === "unauthenticated" || status === "signing-out") {
-      // Confirmed sign-out is the only session change that stops a live
-      // registration; a transient revalidation (loading/unavailable) keeps
-      // the existing one alive until the session settles.
       registrationRef.current?.stop();
       registrationRef.current = null;
       registrationExcludeActionNamesKeyRef.current = null;
@@ -413,7 +312,6 @@ function EmbeddedThemeSync() {
   return null;
 }
 
-/** Repairs route metadata that would otherwise expose a structured payload in the tab. */
 function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   const initialTitleRef = useRef<string | null>(null);
   if (initialTitleRef.current === null && typeof document !== "undefined") {
@@ -466,6 +364,7 @@ function ProvidersInner({
   documentTitleFallback,
   showProductionEnvironmentBadge,
   showEnvironmentBadge,
+  settingsShortcut,
   children,
 }: {
   queryClient: QueryClient;
@@ -481,6 +380,7 @@ function ProvidersInner({
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
   showEnvironmentBadge: boolean;
+  settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -511,7 +411,7 @@ function ProvidersInner({
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
-          <RoutedAppEnhancements />
+          <RoutedAppEnhancements settingsShortcut={settingsShortcut} />
           {showEnvironmentBadge ? (
             <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
           ) : null}
@@ -522,11 +422,6 @@ function ProvidersInner({
   );
 }
 
-// Public/SEO surfaces must stay impersonal and request-light: they default to
-// the non-persisting i18n runtime, which never resolves the session and never
-// fires the localization preference read or app-state write (locale comes from
-// localStorage/browser language). A caller that explicitly sets
-// `persistPreference` keeps its choice; `i18n: false` opts out entirely.
 function publicPathI18n(
   i18n: AppProvidersProps["i18n"],
 ): AppProvidersProps["i18n"] {
@@ -538,7 +433,9 @@ export function AppProviders({
   queryClient,
   isPublicPath = false,
   clientOnlyFallback,
+  skeletonLayout,
   sessionBypass = false,
+  skipFirstRunOnboarding = false,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
@@ -551,7 +448,9 @@ export function AppProviders({
   documentTitleFallback,
   children,
 }: AppProvidersProps) {
-  const fallback = clientOnlyFallback ?? <AppShellSkeleton />;
+  const fallback = clientOnlyFallback ?? (
+    <AppShellSkeleton layout={skeletonLayout} />
+  );
 
   if (isPublicPath) {
     return (
@@ -569,14 +468,13 @@ export function AppProviders({
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
         showEnvironmentBadge={showEnvironmentBadge}
+        settingsShortcut={false}
       >
         {children}
       </ProvidersInner>
     );
   }
 
-  // Keep the bootstrap outside ClientOnly so the HTML parser can run it before
-  // the authenticated client bundle starts.
   return (
     <>
       {!sessionBypass && (
@@ -600,12 +498,16 @@ export function AppProviders({
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}
           showEnvironmentBadge={showEnvironmentBadge}
+          settingsShortcut={!sessionBypass}
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (
               children
             ) : (
-              <FirstRunOnboardingStartupGate>
+              <FirstRunOnboardingStartupGate
+                suppressSurface={skipFirstRunOnboarding}
+                fallback={fallback}
+              >
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

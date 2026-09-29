@@ -45,7 +45,6 @@ describe("code-layer projection cache", () => {
     });
     expect(asFile).not.toBe(inline);
     expect(asFile.source.fileId).toBe("file-1");
-    // A different file id must never reuse another file's projection.
     const otherFile = buildCodeLayerProjection(html, {
       source: { kind: "design-file", fileId: "file-2" },
     });
@@ -80,14 +79,10 @@ describe("code-layer projection cache", () => {
     const kept = buildCodeLayerProjection("<main><p>keep</p></main>");
     for (let i = 1; i <= 20; i += 1) {
       buildCodeLayerProjection(`<main><p>filler-${i}</p></main>`);
-      // Re-reading must refresh recency, or a hot document is evicted by the
-      // cold ones streaming past it.
       expect(buildCodeLayerProjection("<main><p>keep</p></main>")).toBe(kept);
     }
   });
 
-  // Every distinct source of the same (here empty) document is its own entry;
-  // charging only document chars would let them grow without bound.
   it("evicts entries of one document by source", () => {
     clearCodeLayerProjectionCache();
     const project = (revision: number) =>
@@ -152,19 +147,6 @@ describe("code-layer projection", () => {
   });
 
   it("only aliases stable per-node id attributes in node.selectors, never shared kind/state flags", () => {
-    // Regression: node.selectors previously included an attribute selector
-    // for EVERY data-* attribute on an element, including non-unique ones
-    // like data-an-primitive (shared by every rectangle/frame primitive) and
-    // the boolean data-agent-native-hidden/-locked state flags. Design's
-    // hidden/locked-layer propagation (codeLayerSelectorAliases in
-    // app/pages/design-editor/code-layer-state.ts) treats every entry in
-    // node.selectors as a selector that uniquely resolves to that one node,
-    // then feeds it straight into the bridge's document-wide
-    // `document.querySelectorAll(selector)` (applyHiddenSelectors /
-    // isLayerInteractionBlocked). A generic `[data-an-primitive="frame"]`
-    // alias there silently hid or blocked interaction on EVERY frame-kind
-    // container in the whole screen just because ONE of them was hidden or
-    // locked — breaking drag/drop and selection for unrelated siblings.
     const html = `
       <div data-agent-native-node-id="hidden-container" data-an-primitive="frame" data-agent-native-hidden="true"></div>
       <div data-agent-native-node-id="col-container" data-an-primitive="frame"></div>
@@ -185,8 +167,6 @@ describe("code-layer projection", () => {
     expect(hidden?.selectors).not.toContain(
       '[data-agent-native-hidden="true"]',
     );
-    // The unrelated sibling's own selectors must never resolve back to the
-    // hidden node's selector set either.
     expect(other?.selectors).not.toContain('[data-an-primitive="frame"]');
   });
 
@@ -305,7 +285,6 @@ describe("code-layer projection", () => {
       ]),
     );
 
-    // Plain nodes must not have componentInstance.
     expect(plainNode?.componentInstance).toBeUndefined();
   });
 
@@ -320,7 +299,6 @@ describe("code-layer projection", () => {
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
     const mainNode = tree[0];
     expect(mainNode).toBeTruthy();
-    // The NavBar-annotated div must use the component name and classification.
     const componentChild = mainNode?.children.find(
       (child) => child.type === "component",
     );
@@ -380,9 +358,6 @@ describe("code-layer projection", () => {
   });
 
   it("classifies canvas primitives by their data-an-primitive kind marker", () => {
-    // Canvas primitives (drawn shapes / board objects) are <div>s, which would
-    // otherwise classify as "element" (code glyph). The kind marker makes a
-    // rectangle render with a rectangle icon, text with a text icon, etc.
     const html = `
       <div data-agent-native-node-id="r1" data-an-primitive="rectangle" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
       <div data-agent-native-node-id="t1" data-an-primitive="text" style="position:absolute">Label</div>
@@ -412,10 +387,6 @@ describe("code-layer projection", () => {
   });
 
   it("classifies SVG-based vector primitives by their data-an-primitive kind marker", () => {
-    // Pen-tool vectors, lines, arrows, polygons, and stars are <svg>s. Without
-    // a distinct type they would fall through to "shape" and show a rectangle
-    // glyph. The kind marker gives each its own vector/line/arrow/polygon/star
-    // classification.
     const html = `
       <svg data-agent-native-node-id="p1" data-an-primitive="path" style="position:absolute"><path d="M 0 0 L 10 10"/></svg>
       <svg data-agent-native-node-id="l1" data-an-primitive="line" style="position:absolute"><path d="M 0 5 L 100 5"/></svg>
@@ -431,9 +402,17 @@ describe("code-layer projection", () => {
       "polygon",
       "star",
     ]);
-    // Each SVG primitive is a single leaf layer: its internal geometry
-    // (<path>/<polygon>) must not be projected as a child layer.
     expect(tree.map((node) => node.children.length)).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("classifies an unmarked svg as a generic shape", () => {
+    const html = `
+      <div data-agent-native-node-id="icon" style="position:absolute;width:24px;height:24px">
+        <svg data-agent-native-node-id="v1" data-agent-native-layer-name="Vector" viewBox="0 0 20 20" style="position:absolute"><path d="M0 0 L20 20"/></svg>
+      </div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree[0]?.children.map((node) => node.type)).toEqual(["shape"]);
   });
 
   it("does not project inline-SVG internals as child layers", () => {
@@ -573,8 +552,6 @@ describe("code-layer projection", () => {
 
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
 
-    // The screen frame carries the document's fill, stroke and effects now, so
-    // a shell row would only repeat the screen under a second name.
     expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
       { tag: "main", name: "Home" },
     ]);
@@ -599,8 +576,6 @@ describe("code layer projection of a drawn vector", () => {
   }
 
   it("carries the shape child's paint on the addressable wrapper node", () => {
-    // The child is skipped by hasSvgAncestor and has no node id, so a reader
-    // that only sees the wrapper would report a shape with no fill at all.
     expect(vectorNode().style).toMatchObject({
       fill: "rgb(218 218 218)",
       stroke: "none",
@@ -756,10 +731,274 @@ describe("applyVisualEdit vector paint", () => {
     });
     const path = patch.content.slice(patch.content.indexOf("<path"));
 
-    // A presentation attribute loses to any CSS declaration on the same
-    // element, so the stale `stroke="none"` alongside it is inert.
     expect(path).toContain(`style="stroke: #0000ff"`);
     expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+  });
+
+  it("materializes vector linear gradients as SVG paint servers and reads them back", () => {
+    const value =
+      "linear-gradient(45deg, rgba(255, 0, 0, 0.5) 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(gradient.content).toContain(
+      'style="stroke: url(#pen-1-stroke-gradient)"',
+    );
+    expect(gradient.content).toContain(
+      'stop-color="rgb(255, 0, 0)" stop-opacity="0.5"',
+    );
+    expect(gradient.content).toContain(`--an-vector-stroke-gradient: ${value}`);
+    expect(
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-stroke-gradient"],
+    ).toBe(value);
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).toContain('cx="40" cy="30" r="50"');
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-stroke-gradient");
+    expect(solid.content).not.toContain("--an-vector-stroke-gradient");
+    expect(solid.content).toContain('style="stroke: #00ff00"');
+  });
+
+  it("materializes vector fill gradients as SVG paint servers and clears them on solid paint", () => {
+    const value = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-fill-gradient=""');
+    expect(gradient.content).toContain(
+      'style="fill: url(#pen-1-fill-gradient)"',
+    );
+    expect(gradient.content).toContain(`--an-vector-fill-gradient: ${value}`);
+    expect(
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-fill-gradient"],
+    ).toBe(value);
+    expect(gradient.content).toContain('stroke="none"');
+    expect(gradient.content).not.toContain("data-an-vector-stroke-gradient");
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-fill-gradient");
+    expect(solid.content).not.toContain("--an-vector-fill-gradient");
+    expect(solid.content).not.toContain('id="pen-1-fill-gradient"');
+    expect(solid.content).toContain('style="fill: #00ff00"');
+    expect(solid.content).toContain('stroke="none"');
+  });
+
+  it("reuses the fill defs container without disturbing stroke or sibling gradients", () => {
+    const stroke = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(0deg, #111111 0%, #eeeeee 100%)",
+    });
+    const withFill = applyVisualEdit(stroke.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(withFill.result.status).toBe("applied");
+    expect(
+      withFill.content.match(/data-an-vector-fill-gradient/g),
+    ).toHaveLength(1);
+    expect(withFill.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(withFill.content).toContain("stroke: url(#pen-1-stroke-gradient)");
+    expect(withFill.content).toContain("fill: url(#pen-1-fill-gradient)");
+
+    const multiShape =
+      '<body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 100 60" style="width:100px;height:60px"><path data-agent-native-node-id="shape-a" d="M0 0h40v60z" fill="#aaa" /><path data-agent-native-node-id="shape-b" d="M60 0h40v60z" fill="#bbb" /></svg></body>';
+    const firstFill = applyVisualEdit(multiShape, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    const secondFill = applyVisualEdit(firstFill.content, {
+      kind: "style",
+      target: { nodeId: "shape-b" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #00ff00 0%, #ffffff 100%)",
+    });
+    expect(secondFill.result.status).toBe("applied");
+    expect(
+      secondFill.content.match(/<defs[^>]*data-an-vector-fill-gradient/g),
+    ).toHaveLength(1);
+    expect(secondFill.content).toContain("fill: url(#pasted-fill-gradient)");
+    expect(secondFill.content).toContain("fill: url(#pasted-fill-gradient-2)");
+    expect(secondFill.content).toContain("<linearGradient");
+    expect(secondFill.content).toContain("<radialGradient");
+  });
+
+  it("clears fill gradient metadata when a pasted vector changes from one shape to several and back", () => {
+    const oneShape =
+      '<body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 100 60" style="width:100px;height:60px"><g><path data-agent-native-node-id="shape-a" d="M0 0h40v60z" fill="#aaa" /></g></svg></body>';
+    const rootOwned = applyVisualEdit(oneShape, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(rootOwned.result.status).toBe("applied");
+    expect(rootOwned.content).toContain(
+      "--an-vector-fill-gradient: linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    );
+
+    const nowMultiple = rootOwned.content.replace(
+      "</g></svg>",
+      '<path data-agent-native-node-id="shape-b" d="M60 0h40v60z" fill="#bbb" /></g></svg>',
+    );
+    const shapeOwned = applyVisualEdit(nowMultiple, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(shapeOwned.result.status).toBe("applied");
+    expect(shapeOwned.content).not.toMatch(
+      /<svg[^>]*--an-vector-fill-gradient:/,
+    );
+    expect(
+      shapeOwned.content.match(/--an-vector-fill-gradient:/g),
+    ).toHaveLength(1);
+
+    const backToOne = shapeOwned.content.replace(
+      /<path data-agent-native-node-id="shape-b"[^>]*\s*\/>/,
+      "",
+    );
+    const solid = applyVisualEdit(backToOne, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("--an-vector-fill-gradient");
+    expect(solid.content).not.toContain("data-an-vector-fill-gradient");
+  });
+
+  it("preserves CSS corner direction and interpolates omitted stop positions", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value:
+        "linear-gradient(to top right, #000000 0%, #ff0000, #00ff00 80%, #0000ff, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('x1="0" y1="60" x2="80" y2="0"');
+    expect(gradient.content).toContain('offset="40%"');
+    expect(gradient.content).toContain('offset="80%"');
+    expect(gradient.content).toContain('offset="90%"');
+  });
+
+  it("keeps an off-center radial gradient's farthest-corner geometry", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at right top, #000000 0%, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('cx="80" cy="0" r="100"');
+  });
+
+  it("refuses unsupported Oklab stroke interpolation without changing source", () => {
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(45deg in oklab, red 0%, blue 100%)",
+    });
+
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(html);
+  });
+
+  it("does not mistake diamond or angular picker gradients for radial strokes", () => {
+    for (const value of [
+      "radial-gradient(ellipse closest-side at center, red 0%, blue 100%)",
+      "conic-gradient(from 90deg at center, red 0%, blue 100%)",
+    ]) {
+      const result = applyVisualEdit(html, {
+        kind: "style",
+        target: { nodeId: "pen-1" },
+        property: "stroke",
+        value,
+      });
+      expect(result.result.status).toBe("unsupported");
+      expect(result.content).toBe(html);
+    }
+  });
+
+  it("preserves vector opacity and authored SVG ids when adding a gradient", () => {
+    const styled = html
+      .replace("height:60px", "height:60px;opacity:0.7")
+      .replace('stroke="none"/>', 'stroke="none" stroke-opacity="0.4"/>')
+      .replace(
+        "</body>",
+        '<svg><defs><linearGradient id="pen-1-stroke-gradient"/></defs></svg></body>',
+      );
+    const result = applyVisualEdit(styled, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toContain('id="pen-1-stroke-gradient-2"');
+    expect(result.content).toContain('id="pen-1-stroke-gradient"');
+    expect(result.content).toContain("opacity:0.7");
+    expect(result.content).toContain('stroke-opacity="0.4"');
   });
 
   it("persists inside and outside vector strokes with logical weight", () => {
@@ -1150,6 +1389,67 @@ describe("applyVisualEdit vector paint", () => {
   });
 });
 
+describe("applyVisualEdit CSS border gradients", () => {
+  const html =
+    '<body><div data-agent-native-node-id="css-rect-1" style="width:80px;height:60px;background:#fff;border-width:4px;border-style:solid;border-color:#111827"></div></body>';
+
+  it("persists a linear border gradient and restores the original color on solid paint", () => {
+    const value = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain(`--an-css-border-gradient: ${value}`);
+    expect(gradient.content).toContain("--an-css-border-solid-color: #111827");
+    expect(gradient.content).toContain(
+      "border-image-source: var(--an-css-border-gradient)",
+    );
+    expect(gradient.content).toContain("border-image-slice: 1");
+    expect(gradient.content).toContain("border-color: transparent");
+    expect(
+      gradient.projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === "css-rect-1",
+      )?.style["--an-css-border-gradient"],
+    ).toBe(value);
+    expect(stripEditorOnlyAttributes(gradient.content)).toContain(
+      "border-image-source: var(--an-css-border-gradient)",
+    );
+
+    const solid = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("--an-css-border-gradient");
+    expect(solid.content).not.toContain("--an-css-border-solid-color");
+    expect(solid.content).not.toContain("border-image-source");
+    expect(solid.content).toContain("border-color: #00ff00");
+  });
+
+  it.each([
+    ["rounded corners", "border-radius:8px;"],
+    ["dashed border", "border-style:dashed;"],
+    ["per-side border", "border-left-color:#000;"],
+  ])("rejects %s without changing source", (_label, unsupportedStyle) => {
+    const source = `<body><div data-agent-native-node-id="css-rect-1" style="width:80px;height:60px;border-width:4px;border-style:solid;border-color:#111827;${unsupportedStyle}"></div></body>`;
+    const result = applyVisualEdit(source, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(source);
+  });
+});
+
 describe("applyVisualEdit", () => {
   it("applies safe inline style edits to a targeted node", () => {
     const html = `<div><button data-testid="cta" style="color: red">Buy</button></div>`;
@@ -1259,9 +1559,6 @@ describe("applyVisualEdit", () => {
     expect(html).toContain("border-color: #334155");
     expect(html).toContain("border-width: 2px");
     expect(html).toContain("border-style: solid");
-    // R94 — text glyph-outline stroke longhands must round-trip through the
-    // same deterministic style-edit path border/outline use (see the
-    // VisualStyleProperty allow-list in code-layer.ts).
     expect(html).toContain("-webkit-text-stroke-width: 2px");
     expect(html).toContain("-webkit-text-stroke-color: #0f172a");
     expect(html).toContain("overflow: hidden");
@@ -1296,11 +1593,6 @@ describe("applyVisualEdit", () => {
   });
 
   it("aliases camelCase webkit text-stroke longhands to their -webkit- kebab forms", () => {
-    // Regression: the edit panel's "Add layer" (text stroke) once emitted
-    // camelCase webkitTextStrokeWidth/-Color. normalizeStyleProperty's generic
-    // camel→kebab pass turns those into "webkit-text-stroke-*" (missing the
-    // leading dash), which is NOT in the allow-list → status "unsupported" and
-    // nothing persisted. STYLE_PROPERTY_ALIASES must map them explicitly.
     const html = `<h1 data-layer-name="Title">Hello</h1>`;
 
     const widthPatch = applyVisualEdit(html, {
@@ -1795,9 +2087,6 @@ describe("applyVisualEdit", () => {
   });
 
   it("resolves a drifted positional selector via the unique class match", () => {
-    // The runtime DOM had `div.target` as the 2nd child after reordering, but
-    // in the stored source it is the 3rd child, so strict `:nth-of-type(2)` no
-    // longer matches. Resolution should fall back to the unique class match.
     const html = `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target">C</div></section>`;
     const patch = applyVisualEdit(html, {
       kind: "style",
@@ -1813,9 +2102,6 @@ describe("applyVisualEdit", () => {
   });
 
   it("keeps strict positional resolution when the DOM order is intact", () => {
-    // Regression guard: when the positional selector is still valid, the strict
-    // pass must win and edit exactly the addressed node, not loosen to the
-    // whole set of same-tag siblings.
     const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
     const patch = applyVisualEdit(html, {
       kind: "style",
@@ -1833,9 +2119,6 @@ describe("applyVisualEdit", () => {
   });
 
   it("reports an actionable conflict when a drifted positional selector is ambiguous", () => {
-    // No source div carries the runtime position, and dropping the position
-    // leaves several identical candidates. Surface a clear, actionable conflict
-    // instead of silently editing the wrong node.
     const html = `<div>One</div><div>Two</div><div>Three</div>`;
     const patch = applyVisualEdit(html, {
       kind: "style",
@@ -1952,7 +2235,6 @@ describe("wrapNodes", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.result.changed).toBe(true);
     expect(patch.result.wrapperNodeId).toBeTruthy();
-    // Wrapper should contain both targets
     expect(patch.content).toContain(
       `data-agent-native-node-id="${patch.result.wrapperNodeId}"`,
     );
@@ -1960,13 +2242,11 @@ describe("wrapNodes", () => {
     expect(patch.content).toContain(`data-agent-native-group="true"`);
     expect(patch.content).toContain(`data-agent-native-node-id="a"`);
     expect(patch.content).toContain(`data-agent-native-node-id="b"`);
-    // Wrapper should appear before c
     const wrapperIdx = patch.content.indexOf(
       `data-agent-native-layer-name="Group"`,
     );
     const cIdx = patch.content.indexOf(`data-agent-native-node-id="c"`);
     expect(wrapperIdx).toBeLessThan(cIdx);
-    // c is still a direct child of main, not inside the wrapper
     expect(patch.content).toMatch(/<\/div><div data-agent-native-node-id="c">/);
   });
 
@@ -1999,7 +2279,6 @@ describe("wrapNodes", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: column");
     expect(patch.content).toContain("gap: 8px");
-    // Absolute positioning should be stripped from children
     expect(patch.content).not.toContain("position: absolute");
     expect(patch.content).not.toContain("left: 10px");
     expect(patch.content).not.toContain("top: 20px");
@@ -2022,7 +2301,6 @@ describe("wrapNodes", () => {
     expect(wrapperStyle).toContain("left: 240px");
     expect(wrapperStyle).toContain("top: 180px");
     expect(wrapperStyle).toContain("display: flex");
-    // No width/height: an auto-layout frame hugs its children, like Figma's.
     expect(wrapperStyle).not.toContain("width:");
     expect(wrapperStyle).not.toContain("height:");
   });
@@ -2054,7 +2332,6 @@ describe("wrapNodes", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("left: 64px; top: 32px");
     expect(patch.content).toContain("width: 100px; height: 40px");
-    // The child is rebased into the wrapper's coordinate space.
     expect(patch.content).toContain("left: 0px");
     expect(patch.content).toContain("top: 0px");
   });
@@ -2071,9 +2348,6 @@ describe("wrapNodes", () => {
   });
 
   it("groups non-contiguous same-parent siblings at the TOPMOST member's z-position, not the bottommost (L6)", () => {
-    // a (bottom), b (middle, unselected), c (top) — later source position
-    // paints on top for plain siblings. Figma places the resulting group at
-    // c's stacking position, so b ends up BELOW the group, not above it.
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
@@ -2083,7 +2357,6 @@ describe("wrapNodes", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.result.changed).toBe(true);
     expect(patch.result.wrapperNodeId).toBeTruthy();
-    // Both non-adjacent targets end up inside the wrapper, adjacent to each other.
     expect(patch.content).toContain(`data-agent-native-node-id="a"`);
     expect(patch.content).toContain(`data-agent-native-node-id="c"`);
     const wrapperIdx = patch.content.indexOf(
@@ -2094,9 +2367,6 @@ describe("wrapNodes", () => {
     const bIdx = patch.content.indexOf(`data-agent-native-node-id="b"`);
     expect(wrapperIdx).toBeLessThan(aIdx);
     expect(aIdx).toBeLessThan(cIdx);
-    // b (not selected) is left behind in the original parent, BEFORE the
-    // wrapper — i.e. below the new group, matching Figma's topmost-child
-    // z-position placement.
     expect(bIdx).toBeLessThan(wrapperIdx);
   });
 
@@ -2162,14 +2432,11 @@ describe("wrapNodes", () => {
     });
 
     expect(patch.result.status).toBe("applied");
-    // Union: left=10, top=20, right=max(110,230)=230, bottom=max(70,100)=100
     expect(patch.content).toContain("position: absolute");
     expect(patch.content).toContain("left: 10px");
     expect(patch.content).toContain("top: 20px");
     expect(patch.content).toContain("width: 220px");
     expect(patch.content).toContain("height: 80px");
-    // Children are rebased relative to the new wrapper origin (10, 20):
-    // a: left 10-10=0, top 20-20=0; b: left 150-10=140, top 40-20=20.
     expect(patch.content).toContain("left: 0px");
     expect(patch.content).toContain("top: 0px");
     expect(patch.content).toContain("left: 140px");
@@ -2185,7 +2452,6 @@ describe("wrapNodes", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain(`data-agent-native-layer-name="Group"`);
-    // No union-bounds style block should have been added to the wrapper div itself.
     const wrapperOpenTagMatch = patch.content.match(
       new RegExp(
         `<div data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*>`,
@@ -2709,7 +2975,6 @@ describe("unwrap", () => {
     expect(patch.content).toContain(`data-agent-native-node-id="a"`);
     expect(patch.content).toContain(`data-agent-native-node-id="b"`);
     expect(patch.content).toContain("<p>after</p>");
-    // Children appear before <p>after</p>
     const aIdx = patch.content.indexOf(`data-agent-native-node-id="a"`);
     const pIdx = patch.content.indexOf("<p>after</p>");
     expect(aIdx).toBeLessThan(pIdx);
@@ -2729,7 +2994,6 @@ describe("unwrap", () => {
       targetId: wrapperId,
     });
     expect(unwrapped.result.status).toBe("applied");
-    // After round-trip, both original nodes are direct children of <main> again.
     expect(unwrapped.content).toContain(`data-agent-native-node-id="a"`);
     expect(unwrapped.content).toContain(`data-agent-native-node-id="b"`);
     expect(unwrapped.content).not.toContain(
@@ -2757,7 +3021,6 @@ describe("unwrap", () => {
 
     expect(patch.result.status).toBe("unsupported");
     expect(patch.content).toBe(html);
-    // The leaf element must be left completely untouched — not spliced away.
     expect(patch.content).toContain(`data-agent-native-node-id="leaf"`);
     expect(patch.content).toContain("Just some text, no child elements");
   });
@@ -2801,9 +3064,6 @@ describe("unwrap", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
     expect(patch.content).toContain(`data-agent-native-node-id="child"`);
-    // Child's absolute offset must be rebased by the wrapper's own former
-    // offset (50, 30) so it keeps the same absolute screen position once
-    // spliced directly into <main>: 10+50=60, 5+30=35.
     expect(patch.content).toContain("left: 60px");
     expect(patch.content).toContain("top: 35px");
   });
@@ -3062,9 +3322,6 @@ describe("autoLayout", () => {
   });
 
   it("keeps the container's extent when every child leaves flow", () => {
-    // A hug-sized flex container has no width/height of its own. Once every
-    // child is absolute the content box is empty, so the container collapses
-    // and overflow:hidden makes the pinned children invisible.
     const html =
       `<div data-agent-native-node-id="container" style="display: flex; flex-direction: column; gap: 8px; overflow: hidden">` +
       `<div data-agent-native-node-id="a">A</div>` +
@@ -3085,8 +3342,6 @@ describe("autoLayout", () => {
   });
 
   it("pins children where they render when disabling, so they can be moved freely", () => {
-    // Figma parity: turning auto layout OFF must leave a freeform container.
-    // display:block alone re-stacks the children and they cannot be dragged.
     const html =
       `<div data-agent-native-node-id="container" style="display: flex; flex-direction: column; gap: 8px">` +
       `<div data-agent-native-node-id="a">A</div>` +
@@ -3108,7 +3363,6 @@ describe("autoLayout", () => {
         patch.content,
       )?.[1] ?? "";
     expect(container).toContain("display: block");
-    // Absolute children need a positioned ancestor or they escape to the page.
     expect(container).toContain("position: relative");
 
     const childStyle = (id: string) =>
@@ -3148,9 +3402,7 @@ describe("autoLayout", () => {
     });
 
     expect(patch.result.status).toBe("applied");
-    // Container is now flex
     expect(patch.content).toContain("display: flex");
-    // Child's absolute positioning is stripped
     expect(patch.content).not.toContain("position: absolute");
     expect(patch.content).not.toContain("left: 0");
     expect(patch.content).not.toContain("top: 0");
@@ -3193,12 +3445,10 @@ describe("moveNodeBetweenDocuments", () => {
     });
 
     expect(result.status).toBe("applied");
-    // Node is gone from source
     expect(result.sourceHtml).not.toContain(
       `data-agent-native-node-id="move-me"`,
     );
     expect(result.sourceHtml).toContain(`data-agent-native-node-id="keep"`);
-    // Node landed in dest
     expect(result.destHtml).toContain(`data-agent-native-node-id="move-me"`);
     expect(result.destHtml).toContain("Move");
   });
@@ -3248,14 +3498,11 @@ describe("moveNodeBetweenDocuments", () => {
     });
 
     expect(result.status).toBe("applied");
-    // Collect all ids in destHtml
     const allIds = Array.from(
       result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
       (m) => m[1],
     );
-    // All ids must be unique
     expect(new Set(allIds).size).toBe(allIds.length);
-    // The original "dup" from dest must still be present
     expect(allIds).toContain("dup");
   });
 
@@ -3295,13 +3542,10 @@ describe("moveNodeBetweenDocuments", () => {
       (m) => m[1],
     );
     expect(new Set(allIds).size).toBe(allIds.length);
-    // Original ids preserved
     expect(allIds).toContain("l1");
     expect(allIds).toContain("l3");
-    // No duplicate l1 or l3
     expect(allIds.filter((id) => id === "l1")).toHaveLength(1);
     expect(allIds.filter((id) => id === "l3")).toHaveLength(1);
-    // Moved content is present
     expect(result.destHtml).toContain("Deep");
   });
 
@@ -3357,14 +3601,6 @@ describe("moveNodeBetweenDocuments", () => {
     expect(allIds.filter((id) => id === "duplicate")).toHaveLength(1);
   });
 
-  // Regression for the cross-screen "drop lands inside <template> markup"
-  // corruption bug: findClosingTag used to do a naive "first </tag> after
-  // `from`" search for NON_VISUAL_TAGS (template/script/style/etc), which
-  // broke the instant the same tag nested inside itself (a completely
-  // ordinary Alpine x-if-wrapping-x-for pattern). That matched the INNER
-  // </template> and desynced the whole parse, corrupting contentEnd tracking
-  // for real elements and letting body-append land inside template interiors
-  // (invisible, Alpine-cloned, unselectable afterward).
   it("no-anchor body-append never lands inside a nested <template> — template depth 2 (x-if wrapping x-for)", () => {
     const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
     const destHtml =
@@ -3378,18 +3614,14 @@ describe("moveNodeBetweenDocuments", () => {
     });
 
     expect(result.status).toBe("applied");
-    // Must land after the outer </template>, not inside the nested <ul>.
     const templateCloseIdx = result.destHtml.lastIndexOf("</template>");
     const movedIdx = result.destHtml.indexOf(
       `data-agent-native-node-id="move-me"`,
     );
     expect(movedIdx).toBeGreaterThan(templateCloseIdx);
-    // The moved node must be a sibling of <body>'s real content, not nested
-    // inside the <ul> that lives inside the templates.
     const ulOpenIdx = result.destHtml.indexOf("<ul>");
     const ulCloseIdx = result.destHtml.indexOf("</ul>");
     expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
-    // Real (non-template) sibling content must be untouched and still present.
     expect(result.destHtml).toContain("Real content");
   });
 
@@ -3419,10 +3651,6 @@ describe("moveNodeBetweenDocuments", () => {
     });
 
     expect(result.status).toBe("applied");
-    // Same normalization as the anchored `placement: "inside"` branch: the
-    // moved node becomes a flow child of the flex body, so its stale
-    // absolute offsets must be stripped or it renders detached from the
-    // body's ordering/gap/alignment.
     const movedIdx = result.destHtml.indexOf(
       `data-agent-native-node-id="move-me"`,
     );
@@ -3435,7 +3663,6 @@ describe("moveNodeBetweenDocuments", () => {
     expect(movedTag).not.toMatch(/position:\s*relative/i);
     expect(movedTag).not.toContain("left:");
     expect(movedTag).not.toContain("top:");
-    // Non-positioning styles on the moved root survive.
     expect(movedTag).toContain("color: red");
   });
 
@@ -3448,21 +3675,11 @@ describe("moveNodeBetweenDocuments", () => {
     });
 
     expect(result.status).toBe("applied");
-    // A non-flex/grid body is a normal positioning context; the moved node's
-    // explicit absolute placement is intentional and must be preserved.
     expect(result.destHtml).toContain("position: absolute");
     expect(result.destHtml).toContain("left: 24px");
   });
 
   it("no-anchor body-append strips leftover flex-item styling when the destination <body> is not flow", () => {
-    // Regression: a node dragged OUT of a flex/grid parent into an absolute
-    // context (here, a plain non-flex screen root) must lose flex-item-only
-    // styling (flex-grow/shrink/basis, align-self, order) — those properties
-    // only mean anything inside a flex/grid parent, and leaving them behind
-    // is dead source clutter that would resurrect with a stale value if the
-    // node were ever reparented back into flow (e.g. via undo). Mirrors the
-    // "strips absolute positioning when the destination is flex" case above
-    // in the opposite direction.
     const sourceHtml =
       `<body><div data-agent-native-node-id="move-me" ` +
       `style="flex-grow: 2; flex-shrink: 3; flex-basis: 40px; align-self: center; order: 1; color: red">Move</div></body>`;
@@ -3486,7 +3703,6 @@ describe("moveNodeBetweenDocuments", () => {
     expect(movedTag).not.toContain("flex-basis");
     expect(movedTag).not.toContain("align-self");
     expect(movedTag).not.toContain("order");
-    // Non-flex-item styles on the moved root survive.
     expect(movedTag).toContain("color: red");
   });
 
@@ -3517,8 +3733,6 @@ describe("moveNodeBetweenDocuments", () => {
     expect(movedOpenTag).toBeTruthy();
     expect(movedOpenTag).not.toMatch(/\babsolute\b/);
     expect(movedOpenTag).toContain('x-show="open"');
-    // Only the moved root becomes a grid-flow child. Its nested absolute
-    // positioning context is intentional and must survive the reparent.
     expect(result.destHtml).toContain(
       'data-agent-native-node-id="nested" style="position: absolute; left: 3px; top: 5px"',
     );
@@ -3543,7 +3757,6 @@ describe("moveNodeBetweenDocuments", () => {
     });
 
     expect(result.status).toBe("applied");
-    // Must not be spliced inside the nested <ul> (inside the templates).
     const ulOpenIdx = result.destHtml.indexOf("<ul>");
     const ulCloseIdx = result.destHtml.indexOf("</ul>");
     const movedIdx = result.destHtml.indexOf(
@@ -3552,21 +3765,6 @@ describe("moveNodeBetweenDocuments", () => {
     expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
   });
 
-  // Finding 8: the template-interior guard (isOffsetInsideTemplateInterior /
-  // findEnclosingTemplateClose) used to always redirect a caught offset to
-  // the end of <body>/the document (a silent teleport, potentially far from
-  // where the user actually dropped). It now redirects to immediately AFTER
-  // the ENCLOSING outer </template> instead — still guaranteed-safe (a real
-  // DOM slot right after a closing tag), just much closer to the anchor.
-  //
-  // This is tested directly against findEnclosingTemplateClose (exported
-  // for exactly this purpose — see its doc comment) rather than through
-  // moveNodeBetweenDocuments: with findClosingTag's offset-miscalculation
-  // bug already fixed, every real insertAt this module computes lands
-  // outside template interiors in practice, so the guard has no reachable
-  // integration-level repro today — it is a true defense-in-depth backstop.
-  // The sibling "never lands inside a nested <template>" tests above still
-  // cover the end-to-end anchored/no-anchor paths.
   describe("findEnclosingTemplateClose (finding 8 redirect target)", () => {
     it("returns null when the offset is outside any template", () => {
       const html = `<body><template x-if="a"><div>X</div></template><div>Real</div></body>`;
@@ -3586,17 +3784,12 @@ describe("moveNodeBetweenDocuments", () => {
       const result = findEnclosingTemplateClose(html, innerOffset);
       expect(result).not.toBeNull();
       expect(result?.closeEnd).toBe(outerTemplateCloseEnd);
-      // The redirect target is right after the outer template's close, NOT
-      // doc end — well before "Trailing" and far short of html.length.
       expect(result?.closeEnd).toBeLessThan(html.indexOf("Trailing"));
       expect(result?.closeEnd).toBeLessThan(html.length);
     });
 
     it("returns the enclosing template's closeEnd for a single-level (non-nested) template", () => {
       const html = `<body><template x-if="true"><li>Task</li></template><div>Real</div></body>`;
-      // Offset strictly inside the <li> element's own tag (not exactly at
-      // the template's openEnd boundary, which the guard treats as "at",
-      // not "inside").
       const innerOffset = html.indexOf("Task");
       const templateCloseEnd =
         html.indexOf("</template>") + "</template>".length;
@@ -3629,9 +3822,6 @@ describe("moveNodeBetweenDocuments", () => {
 
 describe("autoLayout (regression)", () => {
   it("applies flex styles when target is resolved by projection hash, not data-agent-native-node-id", () => {
-    // Regression: setContainerStyle previously searched only by data-agent-native-node-id,
-    // silently returning without applying any styles when the node had no such attribute.
-    // Now it uses any stable identifier (data-code-layer-id, data-layer-id, HTML id, etc.).
     const html = `<div id="my-box"><span style="position: absolute; left: 5px">X</span></div>`;
     const projection = buildCodeLayerProjection(html);
     const box = projection.nodes.find((n) => n.tag === "div");
@@ -3648,7 +3838,6 @@ describe("autoLayout (regression)", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: column");
     expect(patch.content).toContain("gap: 8px");
-    // Child absolute positioning is stripped
     expect(patch.content).not.toContain("position: absolute");
     expect(patch.content).not.toContain("left: 5px");
   });
@@ -3679,7 +3868,6 @@ describe("autoLayout (regression)", () => {
   });
 
   it("wrapNodes with autoLayout correctly strips each child's own positioning only", () => {
-    // Each wrapped child's own absolute positioning is stripped; grandchild positioning is untouched.
     const html = `<main><div data-agent-native-node-id="a" style="position: absolute; left: 10px"><span style="position: absolute; top: 3px">GC</span></div><div data-agent-native-node-id="b" style="position: absolute; right: 5px">B</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
@@ -3690,15 +3878,10 @@ describe("autoLayout (regression)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).not.toContain("left: 10px");
     expect(patch.content).not.toContain("right: 5px");
-    // Grandchild positioning is NOT touched by wrapNodes autoLayout (only direct-child strip)
     expect(patch.content).toContain("top: 3px");
   });
 
   it("applies all three flex styles when element has no stable data attributes and no HTML id", () => {
-    // Regression: previously only the first style property (display:flex) was applied because
-    // re-parsing after each individual mutation could not re-locate the target element when
-    // it carried no data-agent-native-node-id, data-code-layer-id, or HTML id.  All three
-    // setContainerStyle calls after the first returned silently with no-op.
     const html = `<div class="container"><span style="position: absolute; left: 5px">X</span></div>`;
     const projection = buildCodeLayerProjection(html);
     const box = projection.nodes.find((n) => n.tag === "div");
@@ -3718,7 +3901,6 @@ describe("autoLayout (regression)", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: row");
     expect(patch.content).toContain("gap: 12px");
-    // Child absolute positioning is also stripped
     expect(patch.content).not.toContain("position: absolute");
     expect(patch.content).not.toContain("left: 5px");
   });
@@ -3790,7 +3972,6 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("max-[809px]:text-lg");
-    // Base token untouched — the override cascades below 810 only.
     expect(patch.content).toContain("text-sm");
   });
 
@@ -3848,14 +4029,10 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    // Doubled attribute selector — specificity (0,2,0) so the managed
-    // override beats runtime-injected Tailwind CDN utilities (0,1,0). A
-    // regression back to the single-attribute form must fail this test.
     expect(patch.content).toContain(
       '[data-agent-native-node-id="hero"][data-agent-native-node-id="hero"] {',
     );
     expect(patch.content).toContain("left: 137px;");
-    // The element's inline style is NOT touched — base keeps cascading.
     expect(patch.content).not.toContain('style="left');
   });
 
@@ -3876,8 +4053,6 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     const stamped = /data-agent-native-node-id="([^"]+)"/.exec(patch.content);
     expect(stamped).toBeTruthy();
-    // Doubled selector, same as above — single-attribute form is a
-    // specificity regression against the Tailwind CDN runtime sheet.
     expect(patch.content).toContain(
       `[data-agent-native-node-id="${stamped![1]}"][data-agent-native-node-id="${stamped![1]}"] {`,
     );
@@ -4003,6 +4178,8 @@ describe("style edit property normalization for fill layers", () => {
   const html = `<button id="cta">Buy</button>`;
 
   it.each([
+    ["object-fit", "contain"],
+    ["objectFit", "cover"],
     ["background-size", "cover"],
     ["backgroundSize", "cover"],
     ["background-repeat", "no-repeat"],

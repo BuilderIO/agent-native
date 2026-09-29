@@ -9,16 +9,12 @@ const source = readFileSync(
 
 describe("empty design", () => {
   it("renders the board instead of an empty state", () => {
-    // Overview draws the board with zero screens, so only the single-screen
-    // canvas needs a file. Requiring one here is what produced a full-page
-    // "No files yet" card on the one screen where drawing is the whole point.
     expect(source).toContain(') : viewMode === "overview" || activeFile ? (');
     expect(source).not.toContain("designEditor.noFiles");
     expect(source).not.toContain("canvasEngaged");
   });
 
   it("keeps a failed generation recoverable", () => {
-    // Losing the card entirely would strand a failed run with no retry.
     expect(source).toContain("<GenerationStatusCard");
     expect(source).toContain("onRetry={handleRetryGeneration}");
     const gate = source.slice(
@@ -64,11 +60,7 @@ describe("empty design", () => {
       source.indexOf("const openGenerateInAgent = useCallback"),
       source.indexOf("const arrivedFromNewDesign"),
     );
-    // Goes through agent-panel:open, which opens the panel AND focuses the
-    // composer — a direct setActiveLeftPanel would open it with no caret.
     expect(handler).toContain('new Event("agent-panel:open")');
-    // Focus lives in focus-agent-composer.ts with its own retry tests; the
-    // listener must call it instead of growing a second copy here.
     const listener = source.slice(
       source.indexOf("const openAgentPanel = () => {"),
       source.indexOf('window.addEventListener("agent-panel:open"'),

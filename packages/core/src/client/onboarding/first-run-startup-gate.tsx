@@ -7,10 +7,12 @@ import React, {
   useState,
 } from "react";
 
-import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { AppShellSkeleton } from "../AppShellSkeleton.js";
 import { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
-import { fetchFirstRunOnboardingStatus } from "./first-run-status.js";
+import {
+  fetchFirstRunOnboardingStatus,
+  readFirstRunOnboardingCookieState,
+} from "./first-run-status.js";
 import { trackOnboardingEvent } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -24,28 +26,32 @@ type FirstRunDecision = "pending" | "eligible" | "ineligible";
 
 const FirstRunOnboardingGateContext = createContext(false);
 
-function hasFirstRunOnboardingCookie(): boolean {
-  if (typeof document === "undefined") return true;
-  const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
-  return document.cookie.split(";").some((cookie) => {
-    const entry = cookie.trim();
-    return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
-  });
-}
-
 export function useFirstRunOnboardingGateOwnsSurface(): boolean {
   return useContext(FirstRunOnboardingGateContext);
 }
 
 export function FirstRunOnboardingStartupGate({
   children,
+  fallback = <AppShellSkeleton />,
+  suppressSurface = false,
 }: {
   children: React.ReactNode;
+  fallback?: React.ReactNode;
+  suppressSurface?: boolean;
 }) {
   const previewMode = useOnboardingPreviewMode();
-  const [hadFirstRunCookie] = useState(hasFirstRunOnboardingCookie);
+  const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
+  useEffect(() => {
+    if (firstRunCookieState === "unreadable") {
+      console.warn(
+        "[onboarding] first-run cookie is unreadable; skipping startup gate",
+      );
+    }
+  }, [firstRunCookieState]);
   const shouldResolve =
-    isFirstRunOnboardingEnabled() && !previewMode && hadFirstRunCookie;
+    isFirstRunOnboardingEnabled() &&
+    !previewMode &&
+    firstRunCookieState === "present";
   const [decision, setDecision] = useState<FirstRunDecision>(
     shouldResolve ? "pending" : "ineligible",
   );
@@ -84,11 +90,9 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [shouldResolve]);
 
-  const ownsSurface = decision === "eligible";
-  const hideApp = decision !== "ineligible";
-  // Keep the app at one React tree position while the async eligibility check
-  // settles. Switching between a wrapper and a bare child remounts stateful
-  // app chrome; a consumed one-shot URL preference then cannot be restored.
+  const ownsSurface = !suppressSurface && decision === "eligible";
+  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
+  const hideApp = gateOwnsSurface;
   const app = shouldResolve ? (
     <div
       aria-hidden={hideApp ? "true" : undefined}
@@ -105,11 +109,15 @@ export function FirstRunOnboardingStartupGate({
   );
 
   return (
-    <FirstRunOnboardingGateContext.Provider value={ownsSurface}>
+    <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       {app}
-      {decision === "pending" && <FirstRunOnboardingStartupLoading />}
+      {!suppressSurface && decision === "pending" && (
+        <FirstRunOnboardingStartupLoading fallback={fallback} />
+      )}
       {ownsSurface && (
-        <Suspense fallback={<FirstRunOnboardingStartupLoading />}>
+        <Suspense
+          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
+        >
           <FirstRunOnboarding initialFirstRun />
         </Suspense>
       )}
@@ -117,14 +125,19 @@ export function FirstRunOnboardingStartupGate({
   );
 }
 
-function FirstRunOnboardingStartupLoading() {
+function FirstRunOnboardingStartupLoading({
+  fallback,
+}: {
+  fallback: React.ReactNode;
+}) {
   return (
     <div
+      role="status"
+      aria-label="Loading application"
       data-first-run-startup-loading="true"
-      aria-busy="true"
       className="fixed inset-0 z-[110] bg-background"
     >
-      <AppShellSkeleton />
+      <div inert>{fallback}</div>
     </div>
   );
 }

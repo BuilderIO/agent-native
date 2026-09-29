@@ -3,14 +3,6 @@ import { expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-// Selects `selector` directly via the bridge's `select-element` postMessage
-// instead of a plain click. Plain clicks resolve container-first (Figma
-// parity — containerFirstSelectionTarget): clicking a row nested more than
-// one level below the screen root selects the scope's direct child on the
-// path to the pointer (here, the shared <ul>), not the row itself — and
-// dragTargetForPointerDown's selectedEl-contains-hit fast path would then
-// drag that container instead of the intended clone row. Copied from
-// bridge.guard.spec.ts's selectElementDirect.
 async function selectElementDirect(page: Page, selector: string) {
   await page.evaluate((sel) => {
     window.postMessage({ type: "select-element", selector: sel }, "*");
@@ -45,12 +37,6 @@ function hydrated(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-/**
- * Projecting template bodies stamps them, so Alpine copies that id onto every
- * clone. Clone detection keyed on "has a stable id" then reads every clone as
- * real source and switches eight protections off at once — the reorder
- * rejection, the text-edit rejection, and every anchor-candidate filter.
- */
 const PAGE = `<!doctype html><html><head><style>
   html,body{margin:0} ul{list-style:none;padding:0;margin:0;width:260px}
   li{height:44px;border:1px solid #ccc;box-sizing:border-box}
@@ -91,9 +77,6 @@ it(
       const startX = first.x + first.width / 2;
       const startY = first.y + first.height / 2;
 
-      // The row is nested two levels below the screen root (ul > li), so a
-      // plain click would now resolve container-first onto the shared <ul>
-      // instead of this specific clone row. Select the row directly.
       await selectElementDirect(page, "ul > li:nth-of-type(1)");
 
       await page.mouse.move(startX, startY);

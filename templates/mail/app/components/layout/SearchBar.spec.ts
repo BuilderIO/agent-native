@@ -31,4 +31,16 @@ describe("SearchBar saved-filter flow", () => {
     expect(source).toContain('querySelectorAll("[data-search-item]")');
     expect(source).not.toContain('querySelectorAll("[data-contact-item]")');
   });
+
+  it("portals suggestions outside the horizontally scrolling toolbar", () => {
+    const source = searchBarSource();
+
+    expect(source).toContain("<Popover open={showDropdown}>");
+    expect(source).toContain("<PopoverAnchor asChild>");
+    expect(source).toContain("<PopoverContent");
+    expect(source).toContain(
+      "onOpenAutoFocus={(event) => event.preventDefault()}",
+    );
+    expect(source).not.toContain("portalled={false}");
+  });
 });

@@ -255,7 +255,6 @@ export function columnExpansionForDropSlot<TPanel extends DashboardLayoutPanel>(
     : null;
 }
 
-/** Moves a panel by visible row/column slot and rebalances persisted widths. */
 export function movePanelToDropSlot<TPanel extends DashboardLayoutPanel>(
   panels: TPanel[],
   panelId: string,

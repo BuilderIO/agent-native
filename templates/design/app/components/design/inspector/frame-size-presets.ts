@@ -24,7 +24,6 @@ export type FrameSizePresetCategoryKey =
   | "adUnit";
 
 export interface FrameSizePreset {
-  /** Product/device name — kept as a literal, never translated. */
   name: string;
   width: number;
   height: number;
@@ -35,12 +34,18 @@ export interface FrameSizePresetCategory {
   presets: FrameSizePreset[];
 }
 
-/**
- * Ordered categories, first-group-expanded-by-default matching Figma (Phone
- * first). Sizes are Figma's current preset list, abbreviated to the most
- * common devices per category.
- */
 export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
+  {
+    key: "desktop",
+    presets: [
+      { name: "Desktop", width: 1440, height: 1024 },
+      { name: "Wireframe", width: 1440, height: 1024 },
+      { name: "MacBook Air", width: 1280, height: 832 },
+      { name: 'MacBook Pro 14"', width: 1512, height: 982 },
+      { name: 'MacBook Pro 16"', width: 1728, height: 1117 },
+      { name: "TV", width: 1280, height: 720 },
+    ],
+  },
   {
     key: "phone",
     presets: [
@@ -69,17 +74,6 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
     ],
   },
   {
-    key: "desktop",
-    presets: [
-      { name: "Desktop", width: 1440, height: 1024 },
-      { name: "Wireframe", width: 1440, height: 1024 },
-      { name: "MacBook Air", width: 1280, height: 832 },
-      { name: 'MacBook Pro 14"', width: 1512, height: 982 },
-      { name: 'MacBook Pro 16"', width: 1728, height: 1117 },
-      { name: "TV", width: 1280, height: 720 },
-    ],
-  },
-  {
     key: "presentation",
     presets: [
       { name: "Slide 16:9", width: 1920, height: 1080 },
@@ -91,13 +85,6 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
     presets: [{ name: "Apple Watch 45mm", width: 198, height: 242 }],
   },
   {
-    // Sized in 96dpi CSS pixels (this app's canvas/export unit — see
-    // createSinglePageRasterPdf), NOT the 72dpi point values Figma's own
-    // "Paper" preset list shows. Using point values here would author a
-    // canvas frame ~25% smaller than the real physical page once exported to
-    // PDF (612x792 "Letter"-as-points renders as a 6.375x8.25in page instead
-    // of true 8.5x11in). 816x1056 / 794x1123 are the standard 96dpi
-    // equivalents for US Letter and A4.
     key: "paper",
     presets: [
       { name: "Letter", width: 816, height: 1056 },
@@ -117,8 +104,6 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
     ],
   },
   {
-    // Standard IAB ad-unit sizes, in CSS px (matches every other category's
-    // 96dpi-px convention above, and this app's PNG/PDF export pixel math).
     key: "adUnit",
     presets: [
       { name: "Medium Rectangle", width: 300, height: 250 },
@@ -130,7 +115,6 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
   },
 ];
 
-/** Flat list of every preset across all categories — used for lookups/tests. */
 export function allFrameSizePresets(): FrameSizePreset[] {
   return FRAME_SIZE_PRESET_CATEGORIES.flatMap((category) => category.presets);
 }

@@ -22,6 +22,7 @@ import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
 import { trackDocumentPropertyWrite } from "./document-property-persistence";
+import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
@@ -130,6 +131,7 @@ function guardedConfigurePropertyInput(
       definition: {
         name: request.name,
         type: request.type,
+        ...(request.icon === undefined ? {} : { icon: request.icon }),
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
@@ -156,6 +158,7 @@ function guardedConfigurePropertyInput(
     );
   }
   const patch: Record<string, unknown> = {};
+  if (request.icon !== undefined) patch.icon = request.icon;
   if (request.name !== existing.name) patch.name = request.name;
   if (
     request.description !== undefined &&
@@ -595,20 +598,16 @@ export function useReorderDocumentProperty(
   databaseId: string,
   databaseDocumentId = documentId,
 ) {
-  const queryClient = useQueryClient();
-  const mutation = useActionMutation<
+  const mutation = useContentActionMutation<
     DocumentPropertiesResponse,
     ReorderDocumentPropertyRequest
   >("reorder-document-property", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: documentPropertiesQueryKey(documentId, databaseId),
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(documentId));
-      void queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-    },
+    invalidates: [
+      documentPropertiesQueryKey(documentId, databaseId),
+      documentQueryFilter(documentId),
+      contentDatabaseQueryKey(databaseDocumentId),
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
   return withDatabaseScope(mutation, databaseId);
 }

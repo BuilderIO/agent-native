@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Unter der Haube wird jede App mit einem eigenen **Basispfad** erstellt, einem URL-Präfix wie `/mail`, festgelegt über `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, und dann für die Ziel-Nitro-Voreinstellung verpackt. Cloudflare Pages leitet über einen generierten **Dispatcher-Worker**, ein kleines Skript unter `dist/_worker.js`, das den eingehenden Pfad liest und die Anfrage an die passende App weiterleitet. Netlify verwendet eine Funktion pro App plus generierte Weiterleitungen. Vercel schreibt ein Arbeitsbereichs-`.vercel/output` mit der Build Output API.
+Unter der Haube wird jede App mit einem eigenen **Basispfad** erstellt, einem URL-Präfix wie `/mail`, festgelegt über `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, und dann für die Ziel-Nitro-Voreinstellung verpackt. **Netlify** ist die Standardvoreinstellung: eine Funktion pro App plus generierte Weiterleitungen. Vercel schreibt ein Arbeitsbereichs-`.vercel/output` mit der Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ Veröffentlichen Sie den Build für Ihre Plattform:
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (Standard)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (Standard)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ Veröffentlichen Sie den Build für Ihre Plattform:
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -140,7 +129,7 @@ Gehostete Workspace-Builds erfordern `A2A_SECRET` in der Umgebung des Deploy-Anb
 
 Verdrahten Sie stattdessen einen Anbieter-Build-Befehl, statt von Hand bereitzustellen? Fügen Sie `--build-only` demselben Befehl hinzu, zum Beispiel `npx @agent-native/core@latest deploy --preset vercel --build-only`. Es schreibt die Ausgabe direkt, sodass für das Workspace-Routing keine `vercel.json` erforderlich ist.
 
-Bevorzugen Sie eine separate Domain pro App statt eines gemeinsamen Ursprungs? Jede App im Arbeitsbereich bleibt weiterhin unabhängig bereitstellbar. Führen Sie `cd apps/<name> && npx @agent-native/core@latest build` wie bei einem eigenständigen Scaffold aus.
+Bevorzugen Sie eine separate Domain pro App statt eines gemeinsamen Ursprungs? Jede App im Arbeitsbereich bleibt weiterhin unabhängig bereitstellbar. Führen Sie `cd apps/<name> && pnpm build` wie bei einem eigenständigen Scaffold aus.
 
 </Callout>
 
@@ -219,7 +208,7 @@ Ein **Reverse Proxy** ist dieser einzelne Einstiegspunkt im Bild oben. Er empfä
 Der Basispfad ist eine Build-Zeit-Eingabe für das Client-Bundle und eine Laufzeit-Eingabe für den Server. Bauen Sie jede App mit demselben Pfad, zu dem der Proxy sie weiterleiten wird:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

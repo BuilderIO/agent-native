@@ -2,17 +2,43 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let turnRows: Array<Record<string, unknown>> = [];
 let memberRows: Array<Record<string, unknown>> = [];
+let staleA2aTasks = 0;
+let historicalStaleA2aTasks = 0;
+let unmarkedStaleWorkingTasks = 0;
+let unmarkedStaleSubmittedTasks = 0;
+let a2aTableExists = true;
 let turnQueryThrows = false;
+let a2aQueryThrows = false;
 let memberQueryThrows = false;
 let deleteClaimThrows = false;
+const ensureA2ATable = vi.hoisted(() => vi.fn(async () => {}));
 
-const execute = vi.fn(async ({ sql }: { sql: string }) => {
+const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
   if (sql.includes("org_members")) {
     if (memberQueryThrows) throw new Error("member lookup failed");
     const rows = sql.includes("role IN ('owner', 'admin')")
       ? memberRows.filter((row) => row.role === "owner" || row.role === "admin")
       : memberRows;
     return { rows, rowsAffected: 0 };
+  }
+  if (sql.includes("to_regclass('a2a_tasks')")) {
+    return {
+      rows: [{ relation: a2aTableExists ? "a2a_tasks" : null }],
+      rowsAffected: 0,
+    };
+  }
+  if (sql.includes("FROM a2a_tasks")) {
+    if (a2aQueryThrows) throw new Error("A2A task ledger unreadable");
+    const total =
+      staleA2aTasks +
+      (sql.includes("created_at > ?") ? 0 : historicalStaleA2aTasks) +
+      (sql.includes("status_state = 'submitted' OR")
+        ? unmarkedStaleSubmittedTasks
+        : 0) +
+      (sql.includes("strpos(COALESCE(metadata, '')")
+        ? 0
+        : unmarkedStaleWorkingTasks);
+    return { rows: [{ stale_tasks: total }], rowsAffected: 0 };
   }
   if (turnQueryThrows) throw new Error("ledger unreadable");
   return { rows: turnRows, rowsAffected: 0 };
@@ -21,6 +47,8 @@ const execute = vi.fn(async ({ sql }: { sql: string }) => {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
 }));
+
+vi.mock("../a2a/task-store.js", () => ({ ensureTable: ensureA2ATable }));
 
 const settings = new Map<string, Record<string, unknown>>();
 let settingsReadThrows = false;
@@ -51,7 +79,8 @@ const deleteSettingIfValue = vi.fn(
     return true;
   },
 );
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   deleteSettingIfValue,
   mutateSetting,
 }));
@@ -73,7 +102,14 @@ function turns(total: number, bad: number) {
 beforeEach(() => {
   turnRows = [];
   memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
+  staleA2aTasks = 0;
+  historicalStaleA2aTasks = 0;
+  unmarkedStaleWorkingTasks = 0;
+  unmarkedStaleSubmittedTasks = 0;
+  a2aTableExists = true;
   turnQueryThrows = false;
+  a2aQueryThrows = false;
+  ensureA2ATable.mockClear();
   memberQueryThrows = false;
   deleteClaimThrows = false;
   settings.clear();
@@ -98,6 +134,112 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("healthy");
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("pages on stale delegated A2A work even without a large turn sample", async () => {
+    staleA2aTasks = 2;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({
+      status: "alerted",
+      turns: 0,
+      staleA2ATasks: 2,
+      recipients: 1,
+    });
+
+    const notification = notifyWithDelivery.mock.calls[0][0];
+    expect(notification).toMatchObject({
+      severity: "critical",
+      title: "2 stale delegated A2A tasks",
+      metadata: {
+        staleA2ATasks: 2,
+        windowMs: 60 * 60_000,
+      },
+    });
+    expect(notification.body).toContain(
+      "2 delegated A2A tasks are past the recovery window.",
+    );
+
+    const a2aQuery = execute.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.sql.includes("FROM a2a_tasks"));
+    expect(a2aQuery?.sql).toContain("status_state IN ('submitted', 'working')");
+    expect(a2aQuery?.sql).toContain("created_at <= ?");
+    expect(a2aQuery?.sql).toContain("updated_at <= ? OR created_at <= ?");
+    expect(a2aQuery?.sql).toContain(
+      "status_state IN ('submitted', 'working', 'processing')",
+    );
+    expect(a2aQuery?.sql).toContain(
+      `strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0`,
+    );
+    expect(a2aQuery?.sql).toContain("created_at > ?");
+    expect(a2aQuery?.args).toEqual([
+      NOW - 24 * 60 * 60_000,
+      NOW - 3 * 60_000,
+      NOW - 5 * 60_000,
+      NOW - 30 * 60_000,
+    ]);
+    expect(ensureA2ATable).toHaveBeenCalledOnce();
+  });
+
+  it("uses the same configured recovery windows as A2A task recovery", async () => {
+    vi.stubEnv("A2A_QUEUED_LIFETIME_MAX_MS", "120000");
+    vi.stubEnv("A2A_PROCESSING_LIFETIME_MAX_MS", "2400000");
+    try {
+      staleA2aTasks = 1;
+      await checkChatHealthAndAlert(NOW);
+
+      const a2aQuery = execute.mock.calls
+        .map(([input]) => input)
+        .find((input) => input.sql.includes("FROM a2a_tasks"));
+      expect(a2aQuery?.args).toEqual([
+        NOW - 24 * 60 * 60_000,
+        NOW - 120_000,
+        NOW - 5 * 60_000,
+        NOW - 40 * 60_000,
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("ignores historical and unmarked working tasks in the A2A alert", async () => {
+    historicalStaleA2aTasks = 7;
+    unmarkedStaleWorkingTasks = 13;
+
+    const out = await checkChatHealthAndAlert(NOW);
+
+    expect(out).toMatchObject({ status: "insufficient-data", turns: 0 });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+    const a2aQuery = execute.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.sql.includes("FROM a2a_tasks"));
+    expect(a2aQuery?.sql).toContain("created_at > ?");
+    expect(a2aQuery?.sql).toContain(
+      `strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0`,
+    );
+    expect(a2aQuery?.args?.[0]).toBe(NOW - 24 * 60 * 60_000);
+  });
+
+  it("counts abandoned unmarked submissions before inline work starts", async () => {
+    unmarkedStaleSubmittedTasks = 1;
+
+    const out = await checkChatHealthAndAlert(NOW);
+
+    expect(out).toMatchObject({ status: "alerted", staleA2ATasks: 1 });
+    const a2aQuery = execute.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.sql.includes("FROM a2a_tasks"));
+    expect(a2aQuery?.sql).toContain("status_state = 'submitted' OR");
+    expect(a2aQuery?.args?.[1]).toBe(NOW - 3 * 60_000);
+  });
+
+  it("treats an app with no A2A task table as having no stale tasks", async () => {
+    a2aTableExists = false;
+    turns(20, 2);
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({ status: "healthy", turns: 20 });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+    expect(ensureA2ATable).not.toHaveBeenCalled();
   });
 
   it("pages Slack once when the app stops answering", async () => {
@@ -215,9 +357,6 @@ describe("checkChatHealthAndAlert", () => {
     expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
   });
 
-  // The whole point of the module: a monitor that cannot read the ledger has
-  // NOT found the app healthy. Collapsing these is how an outage gets an
-  // all-clear.
   it("reports a failed check as its own outcome, never as healthy", async () => {
     turnQueryThrows = true;
     const out = await checkChatHealthAndAlert(NOW);
@@ -226,8 +365,16 @@ describe("checkChatHealthAndAlert", () => {
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
-  // An unreadable cooldown stamp is not an absent one. Treating it as absent
-  // pages on every sweep for as long as settings stay unreadable.
+  it("reports an unreadable A2A task ledger as a failed check", async () => {
+    a2aQueryThrows = true;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({
+      status: "check-failed",
+      reason: "Error: A2A task ledger unreadable",
+    });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
   it("does not page when the cooldown stamp cannot be read", async () => {
     turns(20, 15);
     settingsReadThrows = true;

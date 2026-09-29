@@ -135,7 +135,6 @@ function FromAccountSelector({
   onChange: (email: string) => void;
   label: string;
 }) {
-  // On mount, if no account is set, apply the sticky default
   const resolvedValue =
     value ||
     (accounts.some(
@@ -148,7 +147,6 @@ function FromAccountSelector({
     accounts.find((account) => account.email === resolvedValue) ??
     (resolvedValue ? { email: resolvedValue } : accounts[0]);
 
-  // Sync the sticky default into the draft if it wasn't set
   useEffect(() => {
     if (!value && resolvedValue) {
       onChange(resolvedValue);
@@ -207,8 +205,6 @@ interface ComposeModalProps {
 }
 
 function shouldStartComposeExpanded(initialExpanded: boolean) {
-  // Superhuman opens both new and reopened drafts in the workspace card. Keep
-  // fullscreen an explicit request so a draft never changes size by identity.
   return initialExpanded;
 }
 
@@ -266,18 +262,15 @@ export function ComposeModal({
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
-  // Observe agent sidebar width so compose window stays to its left
-  const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
+  const [sidebarRight, setSidebarRight] = useState(16);
   useEffect(() => {
     function measure() {
       const panel = document.querySelector(".agent-sidebar-panel");
-      // Also account for the resize handle (6px)
       const panelWidth = panel ? panel.getBoundingClientRect().width + 6 : 0;
       setSidebarRight(panelWidth > 0 ? panelWidth + 16 : 16);
     }
     measure();
     const observer = new MutationObserver(measure);
-    // Watch for sidebar appearing/disappearing and style changes (resize)
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -322,7 +315,6 @@ export function ComposeModal({
     onUpdate(activeDraft.id, { accountEmail: account.email });
   }, [activeDraft, allAccounts, onUpdate]);
 
-  // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
     setShowCcBcc(false);
     setShowQuoted(false);
@@ -348,8 +340,6 @@ export function ComposeModal({
     focusNewDraftIdRef.current = activeDraft.id;
   }, [activeDraft?.id, drafts]);
 
-  // The opener retains focus after React mounts the new draft. Restore the
-  // keyboard-first compose flow after that click has finished.
   useEffect(() => {
     const draftId = focusNewDraftIdRef.current;
     if (!draftId || draftId !== activeDraft?.id || minimized) return;
@@ -367,7 +357,6 @@ export function ComposeModal({
     return () => clearTimeout(focusTimer);
   }, [activeDraft?.id, minimized]);
 
-  // Focus editor when reply/forward opens
   useEffect(() => {
     if (activeDraft?.mode && activeDraft.mode !== "compose") {
       setTimeout(() => editorRef.current?.getEditor()?.commands.focus(), 100);
@@ -385,7 +374,6 @@ export function ComposeModal({
     setScheduleOpen(false);
   }, [activeId]);
 
-  // Partially typed recipients live in RecipientInput, outside the draft snapshot.
   const hasUncommittedRecipientText = () =>
     Array.from(
       composeRef.current?.querySelectorAll<HTMLInputElement>(
@@ -407,7 +395,6 @@ export function ComposeModal({
     sendingIdsRef.current.add(activeId);
     const sendingId = activeId;
 
-    // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
     const markDoneAfterSend = shouldMarkReplyDoneAfterSend(
       draftSnapshot,
@@ -415,10 +402,8 @@ export function ComposeModal({
       explicitlyMarkDone,
     );
 
-    // Hide it during the undo window without deleting either draft copy.
     onStageForSend(activeId);
 
-    // Show optimistic reply in the thread immediately (for replies)
     const undoOptimistic = draftSnapshot.replyToId
       ? addOptimisticReply({
           to: expandAliasTokens(draftSnapshot.to, aliases),
@@ -445,14 +430,11 @@ export function ComposeModal({
       onRestoreAfterSend(sendingId);
     };
 
-    // Keep undo available only while the provider call is still deferred.
     const toastId = toast(t("mail.compose.sending"), {
       action: { label: t("mail.actions.undo"), onClick: handleUndo },
       duration: Infinity,
     });
 
-    // After the 10s undo window, actually send the email. Once dispatch starts, dismiss the
-    // undo toast because a client-side flag cannot cancel an in-flight send.
     const sendTimer = setTimeout(() => {
       if (cancelled) return;
       dispatchStarted = true;
@@ -560,7 +542,6 @@ export function ComposeModal({
         },
       });
 
-      // Preserve edits made while the scheduling request was in flight.
       const currentDraft = draftsRef.current.find(
         (draft) => draft.id === schedulingId,
       );
@@ -653,8 +634,6 @@ export function ComposeModal({
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Only handle shortcuts for events originating within the compose window
-    // (prevents agent chat Cmd+Enter from triggering email send)
     if (!composeRef.current?.contains(e.target as Node)) return;
 
     if (
@@ -734,9 +713,6 @@ export function ComposeModal({
     setGenerateOpen(false);
   };
 
-  // Move a recipient chip between To/Cc/Bcc (drag-and-drop). The compose draft
-  // owns all three fields, so it can remove from the source and add to the
-  // target atomically.
   const moveRecipient = (
     value: string,
     from: RecipientField,
@@ -795,9 +771,6 @@ export function ComposeModal({
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length === 0) return;
-    // All-image drops landing inside the editor are left alone here so
-    // ComposeEditor's own handleDrop (bubble phase) can insert them inline;
-    // everything else (non-image or mixed drops) still goes to attachments.
     const target = e.target as HTMLElement;
     const droppedOnEditor = target.closest(".compose-editor") != null;
     if (
@@ -843,7 +816,7 @@ export function ComposeModal({
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
           : isExpanded
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
-            : "bottom-0 h-[100dvh] sm:h-[300px] sm:w-[490px] sm:rounded-xl",
+            : "bottom-0 h-[100dvh] sm:h-[min(540px,_calc(100dvh_-_2rem))] md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))] sm:rounded-xl",
       )}
       data-mail-compose
       style={composeStyle}
@@ -856,12 +829,10 @@ export function ComposeModal({
         {/* Left side: tabs (or single title) */}
         <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
           {drafts.length <= 1 ? (
-            /* Single draft: just show the title */
             <span className="text-sm font-semibold text-foreground px-2 truncate">
               {title}
             </span>
           ) : (
-            /* Multiple drafts: show tabs */
             drafts.map((draft) => {
               const isActive = draft.id === activeId;
               const label =
@@ -926,7 +897,7 @@ export function ComposeModal({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 aria-label={
                   minimized
                     ? t("mail.compose.restoreCompose")
@@ -955,7 +926,7 @@ export function ComposeModal({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
                   aria-label={
                     isExpanded
                       ? t("mail.compose.restoreComposeSize")
@@ -987,7 +958,7 @@ export function ComposeModal({
             variant="ghost"
             size="icon"
             type="button"
-            className="h-7 w-7"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={onCloseAll}
             aria-label={t("mail.compose.closeAllDrafts")}
           >
@@ -1119,7 +1090,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.bold")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => editorRef.current?.toggleBold()}
                   >
                     <IconBold className="h-3.5 w-3.5" />
@@ -1134,7 +1105,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.italic")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => editorRef.current?.toggleItalic()}
                   >
                     <IconItalic className="h-3.5 w-3.5" />
@@ -1149,7 +1120,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.insertLink")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => editorRef.current?.setLink()}
                   >
                     <IconLink className="h-3.5 w-3.5" />
@@ -1164,7 +1135,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.attachFile")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => void handleAttach()}
                   >
                     <IconPaperclip className="h-3.5 w-3.5" />
@@ -1264,10 +1235,6 @@ export function ComposeModal({
   );
 }
 
-/**
- * Compose body area — splits quoted history from editable content.
- * Shows "..." toggle for quoted content in reply/forward mode.
- */
 function ComposeBody({
   activeDraft,
   activeId,
@@ -1318,7 +1285,6 @@ function ComposeBody({
     [activeDraft.mode, editableContent, signature],
   );
 
-  // Store quoted content in a ref so the onChange handler always has the latest
   const quotedRef = useRef(quotedContent);
   quotedRef.current = quotedContent;
   const appendedSignatureRef = useRef(appendedSignature);

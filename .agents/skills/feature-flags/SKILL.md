@@ -69,6 +69,13 @@ import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
 export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
 ```
 
+Definitions live in one process-wide registry (a `globalThis` symbol in
+`feature-flags/registry.ts`, like the labs registry). In local dev the plugin
+can load core from source while actions load the built package; a
+module-local map gave each copy its own registry, so `get-feature-flags` saw
+no definitions and every flag read as off. Keep the shared registry when
+touching that module.
+
 ### 3. Guard server and client
 
 The server action is the enforcement boundary:
@@ -95,7 +102,11 @@ return enabled ? <FullAppOption /> : null;
 
 The client hook intentionally returns false while loading or for an unknown
 flag. Never replace that fail-closed behavior with app-local bucketing or a
-compile-time fallback. Never evaluate personalized flags in the public SSR
+compile-time fallback. When the flag-off UI must not flash before the answer
+arrives (a whole page swaps on the flag, as Settings does with
+`settings-redesign`), use `useFeatureFlagState(key)`: it returns
+`{ status: "loading" | "ready" | "unavailable", enabled }`, so the surface can
+hold a layout-matching skeleton while `status` is `"loading"`. Never evaluate personalized flags in the public SSR
 shell; it is shared and cached for every visitor.
 
 ### 4. Verify and roll out

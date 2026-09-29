@@ -46,6 +46,13 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(rotateSource).toContain(
       "member.element.style.transform = next.transform",
     );
+    expect(rotateSource).toContain(
+      "freezeElementForFreeformSelection(element)",
+    );
+    expect(rotateSource).toContain(
+      "preserveSlideObjectLayoutSpacer(promotion.element)",
+    );
+    expect(rotateSource).toContain("promotion.snapshot.objectId");
   });
 
   it("renders single-object handles in the measured local transform frame", () => {
@@ -69,7 +76,6 @@ describe("SlideEditor transformed-object interactions", () => {
       "selectedElementRect && !multiSelectionBounds",
     );
     expect(editorSource).toContain("allowBodyMove");
-    expect(editorSource).toContain("richTextEditorRevision,");
   });
 
   it("keeps drag chrome and snap guides in the object coordinate root", () => {

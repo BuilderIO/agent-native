@@ -38,13 +38,6 @@ import {
 } from "./style-change-types";
 import { parseNumericValue, sidesAreLinked } from "./style-options";
 
-/**
- * The CSS length DesignSpacingControl commits for one side's scrub/typed
- * value. Rounds to one decimal place (not a whole pixel) to match the
- * `precision={1}` the four per-side ScrubInput fields below advertise — see
- * `roundToOneDecimal`'s docstring on why 0.5-unit values must survive the
- * round trip. Exported so the precision contract is unit-testable directly.
- */
 export function resolveSpacingSideValue(value: number): string {
   return `${roundToOneDecimal(value)}px`;
 }
@@ -73,11 +66,6 @@ export function DesignSpacingControl({
     side: "Top" | "Right" | "Bottom" | "Left",
     value: number,
   ) => {
-    // Was `Math.round(value)`, which silently floored every typed/scrubbed
-    // 0.5px value to a whole pixel — contradicting the `precision={1}` these
-    // fields advertise (below) and diverging from every other ScrubInput
-    // commit site in this panel (position X/Y, stroke weight, font size all
-    // use roundToOneDecimal).
     onChange(side, resolveSpacingSideValue(value));
   };
   const setAll = (value: number) => {
@@ -186,20 +174,6 @@ export function DesignSpacingControl({
   );
 }
 
-/**
- * FieldTrailer — composes the motion keyframe diamond and the breakpoint
- * override indicator/reset for one field, in the Figma-parity order (diamond
- * first, then the override dot). Renders `null` when neither affordance
- * applies, so call sites can drop it in unconditionally next to any
- * keyframeable/overridable field without their own presence checks.
- *
- * `motionCssProperty` drives the keyframe diamond (omit to skip it — e.g.
- * for fields with no motion-catalog equivalent); `overrideProperty` drives
- * the breakpoint override indicator (defaults to `motionCssProperty` when
- * omitted, since most fields use the same identifier for both — pass it
- * explicitly when a field's CSS property differs from its motion-catalog
- * name, e.g. corner radius's independent-corner longhands).
- */
 export function FieldTrailer({
   element,
   motionCssProperty,
@@ -214,14 +188,6 @@ export function FieldTrailer({
   overrideProperty?: string;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
-  /**
-   * Applied ONLY to the keyframe diamond, and only while it's in its muted
-   * outline (not-yet-keyframed) state — e.g. `"opacity-0
-   * group-hover/field:opacity-100"` to hide it until the field is hovered.
-   * A filled (already-keyframed) diamond, and the breakpoint override dot,
-   * always render regardless of this class since both convey real state
-   * rather than a quiet affordance.
-   */
   hoverRevealClassName?: string;
   className?: string;
 }) {
@@ -305,9 +271,6 @@ export function ScrubStyleInput({
   min?: number;
   max?: number;
   step?: number;
-  /** Decimals this field shows and accepts. Position fields pass 0: an X or Y
-   *  is a whole pixel, and a `.1` there is a subpixel layout artefact rather
-   *  than a number anyone chose. */
   precision?: number;
   labelClassName?: string;
   inputClassName?: string;

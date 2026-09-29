@@ -4,16 +4,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-/**
- * The MCP-facing half of the browser publication handshake. Keeping this as a
- * normal read action means CLI, Claude Code, and Codex use the same access
- * check and result shape instead of inventing a Design-specific transport.
- */
 export default defineAction({
+  title: "Pull pending visual edits into app source",
   description:
-    "KEY HANDOFF: Pull the latest pending visual edits from the Design canvas for a coding agent. Call this after the user says they made visual edits and before asking them to copy or paste anything. It works without the Design tab, returns the precise prompt with source context and a revision when status is ready, and does not write app source. After applying the prompt, acknowledge that exact revision and pull again. If status is empty, there are no pending edits to apply.",
+    "Key coding-agent handoff: when a user asks you to apply edits from a live Design canvas, call this instead of asking for copy/paste. Returns the latest implementation prompt, source provenance, and revision, even when the Design tab is closed. Apply the prompt to connected app source, verify the running app, then acknowledge only that revision and call again to confirm it cleared. This read-only tool retrieves edits; it does not modify source. An empty status means no handoff has been published.",
   schema: z.object({
     designId: z
       .string()
@@ -26,9 +22,9 @@ export default defineAction({
     expose: true,
     readOnly: true,
     requiresAuth: false,
-    title: "Pull visual edits from Design",
+    title: "Pull pending visual edits into app source",
     description:
-      "Highlighted handoff tool: retrieve the latest pending visual-edit prompt and revision without requiring the Design tab to remain open.",
+      "Key handoff for coding agents: retrieve the latest pending live-canvas edit prompt and revision without requiring the Design tab to remain open.",
   },
   mcpTool: true,
   http: { method: "GET" },

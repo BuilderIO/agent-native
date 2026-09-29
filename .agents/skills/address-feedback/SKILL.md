@@ -18,11 +18,10 @@ handle concrete design/UX feedback about existing surfaces. In a Slack sweep,
 new capability requests still need the invoking identity's `:upvote:`; praise,
 status updates, merge/review requests, bot forwards, duplicates, and noise stay
 out of scope. Do not exclude Design feedback just because it is visual or
-subjective. If another agent or owner is already handling a report, leave it
-with that owner. If a previous run
-mistakenly reacted to an out-of-scope item, release the claim with
-`:no_entry_sign:` when
-reactions are available and do not add a compensating reply.
+subjective. Before leaving a report with another owner, confirm current thread
+status or linked work; an eye alone is not active ownership. If a previous run
+claimed an out-of-scope item, keep `👀` and record **Skipped** once in the
+thread. Never remove reactions; newer thread evidence determines its status.
 
 ## Choose the fix altitude
 
@@ -127,7 +126,7 @@ state, never the opening or the prose of the reporter-facing reply.
    symptom, expected behavior, evidence, and owning surface: UI, action/tool,
    data model, provider/runtime, or product policy.
 
-   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Verify and fix when you agree.
+   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Separate the observed failure from the proposed remedy. Fix verified breakage at its owning seam even when the suggested UX change is out of scope; skip only that remedy. If the failure is unverified, keep it evidence-limited or ask for the detail that would unblock reproduction.
    - **UX suggestion**: Design, discoverability, workflow, or feature feedback. For concrete critique of an existing surface, choose and implement the smallest coherent treatment when it is in scope. A request for a new capability still needs the invoking identity's `:upvote:` in a Slack sweep.
    - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect after the clarification gate. Ask or flag it only when the missing detail still blocks a safe fix.
    - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
@@ -175,7 +174,16 @@ evidence:
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
    - Keep each fix narrow and mapped to a feedback item.
    - Follow existing project conventions and nearby patterns.
-   - Do not switch branches, stash, reset, force-push, or open a PR unless the user asks.
+   - In a task-owned worktree, create or switch to a safe task branch when
+     needed without asking; preserve local changes and never move a branch
+     used by another worktree. In a shared checkout, keep its branch. If the
+     user explicitly asks to ship or open or update a PR and the checkout is
+     unsafe as a source, follow `new-branch` to create a managed task-owned
+     worktree from the correct base, carry only this task's changes, and create
+     its branch without asking.
+     Otherwise work on the current branch; direct branch movement in a shared
+     checkout still requires the exact operation.
+     Stash, reset, force-push, and PR creation still require explicit scope.
    - Add or update focused tests when the bug risk warrants it.
 
 7. Treat UX feedback with product judgment.

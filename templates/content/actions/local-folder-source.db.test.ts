@@ -24,6 +24,8 @@ let syncManifestLocalFolder: typeof import("./sync-manifest-local-folder-source.
 let getContentDatabaseSource: typeof import("./get-content-database-source.js").default;
 let getContentDatabase: typeof import("./get-content-database.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
+let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
+let shareLocalFileDocument: typeof import("./share-local-file-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -54,8 +56,10 @@ beforeAll(async () => {
   getContentDatabaseSource = (await import("./get-content-database-source.js"))
     .default;
   getContentDatabase = (await import("./get-content-database.js")).default;
-  provisionContentSpaces = (await import("./_content-spaces.js"))
-    .provisionContentSpaces;
+  ({ provisionContentSpaces, organizationContentSpaceId } =
+    await import("./_content-spaces.js"));
+  shareLocalFileDocument = (await import("./share-local-file-document.js"))
+    .default;
 }, 60000);
 
 afterAll(() => {
@@ -63,6 +67,113 @@ afterAll(() => {
 });
 
 describe("local-folder Content source", () => {
+  it("creates a shareable copy of a synced local-folder file for its owner", async () => {
+    const id = "content_local_file_share_qa";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/synced.md",
+      sourceRootPath: "qa-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "another-user@example.com" }, () =>
+        shareLocalFileDocument.run({ id }),
+      ),
+    ).rejects.toThrow("Only local file documents");
+
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    expect(copy).toMatchObject({
+      title: "Synced note",
+      content: "Original body",
+      visibility: "private",
+      source: {
+        mode: "database",
+        kind: "local-file-copy",
+        path: "notes/synced.md",
+        rootPath: "qa-folder-source",
+      },
+    });
+    expect(copy.id).not.toBe(id);
+
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Updated body" })
+      .where(eq(schema.documents.id, id));
+    const refreshed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    expect(refreshed.id).toBe(copy.id);
+    expect(refreshed.content).toBe("Updated body");
+  });
+
+  it("does not copy a same-owner source from another organization", async () => {
+    const sourceOrgId = "share-source-org-a";
+    const activeOrgId = "share-source-org-b";
+    const sourceId = "content_local_file_cross_org_share_qa";
+    const joinedAt = Math.floor(Date.now() / 1000);
+    for (const orgId of [sourceOrgId, activeOrgId]) {
+      await getDbExec().execute({
+        sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+        args: [orgId, orgId, OWNER, joinedAt],
+      });
+      await getDbExec().execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        args: [`${orgId}-owner`, orgId, OWNER, "owner", joinedAt],
+      });
+    }
+    await runWithRequestContext({ userEmail: OWNER, orgId: sourceOrgId }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: sourceId,
+        ownerEmail: OWNER,
+        orgId: sourceOrgId,
+        spaceId: organizationContentSpaceId(sourceOrgId),
+        title: "Source org note",
+        content: "Only source org can copy this",
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "notes/cross-org.md",
+        sourceRootPath: "qa-cross-org-folder",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER, orgId: activeOrgId }, () =>
+        shareLocalFileDocument.run({ id: sourceId }),
+      ),
+    ).rejects.toThrow("Only local file documents");
+    const copy = await runWithRequestContext(
+      { userEmail: OWNER, orgId: sourceOrgId },
+      () => shareLocalFileDocument.run({ id: sourceId }),
+    );
+    const [storedCopy] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, copy.id));
+    expect(storedCopy).toMatchObject({
+      orgId: sourceOrgId,
+      spaceId: organizationContentSpaceId(sourceOrgId),
+      content: "Only source org can copy this",
+    });
+  });
+
   it("previews a new connection without creating durable rows", async () => {
     const beforeSpaces = await getDb().select().from(schema.contentSpaces);
     const beforeSources = await getDb()

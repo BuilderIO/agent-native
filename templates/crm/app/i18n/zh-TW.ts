@@ -23,6 +23,11 @@ const messages = {
     retry: "重試",
     search: "搜尋",
   },
+  chatHome: {
+    description:
+      "探索 Native SQL 與已連線記錄中的授權帳戶脈絡、後續工作與證據。",
+    placeholder: "詢問你的 CRM",
+  },
   commandMenu: {
     placeholder: "搜尋記錄、清單和指令…",
     groupRecords: "記錄",
@@ -64,6 +69,8 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
+    mcpAbout:
+      "將 CRM 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 CRM 中工作：尋找記錄、更新欄位並管理任務。它只能看到你有權看到的內容。",
   },
   connection: {
     tab: "連線",
@@ -580,6 +587,19 @@ const messages = {
     evaluatedThroughAsk: "透過 Ask CRM 評估。",
   },
   recordActions: {
+    reviewDuplicates: "檢查重複記錄",
+    duplicateReviewTitle: "可能重複的記錄",
+    duplicateReviewDescription:
+      "檢查此記錄與可存取的候選記錄。執行 Jev 會將記錄名稱、類型及最多五筆候選記錄的比對訊號傳送給 TypeSafe。機率僅供參考，合併仍須另行審核。",
+    duplicateReviewRun: "檢查重複記錄",
+    duplicateReviewLoading: "檢查中…",
+    duplicateReviewFailed: "無法完成重複記錄檢查。",
+    duplicateReviewUnavailable:
+      "Jev 無法完成複核，規則篩出的候選記錄仍會顯示。",
+    duplicateReviewEmpty: "未找到可能重複的記錄。",
+    duplicateRuleConfidence: "規則比對度：{{percent}}%",
+    duplicateJevProbability: "Jev 同一實體機率：{{percent}}%",
+    duplicateMatchedOn: "比對依據：{{values}}",
     evidenceAttached: "已附加通話證據。",
     evidenceAttachFailed: "無法附加證據。",
     addEvidence: "新增證據",

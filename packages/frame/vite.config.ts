@@ -10,10 +10,6 @@ import type { Plugin } from "vite";
 
 import { extractAppFromState } from "./src/oauth-state.js";
 
-// Custom logger that suppresses proxy ECONNREFUSED noise during startup.
-// When eager repo dev starts, template backends aren't ready yet — the frame polls
-// and gets ECONNREFUSED until they come up. These are harmless (the frontend
-// retries), but flood the terminal with hundreds of identical lines.
 const logger = createLogger();
 const _loggerError = logger.error.bind(logger);
 
@@ -38,9 +34,6 @@ logger.error = (msg, opts) => {
   _loggerError(msg, opts);
 };
 
-// Import app registry to resolve ports by app ID. DEFAULT_APPS is built from
-// the TEMPLATES array in templates.ts, so we parse that file directly —
-// index.ts only has `id: t.name` dynamically, not literal ids.
 const templatesPath = path.resolve(
   __dirname,
   "../shared-app-config/templates.ts",
@@ -72,40 +65,34 @@ function templateGatewayUrl(): string | null {
   }
 }
 
-/** Extract the app ID from the request (Referer, state param, or cookie) */
 function getAppId(req: IncomingMessage): string {
   const url = req.url || "";
   const queryStart = url.indexOf("?");
   const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
   const params = new URLSearchParams(queryStr);
 
-  // 1. Explicit _app query param
   const explicitApp = params.get("_app");
   if (explicitApp) {
     if (portMap.has(explicitApp)) return explicitApp;
   }
 
-  // 2. OAuth state param (needed for system-browser callbacks — no Referer, no cookie)
   const stateApp = extractAppFromState(params.get("state") || undefined);
   if (stateApp) {
     if (portMap.has(stateApp)) return stateApp;
   }
 
-  // 3. Referer header (contains ?app=<id>) — used during normal in-webview calls
   const referer = req.headers.referer || "";
   const refMatch = referer.match(/[?&]app=([^&]+)/);
   if (refMatch) {
     if (portMap.has(refMatch[1])) return refMatch[1];
   }
 
-  // 4. frame_active_app cookie — fallback for in-webview requests without Referer
   const cookie = req.headers.cookie || "";
   const cookieMatch = cookie.match(/(?:^|;\s*)frame_active_app=([^;]+)/);
   if (cookieMatch) {
     if (portMap.has(cookieMatch[1])) return cookieMatch[1];
   }
 
-  // Default to mail
   return "mail";
 }
 
@@ -204,12 +191,6 @@ function handleProxyError(
   next(err);
 }
 
-/**
- * Custom proxy middleware — Vite 8's built-in proxy uses http-proxy-3, which
- * silently ignores the `router` option. We need per-request target resolution
- * (for OAuth callbacks and multi-app routing), so we implement forwarding
- * manually using node's http module.
- */
 function framePlugin(): Plugin {
   const PROXY_PREFIXES = ["/_agent-native", "/api/"];
 
@@ -249,8 +230,6 @@ function framePlugin(): Plugin {
     next: (err?: unknown) => void,
   ) {
     const headers = { ...req.headers };
-    // Preserve the frame's host so apps generate redirect_uris pointing at 3334
-    // rather than their own dev port. Without this, OAuth redirect_uris break.
     headers["x-forwarded-host"] = req.headers.host || `localhost:3334`;
     headers["x-forwarded-proto"] = "http";
     headers.host = `localhost:${port}`;

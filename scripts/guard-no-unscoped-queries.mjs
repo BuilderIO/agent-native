@@ -70,7 +70,6 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-// Helpers indicating a block applies framework access control.
 const ACCESS_CONTROL_HELPERS = [
   /\baccessFilter\s*\(/,
   /\bresolveAccess\s*\(/,
@@ -79,52 +78,30 @@ const ACCESS_CONTROL_HELPERS = [
   /\baccessFilterForShares\s*\(/,
 ];
 
-// Explicit filtering by ownership in Drizzle / raw SQL within the block.
 const EXPLICIT_OWNER_FILTERS = [
-  // Drizzle column references in eq/where (matches eq(t.ownerEmail, ...)
-  // and similar). Trailing `[,)]` keeps us off insert object literals.
   /\.\s*ownerEmail\b\s*[,)]/,
   /\.\s*userEmail\b\s*[,)]/,
   /\.\s*orgId\b\s*[,)]/,
-  // Raw SQL WHERE on ownership columns (placed inside string literals
-  // counted at the snippet level).
   /WHERE[\s\S]*?\bowner_email\b/i,
   /WHERE[\s\S]*?\buser_email\b/i,
   /WHERE[\s\S]*?\borg_id\b/i,
 ];
 
-// For inserts: the values object must set ownerEmail (or include the
-// shorthand property `ownerEmail,`) — both indicate the inserter is
-// passing the caller's identity in. We accept either a full
-// `ownerEmail: <expr>` (any expression — we trust the surrounding
-// function-block scoping check to have established the binding) or the
-// shorthand `ownerEmail` property. Same for orgId.
 const INSERT_OWNER_PATTERNS = [
-  // Full property assignment
   /\bownerEmail\s*:/,
-  // Shorthand: `ownerEmail,` or `ownerEmail }`
   /\bownerEmail\s*[,}]/,
-  // ditto for userEmail / orgId
   /\buserEmail\s*[:,}]/,
   /\borgId\s*[:,}]/,
 ];
 
-// Files that legitimately don't need access control. Keep this list
-// small and reviewed.
 const FILE_ALLOWLIST = new Set([
-  // Sharing primitives themselves — they implement access control.
   "packages/core/src/sharing/access.ts",
   "packages/core/src/sharing/registry.ts",
   "packages/core/src/sharing/schema.ts",
-  // Share-resource action: queries the shares table by resource id, gated
-  // by its own assertAccess on the parent resource (verified manually).
   "packages/core/src/sharing/actions/share-resource.ts",
   "packages/core/src/sharing/actions/unshare-resource.ts",
   "packages/core/src/sharing/actions/list-resource-shares.ts",
   "packages/core/src/sharing/actions/set-resource-visibility.ts",
-  // Generic db CLI — it executes user-supplied SQL strings, so the
-  // unscoped detection of "FROM <ownable_table>" inside an arbitrary
-  // SQL parameter is a false positive by design.
   "packages/core/src/scripts/db/exec.ts",
   "packages/core/src/scripts/db/patch.ts",
   "packages/core/src/scripts/db/query.ts",
@@ -150,11 +127,6 @@ async function* walk(dir) {
   }
 }
 
-/**
- * Walk a `table("name", { ... })` call, brace-counting so nested object
- * literals (e.g. `text("status", { enum: [...] })`) don't truncate the
- * body capture. Returns [{exportName, sqlName, body}].
- */
 function extractTableCalls(contents) {
   const out = [];
   const headerRegex =
@@ -163,7 +135,7 @@ function extractTableCalls(contents) {
   while ((m = headerRegex.exec(contents)) !== null) {
     const exportName = m[1];
     const sqlName = m[2];
-    const start = headerRegex.lastIndex - 1; // position of the `{`
+    const start = headerRegex.lastIndex - 1;
     let depth = 0;
     let inStr = null;
     let i = start;
@@ -226,22 +198,12 @@ async function collectOwnableTables() {
   return byDir;
 }
 
-/**
- * Build a "block tree": for every `{` in source, find its matching `}`.
- * Returns an array of { open, close, parent } sorted by `open` so we can
- * find the innermost block containing any offset via binary search.
- *
- * Strings, template literals, regexes, single-line comments, and block
- * comments are skipped so we don't count braces inside them.
- */
 function buildBlockTree(contents) {
   const blocks = [];
   const stack = [];
   let i = 0;
   const n = contents.length;
-  let inStr = null; // '"' | "'" | "`"
-  // Stack of "where each `${...}` substitution sits inside the template
-  // literal stack" — each entry is the template-quote kind to return to.
+  let inStr = null;
   const templateStack = [];
 
   while (i < n) {
@@ -260,11 +222,9 @@ function buildBlockTree(contents) {
           continue;
         }
         if (c === "$" && next === "{") {
-          // Enter a `${...}` substitution — code mode resumes until
-          // we see the matching `}`.
           templateStack.push("`");
           inStr = null;
-          stack.push(-1 - templateStack.length); // marker: not a real block
+          stack.push(-1 - templateStack.length);
           i += 2;
           continue;
         }
@@ -277,7 +237,6 @@ function buildBlockTree(contents) {
       continue;
     }
 
-    // Comments
     if (c === "/" && next === "/") {
       while (i < n && contents[i] !== "\n") i++;
       continue;
@@ -290,7 +249,6 @@ function buildBlockTree(contents) {
       continue;
     }
 
-    // Strings
     if (c === '"' || c === "'" || c === "`") {
       inStr = c;
       i++;
@@ -307,7 +265,6 @@ function buildBlockTree(contents) {
       if (open !== undefined && open >= 0) {
         blocks.push({ open, close: i });
       } else if (open !== undefined && open < 0) {
-        // Closing a `${...}` substitution — pop back into template literal.
         const kind = templateStack.pop();
         inStr = kind;
       }
@@ -320,13 +277,7 @@ function buildBlockTree(contents) {
   return blocks;
 }
 
-/**
- * Given an offset, return the innermost block that strictly contains it.
- * Falls back to whole-file ({0, n}) if none.
- */
 function innermostBlock(blocks, offset, fileLen) {
-  // The innermost block has the largest open offset that is <= offset
-  // AND whose close is >= offset.
   let best = null;
   for (const b of blocks) {
     if (b.open <= offset && b.close >= offset) {
@@ -355,11 +306,6 @@ function offsetToLine(offsets, offset) {
   return lo + 1;
 }
 
-/**
- * Find the offset where a `db.select(...)...where(...).limit(...)` chain
- * ENDS. We brace/paren-walk and return the first top-level `;` or
- * (failing that) the next `\n` once depth returned to 0.
- */
 function findChainEnd(contents, startIdx) {
   let depth = 0;
   let inStr = null;
@@ -398,8 +344,6 @@ function findChainEnd(contents, startIdx) {
     } else if (c === ";" && depth <= 0) {
       return i + 1;
     } else if (c === "\n" && sawOpen && depth <= 0) {
-      // After the chain has fully closed, a newline that isn't followed
-      // by `.` (chain continues) ends the statement.
       let j = i + 1;
       while (j < limit && /[ \t]/.test(contents[j])) j++;
       if (j >= limit || (contents[j] !== "." && contents[j] !== ")")) {
@@ -410,13 +354,6 @@ function findChainEnd(contents, startIdx) {
   return limit;
 }
 
-/**
- * Locate every db query statement in a file. Returns
- *   { kind: "drizzle"|"raw-sql", op, name, line, queryStart, queryEnd, snippet }
- *
- * `snippet` is just the chain itself (used for nested structural checks
- * like "does .where contain accessFilter directly").
- */
 function findStatements(contents, ownableNames, ownableSqlNames) {
   const statements = [];
   const lineOffsets = computeLineOffsets(contents);
@@ -426,7 +363,6 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
     .join("|");
 
   if (namesAlt.length > 0) {
-    // SELECT: .from(schema.NAME) or .from(NAME).
     const fromRe = new RegExp(
       `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
       "g",
@@ -434,8 +370,6 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
     let fromMatch;
     while ((fromMatch = fromRe.exec(contents)) !== null) {
       const name = fromMatch[1];
-      // Walk back to find `await db.select(`, `db.select(` or simple
-      // `.select()` start so we capture the full chain head.
       const queryStart = walkBackToChainHead(contents, fromMatch.index);
       const queryEnd = findChainEnd(contents, fromMatch.index);
       const snippet = contents.slice(queryStart, queryEnd);
@@ -450,7 +384,6 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
       });
     }
 
-    // UPDATE / DELETE / INSERT
     for (const op of ["update", "delete", "insert"]) {
       const re = new RegExp(
         `\\bdb\\s*\\.\\s*${op}\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
@@ -475,7 +408,6 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
     }
   }
 
-  // Raw SQL — only inside string literals.
   for (const sqlName of ownableSqlNames) {
     const escaped = sqlName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const verbs = [
@@ -511,8 +443,6 @@ function walkBackToChainHead(contents, idx) {
     const c = contents[i];
     if (c === ";" || c === "{" || c === "}") return i + 1;
     if (c === "\n") {
-      // If the previous non-whitespace on this line is something that
-      // continues a chain we keep walking; otherwise this is the head.
       let j = i + 1;
       while (j < contents.length && /[ \t]/.test(contents[j])) j++;
       if (contents[j] !== "." && contents[j] !== ")") return i + 1;
@@ -534,13 +464,9 @@ function walkBackToChainHead(contents, idx) {
  * context for subsequent reads in the same function).
  */
 function isControlFlowBlock(contents, block) {
-  // Look at the characters immediately before `{`, skipping whitespace.
   let i = block.open - 1;
   while (i > 0 && /[ \t\n\r]/.test(contents[i])) i--;
-  // Common control-flow openings end with `)` from the condition (if,
-  // for, while, switch, catch) or with the keyword `else`, `try`, `do`.
   if (contents[i] === ")") {
-    // Walk back through the matching `(...)` and check the token before.
     let depth = 1;
     let j = i - 1;
     while (j > 0 && depth > 0) {
@@ -549,16 +475,13 @@ function isControlFlowBlock(contents, block) {
       if (depth === 0) break;
       j--;
     }
-    // Skip whitespace before `(`.
     j--;
     while (j > 0 && /[ \t\n\r]/.test(contents[j])) j--;
-    // Read identifier ending at j.
     let end = j + 1;
     while (j > 0 && /[a-zA-Z_$]/.test(contents[j])) j--;
     const word = contents.slice(j + 1, end);
     return ["if", "for", "while", "switch", "catch"].includes(word);
   }
-  // Match `else {`, `try {`, `do {`, `finally {`.
   let end = i + 1;
   while (i > 0 && /[a-zA-Z_$]/.test(contents[i])) i--;
   const word = contents.slice(i + 1, end);
@@ -566,10 +489,6 @@ function isControlFlowBlock(contents, block) {
 }
 
 function directBlockText(contents, block, blocks, queryOffset) {
-  // Collect descendants that:
-  //   1. Don't contain queryOffset
-  //   2. Are control-flow branches (if/else/for/while/try/catch)
-  //   3. Are outermost (no non-query control-flow ancestor inside `block`)
   const candidates = blocks.filter(
     (b) =>
       b.open > block.open &&
@@ -598,11 +517,6 @@ function directBlockText(contents, block, blocks, queryOffset) {
   return result;
 }
 
-// Additional softer signals that a block establishes ownership context
-// — used by `blockHasAccessControl`, NOT by `statementHasInlineAccessControl`.
-// These say "this scope has the caller's identity in hand, so subsequent
-// `eq(t.id, x)` reads/writes are reaching into rows the caller created
-// or already verified ownership of".
 const BLOCK_OWNERSHIP_SIGNALS = [
   /\bgetRequestUserEmail\s*\(/,
   /\bgetRequestOrgId\s*\(/,
@@ -613,32 +527,13 @@ const BLOCK_OWNERSHIP_SIGNALS = [
 
 function blockHasAccessControl(blockText) {
   if (ACCESS_CONTROL_HELPERS.some((re) => re.test(blockText))) return true;
-  // Drizzle-style explicit ownership filters anywhere in the block also
-  // count as scoping intent — common pattern is to do one upfront
-  // `select ... where(eq(t.ownerEmail, ownerEmail))` then issue
-  // subsequent updates by id within the same function block.
   if (EXPLICIT_OWNER_FILTERS.some((re) => re.test(blockText))) return true;
   if (BLOCK_OWNERSHIP_SIGNALS.some((re) => re.test(blockText))) return true;
   return false;
 }
 
-/**
- * Find all variable names bound to access-control expressions in the
- * file. Returns a Set of names like ["whereClauses", "guard", ...] that
- * the user can interpolate into a query's where(...) clause.
- *
- * Patterns matched:
- *   const X = accessFilter(...)
- *   const X = [accessFilter(...), ...]
- *   const X = and(accessFilter(...), ...)
- *   let   X: ... = accessFilter(...)
- *   X.push(accessFilter(...))   // tracks X
- *   const X = await resolveAccess(...)
- *   const X = await assertAccess(...)
- */
 function collectAccessControlBindings(contents) {
   const names = new Set();
-  // Direct const/let/var assignment.
   const bindRe =
     /\b(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*(?::[^=]+)?\s*=\s*([\s\S]{0,400}?)(?:;|\n\s*(?:const|let|var|if|return|await|function|export|}|\/\/))/g;
   let m;
@@ -652,7 +547,6 @@ function collectAccessControlBindings(contents) {
       names.add(name);
     }
   }
-  // Push-style: `X.push(accessFilter(...))` or `X.push(eq(t.ownerEmail, ...))`.
   const pushRe = /\b([a-zA-Z_$][\w$]*)\.push\s*\(([^;]{0,400})\)/g;
   while ((m = pushRe.exec(contents)) !== null) {
     const name = m[1];
@@ -726,7 +620,6 @@ async function scanFiles(ownablesByDir) {
     } catch {
       continue;
     }
-    // Cheap pre-filter.
     if (
       !/\bfrom\s*\(/.test(contents) &&
       !/\bdb\s*\.\s*(update|delete|insert)\b/.test(contents) &&
@@ -735,7 +628,6 @@ async function scanFiles(ownablesByDir) {
       continue;
     }
 
-    // File-wide opt-out: marker in the header (first 30 lines) only.
     const head = contents.split("\n").slice(0, 30).join("\n");
     if (OPT_OUT_MARKER.test(head)) continue;
 
@@ -746,18 +638,6 @@ async function scanFiles(ownablesByDir) {
     );
     if (statements.length === 0) continue;
 
-    // Per-file gate. The new per-statement check kicks in ONLY for files
-    // that already use access control somewhere — those are the files
-    // where the forms `view-screen` regression class lives (one branch
-    // scoped, sibling branch missed). Files with no access control at
-    // all (anonymous webhook handlers, public read routes, third-party
-    // signed callbacks) are left to existing review processes — the
-    // OLD scanner missed them too, and bulk-flagging them now would
-    // break `pnpm prep` for parallel agents fixing other things.
-    //
-    // To opt a previously-unprotected file IN to the strict check, just
-    // add an access-control helper anywhere (or, conversely, add the
-    // header opt-out marker for the legitimate cases).
     const fileHasAccessControl =
       ACCESS_CONTROL_HELPERS.some((re) => re.test(contents)) ||
       EXPLICIT_OWNER_FILTERS.some((re) => re.test(contents));
@@ -768,22 +648,12 @@ async function scanFiles(ownablesByDir) {
 
     const fileViolations = [];
     for (const stmt of statements) {
-      // 1) Inline check on the chain itself.
       if (statementHasInlineAccessControl(stmt)) continue;
 
-      // 2) Block-scoped check: climb out to enclosing blocks looking for
-      //    access control DIRECTLY in the block (not buried inside a
-      //    nested sibling block that doesn't itself contain the query).
-      //    This is the forms-bug fix — the buggy `if (nav?.formId)`
-      //    block does NOT contain accessFilter; the sibling
-      //    `if (nav?.view === "forms")` does. Sibling content does not
-      //    defuse a sibling.
       let scoped = false;
       let cur = innermostBlock(blocks, stmt.queryStart, contents.length);
       let levels = 0;
       while (cur && levels < 8) {
-        // Build the block's "direct" text — everything inside `cur`,
-        // minus nested child blocks that don't contain the query.
         const directText = directBlockText(
           contents,
           cur,
@@ -798,8 +668,6 @@ async function scanFiles(ownablesByDir) {
           scoped = true;
           break;
         }
-        // Also accept if a variable that was bound to access control is
-        // referenced inside the query's chain.
         if (
           accessControlBindings.size > 0 &&
           [...accessControlBindings].some((name) =>
@@ -809,7 +677,6 @@ async function scanFiles(ownablesByDir) {
           scoped = true;
           break;
         }
-        // Climb to the parent block.
         const parents = blocks.filter(
           (b) => b.open < cur.open && b.close > cur.close,
         );
@@ -861,13 +728,11 @@ async function scanMentionProviders(ownablesByDir) {
     .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
 
-  // Matches `.from(schema.TABLE)` or `.from(TABLE)` for any ownable table.
   const fromOwnableRe = new RegExp(
     `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
     "g",
   );
 
-  // Helpers that establish access control inside the closure.
   const CLOSURE_ACCESS_PATTERNS = [
     ...ACCESS_CONTROL_HELPERS,
     ...EXPLICIT_OWNER_FILTERS,
@@ -881,8 +746,6 @@ async function scanMentionProviders(ownablesByDir) {
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
     if (FILE_ALLOWLIST.has(rel)) continue;
-    // Only files that can define mentionProviders — server plugins and
-    // any file in templates/*/server/ or packages/*/src/.
     if (
       !/^templates\/[^/]+\/server\//.test(rel) &&
       !/^packages\/[^/]+\/src\//.test(rel)
@@ -897,7 +760,6 @@ async function scanMentionProviders(ownablesByDir) {
       continue;
     }
 
-    // Cheap pre-filter: must mention mentionProviders and a db.from call.
     if (
       !/\bmentionProviders\b/.test(contents) ||
       !/\bfrom\s*\(/.test(contents)
@@ -905,24 +767,19 @@ async function scanMentionProviders(ownablesByDir) {
       continue;
     }
 
-    // File-wide opt-out.
     const head = contents.split("\n").slice(0, 30).join("\n");
     if (OPT_OUT_MARKER.test(head)) continue;
 
     const lineOffsets = computeLineOffsets(contents);
 
-    // Find the mentionProviders: { ... } or mentionProviders: async () => { ... }
-    // value block. We locate each occurrence and brace-count to extract its body.
     const mpHeaderRe = /\bmentionProviders\s*:/g;
     let mpMatch;
     while ((mpMatch = mpHeaderRe.exec(contents)) !== null) {
-      // Skip to the opening `{` of the value (there may be `async () =>` in between).
       let i = mpHeaderRe.lastIndex;
       while (i < contents.length && contents[i] !== "{" && contents[i] !== "\n")
         i++;
       if (i >= contents.length || contents[i] !== "{") continue;
 
-      // Brace-count to find the end of the mentionProviders object.
       let depth = 0;
       let inStr = null;
       let mpStart = i;
@@ -954,15 +811,11 @@ async function scanMentionProviders(ownablesByDir) {
 
       const mpBody = contents.slice(mpStart, mpEnd + 1);
 
-      // Now look for every provider definition inside — each is a key whose
-      // value contains a `search: async (query) => { ... }` closure.
-      // We extract each search closure body and check it independently.
       const searchRe = /\bsearch\s*:\s*async\s*\([^)]*\)\s*=>\s*\{/g;
       let searchMatch;
       while ((searchMatch = searchRe.exec(mpBody)) !== null) {
-        // Find the matching `}` for this closure.
         const closureStart =
-          mpStart + searchMatch.index + searchMatch[0].length - 1; // position of the `{`
+          mpStart + searchMatch.index + searchMatch[0].length - 1;
         let closureDepth = 0;
         let closureEnd = -1;
         let closureInStr = null;
@@ -993,16 +846,13 @@ async function scanMentionProviders(ownablesByDir) {
 
         const closureBody = contents.slice(closureStart, closureEnd + 1);
 
-        // Block-level opt-out inside the closure.
         if (OPT_OUT_MARKER.test(closureBody)) continue;
 
-        // Check if closure queries an ownable table.
         fromOwnableRe.lastIndex = 0;
         let fromMatch;
         while ((fromMatch = fromOwnableRe.exec(closureBody)) !== null) {
           const tableName = fromMatch[1];
 
-          // If ANY access-control helper appears in the closure body, it's fine.
           if (CLOSURE_ACCESS_PATTERNS.some((re) => re.test(closureBody)))
             continue;
 

@@ -156,6 +156,13 @@ const SYSTEM_LABEL_NAMES: Record<string, string> = {
   TRASH: "Trash",
 };
 
+function gmailFiltersUrl(accountEmail: string): string {
+  const url = new URL("https://mail.google.com/mail/");
+  url.searchParams.set("authuser", accountEmail);
+  url.hash = "settings/filters";
+  return url.toString();
+}
+
 const CRITERIA_KEYS = [
   "from",
   "to",
@@ -499,11 +506,6 @@ function accountLabel(account: ConnectedAccount) {
 async function allAccounts(): Promise<ConnectedAccount[]> {
   const accounts = await getAccessTokens();
   if (accounts.length === 0) {
-    // A plain Error has no statusCode, so action-routes.ts can't tell this
-    // deterministic, caller-correctable precondition apart from a real server
-    // fault — it collapses to a 500 and the specific message never reaches
-    // the UI. ActionContractError carries an explicit sub-500 statusCode the
-    // route treats as user-facing and echoes as-is.
     throw new ActionContractError(
       "No Google account connected. Connect Gmail first.",
       { errorCode: "GOOGLE_ACCOUNT_NOT_CONNECTED", statusCode: 400 },
@@ -645,11 +647,27 @@ export default defineAction({
         action,
       });
       await signalRefresh();
+      const filter = enrichFilter(account.email, created, labels);
       return {
         ok: true,
         message: `Created Gmail filter ${created.id} in ${account.email}.`,
         accountEmail: account.email,
-        filter: enrichFilter(account.email, created, labels),
+        filter,
+        change: {
+          verb: "created",
+          kind: "gmail-filter",
+          title: filter.criteriaSummary.slice(0, 180),
+          detail: filter.actionSummary.slice(0, 500),
+          url: gmailFiltersUrl(account.email),
+          undo: {
+            action: "manage-gmail-filters",
+            args: {
+              operation: "delete",
+              id: created.id,
+              account: account.email,
+            },
+          },
+        },
       };
     }
 
@@ -694,12 +712,32 @@ export default defineAction({
       await gmailDeleteFilter(target.account.accessToken, args.id);
       await signalRefresh();
 
+      const filter = enrichFilter(target.account.email, created, labels);
       return {
         ok: true,
         message: `Replaced Gmail filter ${args.id} with ${created.id} in ${target.account.email}.`,
         accountEmail: target.account.email,
         deletedId: args.id,
-        filter: enrichFilter(target.account.email, created, labels),
+        filter,
+        change: {
+          verb: "updated",
+          kind: "gmail-filter",
+          title: filter.criteriaSummary.slice(0, 180),
+          detail: filter.actionSummary.slice(0, 500),
+          url: gmailFiltersUrl(target.account.email),
+          undo: {
+            action: "manage-gmail-filters",
+            args: {
+              operation: "replace",
+              id: created.id,
+              account: target.account.email,
+              criteriaJson: JSON.stringify(target.filter.criteria),
+              filterActionJson: JSON.stringify(target.filter.action),
+              replaceCriteria: true,
+              replaceAction: true,
+            },
+          },
+        },
       };
     }
 

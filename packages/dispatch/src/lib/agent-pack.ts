@@ -18,7 +18,6 @@ export const AGENT_PACK_MAX_FILES = 80;
 export const AGENT_PACK_MAX_FILE_BYTES = 200_000;
 export const AGENT_PACK_MAX_TOTAL_BYTES = 2_000_000;
 
-/** Extensions a single-file agent profile import can parse. */
 export const AGENT_PROFILE_FILE_EXTENSIONS = [
   ".md",
   ".markdown",
@@ -26,7 +25,6 @@ export const AGENT_PROFILE_FILE_EXTENSIONS = [
   ".txt",
 ] as const;
 
-/** Extensions an agent pack keeps; everything else in a folder is skipped. */
 export const AGENT_PACK_FILE_EXTENSIONS = [
   ...AGENT_PROFILE_FILE_EXTENSIONS,
   ".yaml",

@@ -1,15 +1,27 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { agentSidebarMock, useDecksMock, creativeContextLabEnabled } =
-  vi.hoisted(() => ({
-    agentSidebarMock: vi.fn(),
-    useDecksMock: vi.fn(),
-    creativeContextLabEnabled: { value: false },
-  }));
+const {
+  agentSidebarMock,
+  flushDeckSaveMock,
+  useDecksMock,
+  creativeContextLabEnabled,
+  settingsRedesign,
+} = vi.hoisted(() => ({
+  agentSidebarMock: vi.fn(),
+  flushDeckSaveMock: vi.fn(),
+  useDecksMock: vi.fn(),
+  creativeContextLabEnabled: { value: false },
+  settingsRedesign: {
+    value: { status: "ready", enabled: false } as {
+      status: "ready";
+      enabled: boolean;
+    },
+  },
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({
@@ -35,7 +47,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   useAgentChatHomeHandoffLinks: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
 vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => <div data-testid="invitation-banner" />,
@@ -56,17 +69,11 @@ vi.mock("@tabler/icons-react", () => ({
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));
+vi.mock("@/hooks/use-settings-redesign", () => ({
+  useSettingsRedesign: () => settingsRedesign.value,
+}));
 vi.mock("@/hooks/use-sidebar-collapsed", () => ({
   useSidebarCollapsed: () => ({ collapsed: false, setCollapsed: vi.fn() }),
-}));
-vi.mock("@/lib/slide-agent-context", () => ({
-  buildSlidesAgentContext: () => ({
-    context: "",
-    contextVersion: "test",
-  }),
-  hasCurrentSlideSelection: () => false,
-  readPublishedSlidesSelection: () => null,
-  SLIDES_SELECTION_CHANGED_EVENT: "slides-selection-changed",
 }));
 vi.mock("@/lib/tab-id", () => ({ TAB_ID: "slides-test" }));
 vi.mock("@/lib/utils", () => ({
@@ -83,9 +90,15 @@ vi.mock("./Sidebar", () => ({
   Sidebar: () => <aside data-testid="app-sidebar" />,
 }));
 
+import { publishSlidesSelection } from "@/lib/slide-agent-context";
+
 import { Layout } from "./Layout";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  publishSlidesSelection(null);
+  Reflect.deleteProperty(window, "ReactNativeWebView");
+});
 
 function renderLayout(path: string) {
   return render(
@@ -110,8 +123,14 @@ function NavigateAway() {
 describe("Slides Layout", () => {
   beforeEach(() => {
     agentSidebarMock.mockClear();
-    useDecksMock.mockReturnValue({ decks: [], loading: false });
+    flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
+    useDecksMock.mockReturnValue({
+      decks: [],
+      loading: false,
+      flushDeckSave: flushDeckSaveMock,
+    });
     creativeContextLabEnabled.value = false;
+    settingsRedesign.value = { status: "ready", enabled: false };
   });
 
   it("hides the Creative Context composer chip until its lab is enabled", () => {
@@ -212,6 +231,147 @@ describe("Slides Layout", () => {
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
     expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("acknowledges a mobile flush only after the matching deck is saved", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage },
+    });
+    renderLayout("/deck/deck-1");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.mobileDeckSaveFlush", {
+          detail: { requestId: "request-1", deckId: "deck-1" },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+    expect(flushDeckSaveMock).toHaveBeenCalledWith("deck-1");
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      requestId: "request-1",
+      requestedDeckId: "deck-1",
+      activeDeckId: "deck-1",
+      status: "flushed",
+    });
+  });
+
+  it("reports nonmatching Slides routes without flushing another deck", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage },
+    });
+    renderLayout("/deck/deck-2");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.mobileDeckSaveFlush", {
+          detail: { requestId: "request-2", deckId: "deck-1" },
+        }),
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledOnce();
+    expect(flushDeckSaveMock).not.toHaveBeenCalled();
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      requestId: "request-2",
+      requestedDeckId: "deck-1",
+      activeDeckId: "deck-2",
+      status: "not-target",
+    });
+  });
+
+  it("never acknowledges a failed deck save as flushed", async () => {
+    flushDeckSaveMock.mockRejectedValueOnce(new Error("save failed"));
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage },
+    });
+    renderLayout("/deck/deck-1");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.mobileDeckSaveFlush", {
+          detail: { requestId: "request-3", deckId: "deck-1" },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toMatchObject({
+      requestedDeckId: "deck-1",
+      activeDeckId: "deck-1",
+      status: "failed",
+    });
+  });
+
+  it("updates the agent scope label as the current slide changes", () => {
+    renderLayout("/deck/deck-1");
+
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        dynamicSuggestions: false,
+        scope: expect.objectContaining({ label: "agent.thisSlide" }),
+      }),
+    );
+
+    act(() => {
+      publishSlidesSelection({
+        deckId: "deck-1",
+        slideId: "slide-2",
+        slideIndex: 1,
+        slideNumber: 2,
+        items: [],
+      });
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({ label: "Slide 2" }),
+      }),
+    );
+
+    act(() => {
+      publishSlidesSelection({
+        deckId: "deck-1",
+        slideId: "slide-5",
+        slideIndex: 4,
+        slideNumber: 5,
+        items: [],
+      });
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({ label: "Slide 5" }),
+      }),
+    );
+  });
+
+  it("gives the redesigned Settings the full width", () => {
+    settingsRedesign.value = { status: "ready", enabled: true };
+    renderLayout("/settings/notifications");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "sidebar.openNavigation" }),
+    ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("keeps the app shell around Settings with the redesign off", () => {
+    settingsRedesign.value = { status: "ready", enabled: false };
+    renderLayout("/settings");
+
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
+    expect(screen.getByTestId("header")).toBeTruthy();
   });
 
   it("renders full-page chat without the sidebar wrapper", () => {

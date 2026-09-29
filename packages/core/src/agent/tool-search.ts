@@ -27,12 +27,9 @@ type ToolSearchResult = {
   source?: string;
   description: string;
   score: number;
-  /** Whether this result can be loaded and called in the current registry. */
   callable: boolean;
-  /** How the action behaves while the agent is in Plan mode. */
   planAvailability: "read" | "conditional" | "act-only";
   parameters: ToolParameterSummary[];
-  inputSchema?: unknown;
 };
 
 type ToolSearchOptions = {
@@ -41,32 +38,46 @@ type ToolSearchOptions = {
 };
 
 const DEFAULT_LIMIT = 8;
-const MAX_LIMIT = 25;
+const MAX_LIMIT = 10;
+const MAX_MENU_DESCRIPTION_CHARS = 140;
+const MAX_DESCRIPTION_CHARS = 220;
+const MAX_PARAMETER_COUNT = 8;
+const MAX_PARAMETER_DESCRIPTION_CHARS = 120;
+const MAX_ENUM_VALUES = 5;
+const MAX_ENUM_VALUE_CHARS = 60;
 
 export function createToolSearchEntry(
   getRegistry: () => Record<string, ActionEntry>,
   options: ToolSearchOptions = {},
 ): ActionEntry {
+  const maxLimit = Math.max(
+    1,
+    Math.min(options.maxLimit ?? MAX_LIMIT, MAX_LIMIT),
+  );
+  const defaultLimit = Math.max(
+    1,
+    Math.min(options.defaultLimit ?? DEFAULT_LIMIT, maxLimit),
+  );
   return {
     tool: {
       description:
-        "Discover callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Call it with NO query to list every available tool by name with a one-line description (cheap — no input schemas); names from that menu are not loaded for calling yet, so call tool-search again with a specific query for the tool/capability before invoking it. Use this whenever you need a capability but aren't sure which tool to call — most tools are not loaded into context up front, so this is how you find and then call them.",
+        "Find actions and connected MCP tools named `mcp__<server>__<tool>` by capability or name. A targeted query returns concise details and adds matches allowed in the current mode, with their full schemas, to the next model step. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`. Omit to list every available tool name (the full menu) with one-line descriptions; then call tool-search again with a specific query before calling a tool from that menu.",
+              "Capability or exact tool name to find. A targeted search adds matches allowed in the current mode, with their full schemas, to the next model step. Omit for a bounded alphabetical inventory.",
           },
           limit: {
             type: "number",
-            description: `Maximum results to return for a query. Defaults to ${options.defaultLimit ?? DEFAULT_LIMIT}. Ignored when listing the full menu (no query).`,
+            description: `Maximum results to return, including menu mode. Defaults to ${defaultLimit}; capped at ${maxLimit}.`,
           },
           includeSchemas: {
             type: "boolean",
             description:
-              "When true, include each matching tool's full input schema. Default false.",
+              "Accepted for compatibility. Full schemas are supplied automatically for tools returned by a targeted search.",
           },
           readOnlyOnly: {
             type: "boolean",
@@ -78,8 +89,8 @@ export function createToolSearchEntry(
     },
     http: false,
     readOnly: true,
-    run: async (args: Record<string, string>) =>
-      searchToolRegistry(getRegistry(), args, options),
+    run: async (args: Record<string, string>, context) =>
+      searchToolRegistryForRequest(getRegistry(), args, options, context),
   };
 }
 
@@ -92,6 +103,49 @@ export function attachToolSearch(
     options,
   );
   return registry;
+}
+
+export async function filterActionsForAgentDiscovery(
+  registry: Record<string, ActionEntry>,
+  context?: import("../action.js").ActionRunContext,
+): Promise<Record<string, ActionEntry>> {
+  const checks = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    Promise<boolean>
+  >();
+  for (const entry of Object.values(registry)) {
+    const predicate = entry.agentDiscoveryAvailable;
+    if (predicate && !checks.has(predicate)) {
+      checks.set(predicate, Promise.resolve(predicate(context)));
+    }
+  }
+
+  const availability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    boolean
+  >();
+  await Promise.all(
+    [...checks].map(async ([predicate, check]) => {
+      availability.set(predicate, await check);
+    }),
+  );
+
+  const filtered = Object.fromEntries(
+    Object.entries(registry)
+      .filter(([, entry]) => {
+        const predicate = entry.agentDiscoveryAvailable;
+        return !predicate || availability.get(predicate) === true;
+      })
+      .map(([name, entry]) => {
+        const visibleEntry = { ...entry };
+        delete visibleEntry.agentDiscoveryAvailable;
+        return [name, visibleEntry];
+      }),
+  );
+  if (filtered[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+  return filtered;
 }
 
 export function searchToolRegistry(
@@ -107,29 +161,20 @@ export function searchToolRegistry(
   results: ToolSearchResult[];
 } {
   const query = String(args.query ?? "").trim();
-  // No query → "menu" mode: list every available tool by name + a terse
-  // description, with no parameter summaries or input schemas. This is the
-  // cheap, non-opaque counterpart to the compact catalog: the agent can see
-  // the full set of tools for a small token cost, then search/load the few it
-  // actually needs. A query switches to ranked search with parameter details.
   const listAll = query.length === 0;
-  const includeSchemas = !listAll && parseBoolean(args.includeSchemas);
   const readOnlyOnly = parseBoolean(args.readOnlyOnly);
   const limit = parseLimit(
     args.limit,
     options.defaultLimit ?? DEFAULT_LIMIT,
-    options.maxLimit ?? MAX_LIMIT,
+    Math.min(options.maxLimit ?? MAX_LIMIT, MAX_LIMIT),
   );
   const cacheKey = normalizeToolSearchCacheKey({
     query,
     limit,
-    includeSchemas,
     readOnlyOnly,
   });
   const runCtx = getRequestRunContext();
-  const priorSearch = includeSchemas
-    ? undefined
-    : runCtx?.toolSearchReads?.[cacheKey];
+  const priorSearch = runCtx?.toolSearchReads?.[cacheKey];
   if (priorSearch) {
     return {
       query,
@@ -137,7 +182,9 @@ export function searchToolRegistry(
       count: priorSearch.resultNames.length,
       repeated: true,
       message:
-        "This exact tool-search query already ran in this agent run. Use the previously returned schemas/details instead of searching again.",
+        query.length > 0
+          ? "This exact tool-search query already ran in this agent run. Use the earlier result; matches allowed in the current mode are already available with their full schemas."
+          : "This tool inventory already ran in this agent run. Use the earlier list, then search once by capability or tool name to load a matching tool's full schema.",
       results: priorSearch.resultNames.map((name) => ({
         name,
         kind: parseMcpToolName(name) ? ("mcp" as const) : ("action" as const),
@@ -168,10 +215,6 @@ export function searchToolRegistry(
     const source = parsedMcp?.serverId;
     const callable = entry.allowInPlanMode !== false;
     const planAvailability = getPlanAvailability(name, entry);
-    // Conditional policies still need discovery: MCP tools and provider/web
-    // actions classify the arguments at call time. Bash is marked conditional
-    // for Plan mode, but the orchestration bridge intentionally does not expose
-    // shell execution, so do not advertise it as a child-call candidate.
     if (
       readOnlyOnly &&
       planAvailability !== "read" &&
@@ -187,7 +230,7 @@ export function searchToolRegistry(
         name,
         kind,
         ...(source ? { source } : {}),
-        description: truncate(description, 140),
+        description: truncate(description, MAX_MENU_DESCRIPTION_CHARS),
         score: 0,
         callable,
         planAvailability,
@@ -213,12 +256,13 @@ export function searchToolRegistry(
       name,
       kind,
       ...(source ? { source } : {}),
-      description,
+      description: truncate(description, MAX_DESCRIPTION_CHARS),
       score,
       callable,
       planAvailability,
-      parameters,
-      ...(includeSchemas ? { inputSchema: entry.tool.parameters ?? {} } : {}),
+      parameters: parameters
+        .slice(0, MAX_PARAMETER_COUNT)
+        .map(boundParameterSummary),
     });
   }
 
@@ -227,10 +271,9 @@ export function searchToolRegistry(
     const result = {
       query,
       totalTools,
-      count: candidates.length,
-      message:
-        'Menu mode lists tool names only; it does not load schemas for calling. Before invoking a tool found here, call tool-search again with a specific query such as the tool name or capability (for example, { "query": "hubspot-deals" }).',
-      results: candidates,
+      count: Math.min(candidates.length, limit),
+      message: `Showing ${Math.min(candidates.length, limit)} of ${totalTools} tools in alphabetical order. Search once by capability or tool name to load matching schemas for tools allowed in the current mode.`,
+      results: candidates.slice(0, limit),
     };
     rememberToolSearchResult(cacheKey, result);
     return result;
@@ -247,14 +290,28 @@ export function searchToolRegistry(
     count: Math.min(candidates.length, limit),
     results: candidates.slice(0, limit),
   };
-  if (!includeSchemas) rememberToolSearchResult(cacheKey, result);
+  rememberToolSearchResult(cacheKey, result);
   return result;
+}
+
+export async function searchToolRegistryForRequest(
+  registry: Record<string, ActionEntry>,
+  args: ToolSearchArgs = {},
+  options: ToolSearchOptions = {},
+  context?: import("../action.js").ActionRunContext,
+): Promise<ReturnType<typeof searchToolRegistry>> {
+  const visibleRegistry = await filterActionsForAgentDiscovery(
+    registry,
+    context,
+  );
+  return searchToolRegistry(visibleRegistry, args, options);
 }
 
 const PLAN_MODE_BLOCKED_DISCOVERY_TOOLS = new Set([
   "refresh-screen",
   "set-search-params",
   "set-url-path",
+  "open-settings-page",
 ]);
 
 function getPlanAvailability(
@@ -278,13 +335,11 @@ function getPlanAvailability(
 function normalizeToolSearchCacheKey(options: {
   query: string;
   limit: number;
-  includeSchemas: boolean;
   readOnlyOnly: boolean;
 }): string {
   return JSON.stringify({
     query: options.query.trim().toLowerCase(),
     limit: options.limit,
-    includeSchemas: options.includeSchemas,
     readOnlyOnly: options.readOnlyOnly,
   });
 }
@@ -345,7 +400,9 @@ function summarizeParameters(schema: unknown): ToolParameterSummary[] {
     const prop =
       raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
     const enumValues = Array.isArray(prop.enum)
-      ? prop.enum.map((value) => String(value)).slice(0, 20)
+      ? prop.enum
+          .slice(0, MAX_ENUM_VALUES)
+          .map((value) => truncate(String(value), MAX_ENUM_VALUE_CHARS))
       : undefined;
     return {
       name,
@@ -358,6 +415,22 @@ function summarizeParameters(schema: unknown): ToolParameterSummary[] {
       ...(enumValues && enumValues.length > 0 ? { enum: enumValues } : {}),
     };
   });
+}
+
+function boundParameterSummary(
+  parameter: ToolParameterSummary,
+): ToolParameterSummary {
+  return {
+    ...parameter,
+    ...(parameter.description
+      ? {
+          description: truncate(
+            parameter.description,
+            MAX_PARAMETER_DESCRIPTION_CHARS,
+          ),
+        }
+      : {}),
+  };
 }
 
 function summarizeType(value: unknown): string | undefined {

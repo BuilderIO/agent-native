@@ -1,16 +1,6 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
-/**
- * Notice: a bold, filled alert card — title + icon + markdown body, colored by
- * tone. Distinct from `Callout` (a subtle left-border note meant to sit inline
- * in a paragraph flow without breaking stride) — Notice is a standalone,
- * higher-attention block for something a reader must not skim past. Reuses the
- * same five-tone vocabulary as `Callout` (info/decision/risk/warning/success)
- * so the two components share one color language instead of introducing a
- * second, parallel tone naming.
- */
-
 export const NOTICE_TONES = [
   "info",
   "decision",
@@ -33,11 +23,6 @@ export const noticeSchema = z.object({
   body: z.string(),
 }) as unknown as z.ZodType<NoticeData>;
 
-/**
- * MDX config: `tone` and `title` are flat attrs; the body is the element's
- * markdown children (`<Notice tone="risk" title="...">` … `</Notice>`), same
- * shape as `Callout` so authoring feels familiar.
- */
 export const noticeMdx: BlockMdxConfig<NoticeData> = {
   tag: "Notice",
   childrenField: "body" as never,

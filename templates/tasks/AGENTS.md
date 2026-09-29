@@ -41,7 +41,7 @@ Default navigation shape on `/tasks`:
 - `includeDone` mirrors the task-list filter toggle (incomplete only vs show all).
 - `taskId` highlights a row when opened from a deep link; MVP has no detail page.
 - `fieldId` highlights a custom field when opened from a deep link; the Fields page manages definitions.
-- Chat lives at `/chat`. The public root `/` is the SSR marketing page, while
+- Chat lives at `/chat`. The public root `/` redirects to shared sign-in/signup, while
   private app entry `/home` redirects to `/tasks`.
 
 ## Actions
@@ -53,6 +53,8 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 | `list-tasks` | List the user's tasks |
 | `create-task` | Create a task |
 | `update-task` | Patch title, done, or field values |
+| `suggest-task-route` | Suggest a queue and urgency for one task without changing it |
+| `apply-task-route` | Apply an accepted queue, creating the Queue field on first use |
 | `delete-task` | Delete a task |
 | `bulk-update-tasks` | Patch title or done on many tasks |
 | `bulk-delete-tasks` | Delete many tasks |

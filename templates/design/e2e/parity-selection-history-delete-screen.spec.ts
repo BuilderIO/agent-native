@@ -9,30 +9,9 @@ import {
   setBaseURL,
 } from "./drag-and-drop.shared";
 
-/**
- * Figma parity (ground-truth Round 4): a plain selection change with no
- * document edit is its own undo-stack entry (`SelectionHistoryEntry`,
- * history.ts). Its snapshots name the screens selected at the time.
- *
- * Undoing a screen deletion recreates the screen under a brand-new database
- * id (`undoFileDeletion`, undo.ts) — before the fix under test, only the
- * file-deletion entry itself got remapped to the new id, leaving every
- * pure-selection entry recorded before the delete still naming the dead one.
- * A later selection-only undo/redo would then try to restore a selection
- * pointing at a screen that no longer exists.
- *
- * Repro: select Home -> select Second -> re-select Home -> delete Home ->
- * undo (recreates Home under a new id) -> walk selection history back with
- * undo, forward with redo. Every restored selection must reference only
- * live screen ids, and nothing may error along the way.
- */
-
 const UNDO = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const REDO = process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
 
-// Layer names deliberately avoid the substring "Home"/"Second" — layerRow
-// filters by hasText, and an element row containing the screen's own name
-// would otherwise collide with the screen's own row.
 const SECOND_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Second</title></head>
@@ -120,9 +99,6 @@ async function fileIdByFilename(
   );
 }
 
-/** The current `selectedLayerIdsState` snapshot, read off the same trace the
- * app itself stamps on every selection change (mirrors parity-undo-redo.spec's
- * lastSelectedLayers helper). */
 async function lastSelectedLayers(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const trace = (window as any).__designTrace;
@@ -144,7 +120,6 @@ async function lastSelectedLayers(page: Page): Promise<string[]> {
 test("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
   page,
 }) => {
-  // The immutable E2E bundle runs the production trace branch, which is off unless opted in.
   await page.addInitScript(() => {
     (window as any).__DESIGN_TRACE = true;
   });
@@ -161,27 +136,22 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   const homeIdBeforeDelete = await fileIdByFilename(page, id, "index.html");
   const secondId = await fileIdByFilename(page, id, "second.html");
 
-  // select A (Home)
   await layerRow(page, "Home").click();
   await expect
     .poll(() => lastSelectedLayers(page))
     .toEqual([homeIdBeforeDelete]);
 
-  // select B (Second)
   await layerRow(page, "Second").click();
   await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 
-  // re-select A right before deleting it, so Home is the active selection
   await layerRow(page, "Home").click();
   await expect
     .poll(() => lastSelectedLayers(page))
     .toEqual([homeIdBeforeDelete]);
 
-  // delete Home immediately
   await page.keyboard.press("Delete");
   await expect(layerRow(page, "Home")).toHaveCount(0);
 
-  // undo the deletion -> recreates Home under a NEW database id
   await page.keyboard.press(UNDO);
   await expect(layerRow(page, "Home")).toHaveCount(1, { timeout: 10_000 });
   const homeIdAfterUndo = await fileIdByFilename(page, id, "index.html");
@@ -190,14 +160,9 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     "sanity: undoing a screen deletion must recreate it under a NEW id",
   ).not.toBe(homeIdBeforeDelete);
 
-  // walk selection history back: undo #2 undoes "re-select Home"
-  // (its "before" is Second).
   await page.keyboard.press(UNDO);
   await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 
-  // undo #3 undoes "select Second" (its "before" is Home) — this is the
-  // exact snapshot recorded while the dead id was still live. Without the
-  // fix this restores the dead pre-deletion id instead of the recreated one.
   await page.keyboard.press(UNDO);
   await expect.poll(() => lastSelectedLayers(page)).toEqual([homeIdAfterUndo]);
   await expect(
@@ -205,7 +170,6 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     "the recreated Home screen's own layer row must show as selected",
   ).toHaveAttribute("aria-selected", "true");
 
-  // walk forward again with redo, over the same two selection entries.
   await page.keyboard.press(REDO);
   await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 

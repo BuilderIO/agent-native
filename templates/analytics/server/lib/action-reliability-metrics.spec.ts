@@ -11,12 +11,6 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
-/**
- * `{{timeRange}}`/`{{emailFilter}}`/`{{appFilter}}` are substituted textually
- * before the panel SQL reaches Postgres (see `dashboard-catalog.spec.ts`'s
- * identical helper) — empty strings resolve every "IN ('', 'all')" branch to
- * the unfiltered default.
- */
 function interpolate(sql: string, values: Record<string, string>): string {
   return sql.replace(
     /{{\s*([A-Za-z0-9_]+)\s*}}/g,
@@ -91,10 +85,6 @@ describe("action reliability & latency catalog metrics", () => {
     }
   });
 
-  // The org holding every action.response row today runs the BigQuery sink,
-  // so this metric is unusable there unless it also survives BigQuery
-  // translation -- `FILTER (WHERE ...)` and `DISTINCT ON` are PostgreSQL-only
-  // and throw during translation (first-party-analytics-backend.ts).
   it("translates to BigQuery SQL without FILTER (WHERE ...) or DISTINCT ON", () => {
     for (const key of ACTION_RELIABILITY_CATALOG_KEYS) {
       const panel = buildPanel(key)!;
@@ -137,8 +127,6 @@ describe("action reliability & latency catalog metrics", () => {
         sample_weight: 1,
       },
     });
-    // A superseded/unmounted fetch: success=false but outcome='cancelled' —
-    // must land in neither the success nor the failure bucket.
     await seedActionResponse(client, {
       date: today,
       app: "slides",
@@ -167,7 +155,6 @@ describe("action reliability & latency catalog metrics", () => {
     expect(Number(row.success_weight)).toBe(1);
     expect(Number(row.failure_weight)).toBe(1);
     expect(Number(row.cancelled_weight)).toBe(1);
-    // 1 success / (1 success + 1 failure) — the cancelled row moves neither.
     expect(row.rate).toBeCloseTo(0.5);
   });
 
@@ -180,10 +167,6 @@ describe("action reliability & latency catalog metrics", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
 
-    // No success rows at all for this app-day: a plain
-    // `SUM(...) FILTER (WHERE outcome_class = 'success')` (or an unguarded
-    // `SUM(CASE WHEN ...)`) returns NULL here, which renders identically to
-    // "no traffic" -- the exact incident this chart exists to surface.
     await seedActionResponse(client, {
       date: today,
       app: "design",
@@ -219,9 +202,6 @@ describe("action reliability & latency catalog metrics", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
 
-    // Session A: one success. Session B: one success, then one failure -- a
-    // failure anywhere in the session marks it, even though most of its
-    // calls succeeded.
     for (const [sessionId, outcome] of [
       ["session-a", "success"],
       ["session-b", "success"],
@@ -263,8 +243,6 @@ describe("action reliability & latency catalog metrics", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
 
-    // Legacy row (no sample_weight key at all): fast, successful, under 400 —
-    // this is the 10%-sampled shape, so its inferred weight is 10.
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -277,7 +255,6 @@ describe("action reliability & latency catalog metrics", () => {
         status_code: 200,
       },
     });
-    // Legacy row, but slow (>=1000ms) — always-tracked, so weight is 1.
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -290,8 +267,6 @@ describe("action reliability & latency catalog metrics", () => {
         status_code: 200,
       },
     });
-    // Legacy row, fast and successful, but a startup response — always
-    // tracked at weight 1 regardless of duration.
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -305,7 +280,6 @@ describe("action reliability & latency catalog metrics", () => {
         framework_ready_wait_ms: 900,
       },
     });
-    // Legacy failure — always weight 1, even though it's fast.
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -318,8 +292,6 @@ describe("action reliability & latency catalog metrics", () => {
         status_code: 500,
       },
     });
-    // Explicit sample_weight always wins, even when the row's own shape would
-    // infer weight 1 (duration well over 1000ms).
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -420,10 +392,6 @@ describe("action reliability & latency catalog metrics", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
 
-    // 10 equally-weighted successful calls at 100..1000ms (25ms buckets keep
-    // every value on its own bucket boundary): the 5th-ranked value (500ms)
-    // is where cumulative weight first reaches 50%, the 9th (900ms) where it
-    // first reaches 90%.
     for (let i = 1; i <= 10; i++) {
       await seedActionResponse(client, {
         date: today,
@@ -439,9 +407,6 @@ describe("action reliability & latency catalog metrics", () => {
         },
       });
     }
-    // A cancelled and a failed call in the same group must not enter the
-    // latency population at all (no duration_ms recorded for cancelled here,
-    // and a failure is never a "successful call").
     await seedActionResponse(client, {
       date: today,
       app: "mail",
@@ -487,8 +452,6 @@ describe("action reliability & latency catalog metrics", () => {
         sample_weight: 1,
       },
     });
-    // A tab that was hidden for the whole attempt: the timer fired late from
-    // browser throttling, not because anything actually hung 60s+.
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -501,7 +464,6 @@ describe("action reliability & latency catalog metrics", () => {
         sample_weight: 1,
       },
     });
-    // Same outcome, foreground tab: a real timeout, still a failure.
     await seedActionResponse(client, {
       date: today,
       app: "clips",
@@ -529,7 +491,6 @@ describe("action reliability & latency catalog metrics", () => {
     expect(Number(row.success_weight)).toBe(1);
     expect(Number(row.failure_weight)).toBe(1);
     expect(Number(row.suspended_weight)).toBe(1);
-    // 1 success / (1 success + 1 failure) -- the suspended row moves neither.
     expect(row.rate).toBeCloseTo(0.5);
   });
 
@@ -542,7 +503,6 @@ describe("action reliability & latency catalog metrics", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
 
-    // Beta: mostly-QA traffic failing.
     await seedActionResponse(client, {
       date: today,
       app: "design",
@@ -555,7 +515,6 @@ describe("action reliability & latency catalog metrics", () => {
         sample_weight: 1,
       },
     });
-    // Prod: healthy.
     await seedActionResponse(client, {
       date: today,
       app: "design",
@@ -597,9 +556,6 @@ describe("action reliability & latency catalog metrics", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
 
-    // Same 10-value distribution as the by-action quantile test: 5th-ranked
-    // (500ms) is the first bucket to reach 50% cumulative weight, 9th
-    // (900ms) the first to reach 90%.
     for (let i = 1; i <= 10; i++) {
       await seedActionResponse(client, {
         date: today,
@@ -616,9 +572,6 @@ describe("action reliability & latency catalog metrics", () => {
         },
       });
     }
-    // A successful call from a hidden tab with an inflated duration must not
-    // shift the quantile -- its wall-clock time reflects timer throttling,
-    // not real latency.
     await seedActionResponse(client, {
       date: today,
       app: "mail",
@@ -635,12 +588,6 @@ describe("action reliability & latency catalog metrics", () => {
       },
     });
 
-    // p50 and p90 are two catalog entries sharing the same SQL (a pivoted
-    // chart can only draw one value column per panel -- see SqlChart.tsx) --
-    // both must return the same row shape, with both quantiles present, and
-    // each panel's own pivot.valueKey must point at its own column so p90
-    // actually reaches the chart instead of being dropped like the p50-only
-    // panel this replaced.
     for (const [key, valueKey] of [
       ["action-latency-p50-over-time", "p50_ms"],
       ["action-latency-p90-over-time", "p90_ms"],
@@ -674,12 +621,6 @@ describe("action reliability & latency catalog metrics", () => {
     ).rows[0]!;
     const { today, yesterday } = rows;
 
-    // "clips" only has traffic yesterday; "design" only has traffic today.
-    // Without a dense date x series grid, `GROUP BY date, app` never emits a
-    // "clips" row for today (or a "design" row for yesterday) at all -- and
-    // the chart's pivot zero-fills any missing (date, series) cell, drawing
-    // a false 0% outage / 0ms response on the day each app had no traffic,
-    // not "no data yet".
     await seedActionResponse(client, {
       date: yesterday,
       app: "clips",

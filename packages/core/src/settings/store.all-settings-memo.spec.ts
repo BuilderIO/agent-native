@@ -112,7 +112,6 @@ describe("getAllSettings request memo", () => {
       expect(await getAllSettings()).toEqual({ one: { v: 1 } });
     });
 
-    // A write from "elsewhere" — no request context, so no cache to update.
     await putSetting("two", { v: 2 });
 
     await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
@@ -124,10 +123,8 @@ describe("getAllSettings request memo", () => {
   });
 
   it("keeps a value written earlier in the request over the snapshot", async () => {
-    // The seed must not clobber a written-through key with the DB's older row.
     await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
       await putSetting("one", { v: 1 });
-      // Change the row out from under the request, simulating another writer.
       await pglite
         .prepare(`UPDATE settings SET value = ? WHERE key = ?`)
         .run(JSON.stringify({ v: 99 }), "one");
@@ -140,7 +137,6 @@ describe("getAllSettings request memo", () => {
   it("still works with no request context at all (CLI / script paths)", async () => {
     await putSetting("one", { v: 1 });
     expect(await getAllSettings()).toEqual({ one: { v: 1 } });
-    // Uncached without a context: two calls, two reads.
     rawClient.execute.mockClear();
     await getAllSettings();
     await getAllSettings();

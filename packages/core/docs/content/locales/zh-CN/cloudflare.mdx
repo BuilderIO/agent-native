@@ -1,22 +1,14 @@
 ---
 title: "Cloudflare"
-description: "使用匹配的 Nitro 预设将代理本机应用部署到 Cloudflare Pages 或 Cloudflare Workers。"
+description: "使用 cloudflare_module Nitro 预设将 agent-native 应用部署到 Cloudflare Workers。"
 ---
 
 # Cloudflare
 
-## Cloudflare Pages {#cloudflare-pages}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
-
 ## Cloudflare Workers {#cloudflare-workers}
 
 使用 Nitro 原生的模块输出来生成一个 Cloudflare Worker。这样可以
-保持 SSR 启用,并在 `.output/server` 和 `.output/public` 下生成
+保持 SSR 启用，并在 `.output/server` 和 `.output/public` 下生成
 Worker 入口点和静态资源:
 
 ```ts filename="vite.config.ts"
@@ -39,5 +31,5 @@ npx wrangler deploy --config .output/server/wrangler.json
 ## 下一步
 
 - [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
-- [**Workspace Deployment**](/docs/workspace-deployment) — Cloudflare Pages 是统一 `deploy` 命令的默认预设
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Other Platforms**](/docs/other-platforms) — 其他 Nitro 预设
+- [**Workspace Deployment**](/docs/workspace-deployment) — 使用 Netlify 或 Vercel 将工作区中的每个应用部署到同一来源
+- [**Node.js**](/docs/node-js)、[**Docker**](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**AWS Lambda**](/docs/aws-lambda) 和 [**Deno Deploy**](/docs/deno-deploy) — 其他 Nitro 预设

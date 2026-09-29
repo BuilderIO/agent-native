@@ -1,8 +1,5 @@
-// Owns: lazy react-markdown/shiki loaders, StreamingText, MarkdownText,
-// HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
-// used by every markdown render path in AssistantChat.
+// Owns the shared markdown loader, streaming text helpers, and renderer.
 
-import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
   useState,
@@ -24,12 +21,8 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import {
-  localizeKnownChatErrorText,
-  NEW_CHAT_ACTION_HREF,
-} from "../error-format.js";
+import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
-import { useT } from "../i18n.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
 import {
@@ -283,6 +276,20 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
   }
 }
 
+function opensMarkdownLinkInNewTab(href: string | undefined): boolean {
+  if (!href || typeof window === "undefined") return false;
+  try {
+    const url = new URL(href, window.location.href);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.origin !== window.location.origin
+    );
+  } catch {
+    // coercion-ok: malformed links remain in the current tab and are not fetched here.
+    return false;
+  }
+}
+
 // react-markdown's defaultUrlTransform strips href values whose protocol
 // isn't on its safe list (https, mailto, etc.). Our in-app pseudo-href
 // `agent-native:new-chat` would be blanked out by that, so let it through
@@ -338,8 +345,15 @@ export const markdownComponents = {
     }
     const isBuilderCta = isBuilderErrorCtaHref(href);
     if (!isBuilderCta) {
+      const openInNewTab = opensMarkdownLinkInNewTab(href);
       return (
-        <a href={href} className={className} {...rest}>
+        <a
+          href={href}
+          target={openInNewTab ? "_blank" : undefined}
+          rel={openInNewTab ? "noopener noreferrer" : undefined}
+          className={className}
+          {...rest}
+        >
           {children}
         </a>
       );
@@ -901,40 +915,5 @@ export function shouldAnimateMarkdownText({
     (identityStreaming ||
       (textStreaming &&
         (statusType === "running" || externalStreaming === true)))
-  );
-}
-
-export function MarkdownText() {
-  const t = useT();
-  const textPart = useMessagePartText();
-  const messageRuntime = useMessageRuntime();
-  const message = messageRuntime.getState();
-  const textStreaming = React.useContext(TextStreamingContext);
-  const externalStreaming = React.useContext(ExternalTextStreamingContext);
-  const runActive = React.useContext(AgentRunActiveContext);
-  const activeStreamingIdentity = React.useContext(
-    ActiveTextStreamingIdentityContext,
-  );
-  const isLastAssistantMessage = message.role === "assistant" && message.isLast;
-  const statusType =
-    textPart.status?.type ?? message.status?.type ?? "complete";
-
-  return (
-    <StreamingText
-      text={localizeKnownChatErrorText(textPart.text, t)}
-      streaming={shouldAnimateMarkdownText({
-        textStreaming,
-        isLastAssistantMessage,
-        statusType,
-        externalStreaming,
-        activeMessageStreaming: messageMatchesActiveTextStream(
-          message,
-          activeStreamingIdentity,
-        ),
-        runActive,
-      })}
-      resetKey={message.id}
-      statusType={statusType}
-    />
   );
 }

@@ -764,8 +764,6 @@ describe("workspace resource materialization", () => {
         path: "instructions/starter.md",
       }),
     );
-    // A copy written before workspace defaults were organization-scoped is
-    // cleaned up alongside the organization-owned row.
     expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(
       expect.objectContaining({
         owner: "__workspace__",
@@ -812,9 +810,6 @@ describe("workspace resource materialization", () => {
         });
       },
     );
-    // Mirror the store: a bare-owner read with an organization in scope
-    // resolves to the organization owner first and falls through to the
-    // bare row; an organization-owner read falls through the same way.
     mocks.resourceGetByPath.mockImplementation(
       async (
         owner: string,
@@ -877,9 +872,6 @@ describe("workspace resource materialization", () => {
       ],
     };
     mocks.getDb.mockReturnValue(createFakeDb(state));
-    // The store answers an organization-owner read with the bare-owner row
-    // when no organization row exists; that row belongs to another Dispatch
-    // resource id, so nothing here may remove it.
     mocks.resourceGetByPath.mockResolvedValue({
       id: "legacy_1",
       owner: "__workspace__",
@@ -1370,7 +1362,6 @@ describe("workspace resource materialization", () => {
     );
     expect(materialized.has("__workspace__\0context/company.md")).toBe(false);
 
-    // Re-opening the preview in one organization leaves the other untouched.
     mocks.currentOrgId.mockReturnValue("org_a");
     mocks.getDb.mockReturnValue(createFakeDb(orgA));
     await getWorkspaceResourceEffectiveContext({ resourceId: "company_a" });

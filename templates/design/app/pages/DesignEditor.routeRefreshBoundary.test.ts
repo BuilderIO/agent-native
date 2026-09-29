@@ -12,7 +12,7 @@ describe("Design editor route Fast Refresh boundary", () => {
     expect(routeSource).not.toContain(
       'export { default } from "../pages/DesignEditor"',
     );
-    expect(routeSource).toContain("export function meta()");
+    expect(routeSource).toMatch(/export (?:function meta\(\)|const meta\b)/);
   });
 
   it("keeps DesignEditor component-only with no runtime named exports", () => {

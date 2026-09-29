@@ -19,7 +19,7 @@ Estas tres páginas son fáciles de confundir. Elija según la pregunta que est�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                        | "¿El agente hace lo correcto en esta entrada fija?"        | Activo, determinista, una puerta de implementación/CI    | Calidad        |
 | **[Observational Memory](/docs/observational-memory)**               | "¿Este hilo largo se queda barato y dentro de la ventana?" | Compactación de fondo en hilos largos                    | Costo/contexto |
 
-La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto.
+La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto. Promocione una traza de producción completada a un caso `*.eval.ts` (panel **Promote to eval**, acción `promote-trace-eval`, o `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Véase [Desde una traza de producción](/docs/evals#from-trace).
 
 ## Qué se captura automáticamente {#captured}
 
@@ -108,7 +108,7 @@ export default function ObservabilityPage() {
 
 Todos los datos se limitan al usuario que inició sesión; hoy no hay una vista de administrador entre usuarios.
 
-El panel tiene 5 pestañas:
+El panel tiene 6 pestañas:
 
 | Pestaña                 | Qué muestra                                                                                                           |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -117,6 +117,17 @@ El panel tiene 5 pestañas:
 | **Evaluaciones**        | Puntuaciones de evaluación automatizadas por criterios, tendencias a lo largo del tiempo                              |
 | **Experimentos**        | Lista de pruebas A/B con insignias de estado, resultados de variantes con intervalos de confianza                     |
 | **Comentarios**         | Aprobación/desaprobación, desglose de categorías, puntuaciones de frustración                                         |
+| **Revisión humana**     | Revisar la solicitud y la respuesta, registrar comentarios y redactar una actualización de instrucciones              |
+
+### Detalles de las conversaciones {#conversations}
+
+La pestaña Conversaciones muestra las ejecuciones registradas. Selecciona una para inspeccionar sus tramos y expande cualquiera para ver las entradas, salidas, errores y metadatos de herramientas capturados. **Abrir conversación completa** te lleva al hilo de chat correspondiente.
+
+Los argumentos y resultados de herramientas no se capturan de forma predeterminada. Activa `captureToolArgs` y `captureToolResults` en la configuración `observability` para almacenarlos. Los campos sensibles y los mensajes de error de herramientas se redactan antes de guardarlos.
+
+### Revisión humana {#review}
+
+La pestaña Revisión humana muestra la solicitud y la respuesta de cada ejecución, permite registrar comentarios y guardar un borrador de actualización de instrucciones para que lo revise una persona. Guardar el borrador no cambia las instrucciones automáticamente.
 
 ## Comentarios de los usuarios {#feedback}
 
@@ -287,23 +298,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 Todo montado automáticamente en `/_agent-native/observability/`:
 
-| Método | Ruta                       | Propósito                                 |
-| ------ | -------------------------- | ----------------------------------------- |
-| GET    | `/`                        | Estadísticas generales                    |
-| GET    | `/traces`                  | Enumerar resúmenes de seguimiento         |
-| GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos) |
-| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución           |
-| POST   | `/feedback`                | Enviar comentarios                        |
-| GET    | `/feedback`                | Enumerar comentarios                      |
-| GET    | `/feedback/stats`          | Agregación de comentarios                 |
-| GET    | `/satisfaction`            | Puntuaciones de satisfacción              |
-| GET    | `/evals/stats`             | Estadísticas de evaluación                |
-| POST   | `/experiments`             | Crear experimento                         |
-| GET    | `/experiments`             | Enumerar experimentos                     |
-| GET    | `/experiments/:id`         | Obtener detalles del experimento          |
-| PUT    | `/experiments/:id`         | Actualizar experimento                    |
-| POST   | `/experiments/:id/results` | Calcular resultados                       |
-| GET    | `/experiments/:id/results` | Obtener resultados                        |
+| Método | Ruta                       | Propósito                                   |
+| ------ | -------------------------- | ------------------------------------------- |
+| GET    | `/`                        | Estadísticas generales                      |
+| GET    | `/traces`                  | Enumerar resúmenes de seguimiento           |
+| GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos)   |
+| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución             |
+| POST   | `/traces/:runId/promote`   | Promover una ejecución completada a eval CI |
+| POST   | `/feedback`                | Enviar comentarios                          |
+| GET    | `/feedback`                | Enumerar comentarios                        |
+| GET    | `/feedback/stats`          | Agregación de comentarios                   |
+| GET    | `/satisfaction`            | Puntuaciones de satisfacción                |
+| GET    | `/evals/stats`             | Estadísticas de evaluación                  |
+| POST   | `/experiments`             | Crear experimento                           |
+| GET    | `/experiments`             | Enumerar experimentos                       |
+| GET    | `/experiments/:id`         | Obtener detalles del experimento            |
+| PUT    | `/experiments/:id`         | Actualizar experimento                      |
+| POST   | `/experiments/:id/results` | Calcular resultados                         |
+| GET    | `/experiments/:id/results` | Obtener resultados                          |
 
 Todos los puntos finales admiten los parámetros de consulta `?since=N` (marca de tiempo ms) y `?limit=N`.
 

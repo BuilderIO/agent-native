@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "agent-native dev --inspect",
-    "build": "agent-native build",
+    "build": "agent-native build && tsx scripts/check-client-process.ts",
     "start": "agent-native start",
     "test": "vitest --run",
     "format.fix": "oxfmt --write .",
@@ -20,6 +20,7 @@
     "@agent-native/core": "workspace:*",
     "@agent-native/scheduling": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons-react": "catalog:",

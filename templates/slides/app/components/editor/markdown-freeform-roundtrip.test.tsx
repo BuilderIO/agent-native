@@ -47,9 +47,6 @@ describe("markdown inline edit Escape round trip", () => {
     heading!.style.lineHeight = "56px";
     heading!.contentEditable = "false";
 
-    // This is the visual model captured before the Markdown DOM is promoted
-    // into raw HTML. happy-dom has no layout engine, so geometry is supplied
-    // as the measured production boundary would supply it.
     const capturedGeometry = { x: 120, y: 96, width: 640, height: 86 };
     const capturedPresentation = {
       color: getComputedStyle(heading!).color,
@@ -88,9 +85,6 @@ describe("markdown inline edit Escape round trip", () => {
     expect(persisted).toContain("fmd-freeform-object");
     expect(persisted).toContain("Edited heading");
 
-    // Restore the ReactMarkdown-owned nodes before the mode-switch render.
-    // Production takes this same transactional step after serializing the
-    // fmd document so React can safely replace Markdown with raw HTML.
     for (const child of originalChildren) slideContent!.append(child);
     canvas!.fmdSlide.remove();
     heading!.className = originalClassName;

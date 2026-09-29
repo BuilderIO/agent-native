@@ -23,6 +23,11 @@ const messages = {
     retry: "إعادة المحاولة",
     search: "بحث",
   },
+  chatHome: {
+    description:
+      "استكشف سياق الحسابات المسموح به، وأعمال المتابعة، والأدلة عبر Native SQL والسجلات المتصلة.",
+    placeholder: "اسأل عن CRM الخاص بك",
+  },
   commandMenu: {
     placeholder: "ابحث في السجلات والقوائم والأوامر…",
     groupRecords: "السجلات",
@@ -64,6 +69,8 @@ const messages = {
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
+    mcpAbout:
+      "اربط CRM بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في CRM نيابةً عنك: البحث عن السجلات وتحديث الحقول وإدارة المهام. ولا يرى إلا ما يمكنك رؤيته.",
   },
   connection: {
     tab: "الاتصال",
@@ -598,6 +605,19 @@ const messages = {
     evaluatedThroughAsk: "تم التقييم عبر Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "مراجعة المكررات",
+    duplicateReviewTitle: "سجلات قد تكون مكررة",
+    duplicateReviewDescription:
+      "قارن هذا السجل بالمرشحين المسموح بالوصول إليهم. يرسل Jev أسماء السجلات وأنواعها وإشارات تطابق ما يصل إلى خمسة مرشحين إلى TypeSafe. الاحتمال مجرد اقتراح؛ ويتطلب الدمج مراجعة منفصلة.",
+    duplicateReviewRun: "فحص المكررات",
+    duplicateReviewLoading: "جارٍ الفحص…",
+    duplicateReviewFailed: "تعذر إكمال مراجعة المكررات.",
+    duplicateReviewUnavailable:
+      "تعذرت مراجعة Jev لهذه السجلات. لا يزال المرشحون المستندون إلى القواعد ظاهرين.",
+    duplicateReviewEmpty: "لم يُعثر على مكررات محتملة.",
+    duplicateRuleConfidence: "تطابق قائم على القواعد: {{percent}}%",
+    duplicateJevProbability: "احتمال Jev لتطابق الكيان: {{percent}}%",
+    duplicateMatchedOn: "إشارات التطابق: {{values}}",
     evidenceAttached: "تم إرفاق دليل المكالمة.",
     evidenceAttachFailed: "تعذر إرفاق الدليل.",
     addEvidence: "إضافة دليل",

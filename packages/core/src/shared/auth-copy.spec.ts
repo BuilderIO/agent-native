@@ -8,12 +8,6 @@ const LOCALES = Object.keys(NATIVE_AUTH_COPY) as Array<
 
 describe("native auth copy", () => {
   it("keeps account creation discoverable from the entry subtitle", () => {
-    // Every surface that uses this subtitle (the web magic-link entry view,
-    // the desktop identity gate, the mobile sign-in sheet) renders one email
-    // field and no account chooser. Dropping the promise entirely would hide
-    // signup; promising a separate step sends new users looking for a button
-    // that does not exist. The subtitle must attach both outcomes to the one
-    // visible continue action.
     expect(NATIVE_AUTH_COPY["en-US"].welcomeSubtitle).toBe(
       "Sign in or create your account",
     );
@@ -34,6 +28,17 @@ describe("native auth copy", () => {
     expect(copy.welcomeToApp).toContain("{appName}");
     expect(copy.welcomeSubtitle.trim()).not.toBe("");
     expect(copy.sendMagicLink.trim()).not.toBe("");
+  });
+
+  it("keeps Google sign-in timeout copy user-facing in every locale", () => {
+    for (const locale of LOCALES) {
+      expect(NATIVE_AUTH_COPY[locale].googleNeverFinished).not.toMatch(
+        /redirect uri|server logs|agent-native/i,
+      );
+    }
+    expect(NATIVE_AUTH_COPY["en-US"].googleNeverFinished).toBe(
+      "Unable to sign in with Google right now. Please try again or use another sign-in method.",
+    );
   });
 
   it("falls back to the default locale for an unknown request locale", () => {

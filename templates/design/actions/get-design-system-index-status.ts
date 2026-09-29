@@ -7,7 +7,7 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -16,6 +16,7 @@ export default defineAction({
     id: z.string().min(1).describe("Local design system id"),
   }),
   readOnly: true,
+  dedupe: false,
   http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);

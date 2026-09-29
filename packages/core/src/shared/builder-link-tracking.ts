@@ -39,3 +39,13 @@ export function withBuilderUtmTrackingParams(
   applyBuilderUtmTrackingParams(parsed.searchParams, options);
   return parsed.toString();
 }
+
+export function builderSubscriptionUpgradeUrl(content: string): string {
+  const url = new URL("https://builder.io/account/subscription");
+  url.searchParams.set("signupSource", "agent-native");
+  url.searchParams.set("agentNativeConnectSource", "gateway_quota_upgrade");
+  url.searchParams.set("agentNativeFlow", "connect_llm");
+  url.searchParams.set("framework", "agent-native");
+  applyBuilderUtmTrackingParams(url.searchParams, { content });
+  return url.toString();
+}

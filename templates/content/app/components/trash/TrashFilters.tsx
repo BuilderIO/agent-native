@@ -325,8 +325,8 @@ function TrashFilterInput({
     <label className="grid gap-1 text-xs font-medium">
       {label}
       <Input
+        size="sm"
         type={type}
-        className="h-8"
         value={value ?? ""}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value || undefined)}

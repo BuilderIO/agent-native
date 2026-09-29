@@ -52,9 +52,6 @@ export default defineEventHandler(async (event: H3Event) => {
     .limit(1);
   if (!design) return notFound(event);
 
-  // Build from the shared snapshot so the bundle reflects the design's
-  // current state: live editor (collab) content plus the user's applied
-  // visual tweaks resolved into the HTML :root.
   const snapshot = await buildDesignSnapshot(id, design.data);
   if (snapshot.files.length === 0) return notFound(event);
 

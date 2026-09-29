@@ -58,8 +58,6 @@ export function scheduleAfterPaint(
     };
     const outer = requestAnimationFrame(() => {
       if (settled) return;
-      // A single frame's callback still runs before that frame's paint; the
-      // second frame runs after the browser has committed the first paint.
       scheduleIdleAfterFrame();
     });
     cancels.push(() => cancelAnimationFrame(outer));
@@ -73,15 +71,52 @@ export function scheduleAfterPaint(
   };
 }
 
-/**
- * Opt-in deferral for non-visible startup reads. Returns `false` until the
- * first paint has happened and the main thread has been idle once, then
- * `true` for the rest of the mount. Call sites use it as an `enabled` gate or
- * to schedule their first read, keeping the first-paint window for work the
- * visitor can actually see.
- */
 export function useAfterPaint(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => scheduleAfterPaint(() => setReady(true)), []);
+  return ready;
+}
+
+/**
+ * How long into a page load background status reads wait. The paint-aligned
+ * wait above settles within 250-500ms, well before a route's first content on
+ * a real workspace, so reads that only feed badges and setup hints still
+ * competed with it for the server and its database connections.
+ */
+const STARTUP_SETTLE_MS = 3_000;
+
+function startupSettleRemainingMs(): number {
+  if (typeof performance === "undefined") return 0;
+  return Math.max(0, STARTUP_SETTLE_MS - performance.now());
+}
+
+/**
+ * `scheduleAfterPaint`, but never before the page is `STARTUP_SETTLE_MS` old.
+ * Later in the page's life it is `scheduleAfterPaint` unchanged.
+ */
+export function scheduleAfterStartup(
+  callback: () => void,
+): ScheduleAfterPaintCancel {
+  if (typeof window === "undefined" || typeof setTimeout !== "function") {
+    return () => {};
+  }
+  let cancelAfterPaint: ScheduleAfterPaintCancel | null = null;
+  const timer = setTimeout(() => {
+    cancelAfterPaint = scheduleAfterPaint(callback);
+  }, startupSettleRemainingMs());
+  return () => {
+    clearTimeout(timer);
+    cancelAfterPaint?.();
+  };
+}
+
+export function useAfterStartup(): boolean {
+  const [ready, setReady] = useState(
+    () => typeof window !== "undefined" && startupSettleRemainingMs() === 0,
+  );
+  useEffect(() => {
+    if (ready) return;
+    return scheduleAfterStartup(() => setReady(true));
+  }, [ready]);
   return ready;
 }

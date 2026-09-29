@@ -177,6 +177,8 @@ export default {
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    mcpAbout:
+      "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
   pages: {
     presentEmpty: "プレゼンするコンテンツがありません",
@@ -185,8 +187,18 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
-    teamCreateOrgDescription:
-      "同僚とデザインを共有するためのチームを設定します。",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 接続を確認しています…",
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+    common: { retry: "再試行" },
   },
   chat: {
     emptyState: "作成したいデザインを説明してください",
@@ -266,6 +278,12 @@ export default {
       opacity: "不透明度",
       padding: "パディング",
       margin: "マージン",
+      marginTop: "上マージン",
+      marginRight: "右マージン",
+      marginBottom: "下マージン",
+      marginLeft: "左マージン",
+      linkMarginSides: "マージンの辺をリンク",
+      unlinkMarginSides: "マージンの辺のリンクを解除",
       radius: "半径",
       flexGrow: "伸長",
       flexShrink: "縮小",
@@ -326,6 +344,18 @@ export default {
       perspectiveHint: "パースペクティブ（空/0 = なし）",
       customTransform: "カスタム変換 — X/Y/Z 回転として編集できません",
       shaderEffectType: "シェーダー",
+      imageScaleMode: "画像の拡大縮小モード",
+      imageAdjustments: "画像の調整",
+      imageExposure: "露出",
+      imageContrast: "コントラスト",
+      imageSaturation: "彩度",
+      imageScaleFill: "塗りつぶし",
+      imageScaleFit: "フィット",
+      imageScaleCrop: "トリミング",
+      noMirroring: "ミラーリングなし",
+      vector: "ベクター",
+      mirrorAngle: "角度をミラーリング",
+      mirrorAngleAndLength: "角度と長さをミラーリング",
     },
     shaders: {
       fillsTitle: "シェーダーフィル",
@@ -549,8 +579,33 @@ export default {
         adUnit: "広告ユニット",
       },
     },
+    scale: {
+      title: "拡大縮小",
+      exit: "拡大縮小を終了",
+      factor: "拡大率",
+      presets: "拡大率のプリセット",
+      anchor: "基準点",
+      topLeft: "左上",
+      topCenter: "上中央",
+      topRight: "右上",
+      middleLeft: "左中央",
+      center: "中央",
+      middleRight: "右中央",
+      bottomLeft: "左下",
+      bottomCenter: "下中央",
+      bottomRight: "右下",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "ライブコラボレーション",
+      description:
+        "オーナーの localhost にアクセスできない人も、このデザインのライブコピーを表示・編集できるようにします。",
+      enabled: "オン",
+      disabled: "オフ",
+      saving: "保存中…",
+      enableError: "ライブコラボレーションを更新できませんでした。",
+    },
     vectorEndpoints: {
       startPoint: "始点",
       endPoint: "終点",
@@ -782,6 +837,8 @@ export default {
       figmaPasteTarget: "キャンバスに貼り付け",
       figmaPasteApiKeyHint:
         "正確なノードインポートのために Figma アクセストークンを接続してください。",
+      figmaPasteAccessDenied:
+        "接続済みのFigmaトークンではこのファイルにアクセスできません。ファイルへのアクセス権と、トークンに「File content」スコープがあることを確認してください。",
       figmaPasteMatchGuidance:
         "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
       figmaPasteUnreadable:
@@ -928,6 +985,10 @@ export default {
     signUpToSaveDescription:
       "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
     signUpToShare: "登録して共有",
+    signUpToShareLiveCanvas: "登録してライブキャンバスを共有",
+    liveCanvasLink: "ライブキャンバスのリンク",
+    liveCanvasWaitingForOwner:
+      "オーナーのライブキャンバスのスナップショットを待っています。",
     shareEditorLink: "デザインエディターリンク",
     shareEditorLinkDescription:
       "アクセス権のある人は、このデザインをエディターで開けます。",
@@ -1080,6 +1141,7 @@ export default {
         ungroup: "グループ解除",
         frameSelection: "選択範囲をフレーム化",
         autoLayout: "オートレイアウト",
+        imageVideo: "画像/動画...",
       },
     },
     undo: "元に戻す",
@@ -1199,12 +1261,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "保留中のビジュアルスタイル編集を適用",
       applyButton: "スタイルを適用",
+      applySharedEdits: "編集内容を適用",
       previewLabel: "保留中のビジュアルプレビュー",
       applyDesignUpdates: "デザインの更新を適用",
       applying: "適用中…",
       verifying: "ソースとランタイムを検証中…",
       retryWithAgent: "ソース検証を再試行",
       copyPrompt: "エージェントにプロンプトをコピー",
+      copyFullPrompt: "完全なプロンプトをコピー",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
         "保留中のビジュアルスタイル編集をソースに適用してください。",
@@ -1217,6 +1281,8 @@ export default {
       sourceCheckFailedToast:
         "接続されたソースファイルを検証できませんでした。再試行または元に戻せるよう、プレビューは保持されています。",
       copiedToast: "スタイルプロンプトをコピーしました",
+      copiedToastDescription:
+        "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
       interactBlocked:
         "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
@@ -1281,6 +1347,8 @@ export default {
       annotationSendError:
         "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
       codingHandoffError: "コーディング引き継ぎを作成できませんでした",
+      visualEditPendingConflict:
+        "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",
       clipboardBlocked: "クリップボードがブロックされました",
       htmlCreateError: "HTML ダウンロードを作成できませんでした",
@@ -1368,6 +1436,10 @@ export default {
       screenSourceUpdateFailed: "画面ソースを更新できませんでした",
       vectorEditUnsupported:
         "この形状または変形はベクター編集に対応していません。",
+      imageUploading: "画像をアップロード中…",
+      pasteReplaceFailed: "そのレイヤーを置き換えられませんでした",
+      swapFillStrokeLayeredFill:
+        "複数の塗りや画像の塗りはまだ線に移動できません",
     },
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
@@ -1417,6 +1489,13 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
+      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptDescription:
+        "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
+      permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
+      permissionPromptSettingsInstructions:
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+      permissionPromptRetry: "接続を再試行",
     },
   },
   multiScreenCanvas: {
@@ -1602,7 +1681,66 @@ export default {
       "このビューを離れたため、未送信のコメント下書き {{count}} 件が破棄されました。",
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
+  homeContext: {
+    websiteReference: "ウェブサイトを添付",
+    websiteUrlLabel: "ウェブサイトのURL",
+    websiteUrl: "ウェブサイトのURLを貼り付け",
+    figmaUrlLabel: "Figmaリンク",
+    invalidFigmaUrl:
+      "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
+    tooMany: "参照は20件まで選択できます。",
+    invalidWebsiteUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+    createSystem: "デザインシステムを作成",
+    noSystems:
+      "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
+    searchSystems: "デザインシステムを検索…",
+    searchFrames: "Figmaフレームを検索…",
+    searchDesigns: "デザインを検索…",
+    searchPresentations: "プレゼンテーションを検索…",
+    searchDesign: "デザインを検索…",
+    useDesignSystem: "デザインシステムを使用",
+    notReady:
+      "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
+    search: "コンテキストを検索…",
+    figmaUrl: "Figmaリンクを貼り付け",
+    browse: "フレームを参照",
+    loadFailed: "この参照を読み込めませんでした。",
+    retry: "再試行",
+    empty: "一致する参照がありません。",
+    none: "なし",
+    design: "デザイン",
+    slides: "スライド",
+    referenceDesign: "デザインを参照",
+    figmaReference: "Figmaを添付",
+    referenceDeck: "プレゼンテーションを参照",
+    quickSaas: "SaaS ランディングページを作成",
+    quickDashboard: "ダッシュボードを作成",
+    quickDeck: "スライドを作成",
+    deckPrompt:
+      "タイトルスライド、明確なストーリー、視覚化されたデータ、簡潔な締めのスライドを含む洗練されたプレゼンテーションを作成してください。",
+  },
   home: {
+    suggestedPrompts: "おすすめのプロンプト",
+    import: "インポート",
+    importOptions: "インポートオプション",
+    figmaLink: "Figmaリンク",
+    importFromFigma: "Figma からインポート",
+    figmaFile: "Figma ファイル (.fig)",
+    openImport: "インポートを開く",
+    importSelectedFile: "選択したファイルをインポート",
+    starterSaasPrompt:
+      "ダークテーマのモダンなSaaSランディングページ。ヒーローセクション、3枚の機能カード、最後の行動喚起セクションを配置してください。",
+    starterDashboardPrompt:
+      "サイドナビゲーション、4枚の主要指標カード、グラフ、最近のアクティビティの表を備えた、すっきりとした分析ダッシュボード。",
+    starterMobilePrompt:
+      "スマートフォンのフレーム内に表示するモバイルアプリのプロトタイプ。下部にタブバーを配置し、ホーム画面には3枚のリストカードを表示してください。",
+    starterPricingPrompt:
+      "月払い・年払いの切り替え、機能チェックリスト、おすすめプランの強調表示を備えた3段階の料金ページ。",
+    designPromptTitle: "最初のデザインを作りましょう",
+    recent: "最近",
+    browseAllTemplates: "すべて見る",
+    connectBuilderIo: "Builder.io に接続",
+    connectingBuilder: "Builder.io に接続中…",
     pageTitle: "Design",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",
@@ -1668,6 +1806,8 @@ export default {
     layoutLabel: "保存できる画面レイアウト",
   },
   templatesPage: {
+    previewEmpty: "このテンプレートにはプレビューできる画面がありません。",
+    loading: "テンプレートを読み込み中",
     title: "テンプレート",
     description:
       "適切な寸法と既定値から始め、ロックされていない内容をプロンプトで調整します。",
@@ -1696,7 +1836,7 @@ export default {
     deleteTitle: "テンプレートを削除しますか？",
     deleteDescription:
       "{{title}} を完全に削除します。すでに作成済みのデザインには影響しません。",
-    templateActions: "テンプレート操作",
+    templateActions: "{{title}} の操作",
     lockedCount: "{{count}} 個をロック",
     categories: {
       ad: "広告",

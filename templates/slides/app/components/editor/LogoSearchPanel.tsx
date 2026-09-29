@@ -32,7 +32,6 @@ export default function LogoSearchPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch Brandfetch client ID from server config
   const { data: logoConfigData } = useActionQuery("logo-config");
   useEffect(() => {
     if (logoConfigData?.brandfetchId) {
@@ -102,7 +101,6 @@ export default function LogoSearchPanel({
 
   if (!open) return null;
 
-  // Build variations for the selected domain
   const variations = selectedDomain
     ? buildVariations(selectedDomain, brandfetchId, logoDevToken, t)
     : [];
@@ -270,7 +268,6 @@ export default function LogoSearchPanel({
   );
 }
 
-/** Small logo preview with fallback handling */
 function LogoPreview({
   src,
   alt,
@@ -314,7 +311,6 @@ function buildVariations(
   logoDevToken: string | null,
   t: ReturnType<typeof useT>,
 ): VariationGroup[] {
-  // Brandfetch CDN works without client ID for free tier
   const bf = (path: string) => `https://cdn.brandfetch.io/${domain}/${path}`;
   const groups: VariationGroup[] = [
     {

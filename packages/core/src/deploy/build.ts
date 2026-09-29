@@ -1,21 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * Post-build step for deploying agent-native apps to edge/serverless targets.
- *
- * When NITRO_PRESET is set, this script:
- * 1. Takes the React Router build output (build/client/ + build/server/)
- * 2. Generates a platform-specific server entry point
- * 3. Bundles everything with esbuild into the target format
- *
- * Supported presets:
- * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
- * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
- * - aws_amplify: Uses Nitro's .amplify-hosting deployment specification
- *
- * Usage: node deploy/build.js (called automatically by `agent-native build`)
- */
-
 import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
@@ -37,6 +21,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -86,6 +71,9 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readAgentNativeBuildConfigMarker,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -102,10 +90,7 @@ import {
 } from "./immutable-assets.js";
 import { writeNetlifyStaticHeaders } from "./netlify-static-headers.js";
 import {
-  discoverApiRoutes,
   discoverPlugins,
-  discoverActionFiles,
-  getMissingDefaultPlugins,
   DEFAULT_PLUGIN_REGISTRY,
   type DiscoveredRoute,
   type DiscoveredAction,
@@ -386,11 +371,6 @@ function configureAwsRuntimeOutput(
   );
 }
 
-/**
- * Amplify makes build variables available to the build container but does not
- * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
- * write only app-declared runtime keys beside it for Node's native env loader.
- */
 export function configureAwsAmplifyRuntimeOutput(
   serverDir: string,
   appDir: string,
@@ -407,17 +387,9 @@ export function configureAwsLambdaRuntimeOutput(
   configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
-  return `let handler;
-
-export * from "./index.mjs";
-
-async function loadHandler() {
-  handler ??= (await import("./index.mjs")).default;
-  return handler;
-}
-
-function initializeBindings(env) {
+// Runtime checks use __env__ to identify real Cloudflare invocations.
+function cloudflareBindingsInitScript(): string {
+  return `function initializeBindings(env) {
   if (!env) return;
   globalThis.__env__ = env;
   globalThis.process = globalThis.process || { env: {} };
@@ -425,7 +397,51 @@ function initializeBindings(env) {
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") globalThis.process.env[key] = value;
   }
+}`;
 }
+
+// Cloudflare loads each chunk separately, so all chunks need one shared capture.
+const CF_MODULE_ORIG_SET_INTERVAL_KEY = "__cfModuleOrigSetInterval";
+const CF_MODULE_TIMER_SHIM_MARKER = "__cf_module_timer_shim__";
+
+// Restore only after the shimmed module graph captured the original timer.
+function cloudflareModuleTimerRestoreScript(): string {
+  return `function __cfRestoreModuleTimers() {
+  if (typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY} !== "undefined") {
+    globalThis.setInterval = globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY};
+  }
+}`;
+}
+
+function cloudflareModuleTimerShimPrefix(): string {
+  return (
+    `/* ${CF_MODULE_TIMER_SHIM_MARKER} */` +
+    `if(typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}==="undefined"){globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}=globalThis.setInterval;}` +
+    `globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};`
+  );
+}
+
+export function shimCloudflarePagesModuleTimers(code: string): string {
+  if (
+    code.includes("setInterval") &&
+    !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+  ) {
+    return cloudflareModuleTimerShimPrefix() + code;
+  }
+  return code;
+}
+
+export function generateCloudflareModuleWorkerEntry(): string {
+  return `let handler;
+
+async function loadHandler() {
+  handler ??= (await import("./index.mjs")).default;
+  return handler;
+}
+
+${cloudflareBindingsInitScript()}
+
+${cloudflareModuleTimerRestoreScript()}
 
 export default {
   async fetch(request, env, ctx) {
@@ -433,27 +449,39 @@ export default {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
     initializeBindings(env);
-    return (await loadHandler()).fetch(request, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).scheduled?.(controller, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.scheduled?.(controller, env, ctx);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).email?.(message, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.email?.(message, env, ctx);
   },
   async queue(batch, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).queue?.(batch, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.queue?.(batch, env, ctx);
   },
   async tail(traces, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).tail?.(traces, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.tail?.(traces, env, ctx);
   },
   async trace(traces, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).trace?.(traces, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.trace?.(traces, env, ctx);
   },
 };
 `;
@@ -1097,13 +1125,6 @@ interface ReactRouterAssetManifestRoute {
   hydrateFallbackModule?: string;
 }
 
-/**
- * Resolve `runtime.frameworkRoutePrefix` from the app config once, before any
- * bundle is written, and publish it to this process's env. Every later reader
- * in the build — the Vite define, the Nitro replacement map, the generated
- * worker, the Netlify headers — reads that one env key, so the browser bundle,
- * the server bundle and the platform routing cannot disagree.
- */
 async function resolveDeployFrameworkRoutePrefix(): Promise<void> {
   const mode =
     process.env.NODE_ENV === "development" ? "development" : "production";
@@ -1125,7 +1146,6 @@ async function resolveDeployFrameworkRoutePrefix(): Promise<void> {
     config.runtime?.frameworkRoutePrefix ?? "";
 }
 
-/** The public prefix baked into generated worker sources. */
 function resolveBuildFrameworkRoutePrefix(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -1141,14 +1161,9 @@ function normalizeConfiguredAppBasePath(): string {
   );
 }
 
-/** Plugins that require Node.js runtime and cannot run on edge/serverless */
 const NODE_ONLY_PLUGINS = new Set([
   "terminal", // PTY requires child_process
-  // @sentry/node ships node:fs / node:async_hooks bindings that don't load
-  // on workerd / Cloudflare Workers. Templates running on edge presets can
-  // mount their own edge-compatible Sentry wrapper if they want server
-  // observability there; the framework default is the Node SDK.
-  "sentry",
+  "sentry", // @sentry/node relies on Node built-ins that workerd does not provide.
 ]);
 const EDGE_SERVER_ENTRYPOINT = "@agent-native/core/server/edge";
 
@@ -1218,15 +1233,6 @@ export function addImmutableAssetRouteRulesForClientBuild(
   }
 }
 
-/**
- * Generate the worker entry source code that wires up H3 + React Router SSR.
- *
- * If a workspace core is present (monorepo with `agent-native.workspaceCore`
- * configured and the named package resolves), any plugin slot that the
- * workspace core exports is imported from there instead of from
- * `@agent-native/core/server/edge`. This is the middle layer of the three-layer
- * inheritance model: app local > workspace core > framework default.
- */
 export function generateWorkerEntry(
   routes: DiscoveredRoute[],
   pluginPaths: string[],
@@ -1239,8 +1245,6 @@ export function generateWorkerEntry(
   builtFrameworkRoutePrefix = resolveBuildFrameworkRoutePrefix(),
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
-  // The worker ships as a static bundle with no access to runtime env, so the
-  // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
@@ -1278,7 +1282,6 @@ export function generateWorkerEntry(
     }
   }
 
-  // Action route imports and registrations
   const actionImports: string[] = [];
   const actionRegistrations: string[] = [];
   for (let i = 0; i < actions.length; i++) {
@@ -1286,7 +1289,6 @@ export function generateWorkerEntry(
     const varName = `action_${i}`;
     const handlerName = `action_handler_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
-    // Mirror the runtime mount (action-routes.ts): `path = http?.path ?? name`.
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  const ${handlerName} = defineEventHandler(async (event) => {
@@ -1357,7 +1359,6 @@ ${["post", "put", "delete"]
     );
   }
 
-  // Filter out Node-only plugins
   const edgePlugins = pluginPaths.filter((p) => !isNodeOnlyPlugin(p));
   const pluginImports: string[] = [];
   const pluginCalls: string[] = [];
@@ -1384,9 +1385,6 @@ ${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as
     await ${varName}(nitroApp);
   }`);
   }
-  // Auto-mounted default plugins (for slots the template doesn't override
-  // locally). For each slot, prefer a workspace-core export over the
-  // @agent-native/core default, if the workspace core provides one.
   const edgeDefaultStems = defaultPluginStems.filter(
     (stem) => !NODE_ONLY_PLUGINS.has(stem),
   );
@@ -1397,24 +1395,18 @@ ${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as
 
     const workspaceExportName = workspaceCore?.plugins?.[stem as never];
     if (workspaceCore && workspaceExportName) {
-      // Workspace-core layer wins over the framework default.
       pluginImports.push(
         `import { ${String(workspaceExportName)} as ${varName} } from ${JSON.stringify(
           `${workspaceCore.packageName}/server`,
         )};`,
       );
     } else {
-      // Fall back to the framework default from the edge-safe core entrypoint.
       const defaultExportName = DEFAULT_PLUGIN_REGISTRY[stem];
       if (!defaultExportName) continue;
       pluginImports.push(
         `import { ${defaultExportName} as ${varName} } from "${EDGE_SERVER_ENTRYPOINT}";`,
       );
     }
-    // The worker entry mounts defaults statically, so the `plugins.disabled`
-    // check that `bootstrapDefaultPlugins` runs has to happen here too —
-    // otherwise the same config withholds a plugin on Node hosts and mounts it
-    // on the edge.
     pluginCalls.push(`  if (typeof ${varName} === "function" && !isDefaultPluginDisabled(${JSON.stringify(stem)})) {
     await ${varName}(nitroApp);
   }`);
@@ -1847,7 +1839,10 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
+  const appHomePath = resolveAgentNativeAppHomePath(
+    getAgentNativeAppConfig().app,
+    getAgentNativeAppConfig().workspace,
+  );
   const config = {
     appHomePath,
     ...(appUrl ? { appUrl } : {}),
@@ -1907,7 +1902,10 @@ const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^
 function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
-    resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    resolveAgentNativeAppHomePath(
+      getAgentNativeAppConfig().app,
+      getAgentNativeAppConfig().workspace,
+    ),
     getAgentNativeFrameworkRoutePrefix(),
   );
 }
@@ -2271,21 +2269,23 @@ ${
   return _handler;
 }
 
+${cloudflareBindingsInitScript()}
+
+${cloudflareModuleTimerRestoreScript()}
+
 export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
-    if (env) {
-      globalThis.process = globalThis.process || { env: {} };
-      globalThis.process.env = globalThis.process.env || {};
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string") {
-          globalThis.process.env[key] = value;
-        }
-      }
-    }
+    initializeBindings(env);
+    // Unlike the Module entry, every dependency here is statically imported
+    // (see routeImports/actionImports above), so patchCloudflareModuleServerOutput's
+    // shim has already run — and already re-neutered setInterval — by the
+    // time this handler body executes. No loadHandler()-style deferred
+    // import to wait on: restoring here is always safe and always needed.
+    __cfRestoreModuleTimers();
 
     // Try serving static assets first (CF Pages advanced mode).
     // Only attempt this for GET/HEAD — the ASSETS binding is a static file
@@ -2427,12 +2427,6 @@ function copyReactRouterAssetManifestFields(
   }
 }
 
-/**
- * The trusted Functions build starts from the base checkout, while a PR
- * preview supplies the PR's client build. Keep the server route metadata from
- * the trusted build, but make every client asset reference agree with the
- * paired artifact in Nitro's emitted server bundle.
- */
 function mergeReactRouterServerManifest(
   serverManifest: unknown,
   clientManifest: ReactRouterAssetManifest,
@@ -2705,8 +2699,6 @@ function generateRouteModuleImportScript(
 const EMPTY_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{},"actionData","errors"]\n';
 
-// Manifest fallbacks cannot execute server loaders, so root loaders get the
-// framework's default locale shape to keep hydration from reading undefined.
 const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
 
@@ -2772,442 +2764,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
-}
-
-function writeCloudflarePagesStaticShell({
-  serverDir,
-  distDir,
-  tmpDir,
-}: {
-  serverDir: string;
-  distDir: string;
-  tmpDir: string;
-}): void {
-  const serverEntry = path.join(serverDir, "index.js");
-  if (!fs.existsSync(serverEntry)) {
-    throw new Error(`React Router server build not found at ${serverEntry}`);
-  }
-
-  const outFile = path.join(distDir, "index.html");
-  const renderScript = path.join(tmpDir, "render-cloudflare-static-shell.mjs");
-  const basePath = normalizeConfiguredAppBasePath();
-  fs.writeFileSync(
-    renderScript,
-    `
-import fs from "node:fs";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-
-const cwd = ${JSON.stringify(cwd)};
-const serverEntry = ${JSON.stringify(serverEntry)};
-const outFile = ${JSON.stringify(outFile)};
-const basePath = ${JSON.stringify(basePath)};
-
-const requireFromApp = createRequire(cwd + "/package.json");
-const reactRouterEntry = requireFromApp.resolve("react-router");
-const { createRequestHandler } = await import(pathToFileURL(reactRouterEntry).href);
-const serverBuild = await import(pathToFileURL(serverEntry).href);
-const handler = createRequestHandler(serverBuild, "production");
-const pathname = basePath ? basePath + "/" : "/";
-const response = await handler(
-  new Request(new URL(pathname, "https://agent-native.local"), {
-    headers: { "X-React-Router-SPA-Mode": "yes" },
-  }),
-);
-const html = await response.text();
-
-if (!html || !html.includes("__reactRouterContext") || !html.includes("entry.client")) {
-  throw new Error("React Router did not render a usable Cloudflare Pages static shell");
-}
-
-fs.writeFileSync(outFile, html);
-process.exit(0);
-`,
-  );
-
-  try {
-    execFileSync(process.execPath, [renderScript], {
-      cwd,
-      env: {
-        ...process.env,
-        NODE_ENV: process.env.NODE_ENV || "production",
-        IS_RR_BUILD_REQUEST: "yes",
-      },
-      stdio: "inherit",
-    });
-    console.log("[deploy] Wrote Cloudflare Pages static app shell.");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[deploy] React Router static shell render failed; using manifest fallback. ${message}`,
-    );
-    fs.writeFileSync(
-      outFile,
-      generateCloudflarePagesStaticShellFromManifest(
-        findReactRouterManifest(distDir),
-        basePath,
-      ),
-    );
-    console.log("[deploy] Wrote Cloudflare Pages static app shell fallback.");
-  }
-}
-
-/**
- * Build for Cloudflare Pages.
- * Output structure:
- *   dist/
- *     _worker.js       (bundled worker entry)
- *     assets/           (static client assets)
- */
-async function buildCloudflarePages() {
-  generateActionRegistryForProject(cwd);
-
-  const buildDir = path.join(cwd, "build");
-  const clientDir = path.join(buildDir, "client");
-  const serverDir = path.join(buildDir, "server");
-  const distDir = path.join(cwd, "dist");
-
-  // Verify build output exists
-  if (!fs.existsSync(clientDir) || !fs.existsSync(serverDir)) {
-    console.error(
-      "Build output not found at build/client/ and build/server/. Run react-router build first.",
-    );
-    process.exit(1);
-  }
-
-  // Clean dist
-  if (fs.existsSync(distDir)) {
-    fs.rmSync(distDir, { recursive: true });
-  }
-  fs.mkdirSync(distDir, { recursive: true });
-
-  // Copy client assets to dist/
-  copyDir(clientDir, distDir);
-
-  const tmpDir = path.join(cwd, ".deploy-tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
-  writeCloudflarePagesStaticShell({ serverDir, distDir, tmpDir });
-
-  // Exclude _worker.js from being served as a public asset
-  fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
-
-  // Write package metadata inside _worker.js/ for the ES module worker that
-  // Wrangler compiles and uploads for Cloudflare Pages.
-  fs.mkdirSync(path.join(distDir, "_worker.js"), { recursive: true });
-  fs.writeFileSync(
-    path.join(distDir, "_worker.js", "package.json"),
-    JSON.stringify({ main: "index.js", type: "module" }),
-  );
-
-  // Create empty stub for native modules that wrangler's bundler needs to resolve
-  const stubsDir = path.join(distDir, "_worker.js", "stubs");
-  fs.mkdirSync(stubsDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(stubsDir, "empty.js"),
-    "export default {}; export const watch = () => ({ close() {} }); export const Database = class {};\n",
-  );
-
-  // Discover routes, plugins, actions, and the workspace core (if any).
-  const routes = await discoverApiRoutes(cwd);
-  const plugins = await discoverPlugins(cwd);
-  const actions = await discoverActionFiles(cwd);
-  const missingDefaults = await getMissingDefaultPlugins(cwd);
-  const workspaceCore = await getWorkspaceCoreExports(cwd);
-  const includeReactRouterSsr = false;
-
-  const workspaceSlotCount = workspaceCore
-    ? Object.keys(workspaceCore.plugins).length
-    : 0;
-  console.log(
-    `[deploy] ${routes.length} API routes, ${actions.length} actions, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults${workspaceCore ? `, workspace-core ${workspaceCore.packageName} (${workspaceSlotCount} plugin slots)` : ""}`,
-  );
-
-  // Generate the worker entry
-  const immutableAssetPaths = collectImmutableAssetPaths(clientDir);
-  const entrySource = generateWorkerEntry(
-    routes,
-    plugins,
-    missingDefaults,
-    actions,
-    workspaceCore,
-    immutableAssetPaths,
-    normalizeConfiguredAppBasePath(),
-    { includeReactRouterSsr },
-  );
-
-  // Create _worker.js output directory
-  const workerOutDir = path.join(distDir, "_worker.js");
-  fs.mkdirSync(workerOutDir, { recursive: true });
-
-  // Write the worker entry
-  const entryFile = path.join(workerOutDir, "index.js");
-
-  // Rewrite the server-build import to point at the copied files when this
-  // worker intentionally includes React Router SSR.
-  const adjustedEntry = includeReactRouterSsr
-    ? entrySource.replace(
-        `import * as serverBuild from "./server-build.js";`,
-        `import * as serverBuild from "./server/index.js";`,
-      )
-    : entrySource;
-
-  // Write a temp file for esbuild to bundle everything into a single worker entry.
-  // When React Router SSR is enabled, the server build is copied to tmp so
-  // esbuild can resolve it. Cloudflare Pages currently uses a static app shell
-  // instead so the worker stays under the platform bundle size limit.
-  // Name the entry "index.js" so esbuild outputs index.js in the outdir,
-  // matching the _worker.js/index.js entry point that Cloudflare Pages expects.
-  const tmpEntry = path.join(tmpDir, "index.js");
-  fs.writeFileSync(tmpEntry, adjustedEntry);
-
-  if (includeReactRouterSsr) {
-    copyDir(serverDir, path.join(tmpDir, "server"));
-  }
-
-  // Create a require shim so CJS require("fs") calls resolve via ESM imports.
-  // This is injected via esbuild --inject to replace its broken __require shim.
-  fs.writeFileSync(
-    path.join(tmpDir, "_require-shim.js"),
-    generateRequireShim(),
-  );
-
-  const nitroServerAssetsStub = path.join(
-    tmpDir,
-    "_nitro-server-assets-stub.js",
-  );
-  fs.writeFileSync(
-    nitroServerAssetsStub,
-    [
-      "const empty = async () => undefined;",
-      "export const assets = {",
-      "  getItem: empty,",
-      "  getItemRaw: empty,",
-      "  getKeys: async () => [],",
-      "  getMeta: async () => undefined,",
-      "  hasItem: async () => false,",
-      "};",
-      "export default assets;",
-      "",
-    ].join("\n"),
-  );
-
-  // Create stub modules for native/Node-only deps that can't run on Workers.
-  // These get resolved by esbuild instead of the real modules, avoiding bundling
-  // native code that would fail on the Workers runtime.
-  const stubDir = path.join(tmpDir, "node_modules");
-  for (const [mod, source] of Object.entries(CLOUDFLARE_WORKER_STUB_MODULES)) {
-    const modDir = path.join(stubDir, mod);
-    fs.mkdirSync(modDir, { recursive: true });
-    fs.writeFileSync(path.join(modDir, "index.js"), source);
-    fs.writeFileSync(
-      path.join(modDir, "package.json"),
-      JSON.stringify({ name: mod, main: "index.js", type: "module" }),
-    );
-  }
-  for (const [mod, source] of Object.entries(
-    CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
-  )) {
-    fs.writeFileSync(
-      path.join(stubDir, `${mod.replace(/\//g, "__")}.js`),
-      source,
-    );
-  }
-  const stubAliases = cloudflareWorkerStubAliasArgs(stubDir);
-  const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
-  fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
-  const nodeBuiltinStubAliases: string[] = [];
-  for (const [mod, source] of Object.entries(
-    CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
-  ).sort(([a], [b]) => b.length - a.length)) {
-    const stubFile = path.join(
-      nodeBuiltinStubDir,
-      `${mod.replace(/\W+/g, "_")}.js`,
-    );
-    fs.writeFileSync(stubFile, source);
-    nodeBuiltinStubAliases.push(
-      `--alias:${mod}=${stubFile}`,
-      `--alias:node:${mod}=${stubFile}`,
-    );
-  }
-
-  const esbuildBin = findEsbuild();
-
-  // Externalize node builtins (both bare and node: prefixed) — the require
-  // shim handles bare ones. Also alias every `node:*` specifier to its bare
-  // name so esbuild emits `import from "fs"` everywhere, never
-  // `import from "node:fs"`. CF Pages Functions (wrangler 3.x, nodejs_compat
-  // v1) rejects the `node:` prefix in chunks with:
-  //   No such module "node:fs" imported from chunks/...
-  // The alias is the authoritative fix; the post-build strip stays as belt
-  // & suspenders in case esbuild emits a node: string via some other path.
-  const builtinNames = getNodeBuiltinNames();
-  // Only externalize bare names. node:* externals would otherwise pin
-  // the prefix in output; instead we alias node:* → bare so anything that
-  // resolves past alias land as bare externals.
-  const nodeBuiltinStubs = new Set(
-    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
-  );
-  const nodeExternals = builtinNames
-    .filter((n) => !nodeBuiltinStubs.has(n))
-    .sort((a, b) => b.length - a.length)
-    .map((n) => `--external:${n}`);
-  const nodeAliases = builtinNames
-    .filter((n) => !nodeBuiltinStubs.has(n))
-    .sort((a, b) => b.length - a.length)
-    .map((n) => `--alias:node:${n}=${n}`);
-
-  // Hard externalize large client-only / node-only libraries so they don't
-  // bloat the edge worker. These are never executed in the CF Pages runtime
-  // — mermaid/excalidraw render in the browser, pdf-parse and @google/genai
-  // run from node-only action scripts. Without this, slides' bundle hits
-  // the 25 MiB Pages Functions limit.
-  //
-  // @anthropic-ai/tokenizer (tiktoken .wasm) and @resvg/resvg-js (native
-  // .node binding) can't be bundled by esbuild at all — no loader for those
-  // files. Both import sites degrade gracefully when the runtime import
-  // fails: context-xray token counts fall back to char/4 estimates and the
-  // OG image route falls back to SVG.
-  const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
-    (p) =>
-      !Object.prototype.hasOwnProperty.call(CLOUDFLARE_WORKER_STUB_MODULES, p),
-  ).map((p) => `--external:${p}`);
-
-  execFileSync(
-    esbuildBin,
-    [
-      tmpEntry,
-      "--bundle",
-      "--format=esm",
-      "--target=es2022",
-      // browser platform for npm resolution; node builtins externalized separately
-      "--platform=browser",
-      "--minify",
-      // Single-file bundle (no --splitting). CF Pages Functions' deploy
-      // validator fails to load chunked _worker.js/ bundles even when the
-      // chunks contain only bare node-builtin imports (wrangler 3.101.0
-      // + nodejs_compat v2). Matches main's working config.
-      `--outdir=${workerOutDir}`,
-      "--conditions=workerd,worker,import",
-      // The ssr-handler imports a virtual module that only exists at dev time
-      "--external:virtual:react-router/server-build",
-      `--alias:#nitro/virtual/server-assets=${nitroServerAssetsStub}`,
-      // Banner: override the __require shim that esbuild generates for CJS modules.
-      // This provides a real require() backed by ESM imports of node builtins.
-      // Without this, CF Workers rejects the bundle because esbuild's default
-      // __require shim throws "Dynamic require of X is not supported".
-      `--banner:js=${generateRequireShim()}`,
-      // Externalize node: builtins — CF Workers runtime provides them
-      ...nodeExternals,
-      ...heavyClientExternals,
-      ...stubAliases,
-      ...nodeBuiltinStubAliases,
-      // Rewrite node:* -> bare names so chunks never contain node: imports
-      ...nodeAliases,
-    ],
-    { stdio: "inherit", cwd },
-  );
-
-  // Clean up tmp
-  fs.rmSync(tmpDir, { recursive: true });
-
-  // Rewrite the external virtual import to a local stub.
-  // esbuild externalizes "virtual:react-router/server-build" (used by ssr-handler),
-  // but wrangler re-bundles and chokes on it. Replace the import with a no-op stub.
-  const virtualStub = path.join(workerOutDir, "chunks", "_virtual-stub.js");
-  fs.mkdirSync(path.dirname(virtualStub), { recursive: true });
-  fs.writeFileSync(virtualStub, "export default {};\n");
-
-  // Post-build patches — apply to ALL .js files in the worker output directory
-  // (entry + chunks) since code can land in any chunk after splitting.
-  const allJsFiles = getAllJsFiles(workerOutDir);
-  for (const jsFile of allJsFiles) {
-    let code = fs.readFileSync(jsFile, "utf-8");
-    const isEntry = path.basename(jsFile) === "index.js";
-
-    // Strip "node:" prefix from all imports/requires. Cloudflare Pages
-    // Functions runs under nodejs_compat v1, which exposes builtins as
-    // bare names ("fs") and rejects "node:fs" at worker init:
-    //   No such module "node:fs" imported from chunks/...
-    // (Workers-on-the-edge use v2 and require the prefix; Pages lags.)
-    // Preserve the original quote char (single vs double) when rewriting —
-    // esbuild's minifier sometimes places `import('node:buffer')` inside a
-    // double-quoted string literal; swapping to double quotes breaks the
-    // outer literal and produces `Unexpected identifier 'buffer'`.
-    code = code.replace(
-      /\bfrom(\s*)(["'])node:([^"']+)\2/g,
-      (_, ws, q, mod) => `from${ws}${q}${mod}${q}`,
-    );
-    code = code.replace(
-      /\bimport(\s*)(["'])node:([^"']+)\2/g,
-      (_, ws, q, mod) => `import${ws}${q}${mod}${q}`,
-    );
-    // Strip `node:` prefix from any string literal that names a node
-    // builtin. Covers dynamic imports, require(), getBuiltinModule(),
-    // and minified wrappers like `Ut("node:fs")` that Nitro/h3 emit.
-    // Pages' loader scans chunks for `"node:*"` literals and fails with
-    // 'No such module "node:fs"' whether or not the string is reached
-    // at runtime. Scoping to known builtins avoids touching user data.
-    // Sorted longest-first so `fs/promises` matches before `fs`.
-    const builtinsPattern = [...NODE_BUILTINS]
-      .sort((a, b) => b.length - a.length)
-      .join("|");
-    const builtinRe = new RegExp(`(["'])node:(${builtinsPattern})\\1`, "g");
-    code = code.replace(
-      builtinRe,
-      (_, q: string, mod: string) => `${q}${mod}${q}`,
-    );
-
-    // Rewrite virtual:react-router/server-build imports to the local stub.
-    // The generated entry handles SSR directly; this import is dead code from ssr-handler.
-    const relStub = path
-      .relative(path.dirname(jsFile), virtualStub)
-      .replace(/\\/g, "/");
-    code = code.replace(
-      /["']virtual:react-router\/server-build["']/g,
-      `"./${relStub}"`,
-    );
-
-    // Patch createRequire(import.meta.url) — import.meta.url is undefined in CF Workers.
-    // Matches both `from "module"` and `from "node:module"` — with the node:
-    // prefix preserved (for nodejs_compat_v2), the latter is what esbuild now emits.
-    code = code.replace(
-      /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["'](?:node:)?module["']\s*;/g,
-      "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
-    );
-
-    // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
-    // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
-    // With code splitting, chunks evaluate before the entry, so the shim must be in every file.
-    // The restore only happens in the entry's fetch() handler.
-    if (!code.includes("__origSetInterval")) {
-      const timerShim = [
-        "var __origSetInterval=globalThis.setInterval;",
-        "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
-      ].join("");
-      code = timerShim + code;
-    }
-    if (isEntry) {
-      const timerRestore =
-        "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
-      code = code.replace(
-        /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
-        (match) => match + timerRestore,
-      );
-    }
-
-    assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
-
-    fs.writeFileSync(jsFile, code);
-  }
-
-  // Report size
-  const entrySize = fs.statSync(entryFile).size;
-  const totalSize = getDirSize(workerOutDir);
-  const chunkCount = allJsFiles.length - 1; // exclude entry
-  console.log(
-    `[deploy] Cloudflare Pages output written to dist/ (entry: ${(entrySize / 1024).toFixed(0)}KB, ${chunkCount} chunks, total: ${(totalSize / 1024 / 1024).toFixed(1)}MB)`,
-  );
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 const NODE_BUILTINS = [
@@ -3263,99 +2820,35 @@ export function getNodeBuiltinNames(): string[] {
   return NODE_BUILTINS;
 }
 
-/**
- * Generate a require() shim that bridges CJS require("fs") calls to ESM imports.
- * Injected via esbuild --inject so CJS deps work on Workers runtime.
- */
-function generateRequireShim(): string {
-  // Shim Node builtins that Cloudflare Pages can import, and return lazy
-  // unavailable proxies for builtins that Pages Functions reject at upload
-  // time (child_process, fs, net, etc.). This lets optional Node-only code stay
-  // present in the shared bundle without making worker initialization fail.
-  const stubbed = new Set(
-    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
-  );
-  const shimmed = NODE_BUILTINS.filter((name) => !stubbed.has(name));
+export type EsbuildCommand = {
+  executable: string;
+  args: string[];
+};
 
-  // Bare module names — CF Pages Functions runs under nodejs_compat v1,
-  // which rejects "node:fs" and only accepts "fs". The post-build pass in
-  // buildCloudflarePages() also strips any `node:` prefix that esbuild or
-  // dependencies emit elsewhere.
-  const imports = shimmed
-    .map((m) => `import __${m.replace("/", "_")} from "${m}";`)
-    .join("");
-  // Only bare-name keys. Pages' Functions loader appears to scan chunks
-  // for "node:*" string literals and pre-resolves them as module specs —
-  // so keeping "node:fs" as an object key caused deploy to fail with
-  // 'No such module "node:fs"' even though nothing imported it. The
-  // post-build strip turns every runtime `require("node:fs")` into
-  // `require("fs")` so bare keys are sufficient.
-  const entries = shimmed
-    .map((m) => `"${m}":__${m.replace("/", "_")}`)
-    .join(",");
-  const stubEntries = Array.from(stubbed)
-    .sort()
-    .map((m) => `"${m}":__unavailable("${m}")`)
-    .join(",");
-  const allEntries = [entries, stubEntries].filter(Boolean).join(",");
-
-  const messageChannelPolyfill = `if(typeof MessageChannel==="undefined"){globalThis.MessageChannel=class{constructor(){const a={onmessage:null},b={onmessage:null};a.postMessage=d=>{if(b.onmessage)setTimeout(()=>b.onmessage({data:d}),0)};b.postMessage=d=>{if(a.onmessage)setTimeout(()=>a.onmessage({data:d}),0)};this.port1=a;this.port2=b}}}`;
-  return `${imports}\n${messageChannelPolyfill}\nconst __unavailable=(m)=>new Proxy({}, { get(_target, prop) { return (..._args) => { throw new Error(m + "." + String(prop) + " is unavailable in Cloudflare Pages workers"); }; } });\nconst __mods={${allEntries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
-}
-
-function findEsbuild(): string {
-  // Try to resolve esbuild's binary via Node module resolution
-  // This works regardless of hoisting or .bin symlink creation
+export function resolveEsbuildCommand(
+  platform: NodeJS.Platform = process.platform,
+  resolveModule: (specifier: string) => string = (specifier) =>
+    createRequire(import.meta.url).resolve(specifier),
+): EsbuildCommand {
+  let packageJson: string;
   try {
-    const _require = createRequire(cwd + "/");
-    const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
-    const bin = path.join(esbuildPkg, "bin", "esbuild");
-    if (fs.existsSync(bin)) return bin;
-  } catch {}
-
-  // Fallback: check local and workspace .bin
-  const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
-  if (fs.existsSync(localBin)) return localBin;
-
-  const workspaceRoot = findWorkspaceRoot(cwd);
-  if (workspaceRoot) {
-    const workspaceBin = path.resolve(
-      workspaceRoot,
-      "node_modules/.bin/esbuild",
+    packageJson = resolveModule("esbuild/package.json");
+  } catch {
+    throw new Error(
+      "[deploy] Could not resolve the esbuild dependency from @agent-native/core. Reinstall dependencies and try the build again.",
     );
-    if (fs.existsSync(workspaceBin)) return workspaceBin;
   }
 
-  return "esbuild";
-}
-
-function findWorkspaceRoot(dir: string): string | null {
-  let current = dir;
-  while (current !== path.dirname(current)) {
-    if (
-      fs.existsSync(path.join(current, "pnpm-workspace.yaml")) ||
-      fs.existsSync(path.join(current, "pnpm-lock.yaml"))
-    ) {
-      return current;
-    }
-    current = path.dirname(current);
+  const bin = path.join(path.dirname(packageJson), "bin", "esbuild");
+  if (!fs.existsSync(bin)) {
+    throw new Error(
+      `[deploy] The esbuild launcher is missing at ${bin}. Reinstall dependencies and try the build again.`,
+    );
   }
-  return null;
-}
 
-/** Recursively collect all .js files in a directory. */
-function getAllJsFiles(dir: string): string[] {
-  const results: string[] = [];
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...getAllJsFiles(fullPath));
-    } else if (entry.name.endsWith(".js")) {
-      results.push(fullPath);
-    }
-  }
-  return results;
+  return platform === "win32"
+    ? { executable: process.execPath, args: [bin] }
+    : { executable: bin, args: [] };
 }
 
 function getDirSize(dir: string): number {
@@ -3390,12 +2883,6 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
-// Must track every package createAgentNativeConfig's ssr.external adds beyond
-// @agent-native/core and yjs (which have their own dedicated copy paths
-// below) — anything left off this list keeps its build-machine-only copy,
-// so the deployed function and the prebuilt route chunks resolve two
-// different module instances of the "same" package (e.g. a Router provider
-// from one react-router copy and useLocation() from another).
 const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
   "react",
   "react-dom",
@@ -3405,10 +2892,6 @@ const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
 const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
   {
     "react-dom": [
-      // Netlify's Node runtime resolves react-dom/server to server.node, while
-      // the shared streaming entrypoint imports react-dom/server.browser.
-      // Keep that browser wrapper and its production implementation; the
-      // other browser, edge, bun, and profiling renderers cannot be reached.
       "cjs/react-dom-client.development.js",
       "cjs/react-dom-profiling.development.js",
       "cjs/react-dom-profiling.profiling.js",
@@ -3462,13 +2945,6 @@ function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   return [...packageNames].sort();
 }
 
-// Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
-// and 32-bit-arm prebuilds of these native packages are ~100MB that can never
-// execute there, and Netlify copies the whole server dir again for every extra
-// emitted function — so the dead weight is paid once per function. Cold start
-// scales with bundle size, and a page that opens several requests at once
-// scales out to that many cold containers, which is how this surfaces: 502/504
-// on the first burst rather than as an obviously slow deploy.
 const SERVERLESS_NATIVE_PACKAGE_SUFFIXES = [
   "linux-x64-gnu",
   "linux-x64-musl",
@@ -3484,10 +2960,6 @@ export function isServerlessNativePlatformPackage(
   );
 }
 
-// Names a prebuild package by the platform it targets: `darwin-arm64`,
-// `resvg-js-win32-ia32-msvc`, `linux-x64-gnu`. Matching only says "this is a
-// per-platform prebuild"; isServerlessNativePlatformPackage decides whether it
-// can run in the function.
 const SERVERLESS_PLATFORM_PACKAGE_NAME =
   /(?:^|-)(?:darwin|win32|linux|android|freebsd)-[a-z0-9]+(?:-[a-z0-9]+)?$/;
 const FFMPEG_STATIC_BINARY_NAMES =
@@ -3506,22 +2978,11 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "fsevents",
   "node-pty",
   "playwright",
-  // Nitro traces these from officeparser's PDF-output branch, which nothing in
-  // this repo reaches — the creative-context browser path uses playwright-core,
-  // not puppeteer. `pdf` output from officeparser now fails loudly instead of
-  // launching a second, unused browser stack in every function.
   "puppeteer",
   "puppeteer-core",
   "chromium-bidi",
 ]);
 
-/**
- * Declared dependencies of the browser tree that only the Bare runtime can
- * load. tar-stream hard-depends on bare-fs and events-universal on bare-events,
- * but on Node both exports maps resolve to the plain builtins instead, so these
- * are never required — and most of their bytes are android/darwin/win32
- * prebuilds a Linux function could not execute anyway.
- */
 const BARE_RUNTIME_ONLY_PACKAGES = new Set([
   "bare-events",
   "bare-fs",
@@ -3576,20 +3037,12 @@ function manifestDeclaresDependency(
   });
 }
 
-/**
- * Which dependency gives this app a path to the serverless browser runtime, or
- * null when it has none. Resolution cannot answer this: findInstalledPackageRoot
- * falls back to an ancestor + .pnpm store walk, so in a workspace every app
- * "resolves" the sibling package that actually declares Chromium and ships its
- * ~80MB into every emitted function.
- */
 export function findServerlessBrowserRuntimeConsumer(
   projectCwd = cwd,
 ): string | null {
   const manifest = readPackageManifest(projectCwd);
   for (const packageName of [
     ...SERVERLESS_BROWSER_RUNTIME_PACKAGES,
-    // A Playwright declaration signals usage; only playwright-core is copied.
     "playwright",
     SERVERLESS_BROWSER_RUNTIME_CONSUMER,
   ]) {
@@ -3682,11 +3135,6 @@ function copyRuntimePackageTree(
   for (const dependencyName of Object.keys(
     dependencies as Record<string, unknown>,
   )) {
-    // Declared by tar-stream and events-universal but unreachable on Node: both
-    // exports maps send Node to a plain fs/path implementation, and only the
-    // Bare runtime sets the condition that selects these. Skipped inside the
-    // loop, before resolution, so an unresolvable REAL dependency still fails
-    // loudly below.
     if (BARE_RUNTIME_ONLY_PACKAGES.has(dependencyName)) continue;
     const dependencyDir = findInstalledPackageRoot(
       dependencyName,
@@ -3784,12 +3232,6 @@ export function copyInstalledBrowserRuntimePackages(
     );
   }
 
-  // playwright-core ships its own developer tooling: lib/vite is the trace
-  // viewer, HTML reporter, codegen recorder and CLI dashboard UI, and lib/tools
-  // plus bin/ and cli.js are the command line. A function reaches none of them —
-  // they are only entered from startTraceViewerServer, startDashboardServer and
-  // the recorder route — and every byte is paid once per emitted function.
-  // force:true because a fixture (or a future playwright-core) may not have them.
   for (const dead of ["lib/vite", "lib/tools", "bin", "cli.js"]) {
     fs.rmSync(
       path.join(
@@ -3803,9 +3245,6 @@ export function copyInstalledBrowserRuntimePackages(
   }
 
   if (copiedCount === 0) {
-    // Not the same as the skip above: the app asked for the browser runtime and
-    // the build could not find it, so anything that opens a browser will fail
-    // at runtime instead of at build time.
     console.warn(
       `[deploy] ${consumer} needs the serverless browser runtime but none of ` +
         `${SERVERLESS_BROWSER_RUNTIME_PACKAGES.join(", ")} is installed; the function ships without it.`,
@@ -3819,11 +3258,6 @@ export function copyInstalledBrowserRuntimePackages(
   return copiedCount;
 }
 
-/**
- * Vite's production SSR graph keeps React external so every SSR entry shares
- * one hook dispatcher. Nitro preserves that external from the prebuilt route
- * chunks, so the serverless artifact must carry the package itself.
- */
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
@@ -3833,6 +3267,8 @@ export function copyInstalledExternalSsrPackages(
   const packagesToCopy = new Set<string>();
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
+    // Keep undici opaque to client bundlers, but copy it into the server runtime.
+    if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
         packagesToCopy.add(packageName);
@@ -3847,7 +3283,14 @@ export function copyInstalledExternalSsrPackages(
   const versions: Record<string, string> = {};
   for (const packageName of packagesToCopy) {
     const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
-    if (!packageDir) continue;
+    if (!packageDir) {
+      if (packageName === "undici") {
+        throw new Error(
+          "[deploy] The server bundle requires undici, but it is not installed.",
+        );
+      }
+      continue;
+    }
     const manifest = readPackageManifest(packageDir);
     if (typeof manifest?.version === "string") {
       versions[packageName] = manifest.version;
@@ -3988,22 +3431,10 @@ export function findInstalledResvgPackages(
     .map(([packageName, packageDir]) => ({ packageName, packageDir }));
 }
 
-/**
- * Deploy-time gate for emitting the second `-background` Netlify function.
- * Netlify deploys are default-on; an explicit falsy
- * `AGENT_CHAT_DURABLE_BACKGROUND` value opts out. This is called only from the
- * Netlify preset, so non-Netlify builds remain unaffected. The gate and runtime
- * default must agree: otherwise the runtime could target a worker that the
- * deploy did not emit.
- */
 export function isDurableBackgroundDeployEnabled(): boolean {
   return !isDurableBackgroundFlagExplicitlyDisabled();
 }
 
-/**
- * True when this build MUST ship the `-background` function: either the chat
- * opt-in or the integration durable dispatch depends on it at runtime.
- */
 function isDurableBackgroundEmitRequired(): boolean {
   return (
     isDurableBackgroundDeployEnabled() ||
@@ -4023,31 +3454,19 @@ const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
 export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
   "agent-native-recurring-jobs";
 
-/** Shared parser for truthy build environment flags. */
 function isTruthyEnv(name: string): boolean {
   const value = process.env[name]?.trim();
   return !!value && ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
-/** Shared shape for the `AGENT_NATIVE_DISABLE_*` build kill switches. */
 function isDisabledByEnv(name: string): boolean {
   return isTruthyEnv(name);
 }
 
-/**
- * Routed through the same resolver that produces the runtime marker, so the gate
- * that emits the scheduled function and the value the deployed app reports
- * cannot drift: a build that skips the emit always ships `"disabled"`.
- */
 export function isRecurringJobsDeployEnabled(): boolean {
   return resolveRecurringJobsBuildMarker(process.env) === "enabled";
 }
 
-/**
- * Keep-warm is opt-in because a once-a-minute wake prevents autosuspend on
- * metered scale-to-zero databases. `AGENT_NATIVE_DISABLE_KEEP_WARM` remains a
- * compatibility kill switch and wins when both flags are set.
- */
 export function isKeepWarmDeployEnabled(): boolean {
   return (
     isTruthyEnv("AGENT_NATIVE_ENABLE_KEEP_WARM") &&
@@ -4055,16 +3474,6 @@ export function isKeepWarmDeployEnabled(): boolean {
   );
 }
 
-/**
- * The background warm is a separate, much more expensive knob than the server
- * warm and gets its own switch. Warming `server` is one health request; warming
- * the `-background` Lambda is a *fresh container*, so every ping pays the full
- * on-demand `ensureTable()` schema-probe fan-out (hundreds of
- * `information_schema` round trips) before it does anything. At the default
- * cadence that is ~1,440 manufactured cold starts a day that no user asked for.
- * Turn this off to keep dispatch-latency protection for the server function
- * while dropping the probe storm.
- */
 export function isKeepWarmBackgroundDeployEnabled(): boolean {
   return (
     isKeepWarmDeployEnabled() &&
@@ -4074,22 +3483,10 @@ export function isKeepWarmBackgroundDeployEnabled(): boolean {
 
 const DEFAULT_KEEP_WARM_SCHEDULE = "* * * * *";
 
-/**
- * Cadence for the keep-warm schedule, overridable with
- * `AGENT_NATIVE_KEEP_WARM_SCHEDULE` (standard 5-field cron).
- *
- * An unparseable value THROWS rather than falling back to the default. Falling
- * back would leave an operator who set this specifically to stop burning
- * database quota still burning it at the original once-a-minute cadence, with a
- * successful build and nothing in the log to say the value was ignored.
- */
 export function resolveKeepWarmSchedule(): string {
   const raw = process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE?.trim();
   if (!raw) return DEFAULT_KEEP_WARM_SCHEDULE;
   const fields = raw.split(/\s+/);
-  // The field count is checked separately from the field values because
-  // `isValidCron` also accepts 6-field (seconds) and `@daily` forms that
-  // Netlify's scheduler does not; "5 fields" is the narrower contract.
   if (fields.length !== 5 || !isValidCron(raw)) {
     throw new Error(
       `AGENT_NATIVE_KEEP_WARM_SCHEDULE must be a 5-field cron expression ` +
@@ -4100,19 +3497,6 @@ export function resolveKeepWarmSchedule(): string {
   return raw;
 }
 
-/**
- * Emit a site-local Netlify Scheduled Function that wakes the public server
- * function and its database every minute. GitHub Actions schedules can be
- * delayed by tens of minutes, which is longer than a scale-to-zero database's
- * autosuspend window and leaves the next visitor to pay the cold-start cost.
- *
- * The feature is opt-in, the background half has its own kill switch, and the
- * cadence is configurable — see
- * `isKeepWarmDeployEnabled`, `isKeepWarmBackgroundDeployEnabled`, and
- * `resolveKeepWarmSchedule`. The tradeoff this function encodes is next-visitor
- * latency against database awake-time, and only the deployment knows which of
- * those it is paying for.
- */
 export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
@@ -4127,8 +3511,6 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
     );
     return;
   }
-  // Resolved before anything is removed or written, so a bad cron fails the
-  // build rather than leaving a wiped/half-emitted function directory behind.
   const keepWarmSchedule = resolveKeepWarmSchedule();
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverBundle = path.join(internalDir, "server", "main.mjs");
@@ -4144,11 +3526,6 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(dest, { recursive: true });
 
-  // The background Lambda is a SEPARATE container from `server`: warming the
-  // health route never touches it, so it cold-started on essentially every
-  // dispatch (18.4s observed to reach the agent loop). A POST with no runId is
-  // rejected by the `_process-run` route before any DB work, so this only keeps
-  // the container alive.
   const backgroundEntryPath = path.join(
     internalDir,
     AGENT_BACKGROUND_FUNCTION_NAME,
@@ -4238,19 +3615,9 @@ export const config = {
   );
 }
 
-/**
- * Emit the durable recurring-job trigger. Netlify's scheduled function only
- * hands off work; the existing `-background` function owns the long sweep so
- * a model run is not constrained by the synchronous scheduled-function wall.
- *
- * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
- * deploy packager only accepts an omitted `includedFiles` for scheduled
- * functions whose entry file has no import/require edge at all.
- */
 export function emitSingleTemplateNetlifyRecurringJobsFunction(
   projectCwd: string,
 ): void {
-  // Chat recovery shares this trigger, even when user-created jobs are disabled.
   if (!isRecurringJobsDeployEnabled() && !isDurableBackgroundDeployEnabled()) {
     return;
   }
@@ -4401,27 +3768,18 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverDir = path.join(internalDir, "server");
   if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {
-    // Nitro output layout differs from what we expected — cannot guess.
     const message =
       "Durable-background emit skipped: expected Nitro Netlify function " +
       "at .netlify/functions-internal/server/main.mjs was not found.";
-    // Shipping without the function when the runtime depends on it is worse
-    // than a red build: the deploy silently loses the 15-min budget forever.
     if (isDurableBackgroundEmitRequired())
       throw new Error(`[build] ${message}`);
     console.warn(`[build] ${message}`);
     return;
   }
   const backgroundName = AGENT_BACKGROUND_FUNCTION_NAME;
-  // Emit INTO the SCANNED functions dir (functions-internal) so Netlify discovers
-  // the function and honors its `export const config`. `.netlify/functions/` is
-  // the build OUTPUT dir (where @netlify/build writes the zip + manifest) and is
-  // NOT scanned — emitting there is why the standalone attempt 404'd.
   const dest = path.join(internalDir, backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
   cloneServerBundleForFunction(serverDir, dest);
-  // Drop the original Nitro `/*` entry so our entry is the entrypoint and the
-  // copied bundle does NOT re-register the catch-all `config.path`.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
@@ -4555,9 +3913,6 @@ export const config = {
 `;
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), entry);
   {
-    // The clone rewrites url.pathname unconditionally, so it can never
-    // route to the SSR page/asset handlers it inherited. Netlify zips and
-    // uploads every function separately, so that island is paid for twice.
     const freed = pruneSsrIslandFromRewritingClone(dest, entry);
     if (freed > 0) {
       console.log(
@@ -4577,12 +3932,6 @@ export const config = {
   );
 }
 
-/**
- * Prove the artifact Netlify will scan actually landed. A partial copy (the
- * entry without its handler bundle) deploys as a function that 500s on every
- * invocation, which looks exactly like "no background function" at runtime.
- * Exported so the workspace deploy asserts the same shape.
- */
 export function assertEmittedBackgroundFunctionOnDisk(
   destDir: string,
   functionName: string,
@@ -4671,9 +4020,6 @@ export const config = {
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
   {
-    // The clone rewrites url.pathname unconditionally, so it can never route to
-    // the SSR page/asset handlers it inherited. Netlify zips and uploads every
-    // function separately, so that island is paid for on every deploy.
     const freed = pruneSsrIslandFromRewritingClone(dest, entry);
     if (freed > 0) {
       console.log(
@@ -4683,13 +4029,6 @@ export const config = {
   }
 }
 
-/**
- * Nitro's Netlify preset can emit a harmful fallback rewrite to
- * `/.netlify/functions/server`. With `config.path: "/*"`, that default URL is
- * removed, so the rewrite publishes platform 404s. Single-template deploys keep
- * Nitro's `preferStatic: true` so hashed `/assets/*` files in dist win before
- * the SSR catch-all runs.
- */
 const NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT =
   "/* /.netlify/functions/server 200";
 
@@ -4765,13 +4104,83 @@ function walkServerJavaScriptFiles(
   }
 }
 
+const CF_MODULE_NODE_BUILTINS = [
+  "fs",
+  "path",
+  "os",
+  "crypto",
+  "http",
+  "https",
+  "stream",
+  "url",
+  "util",
+  "events",
+  "buffer",
+  "console",
+  "querystring",
+  "zlib",
+  "net",
+  "tls",
+  "assert",
+  "timers",
+  "child_process",
+  "module",
+  "process",
+  "worker_threads",
+  "string_decoder",
+  "diagnostics_channel",
+  "async_hooks",
+  "perf_hooks",
+  "inspector",
+  "vm",
+];
+
 /**
- * Nitro receives the React Router SSR build as prebuilt chunks, so its normal
- * dependency resolver cannot reliably fold the preserved bare `yjs` imports
- * into the same module instance used by core's server collaboration code.
- * Keep Yjs external through Nitro, bundle its complete public ESM surface once,
- * then point every emitted server chunk at that one portable runtime module.
+ * Post-build patches for `cloudflare_module` server output. Recurses (via
+ * `walkServerJavaScriptFiles`) because esbuild/Nitro can emit a dependency at
+ * a nested path (e.g. `_libs/@agent-native/core.mjs`) — a flat `readdirSync`
+ * silently skips it, leaving its module-scope `setInterval` call unpatched,
+ * which Cloudflare rejects with error 10021.
  */
+export function patchCloudflareModuleServerOutput(serverDir: string): void {
+  if (!fs.existsSync(serverDir)) return;
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    let code = fs.readFileSync(filePath, "utf-8");
+    let changed = false;
+
+    for (const mod of CF_MODULE_NODE_BUILTINS) {
+      const re = new RegExp(`from\\s*["']${mod}["']`, "g");
+      if (re.test(code)) {
+        code = code.replace(re, `from"node:${mod}"`);
+        changed = true;
+      }
+    }
+
+    if (code.includes("import.meta.url")) {
+      code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
+      changed = true;
+    }
+
+    // 3. Patch setInterval/setTimeout at global scope.
+    // CF Workers disallows timers in global scope. Shim every matching
+    // chunk; only worker.mjs restores the real function, from inside its
+    // own handlers (baked into generateCloudflareModuleWorkerEntry), never
+    // via an immediate per-chunk restore — a chunk loaded ahead of
+    // worker.mjs's handlers running would otherwise leave setInterval
+    // neutered for the rest of the request.
+    if (
+      code.includes("setInterval") &&
+      !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+    ) {
+      code = cloudflareModuleTimerShimPrefix() + code;
+      changed = true;
+    }
+
+    if (changed) fs.writeFileSync(filePath, code);
+  });
+}
+
 export function bundleYjsRuntimeForServerlessOutput(
   serverDir: string,
   projectCwd: string,
@@ -4798,9 +4207,11 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   const bundledYjsPath = path.join(serverDir, "_libs", "yjs-runtime.mjs");
   fs.mkdirSync(path.dirname(bundledYjsPath), { recursive: true });
+  const esbuild = resolveEsbuildCommand();
   execFileSync(
-    findEsbuild(),
+    esbuild.executable,
     [
+      ...esbuild.args,
       resolveNitroBundledYjsEntry(),
       "--bundle",
       "--format=esm",
@@ -4851,7 +4262,6 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
-/** Presets whose Node-style output needs the emitted Yjs runtime bundle. */
 export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
@@ -4865,10 +4275,6 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
-/**
- * Keep the two server packages that import each other in one Nitro chunk.
- * Separate package chunks leave their live bindings in a cold-start TDZ.
- */
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
   return shouldBundleYjsRuntimeForPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset)
@@ -4886,14 +4292,9 @@ export function nitroServerCodeSplittingConfigForPreset(targetPreset: string) {
   return groups.length > 0 ? { output: { codeSplitting: { groups } } } : {};
 }
 
-// Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
-// for packaging variance so a passing guard does not sit on the platform edge.
 const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
 const NETLIFY_FUNCTION_HARD_LIMIT_BYTES = 240 * 1024 * 1024;
 const NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES = 100 * 1024 * 1024;
-// Clips intentionally ships ffmpeg-static for server-side frame extraction,
-// WebM seekability, filmstrips, and audio-only transcription. Keep that known
-// runtime payload separate from the ordinary bundle-growth budget.
 const NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES = 80 * 1024 * 1024;
 
 function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
@@ -4909,12 +4310,6 @@ function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
   );
 }
 
-/**
- * Whether this function embeds the browser binary itself, which earns the size
- * budget's browser allowance. `chromium-min` fetches the pack at launch and
- * ships no `bin/`, so a min-based function no longer claims the allowance — the
- * budget tightens automatically once the binary stops being bundled.
- */
 function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
   return fs.existsSync(
     path.join(
@@ -4942,22 +4337,6 @@ function netlifyFunctionSizeBudget(functionDir: string): number {
   );
 }
 
-/**
- * App-owned pruning of the emitted serverless functions, run before the
- * framework measures them.
- *
- * An app can know things about its own payload the framework cannot — docs, for
- * instance, emits a locale chunk per translated page and can tell which ones no
- * prerendered route will ever import. That pruning used to be chained after
- * `agent-native build` with `&&`, which put it after this file had already
- * printed the size report and applied the budget: the numbers described a
- * directory that no longer existed by the time the deploy uploaded it, 19MB
- * high for docs. Running the app's script here instead is the only ordering in
- * which the report is measuring what ships.
- *
- * A script that exists and fails aborts the build. Silently continuing would
- * publish an unpruned payload while reporting the size the app expected.
- */
 function runAppServerlessFunctionPruning(cwd: string): void {
   const script = path.join(cwd, "scripts", "prune-serverless-functions.ts");
   if (!fs.existsSync(script)) return;
@@ -4965,9 +4344,6 @@ function runAppServerlessFunctionPruning(cwd: string): void {
   console.log(
     `[deploy] Running app serverless pruning: ${path.relative(cwd, script)}`,
   );
-  // Resolve tsx's own entry rather than shelling out to `npx`: npm's Windows
-  // shim is `npx.cmd`, which execFileSync cannot resolve, and running the
-  // resolved script under the current interpreter avoids the question.
   const tsxCli = createRequire(path.join(cwd, "package.json")).resolve(
     "tsx/cli",
   );
@@ -4993,9 +4369,6 @@ function reportNetlifyFunctionSizes(
 
   const toMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
   const total = functions.reduce((sum, fn) => sum + fn.size, 0);
-  // Every extra function is a full second copy of the bundle: the clone is
-  // hard-linked on disk, but zip-it-and-ship-it sees regular files and uploads
-  // each one whole, so the total is what the deploy actually pays.
   console.log(
     `[deploy] Netlify functions: ${functions.length} (${functions
       .map((fn) => `${fn.name} ${toMb(fn.size)}MB`)
@@ -5005,8 +4378,6 @@ function reportNetlifyFunctionSizes(
   for (const fn of functions) {
     const budget = netlifyFunctionSizeBudget(fn.dir);
     if (fn.size <= budget) continue;
-    // node_modules is always the biggest child and names nothing useful; the
-    // packages inside it are what a regression actually adds.
     const nodeModulesDir = path.join(fn.dir, "node_modules");
     const inspectDir = fs.existsSync(nodeModulesDir) ? nodeModulesDir : fn.dir;
     const largest = fs
@@ -5139,11 +4510,6 @@ export function assertSingleTemplateNetlifyBuildOutput(
     }
   }
 
-  // Netlify's function packager does not install arbitrary runtime package
-  // imports left in Nitro chunks. A bare Yjs import here would deploy
-  // successfully but fail on the first SSR request with ERR_MODULE_NOT_FOUND.
-  // Keep this check adjacent to the output guard so both local builds and CI
-  // reject that artifact before it reaches Netlify.
   const bareYjsImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     if (hasBareYjsRuntimeImport(fs.readFileSync(filePath, "utf-8"))) {
@@ -5173,10 +4539,6 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
-  // Nitro's `_libs/yjs.mjs` is a private tree-shaken chunk, not a package
-  // facade. Repointing a prebuilt SSR chunk at it can request public exports
-  // (notably `Text`) that the private chunk did not retain. The controlled
-  // serverless pass must instead target the complete `yjs-runtime.mjs` bundle.
   const privateYjsImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     if (
@@ -5193,9 +4555,6 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
-  // React Router's filesystem route discovery can accidentally treat a
-  // co-located *.test.ts route as production code. That bundles Vitest into
-  // SSR and only fails when the first request executes the test helpers.
   const bundledVitestRuntime: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     if (hasBundledVitestRuntime(fs.readFileSync(filePath, "utf-8"))) {
@@ -5286,12 +4645,6 @@ export function assertSingleTemplateNetlifyBuildOutput(
   );
 }
 
-/**
- * Strip the harmful single-template catch-all rewrite that points at
- * `/.netlify/functions/server`. Nitro declares `config.path: "/*"`, which
- * removes the default function URL, so rewriting to that URL publishes
- * Netlify platform 404s. Preserve any real redirects from `public/_redirects`.
- */
 export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
   const publishDir = path.join(projectCwd, "dist");
   const redirectsPath = path.join(publishDir, "_redirects");
@@ -5332,14 +4685,6 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
   );
 }
 
-/**
- * Whether the generic Netlify root-shell removal is still needed.
- *
- * Public apps have already opted the workspace page surface out of the auth
- * guard, so a React Router prerendered root is safe to serve statically. Keep
- * the old removal as the default unless the app manifest is explicitly public
- * and neither the effective environment nor the manifest protects `/`.
- */
 export function shouldRemoveNetlifyStaticRootShell(
   projectCwd: string,
   environment?: Record<string, string | undefined>,
@@ -5376,10 +4721,6 @@ export function shouldPreserveNetlifyStaticRootShell(
   );
 }
 
-/**
- * Let the Netlify function own the app root for auth-shaped applications.
- * Public applications keep a verified React Router prerendered root instead.
- */
 export function removeNetlifyStaticRootShell(publishDir: string): void {
   const indexPath = path.join(publishDir, "index.html");
   if (!fs.existsSync(indexPath)) return;
@@ -5389,8 +4730,6 @@ export function removeNetlifyStaticRootShell(publishDir: string): void {
 
 function copyInstalledResvgPackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
-  // `resvg-js` itself is the JS wrapper that gets imported; everything else in
-  // the scope is a per-platform prebuild.
   const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd)).filter(
     ({ packageName }) =>
       packageName === RESVG_PACKAGE_PREFIX ||
@@ -5441,13 +4780,6 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   );
 }
 
-/**
- * Nitro's file tracer can over-include optional desktop/dev packages that are
- * present in a monorepo install but cannot run in serverless. Netlify installs
- * the generated per-function package.json before upload; if `electron` remains
- * there, the function can exceed Netlify's 250 MB unzipped size limit even
- * though the server bundle never imports Electron at runtime.
- */
 export function sanitizeServerlessFunctionPackageManifest(
   functionDir: string | undefined,
 ): void {
@@ -5499,18 +4831,6 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 }
 
-/**
- * Nitro's dependency tracer is not subject to the copy-time filters above, so
- * it ships every prebuild of a multi-platform native package plus whatever the
- * local dev server left in `data/`. Prune both from the function dir before it
- * is cloned for the extra functions, since each clone is zipped and uploaded in
- * full.
- *
- * Only prunes inside a directory that still holds a runnable prebuild under the
- * `isServerlessNativePlatformPackage` naming (`@resvg`). Packages
- * that name prebuilds differently — `@img/sharp-linux-x64` has no gnu/musl
- * suffix — read as entirely dead and must be left alone.
- */
 export function pruneServerlessFunctionDeadWeight(
   functionDir: string | undefined,
 ): number {
@@ -5571,10 +4891,6 @@ export function pruneServerlessFunctionDeadWeight(
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 
-  // Only the `types` export condition points at declaration files, and no
-  // runtime resolver honours it — nothing inside a deployed function ever
-  // type-checks. Scoped to node_modules on purpose: there are no .d.ts outside
-  // it today, and scoping keeps a future emitted asset out of range.
   if (fs.existsSync(nodeModulesDir)) {
     let removedDeclarations = 0;
     for (const declaration of fs.globSync("**/*.d.ts", {
@@ -5637,11 +4953,6 @@ function listDrizzleMigrationFiles(sourceDir: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
-/**
- * Copy generated Drizzle SQL beside Nitro's bundled server entry.
- * `runDrizzleMigrations(new URL("./migrations", import.meta.url))` resolves
- * that folder from the emitted server module, not from the source checkout.
- */
 export function copyDrizzleMigrationAssets(
   projectCwd: string,
   serverDir: string,
@@ -5696,10 +5007,6 @@ export async function runNitroBuildPipeline(
   );
 
   if (hasClientBuild && includeImmutableAssetRouteRules) {
-    // Install hashed-asset route rules before Nitro prepares platform output.
-    // Some presets materialize headers during prepare/copy phases, not only in
-    // nitroBuild; adding these later leaves Netlify/Vercel static assets without
-    // the one-year immutable CDN policy even though the runtime manifest works.
     nitro.options.routeRules ??= {};
     addImmutableAssetRouteRulesForClientBuild(
       nitro.options.routeRules,
@@ -5762,14 +5069,6 @@ function resolveNitroClientDirectory(
   return clientDirectory;
 }
 
-/**
- * Nitro's serverless presets end `output.publicDir` in `{{ baseURL }}`
- * (netlify: `dist{{ baseURL }}`, vercel: `static{{ baseURL }}`, cloudflare:
- * `{{ output.dir }}{{ baseURL }}`), so for those the public dir already IS the
- * mount path. Mirroring again produced a whole second client build one level
- * deeper that nothing ever served — the workspace deploy only deleted it again.
- * Presets whose public dir is flat (`node-server`) still need the mirror.
- */
 export function publicDirIsMountedAtBasePath(
   publicOutputDir: string,
   appBasePath: string,
@@ -5778,28 +5077,12 @@ export function publicDirIsMountedAtBasePath(
   return path.resolve(publicOutputDir).endsWith(mountSuffix);
 }
 
-/**
- * Browser-only diagram/drawing renderers that execute `window`-touching code at
- * module-evaluation time. They are rendered exclusively client-side — core's
- * `MermaidBlock` and templates' Excalidraw slides mount them inside `useEffect` /
- * `React.lazy`, never during SSR — so the server never needs the real module.
- *
- * Keep this list to libraries that are *provably never* invoked on the server.
- * Node-only deps that DO run server-side (pdf-parse, @google/genai, canvas, …)
- * must NOT go here — see `heavyClientExternals` for the edge-worker externals.
- */
 const BROWSER_ONLY_SERVER_LIBS = [
   "@excalidraw/excalidraw",
   "@excalidraw/mermaid-to-excalidraw",
   "mermaid",
 ];
 
-/**
- * Packages that Nitro can discover through the shared server graph but that
- * cannot be evaluated in a Cloudflare Worker. Keep the network-capable SDKs
- * real; these are limited to Node/native/browser-runtime packages whose
- * server-side paths already fail closed when the capability is unavailable.
- */
 export const CLOUDFLARE_MODULE_STUB_MODULES = [
   "@napi-rs/canvas",
   "@resvg/resvg-js",
@@ -5813,12 +5096,6 @@ export const CLOUDFLARE_MODULE_STUB_MODULES = [
   "playwright-core",
 ] as const;
 
-/**
- * Mirror the fail-closed package stubs used by the Pages bundler in Nitro's
- * Rolldown graph. Without this, the native module preset emits a valid module
- * graph that still crashes at Worker cold start when a Node-only optional
- * dependency is evaluated.
- */
 export function createCloudflareModuleStubPlugin() {
   const stubbed = new Set<string>(CLOUDFLARE_MODULE_STUB_MODULES);
   const stubIdPrefix = "\0agent-native-cloudflare-module-stub:";
@@ -5840,18 +5117,8 @@ export function createCloudflareModuleStubPlugin() {
   };
 }
 
-/**
- * Dependencies Nitro itself must bundle outside the controlled Yjs output pass.
- * Node and controlled serverless presets keep Yjs external through Nitro;
- * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
- */
 export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
 
-/**
- * Locate the core-owned ESM entry used by the controlled serverless bundling
- * pass. Resolving from this module keeps the build independent of whether a
- * template exposes core's transitive Yjs dependency at its own package root.
- */
 export function resolveNitroBundledYjsEntry(): string {
   const requireFromCore = createRequire(import.meta.url);
   const packageDir = path.dirname(requireFromCore.resolve("yjs/package.json"));
@@ -5862,11 +5129,6 @@ export function resolveNitroBundledYjsEntry(): string {
   return entry;
 }
 
-/**
- * Edge runtimes have no node_modules. Amplify uses a self-contained Nitro
- * bundle to avoid its monorepo dependency-tracing pass; other Node/serverless
- * outputs receive the small set above through the controlled post-build pass.
- */
 export function nitroNoExternalsForPreset(
   targetPreset: string,
 ): true | readonly string[] {
@@ -5883,28 +5145,12 @@ export function nitroNoExternalsForPreset(
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
 
-/**
- * Rolldown plugin for the Nitro server bundle that replaces the browser-only
- * renderers above with an inert proxy module.
- *
- * Why this is needed: Nitro re-bundles the server from node_modules with its own
- * Rolldown pipeline, and Rolldown merges Excalidraw into a SHARED vendor chunk
- * that the SSR render path (tiptap / radix-ui / recharts) imports *statically*.
- * That evaluates Excalidraw's top-level `window` access at function cold-start
- * and crashes every request with `ReferenceError: window is not defined` (HTTP
- * 502). The Vite SSR build already stubs these via `ssrStubPlugin` for
- * `build/server`, but that Vite plugin doesn't run during Nitro's separate
- * bundle — so mirror the same stub here.
- */
 function createBrowserOnlyServerStubPlugin() {
   const stubbed = new Set(BROWSER_ONLY_SERVER_LIBS);
   const STUB_ID = "\0agent-native-browser-only-server-stub";
   return {
     name: "agent-native-browser-only-server-stub",
-    // enforce: "pre" so we intercept before Nitro's node resolver bundles the
-    // real package. defu concatenates rollupConfig.plugins ahead of Nitro's own.
     resolveId(id: string) {
-      // Match the bare package name or any subpath (incl. `/index.css`).
       const pkg = id
         .split("/")
         .slice(0, id.startsWith("@") ? 2 : 1)
@@ -5913,9 +5159,6 @@ function createBrowserOnlyServerStubPlugin() {
     },
     load(id: string) {
       if (id !== STUB_ID) return null;
-      // A Proxy answers any property access (default or named) with another
-      // proxy, so every import shape resolves without evaluating real browser
-      // code. It is never actually invoked on the server, so it never throws.
       return (
         "const handler = { get(_t, p) {" +
         " if (p === Symbol.toPrimitive) return () => '';" +
@@ -5954,6 +5197,8 @@ export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
+  firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
+  harnessMode: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -5962,9 +5207,6 @@ export function resolveNitroBuildReplacements(
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
   const buildId = resolveAgentNativeBuildId(env, "development");
   return {
-    // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
-    // function so preview OAuth relays can target this immutable deployment
-    // even though the value is unavailable in the function runtime.
     "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(buildId),
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
@@ -5982,10 +5224,6 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
       env.GTM_CONTAINER_ID?.trim() || "",
     ),
-    // Netlify's netlify.toml environment is available while this deploy
-    // build runs, but is not injected into the deployed Function. Nitro is
-    // a separate server build, so embed release migration ownership here as
-    // well as in the Vite server bundle.
     "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
@@ -5995,24 +5233,13 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
-    // Nitro's serverless bundle inlines optional provider packages into
-    // relative chunks. The deployed Function cannot use require.resolve to
-    // see those chunks, so carry the app's runtime dependency boundary into
-    // the bundle as positive package evidence.
     [`process.env.${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR}`]:
       JSON.stringify(
         JSON.stringify(resolveDeclaredRuntimePackageNames(projectCwd)),
       ),
-    // Enterprise auth adapters are optional at runtime, but must be present in
-    // the server bundle when an operator enables either feature. Baking this
-    // marker lets dead-code elimination keep them out of default deployments.
     "process.env.AGENT_NATIVE_BUILD_ENTERPRISE_AUTH": JSON.stringify(
       isEnabled(env.AUTH_SSO) || isEnabled(env.AUTH_SCIM) ? "true" : "false",
     ),
-    // Whether the recurring-jobs scheduled function exists is decided HERE, by
-    // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
-    // a pipeline that sets the kill switch only for the build leaves no runtime
-    // trace of it — so hand the decision to the runtime explicitly.
     [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
       resolveRecurringJobsBuildMarker(env),
     ),
@@ -6023,13 +5250,14 @@ export function resolveNitroBuildReplacements(
           ),
         }
       : {}),
-    // The public framework route prefix was resolved from the app config at
-    // the start of this deploy build and written to the env; the deployed
-    // function's single reader is this literal key.
     "process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX":
       JSON.stringify(
         env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
       ),
+    "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
+      firstRunOnboardingMode,
+    ),
+    "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
   };
 }
 
@@ -6037,11 +5265,6 @@ async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
 
-  // Nitro runs its own server build after the React Router/Vite build. The
-  // template's agent-chat plugin imports .generated/actions-registry.ts so the
-  // serverless bundle has static imports for every domain action. Regenerate
-  // here as well so deploy builds are not coupled to a previous Vite run or to
-  // ignored local .generated files being present.
   generateActionRegistryForProject(cwd);
 
   const {
@@ -6051,23 +5274,8 @@ async function buildWithNitro() {
     build: nitroBuild,
   } = await import("nitro/builder");
 
-  // Resolve the React Router server build so the SSR catch-all route
-  // can import "virtual:react-router/server-build" in production.
   const rrServerBuild = path.join(cwd, "build", "server", "index.js");
 
-  // Inline the template's AGENTS.md + .agents/skills/ content into the Nitro
-  // bundle via the `virtual` config option. Nitro's internal `nitro:virtual`
-  // Rollup plugin picks this up and resolves `virtual:agents-bundle` to the
-  // generated ES module source. Without this, Nitro's Rolldown build (used for
-  // netlify, vercel, aws-lambda, node presets) can't resolve the virtual
-  // module that `server/agents-bundle.ts` imports — it silently falls through
-  // to an empty bundle and the agent gets no instructions/skills at runtime.
-  //
-  // The Vite plugin at `vite/agents-bundle-plugin.ts` handles this for the
-  // React Router client/server build (and cloudflare via esbuild rebundle),
-  // but Nitro runs its OWN build from ./server/ without Vite, so it needs its
-  // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
-  // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
   const nitroMode =
     process.env.NODE_ENV === "development" ? "development" : "production";
@@ -6090,8 +5298,7 @@ async function buildWithNitro() {
     createAgentNativeConfigContext("build", nitroMode),
     { environment: nitroEnvironment },
   );
-  // Resolve the workspace core (if present) up front so the bundle embeds
-  // enterprise-wide AGENTS.md + skills alongside the template's.
+  const buildConfigMarker = readAgentNativeBuildConfigMarker(cwd);
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
   const nitroWorkspaceSource = nitroWorkspaceCore
     ? {
@@ -6112,12 +5319,6 @@ export default bundle;
 `;
   };
 
-  // Path aliases used by templates (mirrors tsconfig + Vite config). Nitro
-  // bundles server/ and actions/ with its own Rolldown pipeline that doesn't
-  // see Vite's resolve.alias — so without this, action files that import
-  // `@/foo` (= `app/foo`) end up with the literal `@/foo` specifier in the
-  // serverless function output and crash at runtime with
-  // "Cannot find package '@/foo' imported from /var/task/main.mjs".
   const appDir = path.join(cwd, "app");
   const sharedDir = path.join(cwd, "shared");
   const pathAliases: Record<string, string> = {};
@@ -6172,23 +5373,17 @@ export default bundle;
     replace: resolveNitroBuildReplacements(
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
+      cwd,
+      buildConfigMarker?.firstRunOnboarding ??
+        resolveFirstRunOnboardingBuildReplacement(
+          nitroAgentConfig,
+          nitroEnvironment,
+        ),
+      buildConfigMarker?.harness ??
+        resolveHarnessBuildReplacement(nitroAgentConfig),
     ),
-    // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
-    // the server bundle. Without this, Nitro's Rolldown build pulls the real
-    // Excalidraw into a shared vendor chunk imported statically by the SSR render
-    // path, and its top-level `window` access crashes the function at cold-start
-    // (ReferenceError: window is not defined → every request 502s). Mirrors the
-    // Vite `ssrStubPlugin`, which only covers the `build/server` step.
-    // Nitro 3 builds with Rolldown, so keep this in rolldownConfig. Nitro's
-    // Rolldown path merges its preset defaults after this config and preserves
-    // the package group ahead of the generic node_modules group.
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
-      // Nitro treats the intermediate React Router SSR files as prebuilt
-      // chunks, while core's server collaboration files participate in the
-      // final Rolldown graph. Externalize Yjs consistently on Node/serverless so
-      // both graphs retain their public import shapes; the controlled
-      // post-build pass below bundles and rewrites them to one module.
       ...(preset === "netlify" ||
       preset === "vercel" ||
       isAwsLambdaPreset(preset) ||
@@ -6220,10 +5415,6 @@ export default bundle;
       ? { plugins: [providedPluginsNitroPlugin] }
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
-    // Edge presets (cloudflare, deno) bundle all deps because node_modules are
-    // unavailable at runtime. Amplify also uses one self-contained bundle to
-    // avoid its monorepo dependency-tracing pass; other Node/serverless
-    // presets externalize Yjs above, then emit one portable runtime module.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
@@ -6266,8 +5457,6 @@ export default bundle;
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    // Before the Netlify block below clones this dir into the extra functions,
-    // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
   }
 
@@ -6280,23 +5469,12 @@ export default bundle;
   }
 
   if (preset === "netlify") {
-    // Durable background agent runs are default-on for Netlify; a falsy
-    // AGENT_CHAT_DURABLE_BACKGROUND value opts out. Additive ONLY: emits a
-    // SECOND Netlify function whose name ends in `-background` re-exporting the
-    // same handler bundle, so the chat `_process-run` POST lands on Netlify's
-    // async (15-min) function. When opted out this is a no-op and the
-    // single-function deploy is byte-for-byte unchanged.
-    // NOT wrapped in try/catch: this block only runs when the runtime depends
-    // on the function, and a swallowed failure ships an app that loses the
-    // background budget for the life of the deploy with nothing in the log.
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
 
     emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
 
-    // Emit keep-warm after the background artifact so it only pings a function
-    // that this build actually produced.
     emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
     if (isIntegrationDurableDispatchDeployEnabled()) {
@@ -6324,9 +5502,6 @@ export default bundle;
     } else {
       removeNetlifyStaticRootShell(nitro.options.output.publicDir);
     }
-    // React Router prerendered pages bypass the SSR function and are served
-    // directly from Netlify's static backing store. Keep that artifact on the
-    // same public SWR policy as runtime SSR and .data responses.
     writeNetlifyStaticHeaders(path.join(cwd, "dist"));
     runAppServerlessFunctionPruning(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
@@ -6348,22 +5523,11 @@ export default bundle;
     );
   }
 
-  // Resolve remaining bare npm imports by bundling them into _libs/.
-  // Nitro sometimes leaves small packages as externals even with noExternals.
   if (preset.startsWith("cloudflare") || preset.startsWith("deno")) {
     const { execFileSync } = await import("child_process");
     const { createRequire } = await import("module");
-    const esbuildBin = (() => {
-      try {
-        const _req = createRequire(cwd + "/");
-        const pkg = path.dirname(_req.resolve("esbuild/package.json"));
-        const bin = path.join(pkg, "bin", "esbuild");
-        if (fs.existsSync(bin)) return bin;
-      } catch {}
-      return "esbuild";
-    })();
+    const esbuild = resolveEsbuildCommand();
 
-    // Scan all output files for bare npm imports
     const outputDir =
       nitro.options.output.serverDir || path.join(cwd, "dist", "_worker.js");
     const bareImports = new Set<string>();
@@ -6382,7 +5546,6 @@ export default bundle;
         for (const m of matches) {
           const mod = m[1];
           if (mod.startsWith("node:")) continue;
-          // Skip Node builtins that are available via nodejs_compat
           const builtins = new Set([
             "fs",
             "path",
@@ -6420,7 +5583,6 @@ export default bundle;
     }
     scanForBareImports(outputDir);
 
-    // For each bare import, try to bundle it as a standalone module
     if (bareImports.size > 0) {
       const libsDir = path.join(outputDir, "_libs");
       fs.mkdirSync(libsDir, { recursive: true });
@@ -6452,24 +5614,18 @@ export default bundle;
       }
       for (const mod of bareImports) {
         const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
-        // Nitro may already have emitted a correctly minified module wrapper
-        // for this dependency. Replacing that wrapper with an esbuild CJS
-        // adapter loses its public export aliases and makes otherwise valid
-        // sibling chunks fail during Worker module linking.
         if (fs.existsSync(outFile)) {
           console.log(`[deploy] Retaining Nitro external: ${mod}`);
           rewriteExternalImports(mod, outFile);
           continue;
         }
         try {
-          // Resolve the module — check workspace node_modules and pnpm store
           let resolvedMod = mod;
           const _require = createRequire(cwd + "/");
           try {
             const resolved = _require.resolve(mod);
             resolvedMod = resolved;
           } catch {
-            // Try from workspace root
             try {
               const wsRequire = createRequire(
                 path.resolve(cwd, "../../package.json"),
@@ -6479,8 +5635,6 @@ export default bundle;
               // Will fail at esbuild
             }
           }
-          // Scan what named imports the consumer expects, then generate
-          // explicit re-exports to handle CJS modules properly.
           const neededExports = new Set<string>();
           function findNeededExports(dir: string) {
             if (!fs.existsSync(dir)) return;
@@ -6493,7 +5647,6 @@ export default bundle;
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
               const code = fs.readFileSync(p, "utf-8");
-              // Match: import{foo as bar,baz}from"<mod>"
               const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
               const re = new RegExp(
                 `import\\{([^}]+)\\}from["']${escaped}["']`,
@@ -6525,8 +5678,9 @@ export default bundle;
               : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
 
           execFileSync(
-            esbuildBin,
+            esbuild.executable,
             [
+              ...esbuild.args,
               "--bundle",
               `--outfile=${outFile}`,
               "--format=esm",
@@ -6540,7 +5694,6 @@ export default bundle;
               stdio: ["pipe", "pipe", "pipe"],
             },
           );
-          // Rewrite imports in all files to point to the bundled module
           function rewriteImports(dir: string) {
             if (!fs.existsSync(dir)) return;
             for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -6579,93 +5732,10 @@ export default bundle;
     }
   }
 
-  // Cloudflare-specific post-build patches
   if (preset.startsWith("cloudflare")) {
     const serverDir2 = nitro.options.output.serverDir;
-    const scanDirs = [serverDir2];
-    if (serverDir2) {
-      const chunksDir = path.join(serverDir2, "_chunks");
-      const libsDir = path.join(serverDir2, "_libs");
-      if (fs.existsSync(chunksDir)) scanDirs.push(chunksDir);
-      if (fs.existsSync(libsDir)) scanDirs.push(libsDir);
-    }
 
-    for (const scanDir of scanDirs) {
-      if (!scanDir || !fs.existsSync(scanDir)) continue;
-      for (const file of fs.readdirSync(scanDir)) {
-        if (!file.endsWith(".mjs") && !file.endsWith(".js")) continue;
-        const filePath = path.join(scanDir, file);
-        let code = fs.readFileSync(filePath, "utf-8");
-        let changed = false;
-
-        // 1. Rewrite bare Node.js imports to node: prefixed.
-        // CF Workers requires the node: prefix for built-in modules.
-        const NODE_BUILTINS = [
-          "fs",
-          "path",
-          "os",
-          "crypto",
-          "http",
-          "https",
-          "stream",
-          "url",
-          "util",
-          "events",
-          "buffer",
-          "console",
-          "querystring",
-          "zlib",
-          "net",
-          "tls",
-          "assert",
-          "timers",
-          "child_process",
-          "module",
-          "process",
-          "worker_threads",
-          "string_decoder",
-          "diagnostics_channel",
-          "async_hooks",
-          "perf_hooks",
-          "inspector",
-          "vm",
-        ];
-        for (const mod of NODE_BUILTINS) {
-          // Match: from"fs" or from "fs" (but not from"node:fs")
-          const re = new RegExp(`from\\s*["']${mod}["']`, "g");
-          if (re.test(code)) {
-            code = code.replace(re, `from"node:${mod}"`);
-            changed = true;
-          }
-        }
-
-        // 2. Patch import.meta.url for createRequire().
-        // React Router's server build uses createRequire(import.meta.url)
-        // but import.meta.url is undefined on CF Workers.
-        if (code.includes("import.meta.url")) {
-          code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
-          changed = true;
-        }
-
-        // 3. Patch setInterval/setTimeout at global scope.
-        // CF Workers disallows timers in global scope.
-        if (code.includes("setInterval") && !code.includes("__timer_shim__")) {
-          const shim =
-            "/* __timer_shim__ */" +
-            "var __origSetInterval=globalThis.setInterval;" +
-            "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};";
-          const restore =
-            ";(function(){if(typeof __origSetInterval!=='undefined')globalThis.setInterval=__origSetInterval})();";
-          code = shim + code + "\n" + restore;
-          changed = true;
-        }
-
-        if (changed) fs.writeFileSync(filePath, code);
-      }
-    }
-    // 3. Create stub modules in _libs/ for native deps that Nitro's rolldown
-    // bundler references but can't resolve on CF Workers, and rewrite
-    // bare imports to point to the stub files.
+    if (serverDir2) patchCloudflareModuleServerOutput(serverDir2);
     const libsDir2 = path.join(
       serverDir2 || path.join(cwd, "dist", "_worker.js"),
       "_libs",
@@ -6686,7 +5756,6 @@ export default bundle;
         }
         if (referencingFiles.length === 0) continue;
 
-        // Create a stub _libs/<mod>.mjs that exports empty defaults
         const stubName = mod.replace(/[/@]/g, "__") + ".mjs";
         const stubPath = path.join(libsDir2, stubName);
         if (!fs.existsSync(stubPath)) {
@@ -6697,10 +5766,8 @@ export default bundle;
           console.log(`[deploy] Created stub for _libs/${stubName}`);
         }
 
-        // Rewrite bare imports in _libs/ and _chunks/ to use the stub
         const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const importRe = new RegExp(`(from\\s*["'])${escaped}(["'])`, "g");
-        // Scan _libs/ files
         for (const filePath of referencingFiles) {
           let code = fs.readFileSync(filePath, "utf-8");
           if (importRe.test(code)) {
@@ -6711,7 +5778,6 @@ export default bundle;
             );
           }
         }
-        // Also scan _chunks/ files (they import native deps too)
         const chunksDir2 = path.join(
           serverDir2 || path.join(cwd, "dist", "_worker.js"),
           "_chunks",
@@ -6723,7 +5789,6 @@ export default bundle;
             const filePath = path.join(chunksDir2, f);
             let code = fs.readFileSync(filePath, "utf-8");
             if (importRe.test(code)) {
-              // From _chunks/, the stub is at ../_libs/<stubName>
               code = code.replace(importRe, `$1../_libs/${stubName}$2`);
               fs.writeFileSync(filePath, code);
               console.log(`[deploy] Rewrote ${mod} imports in _chunks/${f}`);
@@ -6742,25 +5807,29 @@ export default bundle;
   console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 }
 
+export function assertCloudflarePagesPresetRemoved(targetPreset: string): void {
+  if (
+    targetPreset === "cloudflare_pages" ||
+    targetPreset === "cloudflare-pages"
+  ) {
+    console.error(
+      `[deploy] Unsupported preset "${targetPreset}". Cloudflare Pages was removed. Use cloudflare_module for Cloudflare Workers.`,
+    );
+    process.exit(1);
+  }
+}
+
 async function main() {
   console.log(`[deploy] Building for ${preset}...`);
+  assertCloudflarePagesPresetRemoved(preset);
   await resolveDeployFrameworkRoutePrefix();
 
   switch (preset) {
-    case "cloudflare_pages":
-    case "cloudflare-pages":
-      // Cloudflare Workers require a single-file bundle that wrangler can deploy.
-      // Nitro's native presets produce split chunks that wrangler can't upload
-      // as multi-module Workers. Use the custom esbuild-based bundler.
-      await buildCloudflarePages();
-      break;
     case "cloudflare_module":
     case "cloudflare-module":
       await buildWithNitro();
       break;
     default:
-      // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
-      // are handled natively by Nitro's build API.
       await buildWithNitro();
       break;
   }
