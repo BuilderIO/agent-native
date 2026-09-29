@@ -1,13 +1,15 @@
 import fs from "node:fs";
+import { Module } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { scanDeprecatedImports } from "./deprecated-imports.js";
 import {
   bundledCoreMigrationManifestPath,
   isMigrationManifestActive,
+  loadMigrationManifestsForProject,
   readMigrationManifest,
   resolveMigrationSymbolMove,
   type MigrationManifest,
@@ -53,6 +55,76 @@ afterEach(() => {
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("loadMigrationManifestsForProject", () => {
+  it("allows an absent optional Toolkit package", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-no-toolkit-"),
+    );
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "doctor-no-toolkit" }),
+    );
+    const resolveFilename = Module._resolveFilename;
+    const resolveSpy = vi
+      .spyOn(Module, "_resolveFilename")
+      .mockImplementation((request, parent, isMain, options) => {
+        if (request.startsWith("@agent-native/toolkit")) {
+          throw Object.assign(new Error("Cannot find module"), {
+            code: "MODULE_NOT_FOUND",
+          });
+        }
+        return resolveFilename.call(Module, request, parent, isMain, options);
+      });
+
+    try {
+      expect(loadMigrationManifestsForProject(root)).toHaveLength(1);
+    } finally {
+      resolveSpy.mockRestore();
+    }
+  });
+
+  it("fails when an installed Toolkit has no resolvable migration manifest", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-toolkit-"));
+    roots.push(root);
+    const toolkit = path.join(root, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkit, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkit, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: {
+          ".": "./index.js",
+          "./migration-manifest.json": "./migration-manifest.json",
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(toolkit, "index.js"), "");
+
+    expect(() => loadMigrationManifestsForProject(root)).toThrow(
+      /could not resolve.*installed/i,
+    );
+  });
+
+  it("fails when the required bundled Core manifest is missing", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-core-manifest-"),
+    );
+    roots.push(root);
+    const readFile = vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+
+    try {
+      expect(() => loadMigrationManifestsForProject(root)).toThrow(
+        /required bundled Core migration manifest is missing/i,
+      );
+    } finally {
+      readFile.mockRestore();
+    }
+  });
 });
 
 describe("scanDeprecatedImports", () => {

@@ -7,7 +7,15 @@ description: فحوصات الأمان والترحيل.
 
 تحتوي التطبيقات ومساحات العمل المولّدة على تعليمات برمجية مصدرية يمكن تغييرها ضمن سير عمل تطوير المستودع، بما في ذلك بواسطة إطار وكيل مُنح عمدًا أدوات مساحة العمل والكتابة. يفحص `agent-native doctor` ثوابت أمان التعليمات البرمجية في المصدر. وهو للقراءة فقط: لا يعدّل التعليمات البرمجية، بل يبلّغ عن النتائج.
 
-يشغّل `agent-native doctor` تسعة guards: ثمانية للأمان و`migration-manifest`. يجد الأخير الاستيرادات الموجودة في `migration-manifest.json` المثبت ولا يملك opt-out. شغّل `agent-native doctor --only migration-manifest`، وعاين بـ `npx @agent-native/core@latest upgrade --codemods`، ثم طبّق بـ `--yes`. يسرد JSON الأسماء التسعة في `guardsRun`.
+يشغّل `agent-native doctor` تسعة guards: ثمانية للأمان و`migration-manifest`. يجد الأخير الاستيرادات الموجودة في `migration-manifest.json` المثبت ولا يملك opt-out. استخدم فحص الترحيل المسبق مباشرة:
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+يعرض `--dry-run` معاينة الترقية وفروق codemod دون كتابة الملفات. أعد تشغيل الأمر دون `--dry-run` لتطبيق عمليات إعادة الكتابة المدعومة. الخيار `--yes` مقبول للتوافق ولا يغيّر السلوك. راجع الفرق والتحذيرات قبل التطبيق. تظهر الإدخالات `planned` كتحذيرات فقط ولا يعاد كتابتها. الإدخالات النشطة نتائج، ولا يعاد كتابتها إلا إذا كان export الوجهة مثبتًا. تتطلب التصديرات المحذوفة ترحيلًا يدويًا. اتبع دليل الترحيل المرتبط بالنتيجة أو [دليل Core 0.197.0](/docs/upgrading-to-0-197)، الذي يذكر `ts-morph` وحزم الميزات الاختيارية. يسرد JSON الأسماء التسعة في `guardsRun`.
 
 يضيف CLI إلى كل تطبيق ومساحة عمل جديدة الأمرين `pnpm doctor` و`pnpm agent-native:doctor`. عند تشغيله من جذر مساحة العمل، يفحص كل تطبيق في `apps/<name>`. تفشل عمليات البناء عند وجود نتائج افتراضيًا؛ استخدم `failOnBuild: false` فقط كاستثناء تمت مراجعته.
 

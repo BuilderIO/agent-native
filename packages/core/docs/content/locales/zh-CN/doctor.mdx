@@ -7,7 +7,15 @@ description: 安全与迁移检查。
 
 生成的应用和 workspace 包含可通过仓库开发工作流更改的源代码，也可以由被有意授予工作区和写入工具的代理 frame 更改。`agent-native doctor` 会扫描源代码中的关键代码安全不变量。它是只读的：doctor 从不编辑代码，只报告结果。
 
-`agent-native doctor` 运行 9 个 guard：8 个安全 guard 和 `migration-manifest`。后者查找已安装 `migration-manifest.json` 中的导入，且没有 opt-out。运行 `agent-native doctor --only migration-manifest`，用 `npx @agent-native/core@latest upgrade --codemods` 预览，再用 `--yes` 应用。JSON 的 `guardsRun` 列出全部 9 项。
+`agent-native doctor` 运行 9 个 guard：8 个安全 guard 和 `migration-manifest`。后者查找已安装 `migration-manifest.json` 中的导入，且没有 opt-out。直接运行迁移预检：
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+`--dry-run` 会预览 upgrade 和 codemod diff，但不会写入文件。去掉 `--dry-run` 再运行命令即可应用受支持的重写。`--yes` 为兼容性保留，不会改变行为。应用前请检查 diff 和警告。`planned` 条目只作为警告显示，不会被重写。Active 条目会作为问题报告；codemod 仅在目标 export 已安装时才会重写。已删除的 export 需要手动迁移。请按照 finding 中的指南操作，或参阅列出 `ts-morph` 和可选功能包的 [Core 0.197.0 迁移指南](/docs/upgrading-to-0-197)。JSON 的 `guardsRun` 列出全部 9 项。
 
 CLI 会为每个新建的 app 和 workspace 添加 `pnpm doctor` 与 `pnpm agent-native:doctor` 命令。从 workspace 根目录运行时，会检查 `apps/<name>` 下的每个 app。发现问题时，build 默认会失败；只有经过审查的例外才应使用 `failOnBuild: false`。
 

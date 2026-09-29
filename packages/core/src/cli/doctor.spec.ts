@@ -177,6 +177,38 @@ describe("runDoctorScan", () => {
     );
   });
 
+  it("always runs the migration manifest check when disabledGuards includes it", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "agent-native.json": JSON.stringify({
+        doctor: { disabledGuards: ["migration-manifest"] },
+      }),
+      "app/root.tsx":
+        'import { PromptComposer } from "@agent-native/core/client";\nvoid PromptComposer;\n',
+    });
+    const report = runDoctorScan({
+      root,
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client": {
+              to: "@agent-native/core/client/agent-chat",
+              symbols: {
+                PromptComposer: { to: "@agent-native/toolkit/app/chat" },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.guardsRun).toContain("migration-manifest");
+    expect(report.findings).toContainEqual(
+      expect.objectContaining({ guard: "migration-manifest" }),
+    );
+  });
+
   it("--only restricts the guard set", () => {
     const root = makeTempAppRoot(VIOLATION_FILES);
     const report = runDoctorScan({ root, only: ["no-env-mutation"] });

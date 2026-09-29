@@ -247,7 +247,9 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
     );
     names = knownOnly;
   } else {
-    names = ALL_GUARD_NAMES.filter((n) => !config.disabledGuards.includes(n));
+    names = ALL_GUARD_NAMES.filter(
+      (n) => n === "migration-manifest" || !config.disabledGuards.includes(n),
+    );
   }
 
   const findings: DoctorFinding[] = [];
