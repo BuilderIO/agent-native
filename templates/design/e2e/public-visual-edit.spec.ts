@@ -379,9 +379,9 @@ test.describe.serial("public visual edit", () => {
       }
       registrationAttempts += 1;
       await route.fulfill({
-        status: 409,
+        status: 401,
         headers: { "access-control-allow-origin": origin },
-        body: "Bridge is not ready",
+        body: "Invalid or missing preview token",
       });
     });
 
