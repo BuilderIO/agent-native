@@ -601,7 +601,7 @@ describe("runUpgrade", () => {
     ).toBe(0);
 
     expect(out.join("\n")).toContain("[planned] feature-dependencies");
-    expect(out.join("\n")).toContain("@better-auth/sso 1.7.4");
+    expect(out.join("\n")).toContain("@better-auth/sso 1.7.6");
     expect(out.join("\n")).toContain(
       "Remote deployment environment and database-backed feature settings cannot be inspected",
     );
