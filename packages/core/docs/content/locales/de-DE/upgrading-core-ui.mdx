@@ -38,7 +38,7 @@ Type-only-Imports erhalten. Einfache CSS-@import-Pfade werden ebenfalls
 aktualisiert; bei einem aufgelösten Paketwechsel wird die fehlende Dependency
 hinzugefügt.
 
-Die Diagnose erkennt auch CommonJS-Formen mit `require()` und dynamische `import()`-Formen. Das Codemod schreibt diese Aufrufausdrücke jedoch nicht um. Ersetzen Sie sie anhand des gemeldeten neuen Importziels und starten Sie anschließend Vite oder `agent-native doctor` erneut. CSS-Pfade in `@import url(...)` werden unabhängig davon umgeschrieben, ob der Pfad in Anführungszeichen steht.
+Die Diagnose erkennt auch CommonJS-Formen mit `require()` und dynamische `import()`-Formen. Das Codemod schreibt literale `import()`-Aufrufe um, wenn das alte Modul genau ein neues Ziel hat. `require()` und dynamische Imports, die eine Aufteilung nach Symbolen erfordern, bleiben unverändert und erzeugen eine Warnung. Ersetzen Sie diese anhand des gemeldeten neuen Importziels und starten Sie anschließend Vite oder `agent-native doctor` erneut. CSS-Pfade in `@import url(...)` werden unabhängig davon umgeschrieben, ob der Pfad in Anführungszeichen steht.
 
 Aufrufstellen und Dateien werden nicht geändert oder verschoben. Nicht
 aufgelöste und geplante Moves bleiben mit Warnungen unverändert. Default-,
@@ -110,15 +110,22 @@ Für die Quellensuche in First-Party-Templates fügen Sie das passende Korpuspak
 
 ## 3. Upgrade anwenden
 
-Wenden Sie den Plan nach der Prüfung der Vorschau und der Feature-Pakete an:
+Wenden Sie den Plan nach Prüfung der Vorschau und der Feature-Pakete mit der
+versionierten CLI an. Das ist wichtig, wenn die App noch Core 0.196 oder eine
+ältere CLI verwendet: Sie enthält ein älteres Migrationsmanifest.
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Nach der Installation von Core 0.198.0 in der App ist derselbe Befehl über die
+lokale CLI verfügbar:
 
     npx agent-native upgrade --codemods
 
-Dieser einzelne Befehl aktualisiert geeignete @agent-native/\*-Dependency-Angaben,
-gleicht erkannte Feature-Dependencies ab, startet den Paketmanager, pinnt die
-aufgelösten Agent-Native-Versionen, wendet unterstützte Codemods an, aktualisiert
-Scaffold-Skills und führt das Root-Typecheck-Skript aus, falls vorhanden. Starten
-Sie nicht noch einmal upgrade, nur um die Codemods anzuwenden. Beheben Sie
+Beide Aufrufe aktualisieren geeignete @agent-native/\*-Dependency-Angaben,
+gleichen erkannte Feature-Dependencies ab, starten den Paketmanager, pinnen die
+aufgelösten Agent-Native-Versionen, wenden unterstützte Codemods an, aktualisieren
+Scaffold-Skills und führen das Root-Typecheck-Skript aus, falls vorhanden. Starten
+Sie upgrade nicht noch einmal, nur um die Codemods anzuwenden. Beheben Sie
 Warnungen und App-Fehler im App-Code; fügen Sie keine Framework-Overrides oder
 -Patches hinzu.
 
@@ -128,14 +135,22 @@ Prüfen Sie den gesamten Diff, besonders übersprungene Codemod-Warnungen und
 Dependency-Versionen, und führen Sie anschließend aus:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Verwenden Sie für npm oder Yarn den entsprechenden Typecheck-Befehl und führen
-Sie die relevanten Tests und den Build der App aus. Stellen Sie sicher, dass
-lokale und entfernte Feature-Einstellungen in der Tabelle der optionalen
-Peer-Pakete berücksichtigt sind. Suchen Sie nach alten Imports aus der
-folgenden Tabelle. Verbleibende Treffer sollten beabsichtigt, vom Manifest
-nicht unterstützt oder durch eine Warnung erklärt sein.
+Doctor führt standardmäßig die Prüfungen `migration-manifest` und
+`feature-dependencies` aus. Sie melden veraltete Imports und fehlende optionale
+Peers für Funktionen, die anhand der lokalen Konfiguration erkannt werden.
+Remote-Deployment-Einstellungen und datenbankgestützte Feature-Einstellungen
+kann Doctor nicht prüfen. Bestätigen Sie diese separat.
+
+Verwenden Sie für npm oder Yarn den entsprechenden Typecheck-Befehl. Führen Sie
+die Test- und Build-Skripte der App aus, sofern vorhanden, meist `pnpm test` und
+`pnpm build`. Stellen Sie sicher, dass lokale und entfernte Feature-Einstellungen
+in der Tabelle der optionalen Peer-Pakete berücksichtigt sind. Suchen Sie nach
+alten Imports aus der folgenden Tabelle. Verbleibende Treffer sollten
+beabsichtigt, vom Manifest nicht unterstützt oder durch eine Warnung erklärt
+sein.
 
 ## Alte Pfade und beispielhafte Ziele
 

@@ -8,7 +8,6 @@ import {
   type CreativeContextAgentTabFactory,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
-import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   AccountSettingsCard,

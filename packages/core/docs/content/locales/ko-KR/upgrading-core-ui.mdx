@@ -34,7 +34,7 @@ import와 re-export specifier를 다시 씁니다. 이름이 지정된 export가
 유지할 수 있습니다. 간단한 CSS @import 경로도 바꾸고, 해결된 경로가 패키지
 경계를 넘어가면 누락된 dependency를 추가합니다.
 
-진단은 CommonJS `require()` 형식과 동적 `import()` 형식도 감지하지만 codemod는 이러한 호출식을 다시 쓰지 않습니다. 보고된 새 경로를 사용해 직접 바꾼 다음 Vite 또는 `agent-native doctor`를 다시 실행하세요. CSS `@import url(...)` 경로는 따옴표가 있거나 없어도 codemod가 다시 씁니다.
+진단은 CommonJS `require()` 형식과 동적 `import()` 형식도 감지합니다. 기존 모듈의 새 대상이 하나뿐이면 codemod가 리터럴 `import()` 호출을 다시 씁니다. `require()`와 심볼별 분할이 필요한 동적 import는 경고와 함께 그대로 둡니다. 보고된 새 경로를 사용해 직접 바꾼 다음 Vite 또는 `agent-native doctor`를 다시 실행하세요. CSS `@import url(...)` 경로는 따옴표가 있거나 없어도 codemod가 다시 씁니다.
 
 호출 위치를 바꾸거나 파일을 옮기지는 않습니다. 해결되지 않았거나 planned인
 이동은 경고와 함께 그대로 둡니다. default, namespace, side-effect, star
@@ -104,11 +104,18 @@ CLI는 다음 peer를 자동으로 추론하지 않습니다. 앱에서 사용�
 
 ## 3. 업그레이드 적용
 
-미리 보기를 검토하고 기능 패키지를 확인한 다음 계획을 적용합니다.
+미리 보기를 검토하고 기능 패키지를 확인한 다음 버전을 지정한 CLI로
+계획을 적용합니다. 앱이 아직 Core 0.196 또는 더 오래된 CLI를 사용하는
+경우 해당 CLI에 이전 마이그레이션 manifest가 있으므로 이 단계가 중요합니다.
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+앱에 Core 0.198.0이 설치된 후에는 로컬 CLI에서 같은 명령을 실행할 수
+있습니다.
 
     npx agent-native upgrade --codemods
 
-이 한 번의 명령으로 해당되는 @agent-native/\* dependency spec을 갱신하고
+두 실행 방식 모두 해당되는 @agent-native/\* dependency spec을 갱신하고
 감지된 기능 dependency를 맞춘 뒤 package manager를 실행합니다. 해결된
 Agent-Native 버전을 pin하고 지원되는 codemod를 적용하며 scaffold skill을
 갱신합니다. 루트에 typecheck script가 있으면 실행합니다. codemod 적용만
@@ -121,12 +128,19 @@ Agent-Native 버전을 pin하고 지원되는 codemod를 적용하며 scaffold s
 실행합니다.
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-npm 또는 Yarn에서는 해당 typecheck 명령을 사용하고 앱에 필요한 테스트와
-빌드도 실행하세요. 로컬 및 배포된 기능 설정이 선택적 peer 표에 반영됐는지
-확인하세요. 아래 표에 있는 이전 import를 검색하고, 남은 항목은 의도된
-경우이거나 manifest가 지원하지 않거나 경고로 설명되어 있어야 합니다.
+Doctor는 기본으로 `migration-manifest`와 `feature-dependencies` 검사를
+실행합니다. 오래된 import와 로컬 설정에서 감지한 기능에 필요한 선택적
+peer의 누락을 보고합니다. 원격 배포 설정과 데이터베이스에 저장된 기능
+설정은 확인할 수 없으므로 별도로 점검하세요.
+
+npm 또는 Yarn에서는 해당 typecheck 명령을 사용하세요. 앱에 테스트 및 빌드
+스크립트가 있으면 실행하세요. 일반적으로 `pnpm test`와 `pnpm build`입니다.
+로컬 및 배포된 기능 설정이 선택적 peer 표에 반영됐는지 확인하세요. 아래
+표에 있는 이전 import를 검색하고, 남은 항목은 의도된 경우이거나 manifest가
+지원하지 않거나 경고로 설명되어 있어야 합니다.
 
 ## 이전 경로와 대표 목적지
 

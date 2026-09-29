@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parseWorkspaceAppLinks } from "../client/org/workspace-app-links.js";
+import { parseWorkspaceAppLinks } from "../../../toolkit/src/app/org/workspace-app-links.js";
 import {
   deriveAppIdentity,
   isFirstPartyApp,

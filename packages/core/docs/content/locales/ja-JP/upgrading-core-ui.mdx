@@ -35,7 +35,7 @@ type-only importを保持できます。単純なCSSの@import pathも書き換�
 解決できた移動でpackage境界を越える場合は不足するdependencyを追加
 します。
 
-診断では CommonJS の `require()` と動的 `import()` 形式も検出しますが、codemod はこれらの呼び出し式を書き換えません。報告された新しい移行先を使って置き換え、その後 Vite または `agent-native doctor` を再実行してください。CSS の `@import url(...)` パスは、引用符の有無にかかわらず codemod で書き換えられます。
+診断では CommonJS の `require()` と動的 `import()` 形式も検出します。旧モジュールの移行先が 1 つの場合、codemod は文字列リテラルの `import()` 呼び出しを書き換えます。`require()` とシンボル単位の分割が必要な動的 import は警告を出して変更しません。報告された新しい移行先を使って置き換え、その後 Vite または `agent-native doctor` を再実行してください。CSS の `@import url(...)` パスは、引用符の有無にかかわらず codemod で書き換えられます。
 
 呼び出し箇所は変更せず、ファイルも移動しません。解決できない移動や
 plannedの移動は警告を出してそのまま残します。default、namespace、
@@ -106,11 +106,18 @@ CLI は次の peer を自動判定しません。アプリで使う機能に応�
 
 ## 3. アップグレードを適用する
 
-プレビューとfeature packageを確認したら計画を適用します。
+プレビューとfeature packageを確認したら、versionを指定したCLIで計画を
+適用します。appがCore 0.196など古いCLIを使っている場合、CLI内のmigration
+manifestも古いため、この点が重要です。
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+appにCore 0.198.0をインストールした後は、local CLIから同じcommandを
+実行できます。
 
     npx agent-native upgrade --codemods
 
-この1つのcommandで、対象となる@agent-native/\* dependency specを更新し、
+どちらの実行方法でも、対象となる@agent-native/\* dependency specを更新し、
 検出したfeature dependencyを調整し、package managerを実行し、解決した
 Agent-Native versionをpinし、対応codemodを適用します。さらにscaffold
 skillを更新し、rootにtypecheck scriptがあれば実行します。codemod適用
@@ -124,13 +131,20 @@ overrideやpatchは追加しないでください。
 次を実行します。
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-npmまたはYarnでは対応するtypecheck commandを使い、アプリに必要な
-testとbuildも実行します。ローカルおよびデプロイ済みのfeature設定が
-任意peerの表で網羅されていることを確認します。次の表にある旧importを
-検索してください。残った一致は意図的なもの、manifest非対応のもの、
-または警告で説明されたものに限ります。
+Doctorは既定で`migration-manifest`と`feature-dependencies`を確認します。
+古いimportと、ローカル設定から検出されたfeatureに必要なoptional peerの
+不足を報告します。リモートのデプロイ設定やデータベース内のfeature設定は
+確認できないため、別途確認してください。
+
+npmまたはYarnでは対応するtypecheck commandを使います。アプリにtestと
+buildのscriptがある場合は実行してください。多くの場合は`pnpm test`と
+`pnpm build`です。ローカルおよびデプロイ済みのfeature設定が任意peerの
+表で網羅されていることを確認します。次の表にある旧importを検索して
+ください。残った一致は意図的なもの、manifest非対応のもの、または警告で
+説明されたものに限ります。
 
 ## 古いpathと移行先の例
 

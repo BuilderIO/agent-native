@@ -568,32 +568,63 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).not.toThrow();
   });
 
-  it("allows only bounded daily generate_series date spines", () => {
-    expect(() =>
-      validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series('{{timeRangeStart}}'::date, '{{timeRangeEnd}}'::date, INTERVAL '1 day') AS days(day)",
-      ),
-    ).not.toThrow();
+  it("rejects PostgreSQL set-returning date functions, including infinite bounds", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("bounded dates and a 1-day step");
+    ).toThrow("table function pg_catalog.generate_series");
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1 /* timeRangeStart */, 10000000 /* timeRangeEnd */, INTERVAL '1 day') AS days(day)",
+        "WITH bounds AS (SELECT '2000-01-01'::timestamp AS start_date, 'infinity'::timestamp AS end_date) SELECT e.event_date FROM analytics_events e CROSS JOIN bounds CROSS JOIN LATERAL pg_catalog.generate_series(bounds.start_date, bounds.end_date, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("bounded dates and a 1-day step");
+    ).toThrow("table function pg_catalog.generate_series");
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series('2000-01-01'::date, '2026-01-01'::date, INTERVAL '1 day') AS days(day)",
+        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog /* split */ . generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("bounded dates and a 1-day step");
+    ).toThrow("table function pg_catalog.generate_series");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL custom_series(1, 2) AS days(day)",
       ),
     ).toThrow("cannot read from table function custom_series");
+  });
+
+  it("rejects set-returning functions in SELECT and CTE expressions", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT pg_catalog /* split */ . /* split */ generate_series(1, 2) AS day FROM analytics_events",
+      ),
+    ).toThrow("cannot call set-returning function generate_series");
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "WITH expanded AS (SELECT unnest(ARRAY[1, 2]) AS value FROM analytics_events) SELECT value FROM expanded",
+      ),
+    ).toThrow("cannot call set-returning function unnest");
+  });
+
+  it("rejects unapproved SQL functions that can escape tenant scoping", () => {
+    for (const sql of [
+      "SELECT table_to_xml('analytics_events'::regclass, false, true, '') AS leaked FROM analytics_events LIMIT 1",
+      "SELECT table_to_xml(('analytics_' || 'events')::regclass, false, true, '') FROM session_recordings LIMIT 1",
+      "SELECT query_to_xml('SELECT analytics_' || 'events', false, true, '') FROM session_recordings LIMIT 1",
+      "SELECT ts_stat('SELECT * FROM analytics_events') FROM session_recordings LIMIT 1",
+      "SELECT pg_sleep(1) FROM analytics_events",
+      "SELECT public.sum(event_count) FROM analytics_event_daily_rollups",
+    ]) {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
+        "cannot call unapproved SQL function",
+      );
+    }
+  });
+
+  it("allows approved scalar functions and parenthesized SQL conditions", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT pg_catalog /* split */ . date_trunc('day', event_date), COALESCE(SUM(event_count), 0) FROM analytics_event_daily_rollups WHERE (event_date IS NOT NULL) GROUP BY event_date",
+      ),
+    ).not.toThrow();
   });
 
   it("rejects direct replay chunk queries", () => {
@@ -851,6 +882,35 @@ describe("queryFirstPartyAnalytics", () => {
         { userEmail: "alice@example.com", orgId: "org_123" },
       ),
     ).rejects.toThrow("Cross-backend joins are not supported");
+  });
+
+  it("rejects unapproved functions before executing SQL-store queries", async () => {
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT table_to_xml(('analytics_' || 'events')::regclass, false, true, '') FROM session_recordings LIMIT 1",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toThrow("cannot call unapproved SQL function table_to_xml");
+
+    expect(backendMocks.get).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("keeps BigQuery-specific functions available after cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await queryFirstPartyAnalytics(
+      "SELECT SAFE_DIVIDE(COUNT(*), 2) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+    );
+
+    expect(backendMocks.query).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("keeps ad-hoc first-party reads uncached", async () => {

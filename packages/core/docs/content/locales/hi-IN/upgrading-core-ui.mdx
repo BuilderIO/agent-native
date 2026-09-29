@@ -35,7 +35,7 @@ directories छोड़कर) और समर्थित import तथा re
 @import paths भी बदलता है और resolved rewrite से package सीमा पार होने पर missing
 dependency जोड़ता है।
 
-डायग्नोस्टिक CommonJS `require()` और dynamic `import()` forms भी detect करता है, लेकिन codemod इन call expressions को rewrite नहीं करता। रिपोर्ट में दिए गए नए destination का उपयोग करके इन्हें बदलें, फिर Vite या `agent-native doctor` दोबारा चलाएँ। CSS `@import url(...)` paths पर codemod quoted और unquoted दोनों रूपों में काम करता है।
+डायग्नोस्टिक CommonJS `require()` और dynamic `import()` forms भी detect करता है। जब पुराने module का एक ही नया destination हो, तो codemod literal `import()` calls को rewrite करता है। `require()` और वे dynamic imports जिन्हें symbols के अनुसार बाँटना पड़ता है, warning के साथ unchanged रहते हैं। रिपोर्ट में दिए गए नए destination का उपयोग करके उन्हें बदलें, फिर Vite या `agent-native doctor` दोबारा चलाएँ। CSS `@import url(...)` paths पर codemod quoted और unquoted दोनों रूपों में काम करता है।
 
 यह call sites नहीं बदलता और files नहीं ले जाता। Unresolved और planned moves
 warnings के साथ वैसे ही रहते हैं। यह default, namespace, side-effect या star
@@ -105,16 +105,22 @@ CLI इन peers का अनुमान नहीं लगाता। ऐ�
 
 ## 3. Upgrade लागू करें
 
-Preview देखने और feature packages की पुष्टि के बाद योजना लागू करें:
+Preview देखने और feature packages की पुष्टि के बाद versioned CLI से योजना लागू
+करें। यह तब ज़रूरी है जब app में अभी Core 0.196 या पुरानी CLI हो, क्योंकि उसमें
+पुराना migration manifest होता है:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+App में Core 0.198.0 इंस्टॉल होने के बाद यही command local CLI से उपलब्ध है:
 
     npx agent-native upgrade --codemods
 
-यह एक command योग्य @agent-native/\* dependency specs अपडेट करता है, पहचानी गई
-feature dependencies align करता है, package manager चलाता है, resolved
-Agent-Native versions pin करता है, समर्थित codemods लागू करता है, scaffold skills
-refresh करता है और root typecheck script मौजूद होने पर चलाता है। केवल codemods
-लागू करने के लिए दूसरी upgrade command न चलाएँ। Warnings और app-level errors
-app code में ठीक करें; framework overrides या patches न जोड़ें।
+दोनों में से कोई भी invocation योग्य @agent-native/\* dependency specs अपडेट
+करता है, पहचानी गई feature dependencies align करता है, package manager चलाता
+है, resolved Agent-Native versions pin करता है, समर्थित codemods लागू करता है,
+scaffold skills refresh करता है और root typecheck script मौजूद होने पर चलाता है।
+केवल codemods लागू करने के लिए दूसरी upgrade command न चलाएँ। Warnings और
+app-level errors app code में ठीक करें; framework overrides या patches न जोड़ें।
 
 ## 4. परिणाम की जाँच करें
 
@@ -122,13 +128,19 @@ app code में ठीक करें; framework overrides या patches �
 चलाएँ:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-npm या Yarn के लिए समकक्ष typecheck command चलाएँ और ऐप के संबंधित tests तथा
-build भी चलाएँ। वैकल्पिक peer table में local और deployed feature settings
-शामिल होने की पुष्टि करें। नीचे की table में पुराने imports खोजें; बचे हुए
-results intentional होने चाहिए, manifest द्वारा unsupported होने चाहिए, या
-warning से स्पष्ट होने चाहिए।
+Doctor डिफ़ॉल्ट रूप से `migration-manifest` और `feature-dependencies` जाँच चलाता
+है। यह पुराने imports और local configuration से पहचाने गए features के लिए missing
+optional peers दिखाता है। यह remote deployment settings या database में रखी
+feature settings नहीं देख सकता, इसलिए उनकी अलग से पुष्टि करें।
+
+npm या Yarn के लिए समकक्ष typecheck command चलाएँ। ऐप के test और build scripts
+मौजूद हों तो चलाएँ, आम तौर पर `pnpm test` और `pnpm build`। वैकल्पिक peer table में
+local और deployed feature settings शामिल होने की पुष्टि करें। नीचे की table में
+पुराने imports खोजें; बचे हुए results intentional होने चाहिए, manifest द्वारा
+unsupported होने चाहिए, या warning से स्पष्ट होने चाहिए।
 
 ## पुराने paths और प्रतिनिधि destinations
 
