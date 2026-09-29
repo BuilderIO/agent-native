@@ -228,33 +228,41 @@ async function neonGet(url: URL): Promise<unknown> {
 async function listProjects(): Promise<Map<string, string>> {
   const projects = new Map<string, string>();
   let cursor: string | undefined;
+  let page = 0;
   const seenCursors = new Set<string>();
   for (;;) {
+    page += 1;
     const url = new URL(`${API_BASE}/projects`);
     url.searchParams.set("limit", "400");
     url.searchParams.set("org_id", ORG_ID);
+    url.searchParams.set("timeout", "30000");
     if (cursor) url.searchParams.set("cursor", cursor);
     const payload = object(await neonGet(url));
     if (!payload || !Array.isArray(payload.projects)) {
       throw new Error("Neon project response did not contain a projects list.");
     }
-    if (Array.isArray(payload.unavailable) && payload.unavailable.length) {
+    if (
+      Array.isArray(payload.unavailable_project_ids) &&
+      payload.unavailable_project_ids.length
+    ) {
       throw new Error(
-        "Neon project list was incomplete; some projects are unavailable.",
+        `Neon project list was incomplete; ${payload.unavailable_project_ids.length} projects are unavailable.`,
       );
     }
     for (const rawProject of payload.projects) {
       const project = object(rawProject);
-      if (typeof project?.id === "string" && typeof project.name === "string") {
-        projects.set(project.id, project.name);
-      }
+      if (typeof project?.id !== "string" || typeof project.name !== "string")
+        throw new Error("Neon project list contained an invalid project row.");
+      projects.set(project.id, project.name);
     }
     const pagination = object(payload.pagination);
     const nextCursor =
       typeof pagination?.cursor === "string" ? pagination.cursor : undefined;
     if (!nextCursor) return projects;
     if (seenCursors.has(nextCursor)) {
-      throw new Error("Neon project pagination repeated a cursor.");
+      throw new Error(
+        `Neon project pagination repeated a cursor after page ${page}; ${projects.size} projects were read and the last page contained ${payload.projects.length}. Cursor matches request: ${nextCursor === cursor}.`,
+      );
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
