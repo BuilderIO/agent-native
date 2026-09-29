@@ -74,7 +74,7 @@ test("does not create a core lane for an empty changed selection", () => {
   assertFullCoverage(lanes, []);
 });
 
-test("falls back to all core tests for fixture and config changes", () => {
+test("falls back to all core tests for fixture, config, and instruction changes", () => {
   assert.equal(
     requiresFullCoreFastTests([
       "packages/core/src/templates/default/app/config.json",
@@ -86,6 +86,9 @@ test("falls back to all core tests for fixture and config changes", () => {
     true,
   );
   assert.equal(requiresFullCoreFastTests(["vitest.shared.ts"]), true);
+  assert.equal(requiresFullCoreFastTests([".agents/skills/qa/SKILL.md"]), true);
+  assert.equal(requiresFullCoreFastTests(["AGENTS.md"]), true);
+  assert.equal(requiresFullCoreFastTests(["README.md"]), false);
   assert.equal(
     requiresFullCoreFastTests(["packages/core/docs/content/deployment.mdx"]),
     false,
