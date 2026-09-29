@@ -71,7 +71,9 @@ export async function cachedMemberships<T>(
   const hit = processMemberships.get(key);
   if (hit) return hit as T[];
   const rows = await load();
-  if (rows !== null) processMemberships.set(key, rows as unknown[]);
+  if (rows !== null && rows.length > 0) {
+    processMemberships.set(key, rows as unknown[]);
+  }
   return rows;
 }
 
