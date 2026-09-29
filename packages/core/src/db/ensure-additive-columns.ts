@@ -53,10 +53,8 @@
  *   surface `errors` in the returned summary.
  */
 
-import {
-  isProductionServerlessFunctionRuntime,
-  type DbExec,
-} from "./client.js";
+import type { DbExec } from "./client.js";
+import { isProductionServerlessFunctionRuntime } from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

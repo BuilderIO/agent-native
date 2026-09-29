@@ -53,6 +53,34 @@ describe("widenIntColumnsToBigInt", () => {
     expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
   });
 
+  it("skips production function probes even during migration duty but keeps release checks", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    const { client, calls } = fakeClient(["updated_at"]);
+
+    await widenIntColumnsToBigInt("settings", ["updated_at"], client);
+    expect(calls).toEqual([]);
+
+    await withMigrationRuntime(() =>
+      widenIntColumnsToBigInt("settings", ["updated_at"], client),
+    );
+    expect(calls).toEqual([]);
+
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    await withMigrationRuntime(() =>
+      widenIntColumnsToBigInt("settings", ["updated_at"], client),
+    );
+    expect(calls[0]).toMatch(/information_schema\.columns/i);
+    expect(calls).toContain(
+      "ALTER TABLE settings ALTER COLUMN updated_at TYPE BIGINT",
+    );
+  });
+
   it("rejects non-identifier table names (no query issued)", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { widenIntColumnsToBigInt } = await import("./widen-columns.js");

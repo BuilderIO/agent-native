@@ -7,7 +7,10 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "./client.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import {
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
 
 // Core plugins must serialize boot-time DDL for each database. The same
 // database can be reached through multiple Vite module runners, so keep this
@@ -179,15 +182,7 @@ function resolveMigrationSql(sql: MigrationSql): string | null {
 }
 
 function isServerlessRequestRuntime(): boolean {
-  if (process.env.NODE_ENV !== "production") return false;
-  return (
-    process.env.NETLIFY === "true" ||
-    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
-    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
-    Boolean(process.env.LAMBDA_TASK_ROOT) ||
-    process.env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    process.env.VERCEL === "1"
-  );
+  return isProductionServerlessFunctionRuntime();
 }
 
 function appMigratesAtRelease(): boolean {

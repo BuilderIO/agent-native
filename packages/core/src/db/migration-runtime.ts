@@ -13,6 +13,56 @@ type MigrationRuntimeGlobal = typeof globalThis & {
   __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
 };
 
+function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
+  return (
+    env.NODE_ENV === "test" ||
+    env.NETLIFY_LOCAL === "true" ||
+    env.VERCEL_ENV === "development"
+  );
+}
+
+export function hasCloudflareRuntime(): boolean {
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: unknown;
+    __env__?: unknown;
+  };
+  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
+}
+
+export function isProductionServerlessFunctionRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (isLocalFunctionRuntime(env)) return false;
+
+  return Boolean(
+    env.NETLIFY_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_VERSION ||
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    env.VERCEL_FUNCTION_ID ||
+    env.VERCEL_REGION ||
+    (env.NODE_ENV === "production" &&
+      (env.NETLIFY === "true" || env.VERCEL === "1")),
+  );
+}
+
+export function isHostedFunctionInvocationRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (hasCloudflareRuntime()) return true;
+  if (isLocalFunctionRuntime(env)) return false;
+
+  return Boolean(
+    env.NETLIFY_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    env.VERCEL_FUNCTION_ID ||
+    env.VERCEL_REGION,
+  );
+}
+
 export function isMigrationAuthorizedRuntime(): boolean {
   return (
     (globalThis as MigrationRuntimeGlobal)

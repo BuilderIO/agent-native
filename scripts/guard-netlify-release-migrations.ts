@@ -8,12 +8,10 @@ const REPO_ROOT = path.resolve(
 );
 const BETA_PREBUILT_WORKFLOW = ".github/workflows/deploy-netlify-prebuilt.yml";
 const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
-  "packages/core/src/db/migrations.ts",
   "packages/core/src/vite/client.ts",
   "packages/core/src/deploy/build.ts",
 ] as const;
 const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
-const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
 const MANAGED_DRIZZLE_SKILL_FILE = ".agents/skills/storing-data/SKILL.md";
 const FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES = [
   "packages/core/src/templates/default/scripts/migrate-production.ts",
@@ -204,16 +202,9 @@ export function validateBetaSchemaOwnerRuntimeContract(
       continue;
     }
     const source = readFileSync(file, "utf8");
-    const consumesConfigBackedMarker =
-      relativeFile === "packages/core/src/db/migrations.ts" &&
-      source.includes("getAppConfig") &&
-      source.includes(BETA_SCHEMA_OWNER_CONFIG_CONSUMER);
-    if (
-      !source.includes(BETA_SCHEMA_OWNER_MARKER) &&
-      !consumesConfigBackedMarker
-    ) {
+    if (!source.includes(BETA_SCHEMA_OWNER_MARKER)) {
       issues.push(
-        `${relativeFile}: must consume or embed ${BETA_SCHEMA_OWNER_MARKER} instead of treating it as a config-only marker`,
+        `${relativeFile}: must embed ${BETA_SCHEMA_OWNER_MARKER} in the release build configuration`,
       );
     }
   }

@@ -351,6 +351,12 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
         NETLIFY: "true",
       }),
     ).toBe(false);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "",
+        NETLIFY_FUNCTION_NAME: "docs",
+      }),
+    ).toBe(false);
   });
 
   it("keeps boot database work for local production and development", () => {

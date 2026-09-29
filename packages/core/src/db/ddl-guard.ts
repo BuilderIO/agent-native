@@ -8,16 +8,17 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { getDbExec, type DbExec } from "./client.js";
 import {
-  getDbExec,
+  isHostedFunctionInvocationRuntime,
+  isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
-  type DbExec,
-} from "./client.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+} from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function schemaEnsureDisabled(): boolean {
+  if (isHostedFunctionInvocationRuntime()) return true;
   if (isMigrationAuthorizedRuntime()) return false;
   if (isProductionServerlessFunctionRuntime()) return true;
   const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
@@ -363,6 +364,7 @@ export async function ensureIndexExistsConcurrently(
     injectedClient?: DbExec;
   } = {},
 ): Promise<boolean> {
+  if (schemaEnsureDisabled()) return false;
   const client = options.injectedClient ?? getDbExec();
   const initiallyExists = await pgIndexExists(indexName, client);
   if (initiallyExists === true) return false;

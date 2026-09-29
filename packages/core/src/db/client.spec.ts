@@ -298,15 +298,36 @@ describe("db/client Postgres URL handling", () => {
     });
   });
 
-  it("recognizes production serverless execution and honors local emulation", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    const { isProductionServerlessFunctionRuntime } =
-      await import("./client.js");
+  it("recognizes hosted function markers without NODE_ENV and honors local emulation", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
 
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NETLIFY_LOCAL", "true");
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it("does not classify local Vercel development as a hosted production function", async () => {
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    const vercelDevEnv = {
+      NODE_ENV: "production",
+      VERCEL: "1",
+      VERCEL_ENV: "development",
+      VERCEL_REGION: "local",
+      VERCEL_FUNCTION_ID: "local-function",
+    };
+
+    expect(isHostedFunctionInvocationRuntime(vercelDevEnv)).toBe(false);
+    expect(isProductionServerlessFunctionRuntime(vercelDevEnv)).toBe(false);
   });
 
   it("rejects request-time schema mutations but permits release migrations", async () => {
@@ -327,7 +348,20 @@ describe("db/client Postgres URL handling", () => {
       assertSchemaMutationAllowed(
         "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
       ),
-    ).not.toThrow();
+    ).toThrow(/release job/);
+
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("NETLIFY", "true");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    await expect(
+      withMigrationRuntime(async () => {
+        expect(() =>
+          assertSchemaMutationAllowed(
+            "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+          ),
+        ).not.toThrow();
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {

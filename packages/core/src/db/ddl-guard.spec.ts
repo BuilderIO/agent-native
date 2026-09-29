@@ -202,7 +202,7 @@ describe("ddl-guard", () => {
 
     it("skips schema probes automatically in a production function", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
-      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
@@ -216,9 +216,9 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("does NOT skip while the caller holds migration duty", async () => {
+    it("keeps skipping probes in a function even if migration duty is set", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
-      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
@@ -231,13 +231,13 @@ describe("ddl-guard", () => {
             injectedClient: client,
           }),
         ),
-      ).resolves.toBe(true);
-      expect(calls.length).toBeGreaterThan(0);
+      ).resolves.toBe(false);
+      expect(calls).toEqual([]);
     });
 
     it("resumes skipping once migration duty is released", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
-      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NODE_ENV", "");
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
       const { ensureTableExists } = await import("./ddl-guard.js");
@@ -606,6 +606,23 @@ describe("ddl-guard", () => {
       true,
     );
     expect(calls).not.toContain("BEGIN");
+  });
+
+  it("skips concurrent-index catalog probes in production requests", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
+    const { client, calls } = recordingClient();
+
+    await expect(
+      ensureIndexExistsConcurrently(
+        "sync_events_created_at_id_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+        { injectedClient: client },
+      ),
+    ).resolves.toBe(false);
+    expect(calls).toEqual([]);
   });
 
   it("drops an INVALID index before rebuilding it", async () => {
