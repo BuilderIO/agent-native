@@ -429,6 +429,9 @@ async function emitTelemetry(
           db_neon_pooled: db.neon?.pooled,
           db_operation_count: state.db.operationCount,
           db_query_count: state.db.queryCount,
+          db_rows_returned: state.db.rowsReturned,
+          db_catalog_query_count: state.db.catalogQueryCount,
+          db_migration_table_query_count: state.db.migrationTableQueryCount,
           db_connect_count: state.db.connectCount,
           db_retry_count: state.db.retryCount,
           db_error_count: state.db.errorCount,
@@ -440,6 +443,10 @@ async function emitTelemetry(
           db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
           startup_db_operation_count: state.startupDb?.operationCount,
           startup_db_query_count: state.startupDb?.queryCount,
+          startup_db_rows_returned: state.startupDb?.rowsReturned,
+          startup_db_catalog_query_count: state.startupDb?.catalogQueryCount,
+          startup_db_migration_table_query_count:
+            state.startupDb?.migrationTableQueryCount,
           startup_db_connect_count: state.startupDb?.connectCount,
           startup_db_retry_count: state.startupDb?.retryCount,
           startup_db_error_count: state.startupDb?.errorCount,
@@ -543,11 +550,29 @@ function originSnapshotDesc(state: HttpRequestTelemetryState): string {
   if (state.frameworkReadyWaitMs > 0) {
     parts.push(`startup=${Math.round(state.frameworkReadyWaitMs)}`);
   }
+  parts.push(
+    `dbq=${state.db.queryCount}`,
+    `dbrows=${state.db.rowsReturned}`,
+    `dbcatalog=${state.db.catalogQueryCount}`,
+    `dbmigrations=${state.db.migrationTableQueryCount}`,
+    `dbconnects=${state.db.connectCount}`,
+  );
   if (state.db.operationCount > 0) {
     parts.push(
       `db=${Math.round(state.db.operationWallMs)}`,
       `dbops=${state.db.operationCount}`,
     );
+  }
+  if (state.startupDb) {
+    parts.push(
+      `startupdbq=${state.startupDb.queryCount}`,
+      `startupdbrows=${state.startupDb.rowsReturned}`,
+      `startupdbcatalog=${state.startupDb.catalogQueryCount}`,
+      `startupdbmigrations=${state.startupDb.migrationTableQueryCount}`,
+      `startupdbconnects=${state.startupDb.connectCount}`,
+    );
+  } else {
+    parts.push("startupdb=unavailable");
   }
   return parts.join(" ");
 }
@@ -627,6 +652,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       requestSequence: ++processState.requestSequence,
       frameworkReadyWaitMs: 0,
       db: createDatabaseRequestTelemetry(),
+      startupDb: claimStartupDatabaseTelemetry(),
     };
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
@@ -701,12 +727,25 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         "db-slowest",
         state.db.slowestOperationMs,
       );
-      // db-ops counts a pool connect and its query separately, so a statement
-      // budget has to read these two instead.
-      appendServerTiming(response, event, "db-queries", state.db.queryCount);
-      appendServerTiming(response, event, "db-connects", state.db.connectCount);
     }
-    if (state.startupDb && state.startupDb.operationCount > 0) {
+    // db-ops counts a pool connect and its query separately, so statement
+    // budgets read these counters even when the observed value is zero.
+    appendServerTiming(response, event, "db-queries", state.db.queryCount);
+    appendServerTiming(response, event, "db-connects", state.db.connectCount);
+    appendServerTiming(response, event, "db-rows", state.db.rowsReturned);
+    appendServerTiming(
+      response,
+      event,
+      "db-catalog",
+      state.db.catalogQueryCount,
+    );
+    appendServerTiming(
+      response,
+      event,
+      "db-migrations",
+      state.db.migrationTableQueryCount,
+    );
+    if (state.startupDb) {
       appendServerTiming(
         response,
         event,
@@ -718,6 +757,30 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         event,
         "startup-db-connect",
         state.startupDb.connectTotalMs,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-queries",
+        state.startupDb.queryCount,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-rows",
+        state.startupDb.rowsReturned,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-catalog",
+        state.startupDb.catalogQueryCount,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-migrations",
+        state.startupDb.migrationTableQueryCount,
       );
     }
 

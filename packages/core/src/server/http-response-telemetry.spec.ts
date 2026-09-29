@@ -161,6 +161,33 @@ describe("http response telemetry", () => {
     );
   });
 
+  it("includes measured DB counters on cacheable cold pages", async () => {
+    const { requestHooks, responseHooks } = createHooks();
+    const event = eventFor("/");
+    await requestHooks[0](event);
+    await withDbTimeout(
+      "query",
+      async () => ({ rows: [{ name: "forms" }, { name: "responses" }] }),
+      100,
+      undefined,
+      {
+        sql: "SELECT name FROM information_schema.columns JOIN forms_migrations ON true",
+      },
+    );
+
+    const response = new Response("<html></html>", {
+      headers: { "cache-control": "public, s-maxage=60" },
+    });
+    await responseHooks[0](response, event);
+
+    const timing = response.headers.get("server-timing") ?? "";
+    expect(timing).toContain("dbq=1");
+    expect(timing).toContain("dbrows=2");
+    expect(timing).toContain("dbcatalog=1");
+    expect(timing).toContain("dbmigrations=1");
+    expect(timing).toMatch(/startupdb(?:q=|=unavailable)/);
+  });
+
   it("flushes the response OTel mirror from its request scope", async () => {
     const spanNames: string[] = [];
     __setAgentTracerForTests({

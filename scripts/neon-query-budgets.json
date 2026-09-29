@@ -1,0 +1,29 @@
+{
+  "tolerance": {
+    "absolute": 1,
+    "percent": 0.1
+  },
+  "templates": {
+    "analytics": { "action": "list-analyses" },
+    "assets": { "action": "list-assets" },
+    "brain": { "action": "list-captures" },
+    "calendar": { "action": "list-booking-links" },
+    "chat": { "action": null },
+    "clips": { "action": "list-recordings" },
+    "content": { "action": "list-documents" },
+    "crm": { "action": "list-crm-lists" },
+    "design": { "action": "list-designs" },
+    "dispatch": { "action": "list-workspace-connections" },
+    "factory": { "action": "list-factories" },
+    "forms": { "action": "list-forms" },
+    "mail": { "action": "list-inbox-threads" },
+    "plan": { "action": "list-visual-plans" },
+    "slides": { "action": "list-decks" },
+    "tasks": { "action": "list-tasks" },
+    "videos": {
+      "action": null,
+      "status": "retired",
+      "reason": "Retired compatibility shell; it has no production serverless request handler."
+    }
+  }
+}

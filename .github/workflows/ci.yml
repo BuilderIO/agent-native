@@ -35,6 +35,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -588,6 +589,71 @@ jobs:
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
 
+  neon-query-budget:
+    name: Cold-request query budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AUTH_DISABLED: "true"
+      BETTER_AUTH_SECRET: neon-query-budget-test-secret
+      DATABASE_URL: pglite:memory
+      NETLIFY: "true"
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Build and measure every active first-party template
+        run: |
+          set -euo pipefail
+          for app in analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides tasks; do
+            app_dir="templates/$app"
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            NITRO_PRESET=netlify pnpm --filter "$app" build
+            pnpm ops:neon-query-budget --app "$app" --mode measure
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+          done
+
+  neon-connection-budget:
+    name: Serverless Postgres connection budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: neon-budget
+          POSTGRES_DB: neon_budget
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d neon_budget"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # guard:allow-secret-literal — local ephemeral CI Postgres service only.
+      DATABASE_URL: postgresql://postgres:neon-budget@127.0.0.1:5432/neon_budget
+      NETLIFY: "true"
+      NETLIFY_FUNCTION_NAME: neon-query-budget
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Measure one cold and five warm requests against local Postgres
+        run: pnpm ops:neon-connection-budget
+
   trusted-acceptance:
     name: Trusted acceptance substrate
     needs: change-scope
@@ -781,6 +847,9 @@ jobs:
 
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
+
+      - name: Test Neon transfer alert and offline backtest
+        run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards
         run: |
