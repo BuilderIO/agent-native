@@ -10289,13 +10289,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
       var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
-      var angle = independentRotation(cs.rotate || "");
-      var radians = angle * Math.PI / 180;
+      var rotation = radiusRotationMatrix(cs.rotate || "");
+      if (!rotation) {
+        return { a: NaN, b: NaN, c: NaN, d: NaN };
+      }
       var result = composeRadiusLinearTransform(
         transform,
         scaleX,
         scaleY,
-        radians
+        rotation
       );
       var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
       if (Number.isFinite(zoom) && zoom > 0) {
@@ -10309,14 +10311,39 @@ export const editorChromeBridgeScript: string = `"use strict";
     function radiusLinearTransform(el) {
       return radiusLinearTransformForStyle(window.getComputedStyle(el));
     }
-    function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
-      var cos = Math.cos(radians);
-      var sin = Math.sin(radians);
+    function radiusRotationMatrix(rotate) {
+      var value = String(rotate || "").trim();
+      if (!value || value === "none") {
+        return { a: 1, b: 0, c: 0, d: 1 };
+      }
+      var parts = value.split(/\\s+/);
+      var angle = parts.pop();
+      var axis = parts;
+      if (axis.length === 0) {
+        axis = ["0", "0", "1"];
+      } else if (axis.length === 1) {
+        var namedAxis = axis[0].toLowerCase();
+        axis = namedAxis === "x" ? ["1", "0", "0"] : namedAxis === "y" ? ["0", "1", "0"] : namedAxis === "z" ? ["0", "0", "1"] : [];
+      }
+      if (axis.length !== 3 || !window.DOMMatrixReadOnly) {
+        return null;
+      }
+      try {
+        var matrix = new DOMMatrixReadOnly(
+          "rotate3d(" + axis.join(",") + "," + angle + ")"
+        );
+        return { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+      } catch (err) {
+        void err;
+        return null;
+      }
+    }
+    function composeRadiusLinearTransform(transform, scaleX, scaleY, rotation) {
       var independent = {
-        a: cos * scaleX,
-        b: sin * scaleX,
-        c: -sin * scaleY,
-        d: cos * scaleY
+        a: rotation.a * scaleX,
+        b: rotation.b * scaleX,
+        c: rotation.c * scaleY,
+        d: rotation.d * scaleY
       };
       return {
         a: independent.a * transform.a + independent.c * transform.b,
@@ -17934,8 +17961,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       function applyRadius(nextX, nextY) {
-        var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
-        var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+        var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX * 100) / 100));
+        var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY * 100) / 100));
         var value = x === y ? x + "px" : x + "px " + y + "px";
         if (wholeShape) {
           radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";

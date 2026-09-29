@@ -6684,6 +6684,217 @@ it(
   },
 );
 
+it.each([
+  {
+    axis: "x",
+    rotate: "x 25deg",
+    matrixAxis: "1,0,0",
+    dx: 0,
+    dy: 12,
+  },
+  {
+    axis: "y",
+    rotate: "y 25deg",
+    matrixAxis: "0,1,0",
+    dx: 12,
+    dy: 0,
+  },
+  {
+    axis: "arbitrary",
+    rotate: "1 2 3 25deg",
+    matrixAxis: "1,2,3",
+    dx: 12,
+    dy: 9,
+  },
+])(
+  "editor chrome bridge tracks radius drags through independent $axis-axis rotation",
+  { timeout: 30_000 },
+  async ({ rotate, matrixAxis, dx, dy }) => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .rotated-parent {
+        position: absolute;
+        left: 360px;
+        top: 100px;
+        width: 240px;
+        height: 240px;
+        transform-origin: 0 0;
+        rotate: ${rotate};
+        scale: 2 3;
+      }
+      #target {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 100px;
+        height: 60px;
+        border-top-left-radius: 20px;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotated-parent" data-agent-native-node-id="parent">
+      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle"></div>
+    </div>
+  </body>
+</html>`);
+      await page.evaluate(() => {
+        (window as any).__radiusPointerMoves = [];
+        (window as any).__radiusPointerStart = null;
+        document.addEventListener(
+          "mousedown",
+          (event) => {
+            (window as any).__radiusPointerStart = {
+              x: event.clientX,
+              y: event.clientY,
+            };
+          },
+          true,
+        );
+        document.addEventListener(
+          "mousemove",
+          (event) => {
+            (window as any).__radiusPointerMoves.push({
+              x: event.clientX,
+              y: event.clientY,
+            });
+          },
+          true,
+        );
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return handle && window.getComputedStyle(handle).display === "block";
+      });
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle not visible");
+      const computedRotate = await page
+        .locator(".rotated-parent")
+        .evaluate((el) => getComputedStyle(el).rotate);
+      expect(computedRotate).not.toBe("none");
+      const expectedHandle = await page.evaluate((axis) => {
+        const rotation = new DOMMatrixReadOnly("rotate3d(" + axis + ",25deg)");
+        const matrix = {
+          a: rotation.a * 2,
+          b: rotation.b * 2,
+          c: rotation.c * 3,
+          d: rotation.d * 3,
+        };
+        const xLength = Math.hypot(matrix.a, matrix.b) || 1;
+        const yLength = Math.hypot(matrix.c, matrix.d) || 1;
+        return {
+          x:
+            360 +
+            matrix.a * 40 +
+            matrix.c * 40 +
+            4 * (matrix.a / xLength + matrix.c / yLength),
+          y:
+            100 +
+            matrix.b * 40 +
+            matrix.d * 40 +
+            4 * (matrix.b / xLength + matrix.d / yLength),
+        };
+      }, matrixAxis);
+      expect(handleBox.x + handleBox.width / 2).toBeCloseTo(
+        expectedHandle.x,
+        0,
+      );
+      expect(handleBox.y + handleBox.height / 2).toBeCloseTo(
+        expectedHandle.y,
+        0,
+      );
+      const startX = handleBox.x + handleBox.width / 2;
+      const startY = handleBox.y + handleBox.height / 2;
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      for (const distance of [3, 6, 9, 12]) {
+        const pointerX = startX + (dx * distance) / 12;
+        const pointerY = startY + (dy * distance) / 12;
+        await page.mouse.move(pointerX, pointerY);
+        const pointerState = await page.evaluate(() => ({
+          start: (window as any).__radiusPointerStart,
+          current: (window as any).__radiusPointerMoves.at(-1),
+        }));
+        const movedHandleBox = await handle.boundingBox();
+        if (!movedHandleBox) throw new Error("radius handle disappeared");
+        expect(
+          Math.abs(
+            movedHandleBox.x +
+              movedHandleBox.width / 2 -
+              pointerState.current.x,
+          ),
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(
+            movedHandleBox.y +
+              movedHandleBox.height / 2 -
+              pointerState.current.y,
+          ),
+        ).toBeLessThanOrEqual(1);
+        const expectedRadius = await page.evaluate(
+          ({ axis, start, current }) => {
+            const rotation = new DOMMatrixReadOnly(
+              "rotate3d(" + axis + ",25deg)",
+            );
+            const matrix = {
+              a: rotation.a * 2,
+              b: rotation.b * 2,
+              c: rotation.c * 3,
+              d: rotation.d * 3,
+            };
+            const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+            const dx = current.x - start.x;
+            const dy = current.y - start.y;
+            return {
+              x: 20 + (matrix.d * dx - matrix.c * dy) / determinant,
+              y: 20 + (-matrix.b * dx + matrix.a * dy) / determinant,
+            };
+          },
+          { axis: matrixAxis, ...pointerState },
+        );
+        const actualRadius = await page.locator("#target").evaluate((el) =>
+          getComputedStyle(el)
+            .borderTopLeftRadius.split(/\s+/)
+            .map((part) => parseFloat(part)),
+        );
+        if (
+          Math.abs(actualRadius[0] - expectedRadius.x) >= 0.05 ||
+          Math.abs(actualRadius[1] - expectedRadius.y) >= 0.05
+        ) {
+          throw new Error(
+            JSON.stringify({ pointerState, expectedRadius, actualRadius }),
+          );
+        }
+      }
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "shows rectangle radius handles without a fill and hides unsupported shapes",
   { timeout: 30_000 },
@@ -6861,7 +7072,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body>
-  <div style="position:absolute;left:160px;top:120px;transform:rotate(45deg) scale(0,1);transform-origin:0 0"><div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px"></div></div>
+  <div style="position:absolute;left:160px;top:120px;transform:rotate(45deg);rotate:x 90deg;scale:2 3;transform-origin:0 0"><div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px"></div></div>
 </body></html>`);
       const pageErrors: string[] = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
