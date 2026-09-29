@@ -166,4 +166,137 @@ describe("runtime configuration diagnostics", () => {
       requiredEnv: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"],
     });
   });
+
+  describe("with the running server's missing-settings answer", () => {
+    const none = {
+      databaseSource: null,
+      authSecretKey: null,
+      a2aSecretMissing: false,
+    } as const;
+
+    it("reports a refused missing database as an error even when NODE_ENV is unset", () => {
+      // A Netlify function never sets NODE_ENV, so the environment reads as
+      // development while the server still refuses sign-up.
+      const report = getRuntimeConfigReport(
+        {},
+        {},
+        {
+          phase: "runtime",
+          appName: "chat",
+          missingDeploySettings: { ...none, databaseSource: "default" },
+        },
+      );
+
+      expect(report.environment).toBe("development");
+      expect(report.status).toBe("error");
+      expect(report.issues).toEqual([
+        expect.objectContaining({
+          code: "missing-database-url",
+          severity: "error",
+          envKeys: [
+            "CHAT_DATABASE_URL",
+            "DATABASE_URL",
+            "NETLIFY_DATABASE_URL",
+          ],
+        }),
+      ]);
+    });
+
+    it("names the variable that resolved to local PGlite", () => {
+      const report = getRuntimeConfigReport(
+        { NODE_ENV: "production", BETTER_AUTH_SECRET: "a".repeat(64) },
+        {},
+        {
+          phase: "runtime",
+          missingDeploySettings: { ...none, databaseSource: "DATABASE_URL" },
+        },
+      );
+
+      expect(report.issues).toEqual([
+        expect.objectContaining({
+          code: "local-database-in-production",
+          severity: "error",
+          envKeys: ["DATABASE_URL"],
+        }),
+      ]);
+    });
+
+    it("reports a refused auth secret as an error even when NODE_ENV is unset", () => {
+      const report = getRuntimeConfigReport(
+        {},
+        {},
+        {
+          phase: "runtime",
+          missingDeploySettings: {
+            ...none,
+            authSecretKey: "BETTER_AUTH_SECRET",
+          },
+        },
+      );
+
+      expect(report.issues).toEqual([
+        expect.objectContaining({
+          code: "missing-auth-secret",
+          severity: "error",
+          envKeys: ["BETTER_AUTH_SECRET"],
+        }),
+      ]);
+    });
+
+    it("asks a workspace for A2A_SECRET once, since it also derives the auth secret", () => {
+      const report = getRuntimeConfigReport(
+        {},
+        {},
+        {
+          phase: "runtime",
+          missingDeploySettings: {
+            ...none,
+            authSecretKey: "A2A_SECRET",
+            a2aSecretMissing: true,
+          },
+        },
+      );
+
+      expect(report.issues.map((issue) => issue.code)).toEqual([
+        "missing-a2a-secret",
+      ]);
+      expect(report.issues[0]).toMatchObject({
+        severity: "error",
+        envKeys: ["A2A_SECRET"],
+      });
+    });
+
+    it("trusts the server over the env-name checks when nothing is missing", () => {
+      // Only an unpooled URL is set and no BETTER_AUTH_SECRET: the env-name
+      // checks would flag both, but the server resolves the database and a
+      // workspace-derived auth secret.
+      const report = getRuntimeConfigReport(
+        {
+          NODE_ENV: "production",
+          NETLIFY_DATABASE_URL_UNPOOLED: "postgres://db.example/app",
+        },
+        {},
+        { phase: "runtime", missingDeploySettings: none },
+      );
+
+      expect(report).toMatchObject({ ok: true, issues: [] });
+    });
+
+    it("skips answers for requirements the app opts out of", () => {
+      const report = getRuntimeConfigReport(
+        {},
+        { databaseRequired: false, authEnabled: false },
+        {
+          phase: "runtime",
+          missingDeploySettings: {
+            databaseSource: "default",
+            authSecretKey: "BETTER_AUTH_SECRET",
+            a2aSecretMissing: false,
+          },
+        },
+      );
+
+      expect(report.issues).toEqual([]);
+    });
+  });
 });

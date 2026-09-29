@@ -101,9 +101,9 @@ import {
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
-  isExplicitLocalDeployEnvironment,
-  resolveDeployEnvironment,
-} from "./deploy-environment.js";
+  getMissingAuthSecretKey,
+  MissingAuthSecretError,
+} from "./deploy-settings.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   renderChangeEmailConfirmationEmail,
@@ -547,19 +547,14 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
-  const deployEnvironment = resolveDeployEnvironment();
-  const explicitlyLocal = isExplicitLocalDeployEnvironment();
-
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
   // signed session cookie on the next cold start (serverless filesystems
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
-  // so the deployer notices.
-  if (
-    deployEnvironment !== "local" ||
-    (process.env.NODE_ENV === "production" && !explicitlyLocal)
-  ) {
+  // so the deployer notices. The sign-in banner reports the same decision
+  // through getMissingDeploySettings(), so keep it the only one.
+  if (getMissingAuthSecretKey() !== null) {
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -569,7 +564,7 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
         appName: process.env.APP_NAME,
       },
     );
-    throw new Error(formatRuntimeConfigReport(report));
+    throw new MissingAuthSecretError(formatRuntimeConfigReport(report));
   }
 
   const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));

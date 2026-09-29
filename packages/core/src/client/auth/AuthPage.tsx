@@ -16,6 +16,12 @@ import type {
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
+  DEPLOY_SETTINGS_REQUIRED_CODE,
+  parseRuntimeConfigReport,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigReport,
+} from "../../shared/runtime-config.js";
+import {
   isVerificationLinkInvalid,
   signInJourney,
   type SignInJourney,
@@ -161,6 +167,104 @@ function authErrorText(
     return fallback;
   }
   return message;
+}
+
+// The configuration probe also reports weak secrets, the auth URL, and
+// app-declared env keys; those belong to the in-app notice, and this public
+// page must never advertise a weak but working secret. The banner answers only
+// the settings the server refuses or needs outright.
+const REQUIRED_SETTING_ISSUE_CODES = new Set<RuntimeConfigIssueCode>([
+  "missing-database-url",
+  "local-database-in-production",
+  "missing-auth-secret",
+  "missing-a2a-secret",
+]);
+
+/** The env keys the banner names, one per missing setting. */
+function missingSettingKeys(report: RuntimeConfigReport): string[] {
+  const keys = new Set<string>();
+  for (const issue of report.issues) {
+    if (!REQUIRED_SETTING_ISSUE_CODES.has(issue.code)) continue;
+    // missing-database-url lists every alias the runtime accepts; the banner
+    // names the one the deploy docs tell people to set.
+    const key =
+      issue.code === "missing-database-url" ? "DATABASE_URL" : issue.envKeys[0];
+    if (key) keys.add(key);
+  }
+  return [...keys];
+}
+
+// One section covers DATABASE_URL, BETTER_AUTH_SECRET, and A2A_SECRET.
+const DEPLOY_SETTINGS_DOCS_URL =
+  "https://www.agent-native.com/docs/deployment/#persistent-database";
+
+function DeploySettingsNotice({
+  keys,
+  message,
+  linkLabel,
+}: {
+  keys: string[];
+  message: string;
+  linkLabel: string;
+}) {
+  const [before, after = ""] = message.split("{keys}");
+  return (
+    <div
+      className="deploy-settings-notice"
+      role="alert"
+      data-testid="deploy-settings-notice"
+    >
+      <svg
+        className="deploy-settings-notice-icon"
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" />
+        <path d="M12 9h.01" />
+        <path d="M11 12h1v4h1" />
+      </svg>
+      <div className="deploy-settings-notice-body">
+        <p
+          className="deploy-settings-notice-message"
+          data-i18n="deploySettingsMissingNotice"
+        >
+          {before}
+          {keys.map((key, index) => (
+            <React.Fragment key={key}>
+              {index > 0 ? ", " : null}
+              <code>{key}</code>
+            </React.Fragment>
+          ))}
+          {after}
+        </p>
+        <a
+          className="deploy-settings-notice-link"
+          href={DEPLOY_SETTINGS_DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <span data-i18n="deploySettingsDocsLink">{linkLabel}</span>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M17 7l-10 10" />
+            <path d="M8 7l9 0l0 9" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  );
 }
 
 export function shouldRetryAuthSessionProbe(
@@ -740,6 +844,7 @@ export function AuthPage(props: AuthPageProps) {
   const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
   const [sessionProbeAnonymous, setSessionProbeAnonymous] =
     React.useState(false);
+  const [missingSettings, setMissingSettings] = React.useState<string[]>([]);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -831,6 +936,42 @@ export function AuthPage(props: AuthPageProps) {
       );
     },
     [messages],
+  );
+  // The banner reports only a report the server actually returned: an
+  // unanswered or malformed probe shows nothing and claims nothing, and the
+  // server still refuses sign-up on its own.
+  const refreshMissingSettings = React.useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const { response, data } = await requestJson(
+          `${apiPath("/_agent-native/ping")}?configuration=1`,
+          {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+            signal,
+          },
+        );
+        const report = parseRuntimeConfigReport(data.configuration);
+        if (response.ok && report)
+          setMissingSettings(missingSettingKeys(report));
+      } catch {
+        // coercion-ok: see above; an unanswered probe leaves the banner as is.
+      }
+    },
+    [apiPath],
+  );
+  // Sign-up and sign-in are what a deploy missing a required setting refuses.
+  // Their code asks the probe again, so the banner can name what is missing
+  // when the first probe never answered.
+  const accountFailureText = React.useCallback(
+    (data: Record<string, unknown>, fallback: string) => {
+      if (data.code === DEPLOY_SETTINGS_REQUIRED_CODE) {
+        void refreshMissingSettings();
+        return t("deploySettingsMissingError");
+      }
+      return authErrorText(data, fallback, t("signupInviteOnly"));
+    },
+    [refreshMissingSettings, t],
   );
 
   const pendingEmailStorageKey = React.useCallback(
@@ -965,6 +1106,19 @@ export function AuthPage(props: AuthPageProps) {
     };
     void probe().finally(() => setSessionProbeComplete(true));
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (!runtimeBasePathResolved) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    void refreshMissingSettings(controller.signal).finally(() =>
+      window.clearTimeout(timeout),
+    );
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [refreshMissingSettings, runtimeBasePathResolved]);
 
   React.useEffect(() => {
     if (
@@ -1881,11 +2035,7 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("signup", {
             kind: "error",
-            text: authErrorText(
-              data,
-              t("registrationFailed"),
-              t("signupInviteOnly"),
-            ),
+            text: accountFailureText(data, t("registrationFailed")),
           });
           return;
         }
@@ -1906,10 +2056,9 @@ export function AuthPage(props: AuthPageProps) {
           redirectToSignedInApp();
           return;
         }
-        const loginError = authErrorText(
+        const loginError = accountFailureText(
           loginResult.data,
           t("registrationFailed"),
-          t("signupInviteOnly"),
         );
         if (
           loginResult.response.status === 403 &&
@@ -1929,6 +2078,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     },
     [
+      accountFailureText,
       apiPath,
       identityBootstrapHref,
       pendingEmailStorageKey,
@@ -1986,7 +2136,7 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("login", {
           kind: "error",
-          text: authErrorText(data, t("invalidLogin"), t("signupInviteOnly")),
+          text: accountFailureText(data, t("invalidLogin")),
         });
       } catch {
         setNotice("login", { kind: "error", text: t("networkErrorDashRetry") });
@@ -1995,6 +2145,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     },
     [
+      accountFailureText,
       apiPath,
       loginEmail,
       loginPassword,
@@ -2496,6 +2647,13 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
+      {missingSettings.length > 0 ? (
+        <DeploySettingsNotice
+          keys={missingSettings}
+          message={t("deploySettingsMissingNotice")}
+          linkLabel={t("deploySettingsDocsLink")}
+        />
+      ) : null}
       {identitySsoEnabled && !identitySsoAuto && !googleOnly ? (
         <div className="identity-sso-entry" id="identity-sso-entry">
           <a

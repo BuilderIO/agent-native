@@ -223,6 +223,11 @@ const EN_AUTH_COPY = {
   passwordsMismatch: "Passwords do not match.",
   creatingAccount: "Creating account…",
   registrationFailed: "We couldn't create your account. Please try again.",
+  deploySettingsMissingNotice:
+    "Missing or invalid environment variables: {keys}. Add them in your hosting provider's production environment variable settings, then redeploy.",
+  deploySettingsMissingError:
+    "Accounts are unavailable until this deployment is set up.",
+  deploySettingsDocsLink: "Read the setup guide",
   accountCreatedSigningIn: "Account created — signing you in…",
   emailVerifiedFinishing: "Email verified. Finishing sign-in...",
   emailVerifiedSignIn: "Email verified. Sign in to continue.",
@@ -303,6 +308,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "两次输入的密码不一致",
     creatingAccount: "正在创建账户…",
     registrationFailed: "注册失败",
+    deploySettingsMissingNotice:
+      "缺少环境变量或环境变量无效：{keys}。请在托管平台的生产环境变量设置中添加它们，然后重新部署。",
+    deploySettingsMissingError: "此部署完成设置之前，账户不可用。",
+    deploySettingsDocsLink: "查看设置指南",
     accountCreatedSigningIn: "账户已创建 — 正在登录…",
     emailVerifiedFinishing: "邮箱已验证。正在完成登录...",
     emailVerifiedSignIn: "邮箱已验证。请登录以继续。",
@@ -379,6 +388,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "兩次輸入的密碼不一致",
     creatingAccount: "正在建立帳號...",
     registrationFailed: "註冊失敗",
+    deploySettingsMissingNotice:
+      "缺少環境變數或環境變數無效：{keys}。請在託管平台的正式環境變數設定中新增它們，然後重新部署。",
+    deploySettingsMissingError: "此部署完成設定之前，帳戶無法使用。",
+    deploySettingsDocsLink: "查看設定指南",
     accountCreatedSigningIn: "帳號已建立，正在登入...",
     emailVerifiedFinishing: "電子郵件已驗證。正在完成登入...",
     emailVerifiedSignIn: "電子郵件已驗證。請登入以繼續。",
@@ -463,6 +476,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Las contraseñas no coinciden",
     creatingAccount: "Creando cuenta…",
     registrationFailed: "Error al registrarse",
+    deploySettingsMissingNotice:
+      "Faltan variables de entorno o no son válidas: {keys}. Agrégalas en la configuración de variables de entorno de producción de tu proveedor de hosting y vuelve a desplegar.",
+    deploySettingsMissingError:
+      "Las cuentas no estarán disponibles hasta que este despliegue esté configurado.",
+    deploySettingsDocsLink: "Ver la guía de configuración",
     accountCreatedSigningIn: "Cuenta creada — iniciando sesión…",
     emailVerifiedFinishing: "Email verificado. Terminando inicio de sesión...",
     emailVerifiedSignIn: "Email verificado. Inicia sesión para continuar.",
@@ -550,6 +568,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Les mots de passe ne correspondent pas",
     creatingAccount: "Création du compte…",
     registrationFailed: "Échec de l'inscription",
+    deploySettingsMissingNotice:
+      "Variables d'environnement manquantes ou invalides : {keys}. Ajoutez-les dans les paramètres des variables d'environnement de production de votre hébergeur, puis redéployez.",
+    deploySettingsMissingError:
+      "Les comptes sont indisponibles tant que ce déploiement n'est pas configuré.",
+    deploySettingsDocsLink: "Lire le guide de configuration",
     accountCreatedSigningIn: "Compte créé — connexion en cours…",
     emailVerifiedFinishing: "E-mail vérifié. Connexion en cours...",
     emailVerifiedSignIn: "E-mail vérifié. Connectez-vous pour continuer.",
@@ -638,6 +661,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Die Passwörter stimmen nicht überein",
     creatingAccount: "Konto wird erstellt…",
     registrationFailed: "Registrierung fehlgeschlagen",
+    deploySettingsMissingNotice:
+      "Fehlende oder ungültige Umgebungsvariablen: {keys}. Füge sie in den Produktions-Umgebungsvariablen deines Hosting-Anbieters hinzu und stelle dann neu bereit.",
+    deploySettingsMissingError:
+      "Konten sind nicht verfügbar, solange dieses Deployment nicht eingerichtet ist.",
+    deploySettingsDocsLink: "Einrichtungsanleitung lesen",
     accountCreatedSigningIn: "Konto erstellt — Anmeldung läuft…",
     emailVerifiedFinishing: "E-Mail bestätigt. Anmeldung wird abgeschlossen...",
     emailVerifiedSignIn: "E-Mail bestätigt. Melde dich an, um fortzufahren.",
@@ -722,6 +750,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "パスワードが一致しません",
     creatingAccount: "アカウントを作成中…",
     registrationFailed: "登録に失敗しました",
+    deploySettingsMissingNotice:
+      "環境変数が不足しているか無効です: {keys}。ホスティングプロバイダーの本番環境変数設定で追加してから、再デプロイしてください。",
+    deploySettingsMissingError:
+      "このデプロイの設定が完了するまで、アカウントは利用できません。",
+    deploySettingsDocsLink: "セットアップガイドを見る",
     accountCreatedSigningIn: "アカウントを作成しました — サインイン中…",
     emailVerifiedFinishing: "メールを確認しました。サインインを完了中...",
     emailVerifiedSignIn:
@@ -805,6 +838,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "비밀번호가 일치하지 않습니다",
     creatingAccount: "계정 생성 중…",
     registrationFailed: "가입 실패",
+    deploySettingsMissingNotice:
+      "환경 변수가 없거나 유효하지 않습니다: {keys}. 호스팅 제공업체의 프로덕션 환경 변수 설정에 추가한 다음 다시 배포하세요.",
+    deploySettingsMissingError:
+      "이 배포의 설정이 완료될 때까지 계정을 사용할 수 없습니다.",
+    deploySettingsDocsLink: "설정 가이드 보기",
     accountCreatedSigningIn: "계정 생성됨 — 로그인 중…",
     emailVerifiedFinishing: "이메일 확인됨. 로그인 완료 중...",
     emailVerifiedSignIn: "이메일 확인됨. 계속하려면 로그인하세요.",
@@ -889,6 +927,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "As senhas não conferem",
     creatingAccount: "Criando conta…",
     registrationFailed: "Falha no cadastro",
+    deploySettingsMissingNotice:
+      "Variáveis de ambiente ausentes ou inválidas: {keys}. Adicione-as nas configurações de variáveis de ambiente de produção do seu provedor de hospedagem e faça um novo deploy.",
+    deploySettingsMissingError:
+      "As contas ficam indisponíveis até que esta implantação esteja configurada.",
+    deploySettingsDocsLink: "Ver o guia de configuração",
     accountCreatedSigningIn: "Conta criada — entrando…",
     emailVerifiedFinishing: "Email verificado. Concluindo login...",
     emailVerifiedSignIn: "Email verificado. Entre para continuar.",
@@ -971,6 +1014,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "पासवर्ड मेल नहीं खाते",
     creatingAccount: "खाता बनाया जा रहा है…",
     registrationFailed: "रजिस्ट्रेशन असफल",
+    deploySettingsMissingNotice:
+      "एनवायरनमेंट वेरिएबल मौजूद नहीं हैं या अमान्य हैं: {keys}. इन्हें अपने होस्टिंग प्रोवाइडर की प्रोडक्शन एनवायरनमेंट वेरिएबल सेटिंग्स में जोड़ें, फिर दोबारा डिप्लॉय करें।",
+    deploySettingsMissingError:
+      "जब तक यह डिप्लॉयमेंट सेट अप नहीं होता, अकाउंट उपलब्ध नहीं हैं।",
+    deploySettingsDocsLink: "सेटअप गाइड देखें",
     accountCreatedSigningIn: "खाता बन गया — साइन इन हो रहा है…",
     emailVerifiedFinishing: "ईमेल सत्यापित। साइन इन पूरा हो रहा है...",
     emailVerifiedSignIn: "ईमेल सत्यापित। जारी रखने के लिए साइन इन करें।",
@@ -1053,6 +1101,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "كلمتا المرور غير متطابقتين",
     creatingAccount: "جارٍ إنشاء الحساب…",
     registrationFailed: "فشل التسجيل",
+    deploySettingsMissingNotice:
+      "متغيرات البيئة مفقودة أو غير صالحة: {keys}. أضفها في إعدادات متغيرات بيئة الإنتاج لدى مزود الاستضافة، ثم أعد النشر.",
+    deploySettingsMissingError:
+      "الحسابات غير متاحة إلى أن يكتمل إعداد عملية النشر هذه.",
+    deploySettingsDocsLink: "اقرأ دليل الإعداد",
     accountCreatedSigningIn: "تم إنشاء الحساب — جارٍ تسجيل الدخول…",
     emailVerifiedFinishing: "تم التحقق من البريد. جارٍ إكمال تسجيل الدخول...",
     emailVerifiedSignIn: "تم التحقق من البريد. سجّل الدخول للمتابعة.",
@@ -1852,6 +1905,62 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .msg.error { color: #f87171; }
   .msg.success { color: #33C4FF; }
   .msg.show { display: block; }
+  .deploy-settings-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    margin: 0 0 1.25rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, currentColor 4%, transparent);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    text-align: start;
+  }
+  .deploy-settings-notice-icon {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.125rem;
+    color: color-mix(in srgb, currentColor 65%, transparent);
+  }
+  .deploy-settings-notice-body { min-width: 0; }
+  .deploy-settings-notice-message {
+    margin: 0;
+    color: color-mix(in srgb, currentColor 75%, transparent);
+    overflow-wrap: anywhere;
+  }
+  .deploy-settings-notice-message code {
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 4px;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.75rem;
+  }
+  .deploy-settings-notice-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    color: inherit;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .deploy-settings-notice-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .deploy-settings-notice-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, currentColor 50%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .deploy-settings-notice-link svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+  [dir="rtl"] .deploy-settings-notice-link svg { transform: scaleX(-1); }
   .step-progress {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

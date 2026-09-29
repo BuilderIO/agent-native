@@ -119,6 +119,7 @@ import {
   PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import {
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
@@ -1583,6 +1584,18 @@ function publicAuthError(
   const code = typeof authError?.code === "string" ? authError.code : "";
   const details = `${code} ${message}`.trim();
 
+  // Matched by code, not by the refusal error classes: many specs mock
+  // ../db/client.js, and an unmocked class import would break them. On a
+  // deploy without a database or auth secret, Better Auth fails at startup
+  // and the fallback auth routes answer every request through this helper.
+  if (code === DEPLOY_SETTINGS_REQUIRED_CODE) {
+    return {
+      message:
+        "This deployment is missing required settings. Set them in the host's environment, then redeploy.",
+      statusCode: 503,
+      code: DEPLOY_SETTINGS_REQUIRED_CODE,
+    };
+  }
   if (details.includes(AUTH_SIGNUP_INVITE_ONLY_CODE)) {
     return {
       message:
@@ -6594,13 +6607,16 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
-      const requiredProvider = await requiredAuthProviderForEmail(email);
-      if (requiredProvider) {
-        setResponseStatus(event, 403);
-        return { error: authProviderRequiredMessage(requiredProvider) };
-      }
-
       try {
+        // Inside the try: on a deploy without a database this policy read is
+        // the first database access, and its refusal must reach
+        // publicAuthError() to keep its code for the sign-in page.
+        const requiredProvider = await requiredAuthProviderForEmail(email);
+        if (requiredProvider) {
+          setResponseStatus(event, 403);
+          return { error: authProviderRequiredMessage(requiredProvider) };
+        }
+
         const auth = await getBetterAuth();
         const result = await signInWithEmailPassword(
           event,
@@ -6669,13 +6685,14 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
-      const requiredProvider = await requiredAuthProviderForEmail(email);
-      if (requiredProvider) {
-        setResponseStatus(event, 403);
-        return { error: authProviderRequiredMessage(requiredProvider) };
-      }
-
       try {
+        // Inside the try for the same reason as the login fallback above.
+        const requiredProvider = await requiredAuthProviderForEmail(email);
+        if (requiredProvider) {
+          setResponseStatus(event, 403);
+          return { error: authProviderRequiredMessage(requiredProvider) };
+        }
+
         const auth = await getBetterAuth();
         await withSignupAttributionContext(
           getHeader(event, "cookie") ?? null,
