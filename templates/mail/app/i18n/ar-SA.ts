@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "ملاحظة لنفسي",
     },
     inbox: {
+      atLeastCount: "على الأقل {{count}}",
       syncing: "جارٍ مزامنة الوارد…",
     },
     sort: {
@@ -566,9 +567,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -786,7 +784,6 @@ const messages = {
     peoplePlural: "{{count}} أشخاص",
     deleteAliasDescription:
       'حذف الاسم المستعار "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
-    aliasesDescription: "مجموعات عناوين يمكنك استخدامها عند كتابة الرسائل.",
     newAlias: "اسم مستعار جديد",
     noAliases: "لا توجد أسماء مستعارة بعد. أنشئ واحدًا للبدء.",
     applyLabel: "تطبيق تصنيف",
@@ -805,15 +802,6 @@ const messages = {
     actions: "الإجراءات",
     editRule: "تعديل القاعدة",
     deleteRule: "حذف القاعدة",
-    noEventAutomations: "لا توجد أتمتات مستندة إلى أحداث البريد بعد.",
-    eventAutomationsPrompt:
-      'اطلب من الوكيل إنشاء أتمتة مثل "عندما تصلني رسالة من مديري، ميّزها بنجمة وأخبرني".',
-    disabled: "معطل",
-    on: "على",
-    when: "عندما",
-    lastRun: "آخر تشغيل:",
-    automationsDescription:
-      "قواعد تعالج رسائل البريد الجديدة تلقائيًا باستخدام الذكاء الاصطناعي.",
     allowAutomationSends: "السماح للأتمتات بإرسال رسائل البريد تلقائيًا",
     allowAutomationSendsDescription:
       "مغلق افتراضيًا. فعّله عندما تريد من الأتمتات إرسال الرسائل دون طلب موافقة في كل مرة.",
@@ -823,15 +811,11 @@ const messages = {
     noAutomationRules: "لا توجد قواعد أتمتة بعد.",
     noAutomationRulesDescription:
       "أنشئ قواعد لتصنيف الرسائل تلقائيًا وأرشفة النشرات وتمييز الرسائل المهمة وغير ذلك. يمكنك أيضًا أن تطلب من وكيل الذكاء الاصطناعي إعدادها.",
-    eventTriggers: "مشغلات الأحداث",
-    eventTriggersDescription:
-      "أتمتات تعمل عند حدوث أحداث البريد (مثل وصول رسالة جديدة). يديرها الوكيل.",
     importedSignature: "تم استيراد التوقيع من {{account}}.",
     noGmailSignature: "لم يتم العثور على توقيع Gmail لـ {{account}}.",
     importSignatureFailed: "فشل استيراد توقيع Gmail.",
     draftingSettingsSaved: "تم حفظ إعدادات المسودات.",
     draftingSettingsSaveFailed: "فشل حفظ إعدادات المسودات.",
-    draftingDescription: "تفضيلات تُستخدم عند كتابة وإنشاء مسودات البريد.",
     signature: "التوقيع",
     importFromGmail: "استيراد من Gmail",
     signatureHelp:
@@ -845,42 +829,14 @@ const messages = {
     writingStylePlaceholder: "قصير ومحدد ودافئ. تجنب الحشو الرسمي.",
     saveDraftingSettings: "حفظ إعدادات المسودات",
     reset: "إعادة تعيين",
-    trackingDescription:
-      "اعرف متى يفتح المستلمون رسائلك المرسلة وينقرون الروابط. تظهر الإحصاءات تحت كل رسالة مرسلة.",
     trackEmailOpens: "تتبع فتح الرسائل",
     trackEmailOpensDescription:
       "يضيف بكسل 1×1 إلى الرسائل الصادرة لمعرفة وقت فتحها.",
     trackLinkClicks: "تتبع نقرات الروابط",
     trackLinkClicksDescription:
       "يعيد كتابة الروابط الخارجية في الرسائل الصادرة لعد النقرات.",
-    slackLoadFailed: "فشل تحميل حالة Slack",
-    slackUpdateFailed: "فشل تحديث استقبال Slack",
-    slackConfigured: "تم تكوين بيانات اعتماد Slack.",
-    slackNeedsCredentials:
-      "يتطلب الاستقبال المخصص القديم SLACK_BOT_TOKEN وSLACK_SIGNING_SECRET. لأتمتة مراسلة Slack الجديدة، اربط مساحة عمل في الإعدادات > المراسلة.",
-    slackIntake: "استقبال Slack (قديم)",
-    slackDescription:
-      "تكامل مخصص قديم يتيح لأعضاء المؤسسة وضع مسودات البريد في قائمة الانتظار من Slack.",
-    enabled: "ممكّن",
-    disable: "تعطيل",
-    enable: "تمكين",
-    slackPostEndpoint: "نقطة نهاية Slack POST",
-    slackPostEndpointHelp:
-      "استخدمها في Slack Event Subscriptions. قد يعرض GET من المتصفح Not Found.",
-    title: "الإعدادات",
-    general: "عام",
-    generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",
-    languageTitle: "اللغة",
-    languageDescription:
-      "اختر لغة الواجهة لهذا الحساب. يتذكر Mail اختيارك عبر الأجهزة.",
-    languageLabel: "لغة الواجهة",
-    whatsNew: "ما الجديد",
-    whatsNewDescription:
-      "التغييرات الأخيرة الموجهة للمستخدمين في Agent-Native Mail.",
     drafting: "الكتابة",
     snippets: "المقتطفات",
-    snippetsDescription:
-      "ردود محفوظة يمكنك إدراجها في مسودة الرسالة بكتابة / واسم المقتطف.",
     newSnippet: "مقتطف جديد",
     noSnippets: "لا توجد مقتطفات بعد. أنشئ واحدًا للبدء.",
     snippetName: "اسم المقتطف",
@@ -891,7 +847,6 @@ const messages = {
     deleteSnippet: "حذف المقتطف",
     deleteSnippetDescription:
       'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
-    automations: "الأتمتة",
     rules: "القواعد",
     rulesModel: "نموذج القواعد",
     rulesModelDescription: "يطابق البريد الوارد مع قواعدك.",
@@ -904,7 +859,6 @@ const messages = {
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",
-    slack: "Slack",
     deleteAlias: "حذف الاسم المستعار",
     editAlias: "تحرير الاسم المستعار",
   },

@@ -248,6 +248,7 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
           <ChangelogSettingsCard markdown={changelog} />
         </div>
       }
+      whatsNewMarkdown={changelog}
     />
   );
 }

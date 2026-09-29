@@ -47,13 +47,9 @@ const messages = {
   settings: {
     agentObservability: "एजेंट अवलोकन",
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
     labLayoutOverflowWarningDescription: "एडिटर में लेआउट ओवरफ्लो चेतावनी दिखाएँ।",
-    emailNotifications: "ईमेल सूचनाएँ",
-    emailNotificationsDescription:
-      "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
     notificationsEmail: "ईमेल",
     commentsAndReplies: "टिप्पणियाँ और जवाब",
@@ -61,9 +57,6 @@ const messages = {
     retry: "फिर कोशिश करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",

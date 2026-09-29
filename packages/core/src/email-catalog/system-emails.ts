@@ -1,28 +1,45 @@
 import { BILLING_NOTICE_MESSAGES } from "../localization/billing-notice-messages.js";
-import {
-  renderChangeEmailConfirmationEmail,
-  renderChangeEmailVerificationEmail,
-  renderBuilderCreditLimitEmail,
-  renderInviteEmail,
-  renderMagicLinkEmail,
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "../server/email-templates.js";
+import { resolveEmailBrandApp } from "../server/email-templates.js";
 import { builderSubscriptionUpgradeUrl } from "../shared/builder-link-tracking.js";
 import { defineTransactionalEmail } from "./registry.js";
+import {
+  CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID,
+  CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+  CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
+  CORE_INVITE_EMAIL_ID,
+  CORE_MAGIC_LINK_EMAIL_ID,
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_RESOURCE_SHARED_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+  renderDefaultTransactionalEmail,
+  renderTransactionalEmail,
+  type CoreTransactionalEmailArgs,
+  type CoreTransactionalEmailId,
+} from "./templates.js";
 
 const SAMPLE_URL = "https://example.com/accept/sample-token";
 const SAMPLE_EMAIL = "sam.rivera@example.com";
 
-export const CORE_INVITE_EMAIL_ID = "core.organization-invite";
-export const CORE_VERIFY_SIGNUP_EMAIL_ID = "core.verify-signup";
-export const CORE_RESET_PASSWORD_EMAIL_ID = "core.reset-password";
-export const CORE_MAGIC_LINK_EMAIL_ID = "core.magic-link";
-export const CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID =
-  "core.change-email-confirmation";
-export const CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID =
-  "core.change-email-verification";
-export const CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID = "core.builder-credit-limit";
+export {
+  CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID,
+  CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+  CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
+  CORE_INVITE_EMAIL_ID,
+  CORE_MAGIC_LINK_EMAIL_ID,
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_RESOURCE_SHARED_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+};
+
+function corePreview<Id extends CoreTransactionalEmailId>(
+  id: Id,
+  sample: () => CoreTransactionalEmailArgs[Id],
+) {
+  return {
+    preview: () => renderDefaultTransactionalEmail(id, sample()),
+    previewAsync: () => renderTransactionalEmail(id, sample()),
+  };
+}
 
 let registered = false;
 
@@ -40,14 +57,13 @@ export function registerCoreSystemEmails(): void {
     recipient: "The signed-in user whose Builder-backed run hit the limit.",
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
-    preview: () =>
-      renderBuilderCreditLimitEmail({
-        subject: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
-        heading: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
-        body: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitEmailBody,
-        upgradeLabel: BILLING_NOTICE_MESSAGES["en-US"].builderCreditUpgrade,
-        upgradeUrl: builderSubscriptionUpgradeUrl("builder_credit_limit_email"),
-      }),
+    ...corePreview(CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID, () => ({
+      subject: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
+      heading: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
+      body: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitEmailBody,
+      upgradeLabel: BILLING_NOTICE_MESSAGES["en-US"].builderCreditUpgrade,
+      upgradeUrl: builderSubscriptionUpgradeUrl("builder_credit_limit_email"),
+    })),
   });
 
   defineTransactionalEmail({
@@ -59,12 +75,11 @@ export function registerCoreSystemEmails(): void {
     recipient: "The current verified address, before the requested change.",
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
-    preview: () =>
-      renderChangeEmailConfirmationEmail({
-        email: SAMPLE_EMAIL,
-        newEmail: "new.address@example.com",
-        confirmationUrl: SAMPLE_URL,
-      }),
+    ...corePreview(CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID, () => ({
+      email: SAMPLE_EMAIL,
+      newEmail: "new.address@example.com",
+      confirmationUrl: SAMPLE_URL,
+    })),
   });
 
   defineTransactionalEmail({
@@ -77,11 +92,10 @@ export function registerCoreSystemEmails(): void {
     recipient: "The new address supplied in the email-change request.",
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
-    preview: () =>
-      renderChangeEmailVerificationEmail({
-        email: "new.address@example.com",
-        verifyUrl: SAMPLE_URL,
-      }),
+    ...corePreview(CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID, () => ({
+      email: "new.address@example.com",
+      verifyUrl: SAMPLE_URL,
+    })),
   });
 
   defineTransactionalEmail({
@@ -96,13 +110,12 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM. On first-party agent-native.com deployments the display name becomes the app's own, with reply-to agent-native@builder.io.",
-    preview: () =>
-      renderInviteEmail({
-        invitee: SAMPLE_EMAIL,
-        orgName: "Northwind Design",
-        acceptUrl: SAMPLE_URL,
-        inviter: "alex.chen@example.com",
-      }),
+    ...corePreview(CORE_INVITE_EMAIL_ID, () => ({
+      invitee: SAMPLE_EMAIL,
+      orgName: "Northwind Design",
+      acceptUrl: SAMPLE_URL,
+      inviter: "alex.chen@example.com",
+    })),
   });
 
   defineTransactionalEmail({
@@ -116,11 +129,10 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM, branded with the app name the signup happened in.",
-    preview: () =>
-      renderVerifySignupEmail({
-        email: SAMPLE_EMAIL,
-        verifyUrl: SAMPLE_URL,
-      }),
+    ...corePreview(CORE_VERIFY_SIGNUP_EMAIL_ID, () => ({
+      email: SAMPLE_EMAIL,
+      verifyUrl: SAMPLE_URL,
+    })),
   });
 
   defineTransactionalEmail({
@@ -135,11 +147,37 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM, branded with the app name the reset was requested from.",
-    preview: () =>
-      renderResetPasswordEmail({
-        email: SAMPLE_EMAIL,
-        resetUrl: SAMPLE_URL,
-      }),
+    ...corePreview(CORE_RESET_PASSWORD_EMAIL_ID, () => ({
+      email: SAMPLE_EMAIL,
+      resetUrl: SAMPLE_URL,
+    })),
+  });
+
+  defineTransactionalEmail({
+    id: CORE_RESOURCE_SHARED_EMAIL_ID,
+    app: "core",
+    name: "Resource shared",
+    trigger:
+      "Someone shares a resource with an individual user and leaves notify on. Group and organization shares send nothing.",
+    recipientLabel: "Invited address",
+    recipient:
+      "The email address the resource was shared with. Synthetic QA addresses are skipped.",
+    senderLabel: "Default, resource-branded",
+    sender:
+      "The configured EMAIL_FROM. A resource registration can set the display name, reply-to, brand name, and logo.",
+    ...corePreview(CORE_RESOURCE_SHARED_EMAIL_ID, () => ({
+      recipientEmail: SAMPLE_EMAIL,
+      sender: { name: "Alex Chen", email: "alex.chen@example.com" },
+      resource: {
+        type: "document",
+        label: "Document",
+        title: "Launch plan",
+        url: SAMPLE_URL,
+      },
+      role: "editor",
+      message: "Can you review the rollout section before Friday?",
+      app: resolveEmailBrandApp(),
+    })),
   });
 
   defineTransactionalEmail({
@@ -153,10 +191,9 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM, branded with the app name the sign-in happened in.",
-    preview: () =>
-      renderMagicLinkEmail({
-        email: SAMPLE_EMAIL,
-        magicLinkUrl: SAMPLE_URL,
-      }),
+    ...corePreview(CORE_MAGIC_LINK_EMAIL_ID, () => ({
+      email: SAMPLE_EMAIL,
+      magicLinkUrl: SAMPLE_URL,
+    })),
   });
 }

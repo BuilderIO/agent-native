@@ -75,6 +75,13 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "observability.promoteMustContain": "يجب أن تحتوي الإجابة على…",
+  "observability.promoteMustContainOptional":
+    "يجب أن تحتوي الإجابة على (اختياري)",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن تتضمنه إجابة التقييم المُروَّج",
+  "observability.promoteNeedsContains":
+    "لا تتضمن هذه الجولة أي استدعاء ناجح للأداة. أدخل نصًا يجب أن تحتوي عليه الإجابة قبل الترويج.",
   "observability.viewDetails": "عرض التفاصيل",
   "observability.hideDetails": "إخفاء التفاصيل",
   "observability.input": "الإدخال",
@@ -84,12 +91,6 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.notCaptured": "لم يتم الالتقاط",
   "observability.openFullConversation": "فتح المحادثة الكاملة",
   "observability.learnAboutTab": "تعرّف على علامة التبويب",
-  "observability.promoteMustContain": "يجب أن يتضمن الرد…",
-  "observability.promoteMustContainLabel":
-    "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
-  "observability.promoteMustContainOptional": "يجب أن يتضمن الرد (اختياري)",
-  "observability.promoteNeedsContains":
-    "لا تتضمن هذه الجولة أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل الترقية.",
   "observability.summarizeWithAgent": "تلخيص باستخدام الوكيل",
   "observability.regenerateSummary": "إعادة إنشاء الملخص",
   "observability.summarizeWithAgentHelp":

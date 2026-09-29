@@ -76,6 +76,12 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
+  "observability.promoteMustContain": "답변에 포함할 내용…",
+  "observability.promoteMustContainOptional": "답변에 포함할 내용(선택 사항)",
+  "observability.promoteMustContainLabel":
+    "승격된 평가 답변에 포함되어야 하는 텍스트",
+  "observability.promoteNeedsContains":
+    "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.viewDetails": "세부 정보 보기",
   "observability.hideDetails": "세부 정보 숨기기",
   "observability.input": "입력",
@@ -85,13 +91,6 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.notCaptured": "캡처되지 않음",
   "observability.openFullConversation": "전체 대화 열기",
   "observability.learnAboutTab": "이 탭 알아보기",
-  "observability.promoteMustContain": "응답에 포함할 텍스트…",
-  "observability.promoteMustContainLabel":
-    "승격할 평가의 응답에 포함해야 하는 텍스트",
-  "observability.promoteMustContainOptional":
-    "응답에 포함할 텍스트 (선택 사항)",
-  "observability.promoteNeedsContains":
-    "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 응답에 포함할 텍스트를 입력하세요.",
   "observability.summarizeWithAgent": "에이전트로 요약",
   "observability.regenerateSummary": "요약 다시 생성",
   "observability.summarizeWithAgentHelp":

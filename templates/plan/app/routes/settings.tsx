@@ -64,11 +64,7 @@ export default function SettingsRoute() {
           />
         </SettingsGroup>
       }
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

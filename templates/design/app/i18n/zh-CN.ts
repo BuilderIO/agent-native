@@ -157,11 +157,6 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
-    languageTitle: "语言",
-    languageDescription: "选择 Design 的界面语言。",
-    languageLabel: "界面语言",
-    labs: "Labs",
-    labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
     mcpAbout:

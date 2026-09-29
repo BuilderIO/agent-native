@@ -73,6 +73,11 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.mention": "提及檔案、代理或資源",
   "commands.new": "與 /clear 相同",
   "commands.plan": "切換到唯讀規劃模式",
+  "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
+  "observability.promoteMustContainLabel": "升級後的評估回覆必須包含的文字",
+  "observability.promoteNeedsContains":
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.viewDetails": "查看詳細資料",
   "observability.hideDetails": "隱藏詳細資料",
   "observability.input": "輸入",
@@ -82,11 +87,6 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.notCaptured": "未擷取",
   "observability.openFullConversation": "開啟完整對話",
   "observability.learnAboutTab": "了解此分頁",
-  "observability.promoteMustContain": "回覆必須包含…",
-  "observability.promoteMustContainLabel": "升級後評估回覆必須包含的文字",
-  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
-  "observability.promoteNeedsContains":
-    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.summarizeWithAgent": "請代理程式摘要",
   "observability.regenerateSummary": "重新產生摘要",
   "observability.summarizeWithAgentHelp":

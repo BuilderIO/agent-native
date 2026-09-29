@@ -163,11 +163,11 @@ function TestProviders({
   );
 }
 
-function renderSection(initialEntry = "/", embedded = false) {
+function renderSection(initialEntry = "/") {
   const Wrapper = ({ children }: PropsWithChildren) => (
     <TestProviders initialEntry={initialEntry}>{children}</TestProviders>
   );
-  return render(<AiFilterSection embedded={embedded} />, { wrapper: Wrapper });
+  return render(<AiFilterSection />, { wrapper: Wrapper });
 }
 
 describe("AiFilterSection", () => {
@@ -269,6 +269,18 @@ describe("AiFilterSection", () => {
     expect(document.getElementById("importance-rules")).not.toBeNull();
   });
 
+  it("uses the shared settings row for triage controls", () => {
+    renderSection();
+
+    const row = screen
+      .getByRole("switch", { name: "mail.aiFilter.toggle" })
+      .closest(".agent-native-settings-row");
+    expect(row?.textContent).toContain("mail.aiFilter.triageTitle");
+    expect(row?.querySelector("a")?.textContent).toBe(
+      "mail.aiFilter.manageAutomationsLink",
+    );
+  });
+
   it("scrolls to a deep-linked rule group after automation rules load", async () => {
     const scrollIntoView = vi.fn();
     let targetAvailable = false;
@@ -283,13 +295,13 @@ describe("AiFilterSection", () => {
     mocks.automationsHasData = false;
     mocks.automationsLoading = true;
 
-    const view = renderSection("/settings#tags", true);
+    const view = renderSection("/settings#tags");
     expect(scrollIntoView).not.toHaveBeenCalled();
 
     targetAvailable = true;
     mocks.automationsHasData = true;
     mocks.automationsLoading = false;
-    view.rerender(<AiFilterSection embedded />);
+    view.rerender(<AiFilterSection />);
 
     await waitFor(() =>
       expect(scrollIntoView).toHaveBeenCalledWith({

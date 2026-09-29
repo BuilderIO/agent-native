@@ -852,7 +852,9 @@ export function createIntegrationsPlugin(
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
-    const initialToolNames = Object.keys(localActions);
+    const initialToolNames = options?.initialToolNames
+      ? [...options.initialToolNames]
+      : Object.keys(localActions);
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;

@@ -100,7 +100,7 @@ function renderSidebar(
   position?: "left" | "right",
   disableChatShortcut = false,
   enabled = true,
-  screenRefreshOnlyWhenPanelActive = false,
+  screenRefreshEnabled = true,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -111,7 +111,7 @@ function renderSidebar(
             disableChatShortcut={disableChatShortcut}
             enabled={nextEnabled}
             position={position}
-            screenRefreshOnlyWhenPanelActive={screenRefreshOnlyWhenPanelActive}
+            screenRefreshEnabled={screenRefreshEnabled}
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
@@ -147,12 +147,22 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
-  it("pauses screen refresh until the panel is active when requested", () => {
-    renderSidebar(false, undefined, false, true, true);
+  it("pauses screen refresh until the panel is active", () => {
+    renderSidebar(false);
 
     expect(
       container?.querySelector("[data-testid='app-content']"),
     ).toBeTruthy();
+    expect(
+      container
+        ?.querySelector("[data-testid='screen-refresh-boundary']")
+        ?.getAttribute("data-active"),
+    ).toBe("false");
+  });
+
+  it("can disable screen refresh on public documentation pages", () => {
+    renderSidebar(false, undefined, false, true, false);
+
     expect(
       container
         ?.querySelector("[data-testid='screen-refresh-boundary']")

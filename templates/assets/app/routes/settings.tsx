@@ -98,7 +98,6 @@ export default function SettingsPage() {
       generalSearchEntries={generalSearchEntries}
       notifications={<AssetsNotificationSettings />}
       notificationsSearchEntries={notificationsSearchEntries}
-      whatsNew={<ChangelogSettingsCard markdown={changelog} />}
       whatsNewMarkdown={changelog}
     />
   );

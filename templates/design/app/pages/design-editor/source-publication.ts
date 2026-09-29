@@ -18,6 +18,9 @@ export interface CanonicalSourceContentResult {
 }
 
 const CANONICAL_SOURCE_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+// Unchanged entries reference the caller's own string, so they are budgeted
+// apart: charging them to MAX_BYTES evicted an open design's own screens.
+const CANONICAL_SOURCE_CACHE_MAX_REFERENCED_BYTES = 64 * 1024 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_NODES = 32_768;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRIES = 4096;
@@ -29,10 +32,12 @@ const canonicalSourceCache = new Map<
     result: CanonicalSourceContentResult;
     projection?: CodeLayerProjection;
     retainedBytes: number;
+    referencedBytes: number;
     retainedNodes: number;
   }
 >();
 let canonicalSourceCacheBytes = 0;
+let canonicalSourceCacheReferencedBytes = 0;
 let canonicalSourceCacheNodes = 0;
 
 function removeCanonicalSourceCacheEntry(fileId: string): void {
@@ -40,6 +45,7 @@ function removeCanonicalSourceCacheEntry(fileId: string): void {
   if (!cached) return;
   canonicalSourceCache.delete(fileId);
   canonicalSourceCacheBytes -= cached.retainedBytes;
+  canonicalSourceCacheReferencedBytes -= cached.referencedBytes;
   canonicalSourceCacheNodes -= cached.retainedNodes;
 }
 
@@ -196,10 +202,10 @@ function cacheCanonicalSource(
     ? contentBytes +
       canonicalSourceTextEncoder.encode(result.content).byteLength
     : 0;
+  const referencedBytes = result.changed ? 0 : contentBytes;
   const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
   if (
-    Math.max(contentBytes, changedBytes) <=
-      CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
+    changedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
     retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES
   ) {
     removeCanonicalSourceCacheEntry(fileId);
@@ -208,16 +214,20 @@ function cacheCanonicalSource(
       result,
       ...(projection ? { projection } : {}),
       retainedBytes: changedBytes,
+      referencedBytes,
       retainedNodes,
     });
     canonicalSourceCacheBytes += changedBytes;
+    canonicalSourceCacheReferencedBytes += referencedBytes;
     canonicalSourceCacheNodes += retainedNodes;
   }
   // ponytail: a closed design's unchanged entries keep their strings until
-  // newer entries evict them by count; prune by live file ids if heap
-  // profiles show it.
+  // newer entries evict them by count or referenced bytes; prune by live file
+  // ids if heap profiles show it.
   while (
     canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
+    canonicalSourceCacheReferencedBytes >
+      CANONICAL_SOURCE_CACHE_MAX_REFERENCED_BYTES ||
     canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES ||
     canonicalSourceCache.size > CANONICAL_SOURCE_CACHE_MAX_ENTRIES
   ) {

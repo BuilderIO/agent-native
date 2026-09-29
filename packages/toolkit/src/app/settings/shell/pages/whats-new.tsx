@@ -54,14 +54,5 @@ export default function WhatsNewSettingsPage({ bridge }: SettingsPageProps) {
       </SettingsGroup>
     );
   }
-  return (
-    <ChangelogSettingsCard
-      markdown={markdown}
-      className="rounded-xl border-border/70"
-      hideTitle
-      emptyText={t("agentChat.settingsShell.appGroup.whatsNewEmpty")}
-      viewAllLabel={t("agentChat.settingsShell.appGroup.whatsNewViewAll")}
-      collapseLabel={t("agentChat.settingsShell.appGroup.whatsNewShowFewer")}
-    />
-  );
+  return <ChangelogSettingsCard markdown={markdown} hideTitle />;
 }

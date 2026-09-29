@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
+import { createDatabaseRequestTelemetry } from "../db/request-telemetry.js";
 import {
   type AgentSpan,
   __resetAgentTracerCache,
@@ -103,6 +104,17 @@ describe("http response telemetry", () => {
     });
     installHttpResponseTelemetryHooks(nitroApp);
 
+    const startupState = (globalThis as any)[
+      Symbol.for("@agent-native/core/db.startup-telemetry-state")
+    ] as {
+      captureUntil: number;
+      claimed: boolean;
+      telemetry: ReturnType<typeof createDatabaseRequestTelemetry>;
+    };
+    startupState.claimed = false;
+    startupState.captureUntil = Date.now() + 120_000;
+    startupState.telemetry = createDatabaseRequestTelemetry();
+
     await withDbTimeout("connect", async () => undefined, 100);
 
     const url = new URL(
@@ -116,10 +128,12 @@ describe("http response telemetry", () => {
     };
 
     await requestHooks[0](event);
+    expect(startupState.claimed).toBe(false);
     setHttpRequestTelemetryActionName(event as any, "list-visual-plans");
     await withDbTimeout("connect", async () => undefined, 100);
     await withDbTimeout("query", async () => undefined, 100);
     recordFrameworkReadyWait(event as any, 12);
+    expect(startupState.claimed).toBe(true);
     const response = new Response("{}", { status: 201 });
     await responseHooks[0](response, event);
 
@@ -159,6 +173,33 @@ describe("http response telemetry", () => {
     expect(response.headers.get("x-agent-native-request-id")).toBe(
       telemetry?.properties?.request_id,
     );
+  });
+
+  it("includes measured DB counters on cacheable cold pages", async () => {
+    const { requestHooks, responseHooks } = createHooks();
+    const event = eventFor("/");
+    await requestHooks[0](event);
+    await withDbTimeout(
+      "query",
+      async () => ({ rows: [{ name: "forms" }, { name: "responses" }] }),
+      100,
+      undefined,
+      {
+        sql: "SELECT name FROM information_schema.columns JOIN forms_migrations ON true",
+      },
+    );
+
+    const response = new Response("<html></html>", {
+      headers: { "cache-control": "public, s-maxage=60" },
+    });
+    await responseHooks[0](response, event);
+
+    const timing = response.headers.get("server-timing") ?? "";
+    expect(timing).toContain("dbq=1");
+    expect(timing).toContain("dbrows=2");
+    expect(timing).toContain("dbcatalog=1");
+    expect(timing).toContain("dbmigrations=1");
+    expect(timing).toMatch(/startupdb(?:q=|=unavailable)/);
   });
 
   it("flushes the response OTel mirror from its request scope", async () => {

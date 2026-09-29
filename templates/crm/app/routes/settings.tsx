@@ -47,32 +47,32 @@ const CRM_SETTINGS_AREAS: Record<CrmSettingsAreaId, CrmSettingsArea> = {
     labelKey: "connection.tab",
     icon: IconPlugConnected,
     keywords: "provider hubspot salesforce native mode mirror sync",
-    render: () => <ConnectionSettings embedded />,
+    render: () => <ConnectionSettings />,
   },
   fields: {
     labelKey: "fields.tab",
     icon: IconColumns3,
     keywords:
       "attributes schema columns slug type authority options status select stage",
-    render: () => <FieldsSettings embedded />,
+    render: () => <FieldsSettings />,
   },
   lists: {
     labelKey: "lists.tab",
     icon: IconListDetails,
     keywords: "lists entries pipeline workflow stage board",
-    render: () => <ListsSettings embedded />,
+    render: () => <ListsSettings />,
   },
   intelligence: {
     labelKey: "intelligence.tab",
     icon: IconWaveSine,
     keywords: "signals trackers keywords smart detectors call evidence",
-    render: () => <IntelligenceSettings embedded />,
+    render: () => <IntelligenceSettings />,
   },
   advanced: {
     labelKey: "advanced.tab",
     icon: IconAdjustments,
     keywords: "danger reset reconfigure retention archive delete",
-    render: () => <AdvancedSettings embedded />,
+    render: () => <AdvancedSettings />,
   },
 };
 
@@ -102,11 +102,7 @@ export default function SettingsRoute() {
       extraTabs={agentSettingsTabs}
       appAreas={appAreas}
       mcpAbout={t("settings.mcpAbout")}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

@@ -45,6 +45,20 @@ describe("settings shell bridge", () => {
     expect(pageTabs.get("drafting")?.label).toBe("Drafting");
   });
 
+  it("keeps Agent personalization in the Agent group", () => {
+    const { pages } = deriveBridgedAppPages(
+      [tab("agent:personalization", { group: "agent" })],
+      CORE_SETTINGS_PAGES,
+      Stub,
+    );
+    expect(pages).toEqual([]);
+    const personalization = CORE_SETTINGS_PAGES.find(
+      (page) => page.id === "personalization",
+    );
+    expect(personalization?.group).toBe("agent");
+    expect(personalization?.legacyTabIds).toContain("agent:personalization");
+  });
+
   it("prefixes an app tab whose id collides with a core page", () => {
     const { pages } = deriveBridgedAppPages(
       [tab("automations", { label: "Inbox rules" })],

@@ -26,11 +26,7 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       extraTabs={agentSettingsTabs}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

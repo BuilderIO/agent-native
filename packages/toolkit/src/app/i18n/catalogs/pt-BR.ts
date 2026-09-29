@@ -75,6 +75,13 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
+  "observability.promoteMustContain": "A resposta deve conter…",
+  "observability.promoteMustContainOptional":
+    "A resposta deve conter (opcional)",
+  "observability.promoteMustContainLabel":
+    "Texto que a resposta da avaliação promovida deve conter",
+  "observability.promoteNeedsContains":
+    "Esta execução não tem nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promover.",
   "observability.viewDetails": "Ver detalhes",
   "observability.hideDetails": "Ocultar detalhes",
   "observability.input": "Entrada",
@@ -84,13 +91,6 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.notCaptured": "Não capturado",
   "observability.openFullConversation": "Abrir conversa completa",
   "observability.learnAboutTab": "Saiba mais sobre esta guia",
-  "observability.promoteMustContain": "A resposta deve conter…",
-  "observability.promoteMustContainLabel":
-    "Texto que a resposta da avaliação promovida deve conter",
-  "observability.promoteMustContainOptional":
-    "A resposta deve conter (opcional)",
-  "observability.promoteNeedsContains":
-    "Esta execução não tem nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promovê-la.",
   "observability.summarizeWithAgent": "Resumir com o agente",
   "observability.regenerateSummary": "Gerar resumo novamente",
   "observability.summarizeWithAgentHelp":

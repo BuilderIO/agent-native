@@ -116,11 +116,7 @@ export default function SettingsRoute() {
       labsIntro={t("settings.labsIntro")}
       labsLabel={t("settings.labs")}
       mcpAbout={t("settings.mcpAbout")}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

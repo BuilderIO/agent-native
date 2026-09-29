@@ -169,12 +169,6 @@ export default {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
-    languageTitle: "言語",
-    languageDescription: "Design のインターフェース言語を選択します。",
-    languageLabel: "インターフェース言語",
-    labs: "Labs",
-    labsIntro:
-      "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
     mcpAbout:

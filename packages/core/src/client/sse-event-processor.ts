@@ -1913,7 +1913,14 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
-          detail: { tool: doneTool, result: ev.result },
+          detail: {
+            tool: doneTool,
+            result: ev.result,
+            isError: ev.isError === true,
+            completedSideEffect: ev.completedSideEffect === true,
+            tabId,
+            eventId: ev.eventId ?? ev.id,
+          },
         }),
       );
     }
