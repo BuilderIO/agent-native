@@ -676,29 +676,40 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
 ].join("|");
 const PR_REVIEW_MERGE_GATE_RE =
   /\b(?:approvals?|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?|builds?)|reviewers?|security(?:[-\s]team(?:['’]s)?)?|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
-const PR_REVIEW_GATE_MERGE_PREFIX_RE =
-  /\bmerge\b[^.!?;]{0,60}\b(?:only\s+)?(?:after|upon|once|when|until|unless|if|subject\s+to|contingent\s+upon)\b[^.!?;]{0,60}$/i;
+const PR_REVIEW_MERGE_OBJECT = String.raw`(?:\s+(?:(?:(?:the|a|an|this|that|these|those|my|our)\s+)?(?:PR|pull\s+request|fix|code|change|changes|commit|branch|update)|it|this|that))?`;
+const PR_REVIEW_WITH_MERGE_PREFIX = String.raw`(?:merge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?|only(?:\s+merge${PR_REVIEW_MERGE_OBJECT})?)`;
+const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
+  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?\s+(?:after|upon|once|when|until|unless|if|subject\s+to|contingent\s+upon|provided\s+that|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
+  "i",
+);
 const PR_REVIEW_GATE_WAIT_FOR_RE =
   /\bwait(?:ing)?\s+for\b(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_THEN_MERGE_RE =
   /\b(?:then\s+)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i;
-const PR_REVIEW_GATE_WITH_APPROVAL_RE =
-  /\b(?:merge\s+(?:only\s+)?with|only\s+(?:merge\s+)?with)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
+const PR_REVIEW_GATE_WITH_APPROVAL_RE = new RegExp(
+  String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\b(?:\s+[\w’'-]+){0,5}\s*$`,
+  "i",
+);
 const PR_REVIEW_GATE_APPROVAL_HEAD_RE =
   /^\s*(?:(?:from|by|of|is|are|was|were|required|needed|necessary|before|prior\s+to|and|or)\b|$|[.,;:!?])/i;
 const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
   /\b(?:no|without)\b(?:\s+[\w’'-]+){0,3}\s*$/i;
 const PR_REVIEW_GATE_WAIVER_RE =
   /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than|without)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
-const PR_REVIEW_GATE_CONDITION_AFTER_RE =
-  /^\s*(?:(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|sign(?:s|ed)?[-\s]+off)\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?)\b[^.!?]{0,40}\bthen\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,40}\b(?:before|prior\s+to|then)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:is|are|has\s+been|have\s+been)\s+required\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)/i;
+const PR_REVIEW_GATE_COMPLETION = String.raw`(?:(?:has|have)\s+)?(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|sign(?:s|ed)?[-\s]+off)`;
+const PR_REVIEW_GATE_CONDITION_AFTER_RE = new RegExp(
+  String.raw`^\s*(?:${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\bthen\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,40}\b(?:before|prior\s+to|then)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:is|are|has\s+been|have\s+been)\s+required\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)`,
+  "i",
+);
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
   /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
 const PR_REVIEW_MERGE_PROHIBITION_RE = /\b(?:don't|do\s+not|never)\s+merge\b/i;
-const PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE =
-  /\b(?:merge\s+(?:only\s+)?with|only\s+(?:merge\s+)?with)\s+(?:the\s+)?(?:CI\s+green|green\s+CI)(?:\s+checks?)?\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)/i;
+const PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE = new RegExp(
+  String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\s+(?:the\s+)?(?:CI\s+green|green\s+CI)(?:\s+checks?)?\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)`,
+  "i",
+);
 
 function hasActivePrReviewMergeGate(sentence) {
   const greenChecks = PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE.exec(sentence);
@@ -828,6 +839,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     true,
     "If no changes are needed, merge it; security approval is required before deployment.",
   ],
+  [
+    true,
+    "If no changes are needed, merge it and deploy after security approval.",
+  ],
   [true, "If no changes are needed, merge it; deploy after CI checks pass."],
   [
     true,
@@ -852,9 +867,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, approval is required before merging."],
   [false, "If no changes are needed, merge only after Steve approves."],
   [false, "If no changes are needed, merge only with product-owner approval."],
+  [
+    false,
+    "If no changes are needed, merge it only with the security reviewer's approval.",
+  ],
   [false, "If no changes are needed, merge only after security approval."],
   [false, "If no changes are needed, merge only after all required approvals."],
   [false, "If no changes are needed, merge with CI green."],
+  [false, "If no changes are needed, merge the PR with CI green."],
   [false, "If no changes are needed, merge only with the CI green check."],
   [false, "If no changes are needed, merge with approval required."],
   [false, "If no changes are needed, merge with approval from Steve."],
@@ -883,6 +903,23 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     false,
     "If no changes are needed, merge subject to the required security approval.",
   ],
+  [
+    false,
+    "If no changes are needed, merge provided that all required checks pass.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge conditional on all required checks passing.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge dependent on all required checks passing.",
+  ],
+  [
+    false,
+    "If no changes are needed, all required checks have passed; then merge.",
+  ],
+  [false, "If no changes are needed, the build has succeeded; then merge."],
   [
     false,
     "If no changes are needed, don't wait for the required security check to finish; merge after it passes.",

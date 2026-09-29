@@ -268,8 +268,9 @@ unknown, do not treat the author as external or draft a reply.
 
 Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
 **Needs Steve's product/UX decision**, or **Cannot assess**. Ready means the
-current head is sound, every required check has passed, and actionable human or
-automated findings have a verified fix or evidence-backed terminal disposition.
+current head is sound, every required check and status context has passed, and
+actionable human or automated findings have a verified fix or evidence-backed
+terminal disposition.
 An active human `CHANGES_REQUESTED` review or unresolved actionable request
 blocks readiness; resolved, superseded, or non-actionable threads do not.
 Missing approval or `reviewDecision: REVIEW_REQUIRED` alone never blocks
@@ -283,7 +284,9 @@ off. Keep this review sweep in the foreground for a 10-minute merge gate. Once
 all the conditions hold, record the live `headRefOid`; they must remain true
 for 10 consecutive minutes on that same head:
 
- - all required GitHub Actions checks pass;
+ - every required check and status context for the recorded head reports
+   success, including contexts published by GitHub Actions and other
+   integrations;
  - every actionable review finding has a verified fix or terminal disposition;
  - the PR is `MERGEABLE` with no conflicts;
  - the same recorded `headRefOid` remains unchanged for the entire 10-minute
