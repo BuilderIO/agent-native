@@ -1788,6 +1788,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Reply must contain (optional)",
+    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",
     output: "Output",
     error: "Error",
