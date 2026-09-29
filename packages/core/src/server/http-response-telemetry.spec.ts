@@ -151,6 +151,10 @@ describe("http response telemetry", () => {
     expect(response.headers.get("server-timing")).toContain("app;dur=");
     expect(response.headers.get("server-timing")).toContain("startup;dur=12");
     expect(response.headers.get("server-timing")).toContain("db;dur=");
+    expect(response.headers.get("server-timing")).toContain("db-queries;dur=1");
+    expect(response.headers.get("server-timing")).toContain(
+      "db-connects;dur=1",
+    );
     expect(response.headers.get("server-timing")).toContain("startup-db;dur=");
     expect(response.headers.get("x-agent-native-request-id")).toBe(
       telemetry?.properties?.request_id,
