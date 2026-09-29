@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
     description:
@@ -1658,7 +1659,7 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   homeContext: {
-    websiteReference: "웹사이트 첨부",
+    websiteReference: "웹사이트 추가",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
     figmaUrlLabel: "Figma 링크",
@@ -1686,7 +1687,7 @@ export default {
     design: "디자인",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
-    figmaReference: "Figma 첨부",
+    figmaReference: "Figma 추가",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",

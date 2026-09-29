@@ -36,12 +36,18 @@ export function createAgentKitComposerSubmission(input: {
   threadId: string;
   intent: AgentKitComposerSubmission["intent"];
   text: string;
+  composerModeContext?: string;
   contextItems?: readonly AgentChatContextItem[];
   references: readonly Reference[];
   options: AgentRunOptions;
 }): AgentKitComposerSubmission {
   const contextItems = snapshotComposerContextItems(input.contextItems);
-  const context = contextItems?.map((item) => item.context).join("\n\n");
+  const context = [
+    input.composerModeContext,
+    contextItems?.map((item) => item.context).join("\n\n"),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   return Object.freeze({
     threadId: input.threadId,
     intent: input.intent,

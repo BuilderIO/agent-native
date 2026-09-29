@@ -1291,13 +1291,37 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByText("Apply our brand to this deck")).toBeNull();
   });
 
-  it("hides home suggestions until provider status is confirmed", async () => {
-    agentEngine.state = "missing";
-    agentEngine.missing = true;
-    renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
-  });
+  it.each([
+    { state: "missing", missing: true, ready: false },
+    { state: "unknown", missing: false, ready: false },
+    { state: "unavailable", missing: false, ready: false },
+    { state: "configured", missing: false, ready: true },
+    { state: "configured", missing: true, ready: false },
+  ])(
+    "gates home composer and suggestions for $state (missing=$missing)",
+    async ({ state, missing, ready }) => {
+      agentEngine.state = state;
+      agentEngine.missing = missing;
+      renderHome();
+      await screen.findByRole("textbox", { name: "Presentation prompt" });
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        disabled: !ready,
+        submissionDisabled: !ready,
+        showModelSelector: ready,
+        modelStatusChecksEnabled: ready,
+      });
+      expect(Boolean(screen.queryByLabelText("home.suggestedPrompts"))).toBe(
+        ready,
+      );
+      expect(
+        Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
+      ).toBe(ready);
+      expect(
+        screen.queryByRole("button", { name: "Create a product pitch deck" }),
+      ).toBeNull();
+      expect(suggestionQuery.enabled).toBe(ready);
+    },
+  );
 
   it("restores the full pending generation when reference selection is canceled", async () => {
     const uploadedFile = {

@@ -26,25 +26,31 @@ const oauth = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(() => true),
 }));
 
-vi.mock("../resources/use-mcp-servers.js", () => mcpMocks);
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 vi.mock("../resources/McpIntegrationDialog.js", () => dialogMocks);
-vi.mock("../CommandMenu.js", () => agent);
+vi.mock("../shared/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../shared/index.js")>()),
+  ...agent,
+}));
 vi.mock("../settings/api-keys/api-keys-client.js", () => keys);
-vi.mock("../org/hooks.js", () => ({
+vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
 vi.mock("./useIntegrationStatus.js", () => ({
   useIntegrationStatus: () => ({ statuses: [], loading: false, refetch() {} }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("../resources/mcp-integration-catalog.js", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/resources/mcp-integration-catalog")
-  >()),
-  navigateToMcpOAuthStart: oauth.navigateToMcpOAuthStart,
-}));
+vi.mock(
+  "@agent-native/core/client/resources/mcp-integration-catalog",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/resources/mcp-integration-catalog")
+    >()),
+    navigateToMcpOAuthStart: oauth.navigateToMcpOAuthStart,
+  }),
+);
 
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string => {
@@ -196,6 +202,7 @@ describe("IntegrationDetailPage", () => {
   });
 
   it("renders Figma like the prototype: logo breadcrumb, prompts, callout, and both groups", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     await render("figma");
 
     const { title, action } = await renderHeader();
@@ -247,6 +254,7 @@ describe("IntegrationDetailPage", () => {
   });
 
   it("saves Figma's token as its API key, in a dialog on the page", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     await render("figma");
     const { action } = await renderHeader();
     await act(async () => action?.click());
@@ -272,7 +280,43 @@ describe("IntegrationDetailPage", () => {
       registered: true,
     });
     expect(createServer).not.toHaveBeenCalled();
+    expect(oauth.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it.each(["slides", undefined])(
+    "offers neither OAuth nor an unavailable token fallback in %s",
+    async (template) => {
+      vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template });
+      await render("figma");
+      expect(lastHeader()?.action).toBeNull();
+      expect(rowText("sign-in")).toContain("Not available yet");
+      expect(
+        container.querySelector("[data-integration-callout]")?.textContent,
+      ).toContain("Not available yet");
+      expect(oauth.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+      expect(keys.saveApiKeyValue).not.toHaveBeenCalled();
+      expect(createServer).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a token submission if the app no longer supports that fallback", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    await render("figma");
+    const { action } = await renderHeader();
+    await act(async () => action?.click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await typeInto(
+      dialog.querySelector<HTMLInputElement>('input[type="password"]')!,
+      "fake-figma-token",
+    );
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "slides" });
+    await act(async () =>
+      dialog.querySelector<HTMLButtonElement>('button[type="submit"]')?.click(),
+    );
+    expect(keys.saveApiKeyValue).not.toHaveBeenCalled();
+    expect(createServer).not.toHaveBeenCalled();
+    expect(oauth.navigateToMcpOAuthStart).not.toHaveBeenCalled();
   });
 
   it("connects a header integration with the token in its header", async () => {
@@ -333,6 +377,30 @@ describe("IntegrationDetailPage", () => {
     );
   });
 
+  it.each(["hubspot", "canva"])(
+    "preserves the supported personal OAuth flow for %s members",
+    async (id) => {
+      servers([], "member");
+      await render(id, MEMBER);
+      const { action } = await renderHeader();
+      expect(action?.textContent).toBe("Connect");
+      expect(container.textContent).not.toContain(
+        "An admin needs to set this up",
+      );
+      await act(async () => action?.click());
+      expect(oauth.navigateToMcpOAuthStart).toHaveBeenCalledTimes(1);
+      const url = new URL(
+        oauth.navigateToMcpOAuthStart.mock.calls[0]![0] as string,
+        "http://localhost",
+      );
+      expect(url.searchParams.get("scope")).toBe("user");
+      expect(url.searchParams.get("url")).toBe(
+        `https://mcp.${id}.com${id === "canva" ? "/mcp" : ""}`,
+      );
+      expect(createServer).not.toHaveBeenCalled();
+    },
+  );
+
   it("locks sharing for members", async () => {
     servers([], "member");
     await render("context7", MEMBER);
@@ -344,14 +412,17 @@ describe("IntegrationDetailPage", () => {
     ).not.toBeNull();
   });
 
-  it("offers nothing to connect when the provider hasn't approved the client", async () => {
-    await render("vercel");
-    expect(lastHeader()?.action).toBeNull();
-    expect(
-      container.querySelector("[data-integration-callout]")?.textContent,
-    ).toContain("Not available yet");
-    expect(container.querySelector('[id="server-url"]')).toBeNull();
-  });
+  it.each(["vercel", "slack"])(
+    "offers nothing to connect when %s hasn't approved the client",
+    async (id) => {
+      await render(id);
+      expect(lastHeader()?.action).toBeNull();
+      expect(
+        container.querySelector("[data-integration-callout]")?.textContent,
+      ).toContain("Not available yet");
+      expect(container.querySelector('[id="server-url"]')).toBeNull();
+    },
+  );
 
   it("tells members an admin has to set up a workspace OAuth app", async () => {
     servers([], "member");

@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "集成" } },
   creativeContext: {
     title: "资料库",
     description: "可复用的创意上下文，帮助智能体在不同工作中保持一致。",
@@ -1609,7 +1610,7 @@ export default {
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
   homeContext: {
-    websiteReference: "附加网站",
+    websiteReference: "添加网站",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
     figmaUrlLabel: "Figma 链接",
@@ -1635,7 +1636,7 @@ export default {
     design: "设计",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "附加 Figma",
+    figmaReference: "添加 Figma",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",

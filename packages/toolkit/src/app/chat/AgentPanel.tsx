@@ -22,7 +22,6 @@ import {
   IconDotsVertical,
   IconHistory,
   IconArrowsHorizontal,
-  IconArrowsMaximize,
   IconExternalLink,
   IconPlugConnected,
   IconShare3,
@@ -553,9 +552,28 @@ export function shouldShowAgentPanelFullViewAction(
   );
 }
 
+export function AgentPanelFullViewMenuItem({
+  activeTabId,
+  onFullViewRequest,
+  label,
+}: {
+  activeTabId: string;
+  onFullViewRequest: (threadId?: string) => void;
+  label: string;
+}) {
+  return (
+    <DropdownMenuItem
+      onSelect={() => onFullViewRequest(activeTabId || undefined)}
+      aria-label={label}
+    >
+      {label}
+    </DropdownMenuItem>
+  );
+}
+
 export function resolveAgentPanelFullViewAction(
   agentPageHref: string | undefined,
-  onFullViewRequest: (() => void) | undefined,
+  onFullViewRequest: ((threadId?: string) => void) | undefined,
   mode: PanelMode,
   isSidebar = false,
   currentPath?: string,
@@ -702,7 +720,7 @@ export interface AgentPanelProps extends Omit<
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
-  onFullViewRequest?: () => void;
+  onFullViewRequest?: (threadId?: string) => void;
   onSnapTo75Percent?: () => void;
   isWideDrawer?: boolean;
   onExitWideDrawer?: () => void;
@@ -1507,20 +1525,17 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : null}
             {fullViewAction?.kind === "callback" && onFullViewRequest ? (
-              <DropdownMenuItem
-                onSelect={onFullViewRequest}
-                aria-label={t("agentPanel.openFullView")}
-              >
-                <IconArrowsMaximize size={14} className="shrink-0" />
-                {t("agentPanel.openFullView")}
-              </DropdownMenuItem>
+              <AgentPanelFullViewMenuItem
+                activeTabId={activeTabId}
+                onFullViewRequest={onFullViewRequest}
+                label={t("agentPanel.openFullView")}
+              />
             ) : fullViewAction?.kind === "link" ? (
               <DropdownMenuItem asChild>
                 <RouterSidebarLink
                   to={fullViewAction.href}
                   aria-label={t("agentPanel.openFullView")}
                 >
-                  <IconArrowsMaximize size={14} className="shrink-0" />
                   {t("agentPanel.openFullView")}
                 </RouterSidebarLink>
               </DropdownMenuItem>

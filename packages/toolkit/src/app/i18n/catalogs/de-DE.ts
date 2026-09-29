@@ -23,6 +23,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.contextLimitExceeded":
     "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
+  "activity.bucketThinking": "Denken",
+  "activity.bucketResearch": "Recherche",
+  "activity.bucketActions": "Aktionen",
+  "activity.bucketOther": "Sonstiges",
   "activity.groupLabel": "Agentenaktivität",
   "activity.agents": "Zusammenarbeit der Agenten",
   "activity.tasks": "Agentenaufgaben",
@@ -1025,9 +1029,17 @@ const messages: ToolkitAgentChatTranslation = {
     "Dem Agenten eine neue Fähigkeit beibringen",
   "composer.menu.generateImage": "Bild generieren",
   "composer.menu.generateImageDescription": "Assets-Bildauswahl öffnen",
+  "composer.integrations.connect": "Integration verbinden…",
+  "composer.integrations.empty":
+    "Für diese App sind keine Integrationen verfügbar.",
+  "composer.integrations.loadFailed":
+    "Integrationen konnten nicht geladen werden.",
+  "composer.integrations.manage": "Integrationen verwalten…",
   "composer.menu.integrations": "Integrationen",
   "composer.menu.integrationsDescription":
     "Tools und Dienste mit dem Agenten verbinden",
+  "composer.useIntegration": "{{integration}} verwenden",
+  "composer.useIntegrationTools": "{{integration}}-Tools verwenden",
   "composer.menu.scheduleTask": "Aufgabe planen",
   "composer.menu.scheduleTaskDescription":
     "Etwas nach einem Zeitplan ausführen",
@@ -1088,6 +1100,8 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.learnMore": "Mehr erfahren",
   "mentions.noResults": "Keine Ergebnisse gefunden",
   "mentions.noSkills": "Keine Skills verfügbar",
+  "mentions.skillsLoadFailed":
+    "Skills konnten nicht geladen werden. Schließe das Menü und öffne es erneut, um es noch einmal zu versuchen.",
   "mentions.sections.agents": "Agenten",
   "mentions.sections.connectedAgents": "Verbundene Agenten",
   "mentions.sections.files": "Dateien",

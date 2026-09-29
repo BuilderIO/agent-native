@@ -308,8 +308,15 @@ export {
   NEW_CHAT_ACTION_HREF,
 } from "../error-format.js";
 export {
+  readAssistantChatComposerContextDraft,
   readAssistantChatComposerDraft,
+  writeAssistantChatComposerContextDraft,
   writeAssistantChatComposerDraft,
+  type AssistantChatComposerContextDraft,
 } from "../chat/composer-draft.js";
+export type {
+  AgentKitCapabilityCatalog,
+  AgentKitIntegrationCapability,
+} from "../../agentkit/capabilities.js";
 export * from "../chat/connectors.js";
 export * from "../chat/runtime.js";

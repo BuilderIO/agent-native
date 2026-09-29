@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "التكاملات" } },
   creativeContext: {
     title: "المكتبة",
     description: "سياق إبداعي قابل لإعادة الاستخدام يحافظ على الاتساق بين الأعمال.",
@@ -1642,7 +1643,7 @@ export default {
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
   homeContext: {
-    websiteReference: "إرفاق موقع ويب",
+    websiteReference: "إضافة موقع ويب",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
     figmaUrlLabel: "رابط Figma",
@@ -1670,7 +1671,7 @@ export default {
     design: "التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
-    figmaReference: "إرفاق Figma",
+    figmaReference: "إضافة Figma",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",

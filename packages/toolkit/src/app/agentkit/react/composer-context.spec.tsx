@@ -18,6 +18,7 @@ import type {
   ComposerContextMenuItem,
 } from "../../../agentkit.js";
 import {
+  AgentKitChat,
   AgentKitComposer,
   type AgentKitComposerSubmission,
 } from "./components.js";
@@ -74,6 +75,125 @@ function transport() {
 }
 
 describe("AgentKit composer context submission", () => {
+  it.each([
+    ["immediate", "capability"],
+    ["queued", "capability"],
+    ["edit", "capability"],
+    ["immediate", "host"],
+    ["queued", "host"],
+    ["edit", "host"],
+  ] as const)(
+    "rejects retained files before %s submission after the %s upload gate closes",
+    async (intent, gate) => {
+      const runtime = {
+        ...transport(),
+        capabilities: {
+          messageQueue: true,
+          threadForking: true,
+          uploads: true,
+        },
+        forkThread: vi.fn(async () => ({
+          id: "thread-fork",
+          createdAt: "2026-09-28T00:00:00.000Z",
+          updatedAt: "2026-09-28T00:00:00.000Z",
+        })),
+        async getThreadSnapshot(threadId: string) {
+          return {
+            id: threadId,
+            createdAt: "2026-09-28T00:00:00.000Z",
+            updatedAt: "2026-09-28T00:00:00.000Z",
+            messages: [
+              {
+                id: "user-1",
+                role: "user" as const,
+                parts: [{ type: "text" as const, text: "Original" }],
+              },
+            ],
+          };
+        },
+      } satisfies AgentTransport;
+      client = new AgentKitClient({ transport: runtime });
+      await client.loadThread("thread-1");
+      let snapshot = client.getSnapshot();
+      vi.spyOn(client, "getSnapshot").mockImplementation(() => snapshot);
+      const upload = vi.spyOn(client, "uploadFiles").mockResolvedValue([
+        {
+          type: "file",
+          name: "retained.pdf",
+          mediaType: "application/pdf",
+          url: "https://example.test/retained.pdf",
+        },
+      ]);
+      const beforeSend = vi.fn();
+      const onThreadForked = vi.fn();
+      const render = (attachmentsEnabled = true) =>
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-1"
+            onThreadForked={onThreadForked}
+            labels={{ error: "Uploads unavailable" }}
+          >
+            <AgentKitChat
+              composerProps={{
+                beforeSend,
+                autoFocus: false,
+                attachmentsEnabled,
+                initialText: "Draft with attachment",
+              }}
+            />
+          </AgentKitProvider>,
+        );
+      await act(async () => render());
+      if (intent === "edit") {
+        const edit = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Edit message"]',
+        );
+        expect(edit).not.toBeNull();
+        await act(async () => edit!.click());
+      }
+      expect(capture.props!.attachmentsEnabled).toBe(true);
+      const staleSubmit = capture.props!.onSubmit;
+      if (gate === "capability")
+        snapshot = {
+          ...snapshot,
+          capabilityDiscovery: undefined,
+          capabilities: { ...snapshot.capabilities, uploads: false },
+        };
+      await act(async () => render(gate !== "host"));
+      expect(capture.props!.attachmentsEnabled).toBe(false);
+      const files = [
+        new File(["retained"], "retained.pdf", { type: "application/pdf" }),
+      ];
+      for (const submit of [capture.props!.onSubmit, staleSubmit]) {
+        await act(async () => {
+          await expect(
+            submit("Send with attachment", files, [], {
+              intent: intent === "queued" ? "queued" : "immediate",
+            }),
+          ).rejects.toMatchObject({
+            name: "AgentKitCapabilityError",
+            capability: "uploads",
+            code: "capability_unavailable",
+          });
+        });
+      }
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Uploads unavailable",
+      );
+      expect(capture.props!.initialText).toBe(
+        intent === "edit" ? "Original" : "Draft with attachment",
+      );
+      expect(files).toHaveLength(1);
+      expect(upload).not.toHaveBeenCalled();
+      expect(runtime.forkThread).not.toHaveBeenCalled();
+      expect(onThreadForked).not.toHaveBeenCalled();
+      expect(beforeSend).not.toHaveBeenCalled();
+      expect(runtime.startRun).not.toHaveBeenCalled();
+      expect(runtime.queueMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it("passes a multiple dialog descriptor without requiring a single-item callback", async () => {
     const runtime = transport();
     client = new AgentKitClient({ transport: runtime });
@@ -214,6 +334,7 @@ describe("AgentKit composer context submission", () => {
       await act(async () => {
         pending = capture.props!.onSubmit("Review", [], references, {
           contextItems: source,
+          composerModeContext: "Use scheduling tools for this request.",
           intent,
         });
       });
@@ -244,13 +365,141 @@ describe("AgentKit composer context submission", () => {
           ? input.text
           : input.messages.at(-1)!.parts.find((part) => part.type === "text")!
               .text;
-      expect(text).toBe("Review\n\n<context>\nOriginal context\n</context>");
+      expect(text).toBe(
+        "Review\n\n<context>\nUse scheduling tools for this request.\n\nOriginal context\n</context>",
+      );
       expect(saved!.text).toBe(text);
       expect(
         intent === "queued" ? runtime.startRun : runtime.queueMessage,
       ).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["immediate", "queued"] as const)(
+    "includes mode instructions without context items in %s submissions",
+    async (intent) => {
+      const runtime = transport();
+      client = new AgentKitClient({ transport: runtime });
+      const beforeSend = vi.fn();
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer beforeSend={beforeSend} autoFocus={false} />
+          </AgentKitProvider>,
+        ),
+      );
+      await act(async () => {
+        await capture.props!.onSubmit("Create a skill: Review", [], [], {
+          intent,
+          composerModeContext: "Use skill tools for this request.",
+        });
+      });
+      expect(beforeSend.mock.calls[0][0].text).toBe(
+        "Create a skill: Review\n\n<context>\nUse skill tools for this request.\n</context>",
+      );
+      expect(beforeSend.mock.calls[0][0].contextItems).toBeUndefined();
+      const input =
+        intent === "queued"
+          ? runtime.queueMessage.mock.calls[0][0]
+          : runtime.startRun.mock.calls[0][0];
+      const text =
+        "text" in input
+          ? input.text
+          : input.messages.at(-1)!.parts.find((part) => part.type === "text")!
+              .text;
+      expect(text).toBe(beforeSend.mock.calls[0][0].text);
+      expect(input.metadata).not.toHaveProperty("contextItems");
+    },
+  );
+
+  it("forwards mode instructions unchanged to a host override", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer onSubmit={onSubmit} autoFocus={false} />
+        </AgentKitProvider>,
+      ),
+    );
+    const options = {
+      composerModeContext: "Use automation tools for this request.",
+    };
+    await act(async () =>
+      capture.props!.onSubmit("Create an automation: Review", [], [], options),
+    );
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+      "Create an automation: Review",
+      [],
+      [],
+      options,
+    );
+    expect(runtime.startRun).not.toHaveBeenCalled();
+    expect(runtime.queueMessage).not.toHaveBeenCalled();
+  });
+
+  it("preserves mode instructions when resubmitting an edited message on a fork", async () => {
+    const runtime = {
+      ...transport(),
+      capabilities: { messageQueue: true, threadForking: true },
+      forkThread: vi.fn(async () => ({
+        id: "thread-fork",
+        createdAt: "2026-09-28T00:00:00.000Z",
+        updatedAt: "2026-09-28T00:00:00.000Z",
+      })),
+      async getThreadSnapshot(threadId: string) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-28T00:00:00.000Z",
+          updatedAt: "2026-09-28T00:00:00.000Z",
+          messages: [
+            {
+              id: "user-1",
+              role: "user" as const,
+              parts: [{ type: "text" as const, text: "Original" }],
+            },
+          ],
+        };
+      },
+    } satisfies AgentTransport;
+    client = new AgentKitClient({ transport: runtime });
+    await client.loadThread("thread-1");
+    const beforeSend = vi.fn();
+    await act(async () =>
+      root.render(
+        <AgentKitProvider
+          controller={client}
+          threadId="thread-1"
+          onThreadForked={vi.fn()}
+        >
+          <AgentKitChat composerProps={{ beforeSend, autoFocus: false }} />
+        </AgentKitProvider>,
+      ),
+    );
+    const edit = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Edit message"]',
+    );
+    expect(edit).not.toBeNull();
+    await act(async () => edit!.click());
+    await act(async () =>
+      capture.props!.onSubmit("Create a skill: Revised", [], [], {
+        composerModeContext: "Use skill tools for this request.",
+        contextItems: [
+          { key: "brief", title: "Brief", context: "Source context" },
+        ],
+      }),
+    );
+    expect(runtime.forkThread).toHaveBeenCalledOnce();
+    expect(runtime.startRun.mock.calls[0][0].threadId).toBe("thread-fork");
+    const text = runtime.startRun.mock.calls[0][0].messages
+      .at(-1)!
+      .parts.find((part) => part.type === "text")!.text;
+    expect(text).toBe(
+      "Create a skill: Revised\n\n<context>\nUse skill tools for this request.\n\nSource context\n</context>",
+    );
+    expect(beforeSend.mock.calls[0][0].text).toBe(text);
+  });
 
   it("queues while running with the same hook and keeps legacy submissions context-free", async () => {
     const runtime = transport();
@@ -501,7 +750,10 @@ describe("AgentKit composer context submission", () => {
       );
       await act(async () => {
         await expect(
-          capture.props!.onSubmit("Review", [], [], { intent }),
+          capture.props!.onSubmit("Review", [], [], {
+            intent,
+            composerModeContext: "Use scheduling tools for this request.",
+          }),
         ).rejects.toThrow("Snapshot could not be saved");
       });
       expect(runtime.startRun).not.toHaveBeenCalled();
