@@ -1491,7 +1491,7 @@ export default {
         "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
       permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
       permissionPromptSettingsInstructions:
-        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y permite el acceso a las aplicaciones de tu dispositivo.",
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
       permissionPromptRetry: "Reintentar conexión",
     },
   },
