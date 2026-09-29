@@ -39,6 +39,11 @@ export function resolveMaxWorkers(
 const vitestBaseConfig: ViteUserConfig = {
   test: {
     maxWorkers: resolveMaxWorkers(),
+    // Vitest's 5 s default only holds while a worker has a core to itself.
+    // With every core busy, booting PGlite or importing a generated server
+    // bundle inside a test takes several times longer, and which test crosses
+    // the limit changes from run to run.
+    testTimeout: 30_000,
   },
 };
 
