@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const assetsDirectory = path.resolve(".output/public/assets");
+const assetsDirectory = path.resolve("build/client/assets");
 const assets = (await readdir(assetsDirectory)).filter((name) =>
   /\.(?:m?js|cjs)$/.test(name),
 );
