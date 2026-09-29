@@ -5,6 +5,7 @@ const ENV_KEYS = ["VITEST_CONCURRENCY", "AGENT_NATIVE_VITEST_CONCURRENCY"];
 
 export function resolveMaxWorkers(
   env: NodeJS.ProcessEnv = process.env,
+  fallback: string | number = DEFAULT_MAX_WORKERS,
 ): string | number {
   const rawMaxWorkers = env.VITEST_MAX_WORKERS;
   if (rawMaxWorkers?.includes("%")) {
@@ -16,7 +17,7 @@ export function resolveMaxWorkers(
   }
 
   const key = ENV_KEYS.find((name) => env[name]);
-  if (!key) return DEFAULT_MAX_WORKERS;
+  if (!key) return fallback;
 
   const value = env[key]!.trim();
   if (/^\d+%$/.test(value)) {
