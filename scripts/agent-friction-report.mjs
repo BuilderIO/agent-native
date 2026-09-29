@@ -839,7 +839,7 @@ function followingPrReviewMergeRequirement(text, match) {
   const following = text.slice(match.index + match[0].length);
   const nextWait =
     following.match(
-      /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,120}\b(?:first|before\s+(?:we\s+)?merging?|then\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing))\b[^.!?]*/i,
+      /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,120}(?:[.!?]\s*)?\b(?:first|before\s+(?:we\s+)?merging?|then\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing))\b[^.!?]*/i,
     )?.[0] ?? "";
   const nextSentence = following.match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
   return (
@@ -1031,6 +1031,7 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     false,
     "This PR is ready to merge. Merge it. Wait for security approval; then merge.",
   ],
+  [false, "This PR is ready to merge. Wait for security approval. Then merge."],
   [
     false,
     "This PR is ready to merge. Merge it without another approval once all required checks pass.",
