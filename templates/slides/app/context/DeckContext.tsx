@@ -567,18 +567,33 @@ async function callDeckWriteAction<TResult>(
     ...payload,
     clientWrite: nextDeckClientWrite(deckId),
   };
-  const result = options?.keepalive
-    ? await requireKeepaliveAction(
-        actionName,
-        tryCallActionKeepalive<TResult>(actionName, body, {
-          method: options.method,
-          signal: options.signal,
-        }),
-      )
-    : await callAction<TResult>(actionName, body, {
-        ...(options?.method ? { method: options.method } : {}),
-        ...(options?.signal ? { signal: options.signal } : {}),
-      });
+  let result: TResult;
+  try {
+    result = options?.keepalive
+      ? await requireKeepaliveAction(
+          actionName,
+          tryCallActionKeepalive<TResult>(actionName, body, {
+            method: options.method,
+            signal: options.signal,
+          }),
+        )
+      : await callAction<TResult>(actionName, body, {
+          ...(options?.method ? { method: options.method } : {}),
+          ...(options?.signal ? { signal: options.signal } : {}),
+        });
+  } catch (error) {
+    if (
+      actionName === "patch-deck" &&
+      error &&
+      typeof error === "object" &&
+      "status" in error &&
+      error.status === 409 &&
+      !("code" in error && error.code === "client_build_mismatch")
+    ) {
+      await fetchDeckFromAPI(deckId);
+    }
+    throw error;
+  }
   rememberDeckServerRevision(deckId, result);
   return result;
 }

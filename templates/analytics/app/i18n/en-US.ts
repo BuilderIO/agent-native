@@ -754,6 +754,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Custom range",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

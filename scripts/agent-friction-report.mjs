@@ -2309,6 +2309,13 @@ const PATTERNS = [
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
   },
   {
+    key: "ci-overspend",
+    label: "Told CI runs work a change cannot affect",
+    fixedBy:
+      ".agents/skills/adding-tests-and-ci + scripts/ci-change-scope.ts per-app outputs (2026-09-29)",
+    re: /\b(?:runs?|running|triggers?|fires?) on every (?:ci|pr|push|merge|commit|template|change)\b|\brunning so (?:often|frequently)\b|\bunnecessarily (?:running|runs?|triggered)\b|\b(?:ci|tests?|jobs?|lanes?|workflows?)\b[^.!?]{0,40}\b(?:absur\w*ly|way too|so|super) expensive\b|\bshould(?:n'?t| not) it (?:only )?(?:listen|run|trigger) (?:to|on|for)\b|\beats? up (?:our|the) (?:entire )?(?:quota|capacity|runners?)\b|\bwaiting for (?:a )?(?:runner|resources)\b/i,
+  },
+  {
     key: "admin-grant-hack",
     label: "Had to fix a hardcoded-email admin grant",
     fixedBy: ".agents/skills/sharing (make-me-admin recipe, 2026-09-22)",

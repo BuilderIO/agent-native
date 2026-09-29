@@ -293,6 +293,8 @@ production deployment:
 | `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                     |
 | `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                      |
 | `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                         |
+| `QUERY_BUDGET_APPS`           | JSON list of first-party templates the cold-request query budget job builds and measures, chosen by the change-scope classifier.                                                        |
+| `SSR_BOOT_APPS`               | JSON list of templates the SSR cold-start smoke builds and imports, chosen by the change-scope classifier.                                                                              |
 | `NIGHTLY_PATHS`               | Newline-separated publishable paths the scheduled nightly publish compares against its last successful run; must match `auto-publish.yml`'s `push.paths`.                               |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
@@ -378,14 +380,18 @@ application configuration. The secrets and vars used by those workflows are
 listed in the workflow files under `.github/workflows`; values must be supplied
 through GitHub Actions secrets/variables, never committed to this repository.
 
-The following variables are set by the CI workflow for service containers and
-integration tests only — they are not used in application runtime code:
+The following variables are set by the CI workflow for test runners and
+integration-test service containers only — they are not used in application
+runtime code:
 
-| Variable                      | Purpose                                                                                         |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                 | Database name for the PostgreSQL service container used in CI integration tests.                |
-| `POSTGRES_HOST_AUTH_METHOD`   | PostgreSQL host-based authentication method for the CI service container (e.g. `trust`).        |
-| `S2573_PGLITE_INSTALL_PREFIX` | Override for the PGlite native binary install prefix used by the content-database lock CI test. |
+| Variable                      | Purpose                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `CORE_SHARD`                  | One-based Vitest shard and total shard count (`index/count`) for Core fast tests in GitHub Actions.     |
+| `CORE_TEST_MODE`              | Selects the `full` Core fast-test suite or only `changed` Core tests in a targeted test lane.           |
+| `CORE_TEST_FILES`             | JSON array of Core test paths selected by the targeted-lane planner when `CORE_TEST_MODE` is `changed`. |
+| `POSTGRES_DB`                 | Database name for the PostgreSQL service container used in CI integration tests.                        |
+| `POSTGRES_HOST_AUTH_METHOD`   | PostgreSQL host-based authentication method for the CI service container (e.g. `trust`).                |
+| `S2573_PGLITE_INSTALL_PREFIX` | Override for the PGlite native binary install prefix used by the content-database lock CI test.         |
 
 ## Dynamic environment keys
 

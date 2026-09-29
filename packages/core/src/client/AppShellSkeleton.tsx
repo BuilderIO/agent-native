@@ -183,160 +183,220 @@ function PromptLibraryLayout() {
 
 function MailLayout() {
   return (
-    <>
-      <aside
+    <div
+      style={{
+        display: "flex",
+        minWidth: 0,
+        flex: 1,
+        flexDirection: "column",
+        containerName: "agent-native-main",
+        containerType: "inline-size",
+      }}
+    >
+      <header
         aria-hidden="true"
-        data-agent-native-app-skeleton-sidebar="true"
+        data-agent-native-mail-header="true"
         style={{
           display: "flex",
-          width: 56,
+          height: 48,
           flexShrink: 0,
-          flexDirection: "column",
           alignItems: "center",
-          gap: 20,
-          borderRight: BORDER,
-          padding: "16px 8px",
+          gap: 4,
+          borderBottom: BORDER,
+          padding: "0 8px",
+          overflowX: "auto",
+          overflowY: "hidden",
+          overscrollBehaviorX: "contain",
+          scrollbarWidth: "none",
         }}
       >
-        <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-        {Array.from({ length: 6 }, (_, index) => (
-          <Block
-            key={index}
-            style={{ width: 28, height: 28, borderRadius: 8 }}
-          />
-        ))}
-      </aside>
-      <aside
-        aria-hidden="true"
-        data-agent-native-mail-folders="true"
-        style={{
-          display: "flex",
-          width: 216,
-          flexShrink: 0,
-          flexDirection: "column",
-          gap: 14,
-          borderRight: BORDER,
-          padding: 16,
-        }}
-      >
-        <Block style={{ width: 112, height: 16, marginBottom: 8 }} />
-        {Array.from({ length: 9 }, (_, index) => (
-          <div
-            key={index}
-            style={{ display: "flex", alignItems: "center", gap: 10 }}
-          >
-            <Block style={{ width: 16, height: 16, borderRadius: 5 }} />
-            <Block style={{ width: `${50 + (index % 3) * 12}%`, height: 13 }} />
-          </div>
-        ))}
-      </aside>
+        <div
+          style={{
+            position: "sticky",
+            insetInlineStart: 0,
+            zIndex: 1,
+            flexShrink: 0,
+            backgroundColor: "hsl(var(--background, 0 0% 100%))",
+          }}
+        >
+          <Block style={{ width: 32, height: 36, borderRadius: 6 }} />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            width: "max-content",
+            flexShrink: 0,
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <Block style={{ width: 112, height: 32, borderRadius: 8 }} />
+          {[96, 128, 98, 72, 84, 62].map((width, index) => (
+            <Block
+              key={index}
+              style={{ width, height: 32, borderRadius: 8, flexShrink: 0 }}
+            />
+          ))}
+        </div>
+        <div style={{ flex: 1, minWidth: 16 }} />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 84, height: 32, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+      </header>
       <main
         style={{
           display: "flex",
           minWidth: 0,
           flex: 1,
-          flexDirection: "column",
+          minHeight: 0,
         }}
       >
-        <header
-          aria-hidden="true"
-          style={{
-            display: "flex",
-            height: 52,
-            flexShrink: 0,
-            alignItems: "center",
-            gap: 12,
-            borderBottom: BORDER,
-            padding: "0 16px",
-          }}
-        >
-          <Block
-            style={{ width: "min(55%, 440px)", height: 32, borderRadius: 10 }}
-          />
-          <div style={{ flex: 1 }} />
-          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-        </header>
         <section
           aria-hidden="true"
-          style={{ display: "flex", minHeight: 0, flex: 1 }}
+          data-agent-native-mail-list="true"
+          style={{
+            display: "flex",
+            minWidth: 0,
+            flex: 1,
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
         >
-          <div
-            data-agent-native-mail-list="true"
-            style={{
-              display: "flex",
-              width: 360,
-              flexShrink: 0,
-              flexDirection: "column",
-              gap: 1,
-              overflow: "hidden",
-              borderRight: BORDER,
-              padding: "8px 12px",
-            }}
-          >
-            <div style={{ display: "flex", gap: 8, padding: "4px 0 12px" }}>
-              <Block style={{ width: 68, height: 24, borderRadius: 12 }} />
-              <Block style={{ width: 72, height: 24, borderRadius: 12 }} />
-            </div>
-            {Array.from({ length: 8 }, (_, index) => (
+          {Array.from({ length: 12 }, (_, index) => (
+            <div
+              key={index}
+              style={{
+                display: "flex",
+                minHeight: 48,
+                flexShrink: 0,
+                alignItems: "center",
+                borderBottom: BORDER,
+                padding: "0 12px",
+              }}
+            >
               <div
-                key={index}
                 style={{
                   display: "flex",
-                  minHeight: 76,
-                  flexDirection: "column",
+                  width: 20,
+                  flexShrink: 0,
+                  alignItems: "center",
                   justifyContent: "center",
-                  gap: 9,
-                  borderBottom: BORDER,
-                  padding: "10px 4px",
+                  marginRight: 8,
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <Block
-                    style={{ width: `${42 + (index % 3) * 10}%`, height: 13 }}
-                  />
-                  <Block style={{ width: 36, height: 10 }} />
-                </div>
+                <Block style={{ width: 7, height: 7, borderRadius: "50%" }} />
+              </div>
+              <div
+                data-agent-native-mail-sender="true"
+                style={{
+                  display: "flex",
+                  width: 160,
+                  flexShrink: 0,
+                  alignItems: "center",
+                  marginRight: 12,
+                }}
+              >
                 <Block
-                  style={{ width: `${66 + (index % 3) * 8}%`, height: 12 }}
-                />
-                <Block
-                  style={{ width: `${52 + (index % 4) * 8}%`, height: 10 }}
+                  style={{ width: `${88 + (index % 3) * 12}px`, height: 12 }}
                 />
               </div>
-            ))}
+              {index % 2 === 1 && (
+                <div data-agent-native-mail-label="true">
+                  <Block
+                    style={{
+                      width: 58,
+                      height: 16,
+                      borderRadius: 4,
+                      marginRight: 8,
+                    }}
+                  />
+                </div>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  minWidth: 0,
+                  flex: 1,
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <div style={{ width: 164, maxWidth: "75%", flexShrink: 0 }}>
+                  <Block style={{ width: "100%", height: 12 }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Block style={{ width: "100%", height: 12 }} />
+                </div>
+              </div>
+              <div
+                data-agent-native-mail-time="true"
+                style={{
+                  width: 52,
+                  flexShrink: 0,
+                  marginLeft: 8,
+                }}
+              >
+                <Block style={{ width: "100%", height: 11 }} />
+              </div>
+            </div>
+          ))}
+        </section>
+        <aside
+          aria-hidden="true"
+          data-agent-native-mail-inspector="true"
+          style={{
+            display: "flex",
+            width: 260,
+            flexShrink: 0,
+            flexDirection: "column",
+            borderLeft: BORDER,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 6,
+              padding: "16px 0 12px",
+            }}
+          >
+            <Block style={{ width: 32, height: 14 }} />
+            <Block style={{ width: 160, height: 12 }} />
+            <Block style={{ width: 112, height: 11 }} />
           </div>
           <div
             style={{
               display: "flex",
-              minWidth: 0,
-              flex: 1,
-              flexDirection: "column",
-              padding: 32,
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 0",
             }}
           >
-            <Block style={{ width: "62%", height: 24, marginBottom: 12 }} />
-            <Block style={{ width: "38%", height: 13, marginBottom: 32 }} />
-            {Array.from({ length: 7 }, (_, index) => (
-              <Block
-                key={index}
-                style={{
-                  width: `${92 - (index % 3) * 8}%`,
-                  height: 13,
-                  marginBottom: 14,
-                }}
-              />
-            ))}
+            <Block style={{ width: 20, height: 20, borderRadius: 6 }} />
+            <Block style={{ width: 56, height: 11 }} />
           </div>
-        </section>
+          <div style={{ height: 1, margin: "0 0 0", borderTop: BORDER }} />
+          <Block style={{ width: 84, height: 11, marginTop: 8 }} />
+        </aside>
       </main>
-    </>
+    </div>
   );
 }
 
@@ -1037,12 +1097,21 @@ export function AppShellSkeleton({
             padding: 24px 0 0;
           }
         }
+        @container agent-native-main (max-width: 979px) {
+          [data-agent-native-mail-inspector] { display: none !important; }
+        }
+        [data-agent-native-mail-header]::-webkit-scrollbar { display: none; }
         @media (max-width: 767px) {
-          [data-agent-native-app-skeleton-sidebar],
-          [data-agent-native-mail-folders] { display: none !important; }
+          [data-agent-native-app-skeleton-sidebar] { display: none !important; }
           [data-agent-native-mail-list] { width: 100% !important; }
           [data-agent-native-app-skeleton-layout="mail"] [data-agent-native-mail-list] { flex: 1; }
-          [data-agent-native-app-skeleton-layout="mail"] [data-agent-native-mail-list] + div { display: none !important; }
+        }
+        @media (max-width: 639px) {
+          [data-agent-native-mail-sender] { width: 100px !important; }
+          [data-agent-native-mail-label] { display: none !important; }
+        }
+        @media (min-width: 640px) {
+          [data-agent-native-mail-list] > div { min-height: 38px !important; }
         }
       `}</style>
       {content ?? <DefaultLayout />}
