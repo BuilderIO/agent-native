@@ -1844,6 +1844,7 @@ export function createPollHandler(
       }
 
       try {
+        await state.seedVersionFromDb();
         await state.checkExternalDbChanges({ durableEvents: true });
         return await state.getCombinedChangesSinceForUser(
           since,

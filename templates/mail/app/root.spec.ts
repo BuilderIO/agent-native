@@ -83,6 +83,34 @@ describe("createMailSyncEventHandler", () => {
     queryClient.clear();
   });
 
+  it.each([
+    "create-scheduled-send",
+    "cancel-scheduled-email",
+    "confirm-uncertain-scheduled-email",
+    "retry-uncertain-scheduled-email",
+    "send-scheduled-email-now",
+  ])("refreshes email and scheduled-job queries after %s", async (key) => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({ source: "action", type: "action-change", key });
+    await Promise.resolve();
+
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ["emails"],
+        ["email"],
+        LABELS_QUERY_KEY,
+        ["scheduled-jobs"],
+      ]),
+    );
+    queryClient.clear();
+  });
+
   it("ignores unrelated action completions", async () => {
     const queryClient = new QueryClient();
     const invalidate = vi

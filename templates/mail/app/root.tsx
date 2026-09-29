@@ -340,11 +340,15 @@ const MAIL_QUERY_MUTATION_ACTIONS = new Set([
   "apply-ai-filter",
   "archive-email",
   "bulk-archive",
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
   "manage-draft",
   "mark-read",
   "mark-thread-read",
   "move-email",
   "resync-inbox",
+  "retry-uncertain-scheduled-email",
   "send-email",
   "send-queued-drafts",
   "send-scheduled-email-now",
@@ -353,6 +357,14 @@ const MAIL_QUERY_MUTATION_ACTIONS = new Set([
   "unarchive-email",
   "untrash-email",
   "update-queued-draft",
+]);
+
+const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "retry-uncertain-scheduled-email",
+  "send-scheduled-email-now",
 ]);
 
 export function createMailSyncEventHandler(qc: QueryClient) {
@@ -418,6 +430,9 @@ export function createMailSyncEventHandler(qc: QueryClient) {
       }
     } else if (data.source === "action") {
       if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
+      if (SCHEDULED_JOB_MUTATION_ACTIONS.has(data.key)) {
+        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      }
       if (!actionQueryInvalidationScheduled) {
         actionQueryInvalidationScheduled = true;
         queueMicrotask(() => {
