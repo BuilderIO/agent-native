@@ -543,16 +543,15 @@ pending. Carry channel cursors, reports, evidence, owning seams, sibling
 results, and dispositions into the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
-If a tracker was supplied, carry its exact row ids and the reproduction ledger
-into the PR or release recap. Never turn a tracker status into a shipping claim.
-Give every row its own disposition marker. A single reaction, checkmark, or
-"reviewed" marker must not stand in for several rows, including expected,
-docs-owned, cross-team, or duplicate items. Any source/docs change is linked
-to its exact PR or commit; non-coding dispositions link the evidence or named
-owner instead of borrowing a nearby PR link.
+Carry exact tracker row ids and the reproduction ledger into the PR or release
+recap; tracker status is not shipping evidence. Mark each row independently: a
+reaction, checkmark, or "reviewed" cannot cover multiple rows, including
+expected, docs-owned, cross-team, or duplicate items. Link each source/docs
+change to its exact PR or commit, and each non-coding disposition to its
+evidence or owner.
 
-If the sweep found no verified fix, finish with the recap and say why no ship
-started. Unavailable connectors and external failures are not shipping blockers.
+If no fix is verified, recap why shipping did not start. Unavailable connectors
+and external failures are not shipping blockers.
 While waiting, **Clarification needed** stays open with `👀` and no `✅`. It
 must not block merging independently verified fixes unless the report could
 affect a PR change. Keep the eye when new evidence arrives.

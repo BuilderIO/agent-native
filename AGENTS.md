@@ -14,27 +14,21 @@ that area — most encode a decision the surrounding code cannot show. Prefer
 searching the skill directory over guessing from nearby code. When a rule here
 names a skill, that skill is the authority; this file only states the invariant.
 
-A few are entry points rather than area guides:
+A few entry points:
 
-- `adding-a-feature` — the four-area checklist every feature must satisfy.
-- `content-product-development` — read before planning, implementing,
-  reviewing, testing, or documenting Content behavior or shared framework
-  behavior that changes Content's product contract.
-- `writing-agent-instructions` — read before editing any `AGENTS.md`,
-  `SKILL.md`, or tool/action description, including this file.
-- `verifying-changes` — read before reporting a fix, feature, or deploy as
-  done. Exercising the path that was broken is the step most often skipped,
-  and skipping it is why the same bug gets reported twice.
-- `reporting-progress` — read during any run over a few minutes, and at the
-  moment you are tempted to stop and ask. Chasing status is the single most
-  frequent correction in this repo.
+- `adding-a-feature` — the required four-area feature checklist.
+- `content-product-development` — read for Content or shared changes affecting
+  Content's product contract.
+- `writing-agent-instructions` — read before editing instructions, skills, or
+  tool/action descriptions.
+- `verifying-changes` — exercise the broken path before reporting a fix done.
+- `reporting-progress` — read during long runs and before asking for status.
 - `concurrent-agents` — read before working in a shared checkout.
-- `ship` — normal guarded ship through merge and branch rotation; beta and docs
-  production deploys are automatic, while other production promotion is manual.
-- `ship-and-monitor` — read for requested post-merge checks or concrete beta
-  risks local proof cannot cover; routine source changes need no extra beta
-  behavior check.
-- `ship-now` — fast admin-merge path with post-merge monitoring.
+- `ship` — normal guarded ship; beta/docs deploy automatically, other
+  production promotion is manual.
+- `ship-and-monitor` — use for requested post-merge checks or beta risks local
+  proof cannot cover.
+- `ship-now` — fast admin merge with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
 contract.
