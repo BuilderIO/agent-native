@@ -2307,6 +2307,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var runtimeLayerSnapshotReservationRequestId = 0;
     var runtimeLayerSnapshotReservationInFlight = false;
     var runtimeLayerSnapshotReservationDirty = false;
+    var runtimeLayerSnapshotReservationReadinessRequestId = null;
+    var runtimeLayerSnapshotPendingReadinessRequestId = null;
     var lastRuntimeLayerSnapshotHtml = "";
     var lastRuntimeLayerSnapshotReservationToken = "";
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -2575,7 +2577,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken, requestId) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId, readinessRequestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2593,6 +2595,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               ...snapshot,
               requestId,
               documentId: runtimeDocumentId,
+              ...Number.isSafeInteger(readinessRequestId) ? { readinessRequestId } : {},
               ...reservationToken ? { reservationToken } : {}
             }
           },
@@ -2601,13 +2604,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var snapshotReservationToken = reservationToken || "";
-      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(readinessRequestId)) {
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-unchanged",
             payload: {
               requestId,
               documentId: snapshot.documentId,
+              ...Number.isSafeInteger(readinessRequestId) ? { readinessRequestId } : {},
               ...reservationToken ? { reservationToken } : {}
             }
           },
@@ -2618,6 +2622,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
       if (requestId !== void 0) snapshot.requestId = requestId;
+      if (Number.isSafeInteger(readinessRequestId)) {
+        snapshot.readinessRequestId = readinessRequestId;
+      }
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -2627,7 +2634,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
-    function requestRuntimeLayerSnapshot() {
+    function requestRuntimeLayerSnapshot(readinessRequestId) {
+      if (Number.isSafeInteger(readinessRequestId)) {
+        runtimeLayerSnapshotPendingReadinessRequestId = readinessRequestId;
+      }
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
         runtimeLayerSnapshotTimer = null;
@@ -2638,10 +2648,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (runtimeLayerSnapshotReservationInFlight) {
         runtimeLayerSnapshotReservationDirty = true;
+        runtimeLayerSnapshotPendingReadinessRequestId ?? (runtimeLayerSnapshotPendingReadinessRequestId = runtimeLayerSnapshotReservationReadinessRequestId);
         return;
       }
       runtimeLayerSnapshotReservationInFlight = true;
       runtimeLayerSnapshotReservationRequestId += 1;
+      runtimeLayerSnapshotReservationReadinessRequestId = runtimeLayerSnapshotPendingReadinessRequestId;
+      runtimeLayerSnapshotPendingReadinessRequestId = null;
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
@@ -21087,7 +21100,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "request-runtime-layer-snapshot") {
-        requestRuntimeLayerSnapshot();
+        requestRuntimeLayerSnapshot(
+          Number.isSafeInteger(e.data.readinessRequestId) ? e.data.readinessRequestId : void 0
+        );
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
@@ -21097,12 +21112,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;
-          requestRuntimeLayerSnapshot();
+          var queuedReadinessRequestId = runtimeLayerSnapshotPendingReadinessRequestId ?? runtimeLayerSnapshotReservationReadinessRequestId;
+          runtimeLayerSnapshotReservationReadinessRequestId = null;
+          requestRuntimeLayerSnapshot(queuedReadinessRequestId ?? void 0);
           return;
         }
+        var reservationReadinessRequestId = runtimeLayerSnapshotReservationReadinessRequestId;
+        runtimeLayerSnapshotReservationReadinessRequestId = null;
         postRuntimeLayerSnapshot(
           typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
-          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0,
+          reservationReadinessRequestId ?? void 0
         );
         return;
       }

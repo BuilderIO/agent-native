@@ -2080,6 +2080,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var runtimeLayerSnapshotReservationRequestId = 0;
   var runtimeLayerSnapshotReservationInFlight = false;
   var runtimeLayerSnapshotReservationDirty = false;
+  var runtimeLayerSnapshotReservationReadinessRequestId: number | null = null;
+  var runtimeLayerSnapshotPendingReadinessRequestId: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
   var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
@@ -2409,6 +2411,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function postRuntimeLayerSnapshot(
     reservationToken?: string,
     requestId?: number,
+    readinessRequestId?: number,
   ): void {
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
@@ -2427,6 +2430,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ...snapshot,
             requestId,
             documentId: runtimeDocumentId,
+            ...(Number.isSafeInteger(readinessRequestId)
+              ? { readinessRequestId }
+              : {}),
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
@@ -2437,7 +2443,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var snapshotReservationToken = reservationToken || "";
     if (
       snapshot.html === lastRuntimeLayerSnapshotHtml &&
-      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken
+      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken &&
+      !Number.isSafeInteger(readinessRequestId)
     ) {
       (window.parent as Window).postMessage(
         {
@@ -2445,6 +2452,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           payload: {
             requestId,
             documentId: snapshot.documentId,
+            ...(Number.isSafeInteger(readinessRequestId)
+              ? { readinessRequestId }
+              : {}),
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
@@ -2455,6 +2465,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     lastRuntimeLayerSnapshotHtml = snapshot.html;
     lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
     if (requestId !== undefined) snapshot.requestId = requestId;
+    if (Number.isSafeInteger(readinessRequestId)) {
+      snapshot.readinessRequestId = readinessRequestId;
+    }
     if (reservationToken) snapshot.reservationToken = reservationToken;
     (window.parent as Window).postMessage(
       {
@@ -2465,7 +2478,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function requestRuntimeLayerSnapshot(): void {
+  function requestRuntimeLayerSnapshot(readinessRequestId?: number): void {
+    if (Number.isSafeInteger(readinessRequestId)) {
+      runtimeLayerSnapshotPendingReadinessRequestId =
+        readinessRequestId as number;
+    }
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
       runtimeLayerSnapshotTimer = null;
@@ -2476,10 +2493,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (runtimeLayerSnapshotReservationInFlight) {
       runtimeLayerSnapshotReservationDirty = true;
+      runtimeLayerSnapshotPendingReadinessRequestId ??=
+        runtimeLayerSnapshotReservationReadinessRequestId;
       return;
     }
     runtimeLayerSnapshotReservationInFlight = true;
     runtimeLayerSnapshotReservationRequestId += 1;
+    runtimeLayerSnapshotReservationReadinessRequestId =
+      runtimeLayerSnapshotPendingReadinessRequestId;
+    runtimeLayerSnapshotPendingReadinessRequestId = null;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:runtime-layer-snapshot-reservation-request",
@@ -26799,7 +26821,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "request-runtime-layer-snapshot") {
-      requestRuntimeLayerSnapshot();
+      requestRuntimeLayerSnapshot(
+        Number.isSafeInteger(e.data.readinessRequestId)
+          ? e.data.readinessRequestId
+          : undefined,
+      );
       return;
     }
     if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
@@ -26812,14 +26838,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       runtimeLayerSnapshotReservationInFlight = false;
       if (runtimeLayerSnapshotReservationDirty) {
         runtimeLayerSnapshotReservationDirty = false;
-        requestRuntimeLayerSnapshot();
+        var queuedReadinessRequestId =
+          runtimeLayerSnapshotPendingReadinessRequestId ??
+          runtimeLayerSnapshotReservationReadinessRequestId;
+        runtimeLayerSnapshotReservationReadinessRequestId = null;
+        requestRuntimeLayerSnapshot(queuedReadinessRequestId ?? undefined);
         return;
       }
+      var reservationReadinessRequestId =
+        runtimeLayerSnapshotReservationReadinessRequestId;
+      runtimeLayerSnapshotReservationReadinessRequestId = null;
       postRuntimeLayerSnapshot(
         typeof e.data.reservationToken === "string"
           ? e.data.reservationToken
           : undefined,
         Number.isSafeInteger(e.data.requestId) ? e.data.requestId : undefined,
+        reservationReadinessRequestId ?? undefined,
       );
       return;
     }
