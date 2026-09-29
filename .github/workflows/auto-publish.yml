@@ -2,8 +2,10 @@ name: Publish packages
 
 # npm packages have two separate release trains:
 #
-#   1. Every matching ordinary merge to `main` publishes a `nightly` snapshot.
-#      It never changes the repository or moves npm's `latest` dist-tag.
+#   1. Every three hours, a scheduled run publishes a `nightly` snapshot of
+#      `main` when a publishable path (the `push.paths` list) changed since
+#      the last successful scheduled run. It never changes the repository or
+#      moves npm's `latest` dist-tag. Ordinary merges publish nothing.
 #   2. A maintainer dispatches this workflow with a patch/minor/major choice.
 #      That creates the normal all-package Version Packages PR. Its marked
 #      merge is the only path that publishes a stable release.
@@ -19,6 +21,10 @@ name: Publish packages
 # package trains intentionally keep this workflow path.
 
 on:
+  schedule:
+    - cron: "17 */3 * * *"
+  # Only a verified stable-release merge does work on push; the nightly
+  # change check reuses this list, so keep them identical.
   push:
     branches: [main]
     paths:
@@ -74,6 +80,8 @@ concurrency:
 jobs:
   verify-stable-merge:
     name: Verify stable release merge
+    # An unmarked push can never verify, so skip the runner entirely.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -118,10 +126,82 @@ jobs:
           echo "Stable release merge verified: $verified"
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
 
+  detect-nightly-changes:
+    name: Check for package changes since the last nightly
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # A failed or cancelled scheduled run is not a baseline, so its changes
+      # are retried by the next run. A lookup failure fails this job instead
+      # of skipping or forcing a publish.
+      - name: Compare main with the last successful scheduled nightly
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          NIGHTLY_PATHS: |
+            packages/agentkit/**
+            packages/core/**
+            packages/creative-context/**
+            packages/dispatch/**
+            packages/pinpoint/**
+            packages/recap-cli/**
+            packages/scheduling/**
+            packages/skills/**
+            packages/toolkit/**
+            packages/code-agents-ui/**
+            packages/embedding/**
+            packages/frame/**
+            packages/migrate/**
+            packages/shared-app-config/**
+            .changeset/**
+            .github/workflows/auto-publish.yml
+            scripts/changeset-publish-sequential.ts
+            scripts/create-release-changeset.ts
+            scripts/guard-no-major-changeset.mjs
+            scripts/guard-public-packages.ts
+            scripts/prebuild-workspace-packages.ts
+        run: |
+          set -euo pipefail
+          last_sha="$(gh api \
+            "repos/$REPOSITORY/actions/workflows/auto-publish.yml/runs?event=schedule&branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""')"
+
+          pathspec=()
+          while IFS= read -r path; do
+            [ -n "$path" ] && pathspec+=(":(glob)$path")
+          done <<< "$NIGHTLY_PATHS"
+
+          if [ -z "$last_sha" ]; then
+            echo "No earlier successful scheduled nightly; publishing."
+            changed=true
+          elif ! git merge-base --is-ancestor "$last_sha" HEAD 2>/dev/null; then
+            echo "::warning::Last scheduled nightly $last_sha is not in main's history; publishing."
+            changed=true
+          elif git diff --quiet "$last_sha" HEAD -- "${pathspec[@]}"; then
+            echo "No publishable changes since the last scheduled nightly ($last_sha)."
+            changed=false
+          else
+            echo "Publishable changes since the last scheduled nightly ($last_sha):"
+            git diff --name-only "$last_sha" HEAD -- "${pathspec[@]}" | sed -n '1,50p'
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   publish-nightly:
     name: Publish nightly snapshot
-    needs: [verify-stable-merge]
-    if: ${{ github.event_name == 'push' && needs.verify-stable-merge.outputs.verified != 'true' }}
+    needs: [detect-nightly-changes]
+    if: ${{ github.event_name == 'schedule' && needs.detect-nightly-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
