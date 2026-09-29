@@ -24,6 +24,7 @@ import {
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
 import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
+import { StarfieldBackground } from "../StarfieldBackground.js";
 
 export type {
   AuthLegalNotice,
@@ -2399,6 +2400,15 @@ export function AuthPage(props: AuthPageProps) {
       </span>
     </p>
   ) : null;
+  const signupWave =
+    usesMarketingWelcome && view === "signup" ? (
+      <div className="auth-marketing-signup-wave">
+        <StarfieldBackground
+          className="auth-marketing-signup-wave-canvas"
+          transparent
+        />
+      </div>
+    ) : null;
   const signupForm = (
     <AuthForm
       id="signup-form"
@@ -2464,6 +2474,7 @@ export function AuthPage(props: AuthPageProps) {
       footer={
         <>
           {legalNote}
+          {signupWave}
           {localModeNote}
         </>
       }

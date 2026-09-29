@@ -276,6 +276,18 @@ describe("AuthPage", () => {
     expect(html).not.toContain("data-agent-native-starfield");
   });
 
+  it("places a transparent animated wave after the signup legal notice", () => {
+    const props = propsFromHtml(
+      getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
+    );
+    const html = renderToString(<AuthPage {...props} initialView="signup" />);
+
+    expect(html.indexOf('class="legal-note"')).toBeLessThan(
+      html.indexOf('data-agent-native-starfield-transparent="true"'),
+    );
+    expect(html).toContain('class="auth-marketing-signup-wave-canvas"');
+  });
+
   it("keeps the whole marketing panel in English when localized copy is incomplete", () => {
     const props = propsFromHtml(
       getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
