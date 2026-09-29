@@ -7,10 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const lifecycle = vi.hoisted(() => ({
   bootstrap: Promise.resolve(),
   initPromises: [] as Promise<void>[],
-  mcpRefreshStarted: Promise.resolve(),
   probes: [] as Promise<unknown>[],
   reap: vi.fn<() => Promise<unknown>>(),
-  resolveMcpRefreshStarted: () => {},
   settingsEmitter: null as EventEmitter | null,
 }));
 
@@ -58,7 +56,6 @@ vi.mock("../mcp-client/index.js", async (importOriginal) => {
       const markDirty = () => {};
       const emitter = lifecycle.settingsEmitter!;
       emitter.on("settings", markDirty);
-      lifecycle.resolveMcpRefreshStarted();
       const timer = setInterval(() => {}, 5_000);
       return () => {
         clearInterval(timer);
@@ -145,9 +142,6 @@ describe("agent chat plugin Nitro lifecycle", () => {
     vi.stubEnv("AGENT_NATIVE_MCP_CONFIG_REFRESH_MS", "5000");
     lifecycle.bootstrap = Promise.resolve();
     lifecycle.initPromises.length = 0;
-    lifecycle.mcpRefreshStarted = new Promise<void>((resolve) => {
-      lifecycle.resolveMcpRefreshStarted = resolve;
-    });
     lifecycle.probes.length = 0;
     lifecycle.settingsEmitter = new EventEmitter();
     database = new PGlite();
@@ -219,7 +213,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       const app = await initializeGeneration();
       await app.hooks.callHook("close");
     }
-    await initializeGeneration();
+    const repeatedGeneration = await initializeGeneration();
     await startFastSweep();
 
     const repeatedLifecycle = {
@@ -238,6 +232,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       pendingTransactions: 1,
       settingsListeners: 0,
     });
+    await repeatedGeneration.hooks.callHook("close");
   });
 
   it("cleans resources registered after close races asynchronous initialization", async () => {
