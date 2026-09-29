@@ -349,11 +349,12 @@ gh pr merge <number> --repo BuilderIO/agent-native --auto --squash \
   --match-head-commit <verified-head-oid>
 ```
 
-Verify the queue entry's head against the recorded head with
-`pullRequest { id headRefOid mergeQueueEntry { state position headCommit { oid } } }`
-and keep monitoring both values and the queue checks. `--match-head-commit`
-only gates the enqueue request; it does not pin a later auto-merge or queue
-entry to that SHA.
+Verify the queue entry's PR head against the recorded head with
+`pullRequest { id headRefOid mergeQueueEntry { state position pullRequest { headRefOid } headCommit { oid } } }`.
+Keep `mergeQueueEntry.pullRequest.headRefOid` equal to the recorded PR head;
+track `mergeQueueEntry.headCommit.oid` separately as the merge-group candidate
+used for queue checks. `--match-head-commit` only gates the enqueue request; it
+does not pin a later auto-merge or queue entry to that SHA.
 
 If the PR head changes before merge, immediately dequeue any active queue entry
 and disable any active auto-merge request. Verify `mergeQueueEntry` and
