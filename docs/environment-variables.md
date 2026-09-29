@@ -289,6 +289,10 @@ production deployment:
 | `CORE_SHARD`                  | Vitest shard selector for the Core fast-test job.                                                                                                                                       |
 | `CORE_TEST_FILES`             | JSON list of changed Core test files selected for a targeted fast-test shard.                                                                                                           |
 | `CORE_TEST_MODE`              | Selects the full or changed-file mode for a Core fast-test shard.                                                                                                                       |
+| `TARGETED_WORKSPACE_FILTERS`  | Change-scope test selectors the lane planner receives as `CI_WORKSPACE_FILTERS` on a targeted run.                                                                                      |
+| `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                     |
+| `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                      |
+| `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                         |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
 ### Clips Chrome Web Store release
