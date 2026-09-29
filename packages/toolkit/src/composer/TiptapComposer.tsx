@@ -2615,6 +2615,19 @@ export function TiptapComposer({
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
+  const slotReferencesRef = useRef(slotReferences);
+  slotReferencesRef.current = slotReferences;
+  const updateSlotReferences = useCallback(
+    (update: React.SetStateAction<AgentComposerReference[]>) => {
+      const next =
+        typeof update === "function"
+          ? update(slotReferencesRef.current)
+          : update;
+      slotReferencesRef.current = next;
+      setSlotReferences(next);
+    },
+    [],
+  );
   const [selectedContextItemKey, setSelectedContextItemKey] = useState<
     string | null
   >(null);
@@ -3254,7 +3267,7 @@ export function TiptapComposer({
       const ed = editor;
       if (!normalized || !isComposerEditorUsable(ed)) return;
       if (normalized.slotKey) {
-        setSlotReferences((current) =>
+        updateSlotReferences((current) =>
           applySlotReferenceChanges(current, [normalized]),
         );
         ed.commands.focus("end");
@@ -3265,7 +3278,7 @@ export function TiptapComposer({
           (item: AgentComposerReference) => item.slotKey,
         )
       ) {
-        setSlotReferences((current) =>
+        updateSlotReferences((current) =>
           applySlotReferenceChanges(
             current,
             normalized.relatedReferences ?? [],
@@ -3282,7 +3295,7 @@ export function TiptapComposer({
         .run();
       setEditorHasText(true);
     },
-    [editor],
+    [editor, updateSlotReferences],
   );
 
   const insertReferenceIfEmpty = useCallback(
@@ -3418,7 +3431,7 @@ export function TiptapComposer({
       editor.commands.focus("end");
       const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
       setEditorHasText(trimmed.length > 0);
-      setSlotReferences([]);
+      updateSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
       flushComposerDraft();
@@ -3735,15 +3748,18 @@ export function TiptapComposer({
   }, [voiceEnabled, voice]);
 
   const extractComposerPayload = useCallback(() => {
+    const currentSlotReferences = slotReferencesRef.current;
     const ed = editor;
     if (!isComposerEditorUsable(ed)) {
       return {
-        text: slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
-        references: slotReferences.map(referenceFromComposerReference),
+        text: currentSlotReferences
+          .map((ref) => slotReferenceTitle(ref))
+          .join(", "),
+        references: currentSlotReferences.map(referenceFromComposerReference),
       };
     }
 
-    const references: Reference[] = slotReferences.map(
+    const references: Reference[] = currentSlotReferences.map(
       referenceFromComposerReference,
     );
 
@@ -3773,7 +3789,7 @@ export function TiptapComposer({
     const rawText = textParts.join("").trim();
     const text =
       rawText ||
-      slotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
+      currentSlotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
@@ -3815,7 +3831,7 @@ export function TiptapComposer({
     });
 
     return { text, references };
-  }, [editor, slotReferences]);
+  }, [editor]);
 
   const referencesSignatureRef = useRef("");
   useEffect(() => {
@@ -3875,7 +3891,20 @@ export function TiptapComposer({
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
   const clearEditorAfterSubmit = useCallback(
-    (expectedDraftSnapshot?: string | null) => {
+    (
+      expectedDraftSnapshot?: string | null,
+      submittedSlotReferences?: AgentComposerReference[],
+      clearText = true,
+    ) => {
+      const remainingSlotReferences =
+        submittedSlotReferences === undefined
+          ? []
+          : slotReferencesRef.current.filter(
+              (reference) => !submittedSlotReferences.includes(reference),
+            );
+      updateSlotReferences(remainingSlotReferences);
+      if (!clearText) return;
+
       // A caller may close/unmount the host popover as soon as submit starts
       // (before awaiting the round trip), which destroys this editor instance
       // while the submit promise is still in flight. The persisted draft has
@@ -3893,7 +3922,6 @@ export function TiptapComposer({
         ed.commands.clearContent();
         ed.commands.focus("end");
         setEditorHasText(false);
-        setSlotReferences([]);
         resetComposerRuntimeState();
       }
       closePopover();
@@ -3904,6 +3932,7 @@ export function TiptapComposer({
       draftKey,
       editor,
       resetComposerRuntimeState,
+      updateSlotReferences,
     ],
   );
 
@@ -3920,22 +3949,8 @@ export function TiptapComposer({
         !areComposerContextItemsReady(contextItemsRef.current)
       )
         return false;
-      let contextSnapshot: ComposerContextSnapshot | undefined;
       setContextSubmissionError(null);
-      try {
-        contextSnapshot = snapshotComposerContextItems(
-          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
-        );
-      } catch (error) {
-        if (!(error instanceof ComposerContextError)) throw error;
-        setContextSubmissionError(
-          t("agentChat.composer.contextLimitExceeded", {
-            defaultValue:
-              "Context is too large. Remove an item or attach a smaller selection.",
-          }),
-        );
-        return false;
-      }
+      let contextSnapshot: ComposerContextSnapshot | undefined;
 
       draftEditorRef.current = ed;
       flushComposerDraft();
@@ -3960,6 +3975,7 @@ export function TiptapComposer({
       let { text: draftText, references } = syncComposerState();
       let text = textOverride ?? draftText;
       let attachments = composerRuntime.getState().attachments;
+      let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return false;
@@ -4017,14 +4033,15 @@ export function TiptapComposer({
       };
 
       const clearSubmittedDraft = () => {
-        if (
-          isComposerEditorUsable(ed) &&
-          !ed.state.doc.eq(submittedEditorDocument)
-        ) {
-          return false;
-        }
-        clearEditorAfterSubmit(submittingDraftSnapshot);
-        return true;
+        const canClearText =
+          !isComposerEditorUsable(ed) ||
+          ed.state.doc.eq(submittedEditorDocument);
+        clearEditorAfterSubmit(
+          submittingDraftSnapshot,
+          submittedSlotReferences,
+          canClearText,
+        );
+        return canClearText;
       };
 
       if (handleLocalSubmission()) return true;
@@ -4048,6 +4065,7 @@ export function TiptapComposer({
           submittedEditorDocument = ed.state.doc;
         }
         references = current.references;
+        submittedSlotReferences = slotReferencesRef.current;
         attachments = composerRuntime.getState().attachments;
         trimmed = text.trim();
         if (
@@ -4079,6 +4097,22 @@ export function TiptapComposer({
             })()
           : null;
         if (textOverride === undefined && handleLocalSubmission()) return true;
+      }
+
+      try {
+        contextSnapshot = snapshotComposerContextItems(
+          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
+        );
+      } catch (error) {
+        if (!(error instanceof ComposerContextError)) throw error;
+        if (error.code === "not-ready") return false;
+        setContextSubmissionError(
+          t("agentChat.composer.contextLimitExceeded", {
+            defaultValue:
+              "Context is too large. Remove an item or attach a smaller selection.",
+          }),
+        );
+        return false;
       }
 
       // Composer mode: send with context via agent chat bridge
@@ -4138,9 +4172,10 @@ export function TiptapComposer({
 
       if (onSubmit) {
         if (submitInFlightRef.current) return false;
+        const submittedAttachments = [...attachments];
         submitInFlightRef.current = true;
         try {
-          await onSubmit(text, references, attachments, {
+          await onSubmit(text, references, submittedAttachments, {
             intent,
             ...(contextSnapshot === undefined
               ? {}
@@ -4163,17 +4198,32 @@ export function TiptapComposer({
           clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
           return true;
         }
+        const clearSubmittedAttachments = attachmentCleanupRef.current.then(
+          async () => {
+            for (const attachment of submittedAttachments) {
+              const index = composerRuntime
+                .getState()
+                .attachments.findIndex((item) => item === attachment);
+              if (index === -1) continue;
+              await composerRuntime.getAttachmentByIndex(index).remove();
+            }
+          },
+        );
+        attachmentCleanupRef.current = clearSubmittedAttachments.catch(
+          (error) => {
+            console.error(
+              "Could not clear submitted composer attachments",
+              error,
+            );
+          },
+        );
+        await attachmentCleanupRef.current;
         if (!clearOnSubmit) {
-          // Clear any pending attachments now that the host has them.
-          void composerRuntime.clearAttachments().catch(() => {});
           closePopover();
           return true;
         }
         cancelActiveVoice();
-        if (clearSubmittedDraft()) {
-          // Clear any pending attachments now that the host has them.
-          void composerRuntime.clearAttachments().catch(() => {});
-        }
+        clearSubmittedDraft();
         return true;
       } else {
         if (textOverride !== undefined) composerRuntime.setText(text);
@@ -4228,7 +4278,7 @@ export function TiptapComposer({
       return;
     }
     if (normalized.relatedReferences?.some((reference) => reference.slotKey)) {
-      setSlotReferences((current) =>
+      updateSlotReferences((current) =>
         applySlotReferenceChanges(current, normalized.relatedReferences ?? []),
       );
     }
@@ -4437,7 +4487,7 @@ export function TiptapComposer({
       editor.commands.clearContent(false);
       initialTextKeyRef.current = undefined;
       setEditorHasText(false);
-      setSlotReferences([]);
+      updateSlotReferences([]);
       setComposerMode(null);
       composerModeRef.current = null;
       lastComposerRuntimeSyncRef.current = null;
@@ -4561,7 +4611,7 @@ export function TiptapComposer({
               <button
                 type="button"
                 onClick={() => {
-                  setSlotReferences((current) =>
+                  updateSlotReferences((current) =>
                     removeSlotReference(current, ref),
                   );
                   if (isComposerEditorUsable(editor)) {

@@ -173,8 +173,8 @@ describe("controlled composer context", () => {
     return { composerRef, onSubmit };
   }
 
-  async function attachFile() {
-    const file = new File(["example"], "reference.pdf", {
+  async function attachFile(name = "reference.pdf") {
+    const file = new File([`example ${name}`], name, {
       type: "application/pdf",
     });
     const input =
@@ -627,6 +627,135 @@ describe("controlled composer context", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(editor.textContent).toBe("Next draft");
+  });
+
+  it("uses context items updated during the readiness check", async () => {
+    let resolveReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveReadiness = resolve;
+    });
+    const initialContext: AgentChatContextItem = {
+      key: "source:initial",
+      title: "Initial source",
+      context: "initial source",
+    };
+    const updatedContext: AgentChatContextItem = {
+      key: "source:updated",
+      title: "Updated source",
+      context: "updated source",
+    };
+    let updateContextItems!: React.Dispatch<
+      React.SetStateAction<AgentChatContextItem[]>
+    >;
+    const onBeforeSubmit = vi.fn(() => readiness);
+    const onSubmit = vi.fn();
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    function ContextPrompt() {
+      const [contextItems, setContextItems] = React.useState([initialContext]);
+      updateContextItems = setContextItems;
+      return (
+        <PromptComposer
+          composerRef={composerRef}
+          onSubmit={onSubmit}
+          onBeforeSubmit={onBeforeSubmit}
+          contextItems={contextItems}
+          initialText="Submit with current context"
+          initialTextKey="context-refresh"
+          showModelSelector={false}
+          modelStatusChecksEnabled={false}
+          includeDefaultSlashSkills={false}
+          voiceEnabled={false}
+        />
+      );
+    }
+
+    await act(async () => root.render(<ContextPrompt />));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+
+    await act(async () => updateContextItems([updatedContext]));
+    await act(async () => {
+      resolveReadiness(true);
+      await readiness;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][3].contextItems).toEqual([updatedContext]);
+  });
+
+  it("cleans submitted attachments and keeps later attachment and reference edits", async () => {
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    let currentFiles: File[] = [];
+    const { composerRef, onSubmit } = await mount({
+      onAttachmentsChange: (files) => {
+        currentFiles = files;
+      },
+    });
+    onSubmit.mockReturnValue(submission);
+    const submittedFile = await attachFile("reference.pdf");
+    const otherSubmittedFile = await attachFile("submitted.pdf");
+    await act(async () =>
+      composerRef.current!.insertReference({
+        label: "Submitted reference",
+        refType: "file",
+        refId: "submitted-reference",
+        slotKey: "document",
+      }),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][2]).toContainEqual(
+      expect.objectContaining({
+        refId: "submitted-reference",
+        slotKey: "document",
+      }),
+    );
+    expect(onSubmit.mock.calls[0][3].attachments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ file: submittedFile }),
+        expect.objectContaining({ file: otherSubmittedFile }),
+      ]),
+    );
+
+    const replacementFile = await attachFile("reference.pdf");
+    const laterFile = await attachFile("later-reference.pdf");
+    await act(async () => {
+      composerRef.current!.setText("Next draft");
+      composerRef.current!.insertReference({
+        label: "Later reference",
+        refType: "file",
+        refId: "later-reference",
+        slotKey: "document",
+      });
+    });
+
+    await act(async () => {
+      resolveSubmit();
+      await submission;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(currentFiles).toEqual([replacementFile, laterFile]);
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe("Next draft");
+    expect(container.textContent).toContain("Later reference");
+    expect(container.textContent).not.toContain("Submitted reference");
   });
 
   it.each(["click", "enter"])(
