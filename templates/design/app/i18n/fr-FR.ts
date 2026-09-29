@@ -1440,6 +1440,8 @@ export default {
         "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       reactSourceAnchorsUnavailable:
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+      sourceLocationSnapshotFailed:
+        "Impossible de vérifier les emplacements du code source de cet aperçu.",
       screenSourceUpdated: "Source de l’écran mise à jour",
       screenSourceUpdateFailed:
         "Impossible de mettre à jour la source de l’écran",

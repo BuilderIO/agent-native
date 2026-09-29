@@ -14,7 +14,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DesignCanvas } from "./DesignCanvas";
+import {
+  DesignCanvas,
+  type RuntimeLayerSnapshotReadiness,
+} from "./DesignCanvas";
 
 const { translate } = vi.hoisted(() => ({
   translate: (key: string) => key,
@@ -65,7 +68,9 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
   });
 
   async function renderLiveEditCanvas(
-    onRuntimeLayerSnapshotReadinessChange?: (ready: boolean) => void,
+    onRuntimeLayerSnapshotReadinessChange?: (
+      readiness: RuntimeLayerSnapshotReadiness,
+    ) => void,
     onRuntimeLayerSnapshot?: (snapshot: unknown) => void,
   ) {
     await act(async () => {
@@ -562,7 +567,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
     expect(
       onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
-        ([ready]) => ready === true,
+        ([readiness]) => readiness.status === "ready",
       ),
     ).toHaveLength(0);
 
@@ -584,9 +589,10 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(readinessRequests).toHaveLength(1);
     const readinessRequest = readinessRequests[readinessRequests.length - 1];
     expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      false,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+      documentId: "recovered-runtime-document",
+    });
   });
 
   it("does not loop forever when the bridge never confirms (attempt cap)", async () => {

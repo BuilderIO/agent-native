@@ -1369,6 +1369,7 @@ export default {
         "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
       reactSourceAnchorsUnavailable:
         "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
+      sourceLocationSnapshotFailed: "无法检查此预览的源代码位置。",
       screenSourceUpdated: "屏幕来源已更新",
       screenSourceUpdateFailed: "无法更新屏幕来源",
       vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",

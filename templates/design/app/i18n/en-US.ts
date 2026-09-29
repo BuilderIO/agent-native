@@ -1418,6 +1418,8 @@ export default {
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
       reactSourceAnchorsUnavailable:
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
+      sourceLocationSnapshotFailed:
+        "Could not check source locations for this preview.",
       screenSourceUpdated: "Screen source updated",
       screenSourceUpdateFailed: "Could not update screen source",
       vectorEditUnsupported:

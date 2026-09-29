@@ -513,6 +513,10 @@ export type EditorDragStateChange = {
   };
 };
 
+export type RuntimeLayerSnapshotReadiness =
+  | { status: "loading"; documentId?: string }
+  | { status: "ready" | "error"; documentId: string };
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -559,7 +563,9 @@ interface DesignCanvasProps {
     documentId?: string;
     reservationToken?: string;
   }) => void;
-  onRuntimeLayerSnapshotReadinessChange?: (ready: boolean) => void;
+  onRuntimeLayerSnapshotReadinessChange?: (
+    readiness: RuntimeLayerSnapshotReadiness,
+  ) => void;
   onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
     reservationToken: string;
   }>;
@@ -1531,6 +1537,8 @@ export function DesignCanvas({
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
+  const readyIframeDocumentIdentityRef = useRef(readyIframeDocumentIdentity);
+  readyIframeDocumentIdentityRef.current = readyIframeDocumentIdentity;
   const [iframeReloadSequence, setIframeReloadSequence] = useState(0);
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
@@ -1541,6 +1549,10 @@ export function DesignCanvas({
   const expectedRuntimeLayerSnapshotReadinessRequestIdRef = useRef<
     number | null
   >(null);
+  const pendingRuntimeLayerSnapshotReadinessRef = useRef<{
+    readiness: RuntimeLayerSnapshotReadiness;
+    documentIdentity: string;
+  } | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const pendingRuntimeDeletePreviewRef = useRef<{
@@ -1647,11 +1659,17 @@ export function DesignCanvas({
   );
   const refreshRuntimeLayerSnapshotAfterReady = useCallback(() => {
     if (!onRuntimeLayerSnapshotReadinessChange) return;
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
     const readinessRequestId =
       ++runtimeLayerSnapshotReadinessRequestIdRef.current;
     expectedRuntimeLayerSnapshotReadinessRequestIdRef.current =
       readinessRequestId;
-    onRuntimeLayerSnapshotReadinessChange(false);
+    onRuntimeLayerSnapshotReadinessChange({
+      status: "loading",
+      ...(readyRuntimeLayerDocumentIdRef.current
+        ? { documentId: readyRuntimeLayerDocumentIdRef.current }
+        : {}),
+    });
     requestRuntimeLayerSnapshot(readinessRequestId);
   }, [onRuntimeLayerSnapshotReadinessChange, requestRuntimeLayerSnapshot]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
@@ -3358,6 +3376,7 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
     readyRuntimeLayerDocumentIdRef.current = null;
     runtimeLayerSnapshotDocumentIdRef.current = null;
     expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
@@ -3397,18 +3416,80 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
+    useState<string | null>(null);
+  const loadedPreviewDocumentIdentityRef = useRef(
+    loadedPreviewDocumentIdentity,
+  );
+  loadedPreviewDocumentIdentityRef.current = loadedPreviewDocumentIdentity;
+  const reportRuntimeLayerSnapshotReadiness = useCallback(
+    (readiness: RuntimeLayerSnapshotReadiness) => {
+      if (
+        readiness.status !== "loading" &&
+        externalPreviewUrlRef.current &&
+        (loadedPreviewDocumentIdentityRef.current !==
+          iframeDocumentIdentityRef.current ||
+          readyIframeDocumentIdentityRef.current !==
+            iframeDocumentIdentityRef.current)
+      ) {
+        pendingRuntimeLayerSnapshotReadinessRef.current = {
+          readiness,
+          documentIdentity: iframeDocumentIdentityRef.current,
+        };
+        return;
+      }
+      pendingRuntimeLayerSnapshotReadinessRef.current = null;
+      onRuntimeLayerSnapshotReadinessChange?.(readiness);
+    },
+    [onRuntimeLayerSnapshotReadinessChange],
+  );
   const markPreviewFrameReady = useCallback(() => {
     setPreviewFrameLoaded(true);
     if (!onBootReady || bootReadyRef.current) return;
     bootReadyRef.current = true;
     onBootReady();
   }, [onBootReady]);
-  useEffect(() => {
-    if (!externalPreviewUrl) return;
+  const markExternalPreviewDocumentLoaded = useCallback(() => {
+    const documentIdentity = iframeDocumentIdentityRef.current;
+    loadedPreviewDocumentIdentityRef.current = documentIdentity;
+    setLoadedPreviewDocumentIdentity(documentIdentity);
+  }, []);
+  useLayoutEffect(() => {
+    loadedPreviewDocumentIdentityRef.current = null;
+    setLoadedPreviewDocumentIdentity(null);
+  }, [iframeDocumentIdentity]);
+  useLayoutEffect(() => {
+    if (!externalPreviewUrl) {
+      pendingRuntimeLayerSnapshotReadinessRef.current = null;
+      return;
+    }
     setPreviewFrameLoaded(
       readyIframeDocumentIdentity === iframeDocumentIdentity,
     );
   }, [externalPreviewUrl, iframeDocumentIdentity, readyIframeDocumentIdentity]);
+  useLayoutEffect(() => {
+    const pending = pendingRuntimeLayerSnapshotReadinessRef.current;
+    if (!pending) return;
+    if (pending.documentIdentity !== iframeDocumentIdentity) {
+      pendingRuntimeLayerSnapshotReadinessRef.current = null;
+      return;
+    }
+    if (
+      !externalPreviewUrl ||
+      loadedPreviewDocumentIdentity !== iframeDocumentIdentity ||
+      readyIframeDocumentIdentity !== iframeDocumentIdentity
+    ) {
+      return;
+    }
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
+    onRuntimeLayerSnapshotReadinessChange?.(pending.readiness);
+  }, [
+    externalPreviewUrl,
+    iframeDocumentIdentity,
+    loadedPreviewDocumentIdentity,
+    onRuntimeLayerSnapshotReadinessChange,
+    readyIframeDocumentIdentity,
+  ]);
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
@@ -3642,19 +3723,6 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
-          e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
-          editorChromeReadyRef.current &&
-          onRuntimeLayerSnapshotReadinessChange &&
-          documentId === readyRuntimeLayerDocumentIdRef.current &&
-          documentId === runtimeLayerSnapshotDocumentIdRef.current &&
-          Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
-          e.data.payload.readinessRequestId ===
-            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
-        ) {
-          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-          onRuntimeLayerSnapshotReadinessChange(true);
-        }
-        if (
           e.data.type === "agent-native:runtime-layer-snapshot-error" &&
           documentId === readyRuntimeLayerDocumentIdRef.current &&
           Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
@@ -3662,7 +3730,12 @@ export function DesignCanvas({
             expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
         ) {
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-          onRuntimeLayerSnapshotReadinessChange?.(false);
+          if (typeof documentId === "string") {
+            reportRuntimeLayerSnapshotReadiness({
+              status: "error",
+              documentId,
+            });
+          }
         }
         if (
           Number.isSafeInteger(requestId) &&
@@ -3822,10 +3895,13 @@ export function DesignCanvas({
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
+          loadedPreviewDocumentIdentityRef.current = null;
+          setLoadedPreviewDocumentIdentity(null);
           readyRuntimeLayerDocumentIdRef.current = null;
           runtimeLayerSnapshotDocumentIdRef.current = null;
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-          onRuntimeLayerSnapshotReadinessChange?.(false);
+          pendingRuntimeLayerSnapshotReadinessRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange?.({ status: "loading" });
           liveRoutePathRef.current = null;
           onBootStart?.();
           liveEditHealthProbeGenerationRef.current += 1;
@@ -3959,7 +4035,10 @@ export function DesignCanvas({
                   null))
           ) {
             expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-            onRuntimeLayerSnapshotReadinessChange(true);
+            reportRuntimeLayerSnapshotReadiness({
+              status: "ready",
+              documentId,
+            });
           }
           if (
             reservationToken &&
@@ -5023,6 +5102,7 @@ export function DesignCanvas({
     onElementSelect,
     onRuntimeLayerSnapshot,
     onRuntimeLayerSnapshotReadinessChange,
+    reportRuntimeLayerSnapshotReadiness,
     onReserveVisualEditSnapshot,
     onBridgeReady,
     refreshRuntimeLayerSnapshotAfterReady,
@@ -5340,7 +5420,13 @@ export function DesignCanvas({
       refreshRuntimeLayerSnapshotAfterReady();
       return;
     }
-    onRuntimeLayerSnapshotReadinessChange(false);
+    pendingRuntimeLayerSnapshotReadinessRef.current = null;
+    onRuntimeLayerSnapshotReadinessChange({
+      status: "loading",
+      ...(readyRuntimeLayerDocumentIdRef.current
+        ? { documentId: readyRuntimeLayerDocumentIdRef.current }
+        : {}),
+    });
   }, [
     iframeDocumentIdentity,
     onRuntimeLayerSnapshotReadinessChange,
@@ -7183,6 +7269,7 @@ export function DesignCanvas({
           }}
           onLoad={(event) => {
             tabFocusedLiveFrames.delete(event.currentTarget);
+            markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
             focusScrollSurface(true);

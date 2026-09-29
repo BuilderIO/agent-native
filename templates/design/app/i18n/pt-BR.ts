@@ -1428,6 +1428,8 @@ export default {
         "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
       reactSourceAnchorsUnavailable:
         "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
+      sourceLocationSnapshotFailed:
+        "Não foi possível verificar os locais do código-fonte desta visualização.",
       screenSourceUpdated: "Fonte da tela atualizada",
       screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
       vectorEditUnsupported:

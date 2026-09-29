@@ -1410,6 +1410,8 @@ export default {
         "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
       reactSourceAnchorsUnavailable:
         "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+      sourceLocationSnapshotFailed:
+        "이 미리보기의 소스 위치를 확인할 수 없습니다.",
       screenSourceUpdated: "화면 소스가 업데이트됨",
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
