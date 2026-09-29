@@ -754,6 +754,8 @@ export function scanDeprecatedImports(
     /\brequire\(\s*["']([^"']+)["']\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\?\.\s*\[\s*["']([^"']+)["']\s*\]|\[\s*["']([^"']+)["']\s*\])/g;
   const dynamicImportMember =
     /\(\s*await\s+import\(\s*["']([^"']+)["']\s*\)\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\?\.\s*\[\s*["']([^"']+)["']\s*\]|\[\s*["']([^"']+)["']\s*\])/g;
+  const importTypeMember =
+    /(?<![\w$.])\bimport\(\s*["']([^"']+)["']\s*\)\s*\.\s*([\w$]+)/g;
 
   for (const file of sourceFiles(root)) {
     const text = fs.readFileSync(file, "utf-8");
@@ -932,6 +934,18 @@ export function scanDeprecatedImports(
         from,
         removedExports[from],
         symbol ? [symbol] : [],
+        match.index ?? 0,
+      );
+    }
+    for (const match of text.matchAll(importTypeMember)) {
+      if (!/\.[cm]?tsx?$/.test(file) || !codeMask[match.index ?? 0]) continue;
+      appendRemovedImportFinding(
+        findings,
+        file,
+        text,
+        match[1],
+        removedExports[match[1]],
+        [match[2]],
         match.index ?? 0,
       );
     }

@@ -545,6 +545,45 @@ describe("scanDeprecatedImports", () => {
     );
   });
 
+  it("reports TypeScript import-type references to removed chat exports", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-import-type-"),
+    );
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.ts");
+    fs.writeFileSync(
+      file,
+      `type Options = import("${moduleName}").CreateAgentChatAdapterOptions;`,
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["CreateAgentChatAdapterOptions"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        file,
+        line: 1,
+        from: moduleName,
+        symbols: ["CreateAgentChatAdapterOptions"],
+        status: "removed",
+      }),
+    ]);
+  });
+
   it("ignores removed namespace members shadowed by local bindings", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-shadowed-"));
     roots.push(root);
