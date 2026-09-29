@@ -22,6 +22,28 @@ function runDbHealthProbeSource(): string {
   return source.slice(start, end);
 }
 
+function runtimeDebugHandlerSource(): string {
+  const source = readFileSync(
+    new URL("./core-routes-plugin.ts", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf("`${P}/debug/runtime`");
+  const end = source.indexOf("`${P}/og-image.png`", start);
+  return source.slice(start, end);
+}
+
+describe("/_agent-native/debug/runtime auth block", () => {
+  it("uses the shared production function predicate before exposing runtime diagnostics", () => {
+    const body = runtimeDebugHandlerSource();
+    expect(body).toContain("isProductionServerlessFunctionRuntime()");
+    expect(body).toContain("if (!session?.email && productionLike)");
+    expect(body).not.toMatch(/process\.env\.(NODE_ENV|NETLIFY|VERCEL)/);
+    expect(body.indexOf("setResponseStatus(event, 401)")).toBeLessThan(
+      body.indexOf("runDatabaseSchemaHealthCheck()"),
+    );
+  });
+});
+
 describe("/_agent-native/health auth block", () => {
   it("resolves baseUrlHost from the CONFIGURED production URL, never the request", () => {
     const body = healthHandlerSource();
