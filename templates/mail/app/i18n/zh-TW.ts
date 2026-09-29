@@ -319,13 +319,13 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "取消定時傳送",
       deliveryUnknownWarning:
-        "送達狀態未知；處理前請先檢查 Gmail 的「已寄出」資料夾。",
+        "送達狀態未知；處理前請先檢查 Mail 的「已寄出」檢視。",
       markSentAfterChecking: "我已檢查「已寄出」；標記為已寄出",
       sendNewCopy: "傳送新副本",
       sendingStatus: "正在處理定時郵件。暫時無法使用相關操作。",
       confirmSendNewCopyTitle: "要再傳送一份嗎？",
       confirmSendNewCopyDescription:
-        "原郵件可能已經送達。請先檢查 Gmail 的「已寄出」資料夾。再次傳送可能會造成重複郵件。",
+        "原郵件可能已經送達。請先檢查 Mail 的「已寄出」檢視。再次傳送可能會造成重複郵件。",
       dateInput: "日期和時間",
       noDateMatch: "沒有符合的未來時間",
       inputPlaceholder: "試試：上午 8 點、3 天後、8 月 7 日",
