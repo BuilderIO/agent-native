@@ -4,13 +4,15 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 
+import type { ComposeAttachment } from "../../shared/types.js";
 import {
   createOAuth2Client,
+  gmailGetAttachment,
   gmailGetMessage,
   googleFetch,
 } from "./google-api.js";
 import { getOAuth2Credentials } from "./google-auth.js";
-import { buildRawEmail } from "./outgoing-email.js";
+import { buildRawEmail, resolveComposeAttachments } from "./outgoing-email.js";
 
 interface StoredTokens {
   access_token: string;
@@ -18,9 +20,11 @@ interface StoredTokens {
   expiry_date?: number;
 }
 
+type GmailScopeUse = "write" | "reply" | "attachment";
+
 function hasGmailScope(
   tokens: Record<string, unknown>,
-  requiresMessageRead = false,
+  use: GmailScopeUse = "write",
 ): boolean {
   const scope = tokens.scope;
   if (typeof scope !== "string" || !scope.trim()) return true;
@@ -31,14 +35,18 @@ function hasGmailScope(
       value === "https://www.googleapis.com/auth/gmail.compose" ||
       value === "https://www.googleapis.com/auth/gmail.modify",
   );
-  if (!canWrite || !requiresMessageRead) return canWrite;
-  return scopes.some(
+  const canReadAttachment = scopes.some(
     (value) =>
       value === "https://mail.google.com/" ||
-      value === "https://www.googleapis.com/auth/gmail.metadata" ||
       value === "https://www.googleapis.com/auth/gmail.modify" ||
       value === "https://www.googleapis.com/auth/gmail.readonly",
   );
+  const canReadMessageMetadata =
+    canReadAttachment ||
+    scopes.includes("https://www.googleapis.com/auth/gmail.metadata");
+  if (use === "write") return canWrite;
+  if (use === "reply") return canWrite && canReadMessageMetadata;
+  return canReadAttachment;
 }
 
 async function getAccessToken(
@@ -75,11 +83,11 @@ async function getAccessToken(
 async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
-  requiresMessageRead = false,
+  use: GmailScopeUse = "write",
 ): Promise<string | null> {
   const accounts = (
     await listOAuthAccountsByOwner("google", ownerEmail)
-  ).filter((account) => hasGmailScope(account.tokens, requiresMessageRead));
+  ).filter((account) => hasGmailScope(account.tokens, use));
   if (requested) {
     if (!accounts.some((account) => account.accountId === requested)) {
       throw new Error("Account not owned by current user");
@@ -153,6 +161,7 @@ export async function saveGmailDraft(args: {
   bcc?: string;
   subject: string;
   body: string;
+  attachments?: ComposeAttachment[];
   replyToId?: string;
   replyToThreadId?: string;
 }): Promise<{
@@ -164,11 +173,39 @@ export async function saveGmailDraft(args: {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
     args.ownerEmail,
-    Boolean(args.replyToId),
+    args.replyToId ? "reply" : "write",
   );
   if (!accountEmail) return null;
   const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) return null;
+
+  const attachments = await resolveComposeAttachments(
+    args.attachments,
+    args.ownerEmail,
+    {
+      readGmailAttachment: async (attachment) => {
+        const attachmentAccountEmail = await resolveAccountEmail(
+          attachment.accountEmail ?? accountEmail,
+          args.ownerEmail,
+          "attachment",
+        );
+        if (!attachmentAccountEmail) return null;
+        const attachmentAccessToken =
+          attachmentAccountEmail === accountEmail
+            ? accessToken
+            : await getAccessToken(attachmentAccountEmail, args.ownerEmail);
+        if (!attachmentAccessToken) return null;
+        const result = await gmailGetAttachment(
+          attachmentAccessToken,
+          attachment.gmailMessageId!,
+          attachment.gmailAttachmentId!,
+        );
+        return typeof result?.data === "string"
+          ? Buffer.from(result.data, "base64url")
+          : null;
+      },
+    },
+  );
 
   let threadId = args.replyToThreadId;
   let inReplyTo: string | undefined;
@@ -203,6 +240,7 @@ export async function saveGmailDraft(args: {
     body: args.body,
     inReplyTo,
     references,
+    attachments,
   });
   const message = {
     raw,

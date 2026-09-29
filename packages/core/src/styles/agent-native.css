@@ -624,6 +624,13 @@
   background: var(--agent-kit-recessed-surface);
 }
 
+@media (min-width: 768px) {
+  [data-agent-page-chat-topbar]:not(:has([data-agent-page-chat-header]))
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
+    top: -1.75rem;
+  }
+}
+
 .agent-kit-chat-canvas-toolbar {
   height: var(--agent-kit-page-header-height);
   z-index: var(--agent-kit-layer-page-header);
