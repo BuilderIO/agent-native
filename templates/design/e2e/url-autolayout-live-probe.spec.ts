@@ -1767,6 +1767,12 @@ test.describe("URL-backed live auto-layout probe", () => {
         "Mixed",
       );
     }
+    await page.locator('input[aria-label="Top"]').press("ArrowUp");
+    for (const label of ["Right", "Bottom", "Left"]) {
+      await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
+        "Mixed",
+      );
+    }
     await page.screenshot({
       path: path.resolve(process.cwd(), "../../.tmp/design-mixed-spacing.png"),
       fullPage: true,
