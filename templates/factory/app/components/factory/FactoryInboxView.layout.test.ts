@@ -73,13 +73,10 @@ describe("FactoryInboxView", () => {
 
   it("surfaces the latest task summary before the reason, evidence, and log", () => {
     const source = readViewSource();
-    // Both sources share one card shell so Slack and GitHub items read alike.
     expect(source).toContain("InboxMessageCard");
     expect(source).not.toContain("SlackMessageCard");
-    // Bands are divided by hairlines; the pane already sits inside a Card.
     expect(source).toContain("border-t border-border pt-4");
     expect(source).toContain("lg:border-s lg:border-border lg:ps-4");
-    // The reason is the system's verdict, not source content.
     expect(source).toContain("border-s-2 border-primary/40 ps-3");
     expect(source).toContain("events[events.length - 1]?.summary.trim()");
     expect(source).toContain('t("triage.summary")');

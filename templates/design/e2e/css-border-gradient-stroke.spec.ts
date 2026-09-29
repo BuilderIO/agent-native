@@ -98,11 +98,11 @@ async function borderPixels(page: Page, screenId: string) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("could not decode border screenshot");
     context.drawImage(image, 0, 0);
-    const sample = (x: number) =>
-      Array.from(context.getImageData(x, 3, 1, 1).data.slice(0, 3));
+    const sample = (y: number) =>
+      Array.from(context.getImageData(3, y, 1, 1).data.slice(0, 3));
     return {
-      firstStop: sample(Math.round(image.width * 0.1)),
-      lastStop: sample(Math.round(image.width * 0.9)),
+      firstStop: sample(Math.round(image.height * 0.1)),
+      lastStop: sample(Math.round(image.height * 0.9)),
     };
   }, png);
 }
@@ -221,6 +221,9 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
         borderImageSource: "none",
         borderColor: "rgb(17, 24, 39)",
       });
+    await expect
+      .poll(async () => readSource(page, designId, screenId))
+      .not.toContain("--an-css-border-gradient");
     const savedSolid = await readSource(page, designId, screenId);
     expect(savedSolid).not.toContain("--an-css-border-gradient");
     expect(savedSolid).not.toContain("border-image-source");

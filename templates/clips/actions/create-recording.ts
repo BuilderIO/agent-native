@@ -1,14 +1,3 @@
-/**
- * Create a new recording row in 'uploading' status.
- *
- * Returns the new recording id plus a chunk upload URL template the
- * frontend fills in per-chunk. The chunk route accepts a binary body
- * with query params index/total/isFinal and calls finalize when isFinal=true.
- *
- * Usage:
- *   pnpm action create-recording --title="Quick demo"
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
@@ -37,9 +26,9 @@ import {
   allowsSqlRecordingChunkScratch,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
-import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
 export function classifyInitialUploadFailure(error: unknown): {
   failureCode: RecordingFailureCode;
@@ -141,8 +130,6 @@ export default defineAction({
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
-      // Take the upload lease at creation. A row that never gets one is
-      // invisible to the reaper and can sit in 'uploading' forever.
       uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
@@ -164,9 +151,6 @@ export default defineAction({
 
     console.log(`Created recording "${title}" (${id})`);
 
-    // Initialize a resumable upload session so chunks are streamed to the
-    // provider during recording (no post-stop assembly). Hosted deployments
-    // have no SQL chunk fallback, so never return a buffered target there.
     let uploadMode: UploadMode = "buffered";
     const uploadProvider = await getActiveFileUploadProviderForRequest();
     const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
@@ -256,10 +240,6 @@ export default defineAction({
         );
       } catch (err) {
         if (streamingRequired) {
-          // Keep the underlying reason. A Builder connection that needs
-          // re-authorizing is not fixed by refreshing, and replacing its
-          // message with a retry prompt is why that case looked like a
-          // random failure.
           const reason = err instanceof Error ? err.message.trim() : "";
           await failUploadSetup(
             reason
@@ -281,7 +261,6 @@ export default defineAction({
       status: "uploading" as const,
       uploadChunkUrl: `/api/uploads/${id}/chunk`,
       abortUrl: `/api/uploads/${id}/abort`,
-      // Frontend substitutes {index}/{total}/{isFinal}
       uploadChunkUrlTemplate: `/api/uploads/${id}/chunk?index={index}&total={total}&isFinal={isFinal}`,
       uploadMode,
     };

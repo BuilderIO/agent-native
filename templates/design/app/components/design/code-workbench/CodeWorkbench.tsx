@@ -134,9 +134,6 @@ function CodeWorkbenchInner({
     return null;
   });
 
-  // Stable automation/E2E handle (used by Playwright specs and QA tooling —
-  // Monaco's EditContext-based input cannot be driven via synthetic DOM
-  // events alone).
   useEffect(() => {
     const target = window as typeof window & {
       __designCodeWorkbench?: unknown;
@@ -210,9 +207,6 @@ function CodeWorkbenchInner({
     [commands, commandContext],
   );
 
-  // Restore and persist the workbench session (open tabs, active file,
-  // sidebar layout) per design via application state, so the agent can also
-  // observe it and reopening the design restores the editor session.
   const persistenceKey = `code-workbench:${designId}`;
   const restoredRef = useRef(false);
   useEffect(() => {
@@ -290,7 +284,6 @@ function CodeWorkbenchInner({
     state.sidebarVisible,
   ]);
 
-  // Agent/URL-driven file targeting (navigate --leftPanel code --fileId …).
   const inlineProviderKey = `inline:${designId}`;
   useEffect(() => {
     if (!activeFileId && !activeFilename) {
@@ -319,7 +312,6 @@ function CodeWorkbenchInner({
     })();
   }, [activeFileId, activeFilename, api, inlineProviderKey]);
 
-  // Report the active file to the design editor shell / agent context.
   const activeBuffer = state.activeUri ? state.buffers[state.activeUri] : null;
   useEffect(() => {
     if (!state.activeUri || !activeBuffer) {
@@ -346,7 +338,6 @@ function CodeWorkbenchInner({
     onActiveFileChange,
   ]);
 
-  // Sidebar resize.
   const handleSidebarResizeStart = useCallback(
     (event: React.PointerEvent) => {
       event.preventDefault();
@@ -364,9 +355,6 @@ function CodeWorkbenchInner({
       };
       target.addEventListener("pointermove", onMove);
       target.addEventListener("pointerup", onUp);
-      // A cancelled pointer (e.g. a dialog stealing capture mid-drag) would
-      // otherwise never fire pointerup, leaking these listeners onto the
-      // resize handle until the next drag piles more on top of them.
       target.addEventListener("pointercancel", onUp);
     },
     [api],

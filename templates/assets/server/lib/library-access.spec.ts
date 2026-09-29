@@ -107,7 +107,6 @@ describe("library-access", () => {
       role: "viewer",
       canApprove: false,
     });
-    // Drafting must not cost more than reading the kit.
     expect(assertAccessMock).toHaveBeenCalledWith(
       "asset-library",
       "lib-1",
@@ -118,9 +117,6 @@ describe("library-access", () => {
   });
 
   it("declares draft provenance as draft work, so a viewer can record it", async () => {
-    // Recording where a candidate came from is part of drafting it. Letting
-    // this fall back to the `editor` default is what made a viewer's
-    // generation die after the kit gate had already let it through.
     expect(draftProvenanceAccess("lib-1")).toEqual({
       resourceType: "asset-library",
       resourceId: "lib-1",
@@ -138,9 +134,6 @@ describe("library-access", () => {
       error = err as Error & { statusCode?: number };
     }
 
-    // The leading clause is load-bearing: core's permanent-precondition
-    // classifier matches `requires <role> role` and ends the turn instead of
-    // retrying a grant the model cannot obtain.
     expect(error?.message).toMatch(/^Requires editor role on asset-library/);
     expect(error?.message).toContain("(have viewer)");
     expect(error?.message).toContain("Saving a draft");
@@ -167,7 +160,6 @@ describe("library-access", () => {
       assertCanDraftAuthoredBy("lib-1", "someone@example.test", "A session"),
     ).rejects.toThrow(/Requires editor role/);
 
-    // Legacy rows with no recorded author are not up for grabs.
     await expect(
       assertCanDraftAuthoredBy("lib-1", null, "A session"),
     ).rejects.toThrow(/Requires editor role/);
@@ -190,7 +182,6 @@ describe("library-access", () => {
     });
     expect(canReadDraftAsset(scope, draft("run-mine"))).toBe(true);
     expect(canReadDraftAsset(scope, draft("run-theirs"))).toBe(false);
-    // A candidate with no run behind it has no author to match.
     expect(canReadDraftAsset(scope, draft(null))).toBe(false);
     // Saved kit content is never narrowed by the draft scope.
     expect(
@@ -243,8 +234,6 @@ describe("library-access", () => {
       generationRunId,
     });
 
-    // The read boundary and the input boundary must agree, or the private
-    // candidate rule holds on lists and leaks through every id argument.
     expect(() =>
       assertCanUseAssets(
         scope,
@@ -283,14 +272,11 @@ describe("library-access", () => {
       libraryId: "image_assets.library_id",
       generationRunId: "image_assets.generation_run_id",
     } as never;
-    // A clause, not a post-filter: `limit` must apply to authorized rows only.
     expect(draftReadFilter(scope, table)).toBeDefined();
     expect(
       draftReadFilter(unrestrictedDraftReadScope(), table),
     ).toBeUndefined();
 
-    // No approvable kit and no runs of their own must mean "no rows", never an
-    // unfiltered read.
     const emptyScope = {
       unrestricted: false,
       approvableLibraryIds: new Set<string>(),
@@ -301,9 +287,6 @@ describe("library-access", () => {
   });
 
   it("keeps a below-approver caller to the sessions they created", async () => {
-    // The predicate reads the caller off the scope, not off ambient request
-    // context: a row check that runs outside the resolving context would
-    // otherwise answer "not yours" for the caller's own rows.
     grantRole("viewer");
     dbWithRuns([]);
     const scope = await resolveDraftReadScope(["lib-1"]);
@@ -320,7 +303,6 @@ describe("library-access", () => {
         createdBy: "someone@example.test",
       }),
     ).toBe(false);
-    // A legacy session with no recorded author is not the caller's.
     expect(canReadSession(scope, { libraryId: "lib-1", createdBy: null })).toBe(
       false,
     );
@@ -358,8 +340,6 @@ describe("library-access", () => {
   });
 
   it("lets a concurrent approval survive a draft delete", async () => {
-    // The row is deleted only while it still matches the state that authorized
-    // it, and the outcome is confirmed by re-reading rather than by a row count.
     const table = new Map<string, { id: string; status: string }>([
       ["asset-1", { id: "asset-1", status: "candidate" }],
     ]);
@@ -393,7 +373,6 @@ describe("library-access", () => {
       deleteDraftAssetIfUnchanged({ id: "asset-1", libraryId: "lib-1" }),
     ).resolves.toBe(true);
 
-    // Now an editor has approved it first: the delete must not match.
     table.set("asset-1", { id: "asset-1", status: "saved" });
     await expect(
       deleteDraftAssetIfUnchanged({ id: "asset-1", libraryId: "lib-1" }),
@@ -414,7 +393,6 @@ describe("library-access", () => {
       }),
     ).resolves.toMatchObject({ canApprove: false });
 
-    // Saved kit content is approving-class no matter who generated it.
     await expect(
       assertCanDeleteAsset({
         libraryId: "lib-1",

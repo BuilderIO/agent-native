@@ -73,7 +73,6 @@ async function main() {
     return;
   }
 
-  // Backfill visibility first so we don't widen rows we're about to delete.
   await db
     .update(schema.sessionRecordings)
     .set({ visibility: "org" })

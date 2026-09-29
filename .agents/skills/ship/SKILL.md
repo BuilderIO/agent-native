@@ -34,23 +34,34 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   foreground through post-merge disposition. Carry the immutable value through
   verification; never replace it with a live PR head read after merge, because
   the source branch may advance or be deleted.
-- `/ship` uses the current branch when attached. In a dedicated task-owned
-  worktree, create or switch to an available task branch when needed without
-  asking; base new branches on fresh `origin/main` as described below. A name
-  already used by another task belongs to that task, so choose another. Never
-  move or rewrite a branch used by another worktree or a platform-assigned
-  branch. After `origin/main` ancestry is verified, rotate to a fresh task
-  branch in the task-owned worktree without asking when `/ship` safety checks
-  pass. If unpublished commits or dirty publishable paths remain, retain the
-  source branch and report them. In a shared checkout, ask before changing
-  branches unless the user gave the exact operation.
+- `/ship` uses the current suitable branch when attached. In a dedicated
+  task-owned worktree, creating or switching to a needed task branch is already
+  authorized; Steve's explicit request to ship or open a PR from a detached
+  worktree is standing authorization, so do not ask again. Before branch
+  movement, classify all staged, unstaged, and untracked paths; a switch carries
+  the whole index and worktree, so proceed only when every dirty path belongs to
+  this task. Otherwise preserve the checkout and report exact paths without
+  asking again. Base new shipments on fresh `origin/main`; existing PR updates
+  use the fetched live PR head as `new-branch` describes. Never move or rewrite
+  a branch used by another worktree or a platform-assigned branch. After
+  `origin/main` ancestry is verified, rotate to a fresh task branch in the
+  task-owned worktree without asking when `/ship` safety checks pass. If
+  unpublished commits or dirty publishable paths remain, retain the source
+  branch and report them. In a shared checkout, keep its branch unchanged. If
+  it cannot safely serve as the PR source, `/ship` authorizes a managed
+  task-owned worktree and branch without asking. Follow `new-branch` for the
+  base: fresh `origin/main` for a new PR, the fetched live PR head for an
+  existing PR update. Carry only this task's changes. If they cannot be
+  isolated safely, preserve all state and report exact paths or commits without
+  asking for branch or worktree permission.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
   is verified, and the task-owned worktree is rotated to a fresh branch when
   the safety checks pass. Retain the source branch and report any unpushed
   commits or dirty publishable paths. In a shared checkout, keep the source
-  branch unless the user authorized the exact operation. Preserve
+  branch; if it cannot safely source the PR, follow `new-branch` to isolate
+  this shipment with the correct base without asking. Preserve
   platform-assigned branches while checking and fixing CI/review feedback and
   using the guarded squash-admin merge. If the user explicitly opts out of
   merging, make the goal match that endpoint. Reuse an existing goal only when
@@ -68,10 +79,11 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   origin/main contains the merge commit, then rotate this task-owned worktree
   to a fresh branch when no unpushed commits or dirty publishable paths remain.
   Do this without asking for confirmation. Keep the source branch and report
-  any remaining commits or paths. In a shared checkout, keep the source branch
-  unless I authorized the exact operation. Keep platform-assigned Builder.io
-  and Fusion branches unchanged. Keep
-  checking and fixing CI and review feedback until then.` Do not replace an
+  any remaining commits or paths. In a shared checkout, keep the source branch;
+  if it cannot safely source the PR, follow `new-branch` to create a managed
+  task-owned worktree from the correct base and carry only this task's changes
+  without asking. Keep platform-assigned Builder.io and Fusion branches unchanged. Keep checking
+  and fixing CI and review feedback until then.` Do not replace an
   unrelated active goal; Claude Code permits one per session. If `/ship` was
   already invoked without one, keep shipping in the
   foreground; the missing native goal does not block the authorized merge or
@@ -88,11 +100,13 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 - If the user asks not to create scheduled tasks, keep ship and babysitting in
   the foreground; do not create a separate recurring automation.
 - For a linked GitHub issue, a verified source fix in the merged shipping
-  snapshot is enough to close it. Thank the reporter, link the fix, and close
-  immediately; do not leave it open waiting for publication, beta, or live
-  proof, and never say "leaving open until published." Keep it open only while
-  accepted scope is still unfixed, the source fix is not merged, or reporter
-  information is required.
+  snapshot is enough to close it. Start an authorized issue comment by thanking
+  the reporter for opening it, then link the fix and close immediately; do not
+  leave it open waiting for publication, beta, or live proof, and never say
+  "leaving open until published." Keep it open only while accepted scope is
+  still unfixed, the source fix is not merged, or reporter information is
+  required. Ask a targeted question only if the invoking workflow authorizes an issue
+  comment, and begin it by thanking the reporter for opening the issue.
 - Use the current worktree. If it is detached, create a named task branch only
   when publishing this work requires one, as described in the preflight gate
   below. Do not create a branch just for tidiness or attach or move another
@@ -113,7 +127,8 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 6. After a merge, verify it reached `origin/main`, then finish branch
    disposition. In a task-owned worktree, rotate to a fresh task branch without
    asking if `/ship` safety checks pass; in a shared checkout, keep the source
-   branch unless the user authorized that exact operation. `ready-only`
+   branch and follow `new-branch` to isolate if it cannot safely source the PR.
+   `ready-only`
    shipments do not rotate.
 7. Report source checks, PR, merge or intentional open state, branch
    disposition, and deployment boundaries separately.
@@ -180,23 +195,30 @@ else
 fi
 ```
 
-The behind count is information, not a reason to merge or rebase. Check
-GitHub's live mergeability before updating from origin/main.
+The behind count is information, not a reason to update the branch. Merge
+freshly fetched `origin/main` only when GitHub reports the PR `CONFLICTING`.
+Pending checks, a behind count, or a timer never justify a main update.
 
 If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. In a dedicated task-owned worktree,
 do not ask permission to create a shipping branch: fetch `origin/main`, save
 `detached_head=$(git rev-parse HEAD)`, and choose an unused name using
-`/new-branch`'s naming rules. If `origin/main` is an ancestor of
+`/new-branch`'s naming rules. Before any branch creation or switch, record
+`git status --short --untracked-files=all` and classify every staged, unstaged,
+and untracked path. A switch carries the whole index and worktree, so proceed
+only when every dirty path belongs to this task. If any path is unrelated or
+incomplete, preserve the detached checkout and report the exact paths without
+asking again. If `origin/main` is an ancestor of
 `detached_head`, create the branch at that saved commit so no detached commits
 are lost. If `detached_head` is an ancestor of `origin/main`, create from the
 fresh `origin/main` and carry or reapply the task's dirty changes; never stash,
 discard, or overwrite them. If histories diverge, create from the saved
 `detached_head` and reconcile fresh `origin/main` on that task branch. A name
 already in use belongs to its existing task; pick another. In a shared
-checkout, ask before creating or switching branches unless the user gave the
-exact operation. Never move or rewrite a branch checked out in another
-worktree.
+checkout, keep its branch unchanged. When `/ship` cannot safely publish from
+that checkout, follow `new-branch` to isolate this shipment without asking.
+Use fresh `origin/main` for a new PR and the live PR head for an existing PR
+update. Never move or rewrite a branch checked out in another worktree.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing
@@ -206,21 +228,29 @@ commit.
 ## 2. Validate and publish
 
 Run the smallest relevant formatter, tests, typecheck, and guards for the
-changed area. Push the first coherent snapshot before a long prep or broad
-validation so CI can work in parallel. A slow or contaminated local check is
-not permission to stall the handoff; record the exact result and let the PR
-checks carry the gate.
+changed area. Finish the current implementation and batch all currently known
+CI and review fixes into one coherent snapshot before publishing. Do not
+publish per file, delegated task, feedback item, checkpoint, timer, or queued
+check: every new head restarts affected CI and the merge soak. Only the
+foreground ship owner publishes; delegates return their changes to that owner.
+A slow or contaminated local check is not permission to publish an incomplete
+snapshot; record the exact result and let the current PR checks finish.
 
-After the ownership check, run:
+After the ownership check, use `ship:push` for a new PR or when an existing
+PR's head repository is `origin` and its `headRefName` matches the local branch.
+For any other existing PR target, follow `babysit-pr`'s verified head remote/ref
+procedure.
 
 ```bash
-corepack pnpm ship:push
+corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
 ```
 
-Confirm the push landed on the current branch and read the remote head back.
-Run ship:push again only for an actionable CI fix, review fix, conflict
-resolution, or explicit user request. A clean tree, a behind count, queued
-checks, or a babysit timer never creates a publish commit.
+Replace the example with a subject naming the actual behavior changed. The
+helper refuses an omitted or generic subject. Confirm the push landed on the
+current branch and read the remote head back. Publish again only after a new
+actionable CI/review fix or conflict has been resolved and all currently known
+fixes are batched. A clean tree, a behind count, queued checks, or a babysit
+timer never creates a publish commit.
 
 ## 3. Open or update the PR
 
@@ -265,18 +295,24 @@ If a live PR is CONFLICTING, let babysit-pr recover it only after:
 - the local HEAD exactly matches the live PR headRefOid;
 - origin/main was freshly fetched.
 
-Merge origin/main once with a normal merge, resolve and test it, push, and
-restart the soak. Never merge main merely because the PR is behind, checks are
-pending, or mergeability is UNKNOWN.
+Merge freshly fetched `origin/main` only to resolve the confirmed conflict.
+Resolve and test it, push, and restart the soak. Never update from main merely
+because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 
 ### Feedback handoff
 
 If /review-latest-feedback was used, carry its start cursor, grouped reports,
 evidence links, and disposition table into the ship ledger and PR recap.
-Follow review-latest-feedback for ownership, reactions, reporter replies, and
-the exact disposition vocabulary; follow babysit-pr for review comments and
-merge blocking. Do not send Slack replies or reactions as a routine ship step
-unless that workflow was explicitly requested or already owns the action.
+Follow review-latest-feedback for ownership, claims, reporter replies, and the
+exact disposition vocabulary; follow babysit-pr for review comments and merge
+blocking. Shipping does not independently change Slack reactions. Keep the
+feedback workflow's `👀` claim in place; add `✅` only for verified fixes, and
+never remove reactions. Newer thread evidence controls the current disposition.
+Do not send Slack replies or reactions as a routine ship step unless that
+workflow was explicitly requested or already owns the action.
+Start any such Slack feedback reply by thanking the person for sharing the
+issue, then give the status or ask the needed question. This does not widen the
+existing write authorization.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship
@@ -328,8 +364,8 @@ After the merge, verify that `origin/main` contains the merge commit. In a
 task-owned worktree, rotate to a fresh branch using `/new-branch`'s dedicated
 post-merge path without asking when there are no unpushed commits or dirty
 publishable paths. Keep the source branch and report any remaining work when
-those checks fail. In a shared checkout, keep the source branch unless the user
-authorized the exact operation. Platform-managed Builder.io and Fusion
+those checks fail. In a shared checkout, keep the source branch and do not
+rotate it or ask for branch permission. Platform-managed Builder.io and Fusion
 checkouts stay on their assigned branches. Only then mark the ship goal
 complete.
 

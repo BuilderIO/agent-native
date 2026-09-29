@@ -114,8 +114,6 @@ describe("Web Speech restart loop", () => {
     expect(capture).not.toBeNull();
     expect(FakeSpeechRecognition.starts).toBe(1);
 
-    // Chrome throws on the first restart while the previous session is still
-    // releasing; nothing started, so no further `onend` arrives to retry from.
     FakeSpeechRecognition.failNextStart = true;
     FakeSpeechRecognition.instance?.onend?.();
     await vi.advanceTimersByTimeAsync(0);

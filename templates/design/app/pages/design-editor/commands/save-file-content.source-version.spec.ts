@@ -1227,9 +1227,6 @@ describe("runSaveFileContent source version", () => {
       runSaveFileContent(firstArgs, firstPending);
       await firstArgs.fileSaveChainsRef.current[firstPending.id];
 
-      // A second, later autosave for the same design must not repeat the
-      // toast — sonner's `id` alone doesn't guarantee that once the first
-      // toast has auto-dismissed (see warnedVersionHistoryDesigns).
       const secondArgs = buildArgs();
       const secondPending = buildPending(
         "<main>large design content, edited</main>",

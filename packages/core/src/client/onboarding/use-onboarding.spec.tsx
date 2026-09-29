@@ -21,9 +21,6 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as Response;
 }
 
-// Regression for the "Skip/Continue silently does nothing" bug: a failed
-// first-run completion must be a loud, typed failure (a rejected promise +
-// a surfaced message), not a swallowed one indistinguishable from success.
 describe("useOnboarding — completeFirstRun failure handling", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -81,8 +78,6 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   async function mountAndSettle() {
     await act(async () => {
       root.render(<Harness />);
-      // The initial read is deferred past first paint; the fallback timer
-      // bounds that wait at 250ms, so settling past it is deterministic.
       await new Promise((resolve) => setTimeout(resolve, 300));
       await Promise.resolve();
       await Promise.resolve();
@@ -98,7 +93,6 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
       await expect(latest!.completeFirstRun()).rejects.toThrow();
     });
 
-    // Never falsely advance past a failed completion.
     expect(latest?.firstRun).toBe(true);
     expect(latest?.completeFirstRunError).toBeTruthy();
     expect(trackEventMock).toHaveBeenCalledWith("onboarding_failed", {
@@ -142,9 +136,6 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
   it("clears the error and completes on a successful retry", async () => {
     let completed = false;
-    // Custom stub (not the shared stubFetch helper): the status check must
-    // reflect completion, matching what the real server would report after
-    // completeFirstRun's own post-success fetchAll() refresh.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -185,6 +176,106 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
 
     expect(latest?.completeFirstRunError).toBeNull();
     expect(latest?.firstRun).toBe(false);
+  });
+});
+
+describe("useOnboarding — summary timeout", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: UseOnboardingResult | null;
+  let summarySignal: AbortSignal | undefined;
+
+  function Harness() {
+    latest = useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    latest = null;
+    summarySignal = undefined;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        summarySignal = init?.signal ?? undefined;
+        return {
+          ok: true,
+          status: 200,
+          json: () => new Promise(() => {}),
+        } as Response;
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("surfaces a stalled response body instead of leaving first-run loading forever", async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(latest?.loading).toBe(true);
+    expect(latest?.error).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBe("onboarding summary timed out");
+    expect(summarySignal?.aborted).toBe(true);
+  });
+
+  it("ignores an older timeout after a newer refresh succeeds", async () => {
+    let summaryCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        summaryCalls += 1;
+        if (summaryCalls === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: () => new Promise(() => {}),
+          } as Response;
+        }
+        return jsonResponse({
+          steps: [],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      await latest!.refresh();
+    });
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
   });
 });
 
@@ -277,9 +368,6 @@ describe("trackOnboardingEvent", () => {
   });
 });
 
-// A focus or visibility event inside the after-paint window used to stack a
-// second summary read on top of the scheduled initial read once the window
-// elapsed; it must consume the scheduled read instead so exactly one lands.
 describe("useOnboarding — focus during the deferral window", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -326,8 +414,6 @@ describe("useOnboarding — focus during the deferral window", () => {
   });
 
   async function settlePastPaintWindow() {
-    // The fallback timer bounds the deferral wait at 250ms, so settling past
-    // it is deterministic.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       await Promise.resolve();
@@ -343,8 +429,6 @@ describe("useOnboarding — focus during the deferral window", () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
-    // The focus refetch stays immediate and the scheduled initial read is
-    // consumed, not stacked behind it.
     expect(summaryCalls).toBe(1);
 
     await settlePastPaintWindow();
@@ -370,15 +454,10 @@ describe("useOnboarding — focus during the deferral window", () => {
     await settlePastPaintWindow();
     expect(summaryCalls).toBe(1);
     expect(latest?.error).toBeNull();
-    // Restore happy-dom's own visibilityState for the other describes.
     delete (document as { visibilityState?: string }).visibilityState;
   });
 });
 
-// The composed summary endpoint serves steps and profile even when the
-// optional dismissed-flag read had to fall back to its safe default, so the
-// hook must adopt that degraded summary instead of surfacing an error that
-// hides a usable checklist.
 describe("useOnboarding — degraded summary tolerance", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -438,8 +517,6 @@ describe("useOnboarding — degraded summary tolerance", () => {
     await act(async () => {
       root.render(<Harness />);
     });
-    // The initial read is deferred past first paint; the fallback timer
-    // bounds that wait at 250ms, so settling past it is deterministic.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       await Promise.resolve();

@@ -37,23 +37,12 @@ export interface DesignTemplateSource {
   category: string | null;
   instantiatedAt: string | null;
   appliedDesignSystemId: string | null;
-  /**
-   * Captured at copy time, not re-read from the template. Dimensions and fonts
-   * are small enough to restate on every turn, which is what stops a follow-up
-   * request from resizing the artboard or swapping the typeface. The full
-   * template markup stays behind `get-design-template`.
-   */
   files: DesignTemplateSourceFile[];
   fonts: string[];
 }
 
 const MAX_TRACKED_FONTS = 12;
 
-/**
- * Font drift is invisible in a layout diff and is the most common way a
- * refined template stops looking like its template. Capture the declared
- * families once so later turns can restate them without re-parsing markup.
- */
 export function extractTemplateFonts(html: string): string[] {
   const fonts = new Set<string>();
 
@@ -87,12 +76,6 @@ function finiteNumber(value: unknown): number | null {
     : null;
 }
 
-/**
- * Reads the template a design was created from. Returns null when the design
- * was not created from a template; throws when the design claims a template
- * but the record cannot be read, because silently treating that as "no
- * template" would drop the template constraints the design is bound to.
- */
 export function readDesignTemplateSource(
   data: Record<string, unknown>,
 ): DesignTemplateSource | null {
@@ -145,11 +128,6 @@ export function readDesignTemplateSource(
   };
 }
 
-/**
- * Templates are portable/shareable snapshots, so they must never retain
- * localhost bridge credentials. Reuse the same viewer-safe redaction applied
- * to exported design metadata before either saving or instantiating a template.
- */
 export function redactTemplateDesignData(
   raw: string | null | undefined,
 ): string {
@@ -190,11 +168,6 @@ export function remapTemplateFileIds(
   return next;
 }
 
-/**
- * Exact frame lookup for one file. Unlike `firstTemplateDimensions` this never
- * falls back to another screen's frame: a screen with no recorded frame must
- * report "unknown", not a neighbour's dimensions.
- */
 export function templateFileDimensions(
   data: Record<string, unknown>,
   fileId: string,

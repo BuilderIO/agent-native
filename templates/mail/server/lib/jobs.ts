@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
@@ -78,7 +78,29 @@ export interface ScheduledJobRecord {
   payload: string;
   runAt: number;
   status: "pending" | "processing" | "done" | "cancelled";
+  processingClaimId?: string | null;
+  processingLeaseUntil?: number | null;
+  sendStartedAt?: number | null;
   createdAt: number;
+}
+
+type ScheduledSendOptions = {
+  signal?: AbortSignal;
+  onDispatchStart?: () => Promise<void>;
+  onDispatchCancelled?: () => Promise<void>;
+};
+
+const JOB_PROCESSING_LEASE_MS = 5 * 60_000;
+
+async function beginScheduledSendDispatch(
+  options?: ScheduledSendOptions,
+): Promise<void> {
+  options?.signal?.throwIfAborted();
+  await options?.onDispatchStart?.();
+  if (options?.signal?.aborted) {
+    await options.onDispatchCancelled?.();
+    options.signal.throwIfAborted();
+  }
 }
 
 async function getAccessToken(
@@ -143,7 +165,6 @@ async function getFirstAccountToken(
     if (strictPreference) return null;
   }
 
-  // Only return accounts owned by the given owner
   const accounts = ownerEmail
     ? await listOAuthAccountsByOwner("google", ownerEmail)
     : await listOAuthAccounts("google");
@@ -245,15 +266,21 @@ async function threadHasReplySinceSnooze(
   threadId: string,
   snoozedAt: number,
   accountEmail?: string,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  signal?.throwIfAborted();
   if (await isConnected(ownerEmail)) {
+    signal?.throwIfAborted();
     const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
       const thread = await gmailGetThread(
         account.accessToken,
         threadId,
         "full",
+        undefined,
+        signal,
       );
+      signal?.throwIfAborted();
       return (thread.messages || []).some((message: any) => {
         const internalDate = Number(message.internalDate || 0);
         return message.id !== emailId && internalDate > snoozedAt;
@@ -262,6 +289,7 @@ async function threadHasReplySinceSnooze(
   }
 
   const emails = await readEmails(ownerEmail);
+  signal?.throwIfAborted();
   return emails.some((email) => {
     const currentThreadId = email.threadId || email.id;
     return (
@@ -275,16 +303,7 @@ async function threadHasReplySinceSnooze(
 export async function listPendingJobs(
   ownerEmail: string,
 ): Promise<ScheduledJobRecord[]> {
-  // The scheduled_jobs table is created by the db-migrations plugin at
-  // startup. If migrations failed (e.g. fresh deploy where the database
-  // couldn't initialize) the query throws — return an empty list instead
-  // of bubbling a 500 to the inbox endpoint.
   try {
-    // Scope to this owner at the SQL level (idx_scheduled_jobs_owner_status_run_at
-    // covers this). Legacy rows written before the owner_email backfill only have
-    // account_email set (or neither), so keep matching those the same way the old
-    // in-memory filter did: owner_email match, or owner_email is null and
-    // account_email matches, or both are null (unattributed legacy row).
     const jobs = await db
       .select()
       .from(schema.scheduledJobs)
@@ -455,21 +474,29 @@ export async function resurfaceEmail(
   emailId: string,
   threadId?: string,
   accountEmail?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   if (await isConnected(ownerEmail)) {
+    signal?.throwIfAborted();
     const account = await getFirstAccountToken(accountEmail, ownerEmail);
     if (account) {
       let updated: { historyId?: string } | undefined;
       if (threadId) {
-        updated = (await gmailModifyThread(account.accessToken, threadId, [
-          "INBOX",
-        ])) as { historyId?: string } | undefined;
+        updated = (await gmailModifyThread(
+          account.accessToken,
+          threadId,
+          ["INBOX"],
+          undefined,
+          signal,
+        )) as { historyId?: string } | undefined;
       } else {
         updated = (await gmailModifyMessage(
           account.accessToken,
           emailId,
           ["INBOX"],
           [],
+          signal,
         )) as { historyId?: string } | undefined;
       }
       const readUpdated = (await gmailModifyMessage(
@@ -477,10 +504,9 @@ export async function resurfaceEmail(
         emailId,
         ["UNREAD"],
         [],
+        signal,
       )) as { historyId?: string } | undefined;
-      // No threadId hint: resolve it from the store (no extra Gmail
-      // round-trip) so this message-scoped mutation still reaches the
-      // mirror instead of silently skipping it.
+      signal?.throwIfAborted();
       const mirrorThreadId =
         threadId ??
         (
@@ -500,7 +526,9 @@ export async function resurfaceEmail(
   }
 
   await withLocalEmailMutationLock(ownerEmail, async () => {
+    signal?.throwIfAborted();
     const emails = await readEmails(ownerEmail);
+    signal?.throwIfAborted();
     const targetThreadId = threadId || emailId;
     for (let i = 0; i < emails.length; i++) {
       const currentThreadId = emails[i].threadId || emails[i].id;
@@ -519,10 +547,6 @@ export async function resurfaceEmail(
   });
 }
 
-/**
- * Get the set of thread IDs that are currently snoozed (pending snooze jobs).
- * Used to filter snoozed emails out of inbox results.
- */
 export async function getSnoozedThreadIds(
   ownerEmail: string,
 ): Promise<Set<string>> {
@@ -532,7 +556,6 @@ export async function getSnoozedThreadIds(
     if (job.type !== "snooze") continue;
     const tid = getSnoozeThreadId(job);
     if (tid) ids.add(tid);
-    // Also add emailId in case threadId is missing
     if (job.emailId) ids.add(job.emailId);
   }
   return ids;
@@ -546,7 +569,9 @@ export function getSnoozeThreadId(job: ScheduledJobRecord): string | undefined {
 
 export async function shouldResurfaceSnoozedThread(
   job: ScheduledJobRecord,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  signal?.throwIfAborted();
   if (job.type !== "snooze" || !job.emailId) {
     return false;
   }
@@ -556,8 +581,6 @@ export async function shouldResurfaceSnoozedThread(
   if (!ownerEmail) return true;
   const threadId = getSnoozeThreadId(job);
   if (!threadId) {
-    // Back-compat: older snooze jobs had no thread metadata. Resurface rather
-    // than silently dropping them when they come due.
     return true;
   }
 
@@ -568,6 +591,7 @@ export async function shouldResurfaceSnoozedThread(
     threadId,
     snoozedAt,
     job.accountEmail ?? undefined,
+    signal,
   );
 
   return !hasReply;
@@ -665,7 +689,9 @@ export async function sendScheduledEmail(
   payload: SendLaterPayload,
   accountEmail?: string,
   ownerEmail?: string,
+  options?: ScheduledSendOptions,
 ): Promise<void> {
+  options?.signal?.throwIfAborted();
   const {
     to,
     cc,
@@ -693,6 +719,7 @@ export async function sendScheduledEmail(
       effectiveOwner,
       selectedAccountEmail,
     );
+    options?.signal?.throwIfAborted();
     if (
       connectedAccount?.email.toLowerCase() ===
       selectedAccountEmail.toLowerCase()
@@ -706,6 +733,7 @@ export async function sendScheduledEmail(
     }
   } else if (effectiveOwner) {
     const { clients, errors } = await getClientsWithErrors(effectiveOwner);
+    options?.signal?.throwIfAborted();
     account = clients[0] ?? null;
     if (!account && errors.length > 0) {
       throw new Error("No usable connected Gmail account for scheduled send.");
@@ -716,6 +744,7 @@ export async function sendScheduledEmail(
     payload.attachments,
     effectiveOwner,
   );
+  options?.signal?.throwIfAborted();
 
   if (account) {
     let inReplyTo: string | undefined;
@@ -726,7 +755,9 @@ export async function sendScheduledEmail(
         account.accessToken,
         replyToId,
         "metadata",
+        options?.signal,
       );
+      options?.signal?.throwIfAborted();
       const headers = original.payload?.headers || [];
       inReplyTo =
         headers.find((header: any) => header.name === "Message-Id")?.value ??
@@ -747,6 +778,7 @@ export async function sendScheduledEmail(
         void setOAuthDisplayName("google", senderEmail, name).catch(() => {});
       },
     });
+    options?.signal?.throwIfAborted();
 
     const raw = buildOutgoingRawEmail({
       from: senderIdentity.header,
@@ -770,6 +802,9 @@ export async function sendScheduledEmail(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sendBody),
+        signal: options?.signal,
+        onRequestStart: options?.onDispatchStart,
+        onRequestCancelled: options?.onDispatchCancelled,
       },
     );
     return;
@@ -787,6 +822,7 @@ export async function sendScheduledEmail(
   }
   await withLocalEmailMutationLock(fallbackOwner, async () => {
     const emails = await readEmails(fallbackOwner);
+    await beginScheduledSendDispatch(options);
     emails.push({
       id: `msg-${nanoid(8)}`,
       threadId: threadId || `thread-${nanoid(8)}`,
@@ -826,6 +862,20 @@ export async function cancelScheduledJobForOwner(
   ownerEmail: string,
   id: string,
 ): Promise<ScheduledJobRecord | null> {
+  const [cancelled] = await db
+    .update(schema.scheduledJobs)
+    .set({ status: "cancelled" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+        eq(schema.scheduledJobs.status, "pending"),
+      ),
+    )
+    .returning();
+
+  if (cancelled) return cancelled as ScheduledJobRecord;
+
   const [existing] = await db
     .select()
     .from(schema.scheduledJobs)
@@ -837,18 +887,7 @@ export async function cancelScheduledJobForOwner(
     );
 
   if (!existing) return null;
-
-  await db
-    .update(schema.scheduledJobs)
-    .set({ status: "cancelled" } as any)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
-    );
-
-  return { ...(existing as ScheduledJobRecord), status: "cancelled" };
+  throw new Error(`Scheduled email is already ${existing.status}`);
 }
 
 export async function sendScheduledJobNowForOwner(
@@ -876,81 +915,224 @@ export async function sendScheduledJobNowForOwner(
     throw new Error(`Scheduled email is already ${job.status}`);
   }
 
+  const claimId = nanoid(24);
+  const claimedAt = Date.now();
   const claim = await db
     .update(schema.scheduledJobs)
-    .set({ status: "processing" } as any)
+    .set({
+      status: "processing",
+      processingClaimId: claimId,
+      processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
+      sendStartedAt: null,
+    } as any)
     .where(
       and(
         eq(schema.scheduledJobs.id, id),
         eq(schema.scheduledJobs.ownerEmail, ownerEmail),
         eq(schema.scheduledJobs.status, "pending"),
       ),
-    );
-  if (claim.rowsAffected === 0) {
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  if (claim.length === 0) {
     throw new Error("Scheduled email is already processing");
   }
 
+  let sendStarted = false;
   try {
     await sendScheduledEmail(
       JSON.parse(job.payload) as SendLaterPayload,
       job.accountEmail ?? undefined,
       ownerEmail,
+      {
+        onDispatchStart: async () => {
+          if (!(await markJobSendStarted(job.id, claimId))) {
+            throw new Error("Scheduled email claim was lost before sending");
+          }
+          sendStarted = true;
+        },
+        onDispatchCancelled: async () => {
+          await resetJobProcessingForRetry(job.id, claimId);
+          sendStarted = false;
+        },
+      },
     );
-    await markJobDone(job.id);
+    if (!(await markJobDone(job.id, claimId))) {
+      throw new Error("Scheduled email claim was lost after sending");
+    }
     return { ...job, status: "done" };
   } catch (error) {
-    await db
-      .update(schema.scheduledJobs)
-      .set({ status: "pending" } as any)
-      .where(
-        and(
-          eq(schema.scheduledJobs.id, id),
-          eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-        ),
-      );
+    if (!sendStarted) await releaseJobProcessing(job.id, claimId);
     throw error;
   }
 }
 
-export async function markJobCancelled(id: string): Promise<void> {
-  await db
-    .update(schema.scheduledJobs)
-    .set({ status: "cancelled" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
+function claimableJobCondition(now: number) {
+  return and(
+    or(
+      eq(schema.scheduledJobs.status, "pending"),
+      and(
+        eq(schema.scheduledJobs.status, "processing"),
+        or(
+          isNull(schema.scheduledJobs.processingLeaseUntil),
+          lte(schema.scheduledJobs.processingLeaseUntil, now),
+        ),
+      ),
+    ),
+    // Gmail sends lack an idempotency key, so a dispatched send is never replayed automatically.
+    or(
+      eq(schema.scheduledJobs.type, "snooze"),
+      isNull(schema.scheduledJobs.sendStartedAt),
+    ),
+  );
 }
 
-export async function markJobDone(id: string): Promise<void> {
-  await db
+export async function markJobCancelled(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
     .update(schema.scheduledJobs)
-    .set({ status: "done" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
-}
-
-export async function markJobProcessing(id: string): Promise<boolean> {
-  const result = await db
-    .update(schema.scheduledJobs)
-    .set({ status: "processing" } as any)
+    .set({
+      status: "cancelled",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
     .where(
       and(
         eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.status, "pending"),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+        isNull(schema.scheduledJobs.sendStartedAt),
       ),
-    );
-  return result.rowsAffected > 0;
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
+}
+
+export async function markJobDone(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "done",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
+}
+
+export async function markJobProcessing(
+  id: string,
+  now: number,
+  leaseUntil: number,
+): Promise<string | null> {
+  const claimId = nanoid(24);
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "processing",
+      processingClaimId: claimId,
+      processingLeaseUntil: leaseUntil,
+      sendStartedAt: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        lte(schema.scheduledJobs.runAt, now),
+        claimableJobCondition(now),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0 ? claimId : null;
+}
+
+export async function markJobSendStarted(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({ sendStartedAt: Date.now() } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+        isNull(schema.scheduledJobs.sendStartedAt),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
+}
+
+export async function releaseJobProcessing(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "pending",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+        isNull(schema.scheduledJobs.sendStartedAt),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
+}
+
+export async function resetJobProcessingForRetry(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "pending",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+      sendStartedAt: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
 }
 
 export async function getDuePendingJobs(
   now: number,
+  limit: number,
 ): Promise<ScheduledJobRecord[]> {
   const due = await db
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.status, "pending"),
-        lte(schema.scheduledJobs.runAt, now),
-      ),
-    );
+      and(lte(schema.scheduledJobs.runAt, now), claimableJobCondition(now)),
+    )
+    .orderBy(asc(schema.scheduledJobs.runAt), asc(schema.scheduledJobs.id))
+    .limit(limit);
 
   return due as ScheduledJobRecord[];
 }

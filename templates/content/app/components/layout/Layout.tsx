@@ -33,6 +33,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
+import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
@@ -40,6 +41,7 @@ import {
 } from "@/lib/document-history-restore-controller";
 
 import { Header } from "./Header";
+import { isContentFullWidthSettingsRoute } from "./settings-route-policy";
 import { SidebarTriggerContext } from "./sidebar-trigger";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -49,9 +51,6 @@ const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
 export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
 
-// Routes whose page renders its own custom toolbar (with AgentToggleButton).
-// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
 const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
 
 function loadSidebarWidth(): number {
@@ -96,6 +95,10 @@ export function Layout({ children }: LayoutProps) {
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
+  const fullWidthSettings = isContentFullWidthSettingsRoute(
+    chromePathname,
+    useSettingsRedesign(),
+  );
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
   const pendingDocumentId = pendingPathname
     ? documentPageIdFromPathname(pendingPathname)
@@ -103,13 +106,9 @@ export function Layout({ children }: LayoutProps) {
   const activeDocumentId = pendingDocumentId ?? currentDocumentId;
   const showPendingDocumentSkeleton =
     !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
-  // The route chunk for the pending page still has to load, so carry the
-  // landing title across this gap instead of flashing a blank title bar.
   const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
     enabled: !!pendingDocumentId,
   });
-  // Bind chat to the currently-open document. Everywhere else (list view,
-  // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
     () =>
       activeDocumentId
@@ -194,9 +193,9 @@ export function Layout({ children }: LayoutProps) {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clamped));
   }, []);
 
-  const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
-    chromePathname.startsWith(prefix),
-  );
+  const showHeader =
+    !fullWidthSettings &&
+    !NO_HEADER_PREFIXES.some((prefix) => chromePathname.startsWith(prefix));
 
   const createPage = useCreatePage({ awaitPersist: false });
   useEffect(() => {
@@ -229,11 +228,11 @@ export function Layout({ children }: LayoutProps) {
       ref={sidebarTriggerRef}
       type="button"
       variant="ghost"
-      size="icon"
+      size="icon-lg"
       aria-label={t("navigation.openSidebar")}
       aria-expanded={mobileSidebarOpen}
       aria-haspopup="dialog"
-      className="size-10 shrink-0 rounded-lg text-muted-foreground"
+      className="shrink-0 rounded-lg text-muted-foreground"
       onClick={() => setMobileSidebarOpen(true)}
     >
       <IconMenu2 size={18} />
@@ -285,7 +284,9 @@ export function Layout({ children }: LayoutProps) {
                 />
               </SheetContent>
             </Sheet>
-            {showHeader || documentPageIdFromPathname(chromePathname) ? null : (
+            {showHeader ||
+            fullWidthSettings ||
+            documentPageIdFromPathname(chromePathname) ? null : (
               <button
                 type="button"
                 aria-label={t("navigation.openSidebar")}
@@ -296,7 +297,7 @@ export function Layout({ children }: LayoutProps) {
               </button>
             )}
           </>
-        ) : (
+        ) : fullWidthSettings ? null : (
           <div className="agent-layout-left-drawer flex shrink-0">
             <DocumentSidebar
               activeDocumentId={activeDocumentId}
@@ -338,7 +339,7 @@ export function Layout({ children }: LayoutProps) {
               <Header sidebarTrigger={mobileSidebarTrigger} />
             ) : null}
             <InvitationBanner
-              className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+              className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
               {showPendingDocumentSkeleton ? (

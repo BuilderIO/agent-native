@@ -1,10 +1,5 @@
 import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
 
-/**
- * Migration definitions for the org module. Versions are namespaced into a high
- * range (1000+) so they don't collide with template-owned migrations sharing
- * the same `_migrations` table.
- */
 export const ORG_MIGRATIONS = [
   {
     version: 1001,
@@ -50,33 +45,14 @@ export const ORG_MIGRATIONS = [
     sql: `ALTER TABLE org_invitations ADD COLUMN IF NOT EXISTS role TEXT`,
   },
   {
-    // Every authenticated request calls `getOrgContext` which queries
-    // `WHERE LOWER(m.email) = ?`. Without a supporting index this is a
-    // full table scan on every request. A LOWER(email) expression index
-    // lets the planner use an index seek instead.
     version: 1007,
     sql: `CREATE INDEX IF NOT EXISTS org_members_lower_email_idx ON org_members (LOWER(email))`,
   },
   {
-    // Domain join and org resolution query `LOWER(allowed_domain)`.
-    // Keep that opt-in lookup indexed before it appears on any request path.
     version: 1008,
     sql: `CREATE INDEX IF NOT EXISTS organizations_lower_allowed_domain_idx ON organizations (LOWER(allowed_domain))`,
   },
   {
-    // De-dup pass ahead of the unique index below. `org_members` has always
-    // had a `UNIQUE(org_id, email)` constraint (see v1002), but that's an
-    // exact-string match — callers that insert a session's raw-case email
-    // (e.g. handlers.ts's acceptInvitationHandler) can still create a
-    // second row for the same person under a different case, and every
-    // membership *read* in this module already matches case-insensitively
-    // via `LOWER(email)`. This keeps exactly one row per (org_id,
-    // LOWER(email)) — the row with the oldest `joined_at` (ties broken by
-    // `id` for determinism) — by deleting any row for which a strictly
-    // "older" row exists in the same group. The correlated EXISTS subquery
-    // avoids window functions.
-    // Must run before the unique index below or that CREATE would fail on
-    // any database that already has case-variant duplicates.
     version: 1009,
     name: "org-members-dedupe-lower-email",
     sql: `DELETE FROM org_members
@@ -91,15 +67,6 @@ export const ORG_MIGRATIONS = [
       )`,
   },
   {
-    // Closes the TOCTOU window in `acceptPendingInvitationsForEmail`
-    // (org/accept-pending.ts): a SELECT-then-INSERT check with no unique
-    // constraint standing behind the case-insensitive comparison every
-    // reader uses. Without this, two concurrent acceptances (e.g. a
-    // retried signup hook) can both pass the SELECT and both INSERT,
-    // producing duplicate membership rows. This expression index makes
-    // (org_id, LOWER(email)) unique at the database level so an
-    // `ON CONFLICT` insert (or a raw duplicate insert) is rejected
-    // instead of silently creating a second row.
     version: 1010,
     name: "org-members-unique-lower-email-idx",
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS org_members_org_lower_email_uidx ON org_members (org_id, LOWER(email))`,
@@ -117,10 +84,6 @@ export const ORG_MIGRATIONS = [
     )`,
   },
   {
-    // Every guarded action resolves (org_id, app_id, LOWER(email)) on the
-    // request path, and the assignment write upserts on the same key. Unique
-    // rather than plain so a concurrent double-assign is rejected by the
-    // database instead of leaving two rows whose winner depends on read order.
     version: 1012,
     name: "app-member-roles-unique-org-app-lower-email-idx",
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS app_member_roles_org_app_lower_email_uidx
@@ -168,9 +131,6 @@ export const ORG_MIGRATIONS = [
           ON workspace_apps (org_id, visibility)`,
   },
   {
-    // Legacy manifest discovery has no trusted creator and no explicit share
-    // provenance. Restore organization visibility only for that population;
-    // owned or explicitly shared private apps remain private.
     version: 1018,
     name: "workspace-apps-restore-ownerless-legacy-visibility",
     sql: `UPDATE workspace_apps
@@ -206,12 +166,6 @@ export const ORG_MIGRATIONS = [
           ADD COLUMN IF NOT EXISTS federation_roster_initialized_at BIGINT`,
   },
   {
-    // Widening only. Every column below stores a JS `Date.now()`
-    // millisecond epoch (13 digits) but was declared `INTEGER` — Postgres
-    // int4, max 2,147,483,647 — so the very first org-creation INSERT
-    // (`organizations.created_at`, `org_members.joined_at`) fails with
-    // `value "<ms epoch>" is out of range for type integer`. BIGINT matches
-    // every other millisecond-timestamp column in the framework.
     version: 1022,
     name: "org-tables-timestamps-bigint",
     sql: `

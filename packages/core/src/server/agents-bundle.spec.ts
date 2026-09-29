@@ -205,7 +205,6 @@ describe("skill scope loading", () => {
         "typo-scope",
       );
       expect(generateSkillsPromptBlock(bundle)).not.toContain("typo-scope");
-      // Still visible to the coding agent — the audience that can fix the typo.
       expect(getDevelopmentSkills(bundle).map((s) => s.meta.name)).toContain(
         "typo-scope",
       );
@@ -488,7 +487,6 @@ describe("readAgentsBundleFromFs", () => {
     });
     try {
       const bundle = readAgentsBundleFromFs(tpl, ws.source);
-      // Template wins on name collision.
       expect(bundle.skills.policy!.meta.description).toBe("TEMPLATE VERSION");
     } finally {
       fs.rmSync(tpl, { recursive: true, force: true });

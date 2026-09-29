@@ -20,9 +20,6 @@ describe("resolveAgentChatMcpOptions", () => {
     const resolved = resolveAgentChatMcpOptions({
       mcp: {
         enabled: false,
-        // Not `catalog: "app"` alongside it: the two are mutually exclusive,
-        // and this fixture asserting both passed through is what let the
-        // inert-allow-list combination look supported.
         connectorCatalog: ["list-emails"],
         externalAgents: { writes: "ask_app_only" },
         builtinCrossAppTools: false,
@@ -57,8 +54,6 @@ describe("resolveAgentChatMcpOptions", () => {
 
   it("treats `disableMcp: true` and `mcp.enabled: false` as agreeing", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    // The two forms are inverses, so a naive equality check would read this
-    // pair as a conflict and refuse to boot an app that migrated correctly.
     const resolved = resolveAgentChatMcpOptions({
       disableMcp: true,
       mcp: { enabled: false },
@@ -89,9 +84,6 @@ describe("resolveAgentChatMcpOptions", () => {
     ).toThrow(/mcpServerInfo\.title/);
   });
 
-  // `catalog: "app"` short-circuits the connector tier in `build-server.ts`, so
-  // an app declaring both served its whole registry to every connector client
-  // while the allow-list sat in the config reading as authoritative.
   it("throws when an inert connectorCatalog sits next to catalog: app", () => {
     expect(() =>
       resolveAgentChatMcpOptions({
@@ -108,7 +100,6 @@ describe("resolveAgentChatMcpOptions", () => {
       resolveAgentChatMcpOptions({ mcp: { connectorCatalog: ["list-scouts"] } })
         .catalog,
     ).toBeUndefined();
-    // An empty list is not an allow-list anyone wrote; it must not throw.
     expect(
       resolveAgentChatMcpOptions({
         mcp: { catalog: "app", connectorCatalog: [] },

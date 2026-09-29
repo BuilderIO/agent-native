@@ -4,11 +4,6 @@ export interface LatestWriteQueue<T> {
   whenIdle(): Promise<void>;
 }
 
-/**
- * Serializes a remote preference write while coalescing queued values to the
- * newest local intent. A slow older request can therefore never finish after
- * and overwrite a newer request, and a rejected write cannot strand the queue.
- */
 export function createLatestWriteQueue<T>(
   write: (value: T) => Promise<unknown>,
   onError?: (error: unknown) => void,
@@ -36,7 +31,6 @@ export function createLatestWriteQueue<T>(
     if (drainPromise) return;
     drainPromise = drain().finally(() => {
       drainPromise = null;
-      // Defensive handoff for a value enqueued at the drain boundary.
       if (latest !== undefined) startDrain();
     });
   };

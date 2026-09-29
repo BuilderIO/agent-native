@@ -29,10 +29,6 @@ vi.mock("../use-action.js", async (importOriginal) => ({
   callAction: (...args: unknown[]) => callActionMock(...args),
 }));
 
-// The integrations panel that owns the Builder row is behind
-// `<Suspense><lazy(IntegrationsPanel)/></Suspense>` — its dynamic import
-// needs real macrotask ticks to settle (more on a cold module cache), not
-// just queued microtasks.
 async function flushLazyImport(isReady: () => boolean) {
   for (let i = 0; i < 100; i++) {
     if (isReady()) return;
@@ -345,11 +341,20 @@ describe("ConnectionsSettingsContent", () => {
     });
 
     await vi.waitFor(() => {
-      expect(
-        Array.from(container.querySelectorAll("button")).filter((button) =>
-          button.textContent?.includes("Connect Builder"),
-        ),
-      ).toHaveLength(5);
+      const connectButtons = Array.from(
+        container.querySelectorAll("button"),
+      ).filter((button) => button.textContent?.includes("Connect Builder"));
+      expect(connectButtons).toHaveLength(5);
+
+      const solidPrimaryBtn = connectButtons.find((btn) =>
+        btn.className.includes("bg-primary"),
+      );
+      expect(solidPrimaryBtn).toBeDefined();
+
+      const classes = solidPrimaryBtn!.className.split(/\s+/);
+      expect(classes).toContain("text-primary-foreground");
+      expect(classes).not.toContain("hover:text-inherit");
+      expect(classes).not.toContain("hover:bg-transparent");
     });
 
     act(() => root.unmount());
@@ -374,12 +379,15 @@ describe("ConnectionsSettingsContent", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
+    const queryClient = new QueryClient();
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <AgentSettingsContent sections={["llm"]} />
-        </MemoryRouter>,
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
       await Promise.resolve();
     });

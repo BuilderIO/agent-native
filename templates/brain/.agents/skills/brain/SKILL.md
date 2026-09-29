@@ -189,6 +189,8 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | Action | Purpose |
 | --- | --- |
 | `get-brain-settings` | Identity, tone, `sourcePolicy`, citation, and distillation settings — read first. |
+| `update-brain-settings` | Partial patch of any Brain setting; each field saves on its own, like the Settings rows. |
+| `navigate` (`view: "settings"`) | `settingsSection` opens a Brain › General tab: `general`, `identity`, `behavior`, `publishing`, `safety`, or `privacy`. |
 | `search-everything` | Broad search across knowledge + captures + sources, plus `federatedCoverage`. |
 | `search-knowledge` | SQL text search over distilled knowledge only. |
 | `ask-brain` | Cited-answer endpoint: reviewed knowledge, capped raw-capture fallback, citations, `federatedCoverage`. |

@@ -1,18 +1,6 @@
 import { getSession } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
-/**
- * Serving route for plan asset images stored in the `plan_assets` table.
- *
- *   GET /_agent-native/plan-asset/<assetId>/<filename>
- *
- * Access control:
- *   - Public plan  → anonymous fetch OK (no auth required)
- *   - Private/org plan → same session/bearer check as the action surface
- *
- * Cache: long immutable for private plans (asset ID is a stable content
- * address); same for public plans. The asset bytes never change for a given ID.
- */
 import {
   defineEventHandler,
   getMethod,
@@ -24,8 +12,6 @@ import {
 import { getDb, schema } from "./db/index.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
-/** Allowed image MIME types. SVG is intentionally served as octet-stream to
- * prevent script execution in browsers that treat SVG as HTML. */
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -33,15 +19,9 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
-/** Long immutable cache — the bytes for a given asset ID never change. */
 const ASSET_CACHE_CONTROL =
   "public, max-age=31536000, immutable, stale-while-revalidate=604800";
 
-/**
- * Resolve session for asset GET requests.
- * `getSession` handles browser cookies, legacy bearer tokens, and MCP OAuth
- * bearer tokens in one call — no custom auth logic needed here.
- */
 async function resolveAssetSession(
   event: H3Event,
 ): Promise<{ email: string } | null> {
@@ -50,11 +30,6 @@ async function resolveAssetSession(
   return null;
 }
 
-/**
- * Combined handler for the plan-asset routes. Mount as a PREFIX handler at
- * `/_agent-native/plan-asset`; the framework strips the mount prefix, so:
- *   - `event.url.pathname === "/<assetId>/<filename>"` → GET serve
- */
 export function createPlanAssetHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
@@ -64,7 +39,6 @@ export function createPlanAssetHandler() {
       return { error: "Method not allowed" };
     }
 
-    // Path: "/<assetId>/<filename>" (mount prefix already stripped by h3)
     const rawPath = (event.url?.pathname || "").replace(/^\/+/, "");
     const slashIdx = rawPath.indexOf("/");
     const assetId = slashIdx >= 0 ? rawPath.slice(0, slashIdx) : rawPath;
@@ -88,8 +62,6 @@ export function createPlanAssetHandler() {
       return { error: "Not found" };
     }
 
-    // Resolve the parent plan's access. Public plans allow anonymous reads;
-    // private/org plans require the same session as the action surface.
     const session = await resolveAssetSession(event);
     const ctx = resolvePlanAccessContext({ userEmail: session?.email });
     const access = await resolveAccess("plan", asset.planId, ctx).catch(
@@ -100,13 +72,10 @@ export function createPlanAssetHandler() {
       !access ||
       (access.resource as typeof schema.plans.$inferSelect).deletedAt
     ) {
-      // Could not resolve access — either plan not found or requester has no
-      // rights. Return 404 to avoid leaking plan existence.
       setResponseStatus(event, 404);
       return { error: "Not found" };
     }
 
-    // Decode the base64 data and serve it.
     let bytes: Buffer;
     try {
       bytes = Buffer.from(asset.data, "base64");
@@ -115,7 +84,6 @@ export function createPlanAssetHandler() {
       return { error: "Asset data corrupted" };
     }
 
-    // Serve SVG as octet-stream to prevent inline script execution.
     const mimeType = ALLOWED_MIME_TYPES.has(asset.mimeType)
       ? asset.mimeType
       : "application/octet-stream";
@@ -126,8 +94,6 @@ export function createPlanAssetHandler() {
       "CDN-Cache-Control": ASSET_CACHE_CONTROL,
       "Content-Length": String(bytes.byteLength),
       "Cross-Origin-Resource-Policy": "cross-origin",
-      // Prevent embedding in untrusted contexts when serving images that could
-      // contain script payloads. SVG is already forced to octet-stream above.
       "Content-Disposition": `inline; filename="${encodeURIComponent(asset.filename)}"`,
     };
     for (const [name, value] of Object.entries(headers)) {

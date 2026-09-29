@@ -8,28 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, expandAllLayers } from "./helpers";
 
-/**
- * Parity spec for Figma Learn Tutorial 6: "Create a reusable icon grid".
- * https://help.figma.com/hc/en-us/articles/18770195788951-Create-a-reusable-icon-grid
- * Condensed steps: figma-interaction-spec.md Part 2 §6.
- *
- *  1. Press F, Shift-drag a 24x24 frame, rename "Icon grid"        [in-screen]
- *  2. Add a Layout grid, set grid size to 1                        [in-screen, codex: inspector]
- *  3. Preferences: snap-to options, small nudge 0.5                -- Design has no
- *     global Preferences surface; closest equivalent is the default arrow-nudge amount.
- *  4. Pen tool: draw a diagonal guide line, style stroke/opacity/weight [in-screen, codex: inspector]
- *  5. Cmd+D duplicate the line, Shift+H flip horizontally to form an "X" [in-screen]
- *  6. Ellipse tool: 20x20 ellipse centered in the frame              [in-screen]
- *  7. Rectangle tool at BOARD level (outside the screen): 16x20 rect,
- *     corner radius 1, Cmd+D duplicate                              [overview, outside screen]
- *  8. Copy/paste style (Cmd+Opt+C / Cmd+Opt+V)                       -- no equivalent in
- *     Design (no style-only copy/paste); closest equivalent is matching the stroke via
- *     the inspector directly.
- *  9. Drag the board-level rectangle INTO the Icon grid frame        [crosses screen boundary]
- * 10. "Union selection" (boolean op) and "Create component"          -- Design has no
- *     boolean path operations and no components/variants system; no equivalent.
- */
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
@@ -107,24 +85,12 @@ function layersTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
 
-/** Layer row located by its LAYERS-PANEL node id (the code-layer
- * projection's own hashed id, e.g. "html:1r0xyc7") — never the raw,
- * persisted data-agent-native-node-id a draw/duplicate hands back. Those two
- * never coincide (shared/code-layer.ts's nodeIdFor always hashes the
- * authored id); resolve the real one via selectedLayerNodeId() first. */
 function layerRowById(page: Page, nodeId: string) {
   return layersTree(page).locator(
     `[data-layer-row-button][data-layer-node-id="${nodeId}"]`,
   );
 }
 
-/**
- * The Layers-panel node id of whatever is currently selected. A freshly
- * drawn primitive is always left selected (see canvas-tools.spec.ts's
- * "insertion keeps the new primitive selected" contract), so this is the
- * reliable way to learn its real panel id right after the draw — never
- * assume it equals the raw data-agent-native-node-id (see layerRowById).
- */
 async function selectedLayerNodeId(page: Page): Promise<string> {
   const button = layersTree(page)
     .locator('[aria-selected="true"] [data-layer-row-button]')
@@ -170,8 +136,6 @@ async function openTutorialStep(page: Page, id: string): Promise<void> {
   await page.goto(appPath(`/design/${id}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  // The first navigation against a cold dev server can exceed 45s (cold Vite
-  // compile of the editor bundle); give it more room than a warm request needs.
   await toolbar(page)
     .locator('button[aria-label="Move"]')
     .waitFor({ timeout: 75_000 });
@@ -183,7 +147,6 @@ async function openTutorialStep(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(800);
 }
 
-/** Content-px -> page-px mapping for the (only) screen's own iframe. */
 async function screenBox(page: Page) {
   const iframeLoc = page
     .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
@@ -204,7 +167,6 @@ function toScreenPoint(
   return { x: box.x + x * box.scale, y: box.y + y * box.scale };
 }
 
-/** An empty point on the overview board, away from any screen card. */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -236,7 +198,6 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-/** Node ids stamped with a given `data-an-primitive` value, either attribute order. */
 function primitiveNodeIds(html: string, primitive: string): string[] {
   const ids = new Set<string>();
   const re = /<[^>]*data-agent-native-node-id="([^"]+)"[^>]*>/g;
@@ -264,15 +225,6 @@ function styleNum(style: string, prop: string): number {
   return m ? Number(m[1]) : NaN;
 }
 
-/**
- * Board objects get a transient `draft-<kind>-<timestamp>-<rand>` client id
- * before a stable server id lands (see tutorial-2's `waitForStableNodeId`).
- * In-screen code-layer structural nodes (Frame/Ellipse/etc. drawn INSIDE a
- * screen) do NOT go through that swap -- `__designTrace.dump()` shows
- * `persist:write-file` committing the draft-prefixed id directly into the
- * screen's HTML, so it IS the final id there. Only board-object callers pass
- * `excludeDraft`.
- */
 async function waitForAdded(
   getIds: () => Promise<string[]>,
   before: Set<string>,
@@ -304,11 +256,6 @@ async function dump(page: Page) {
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
-  // Steps share one design across the whole tutorial walkthrough (step 2
-  // builds on step 1's frame, etc.), so a failed step leaves every later step
-  // with no designId to open. Serial mode makes that ONE reported failure
-  // instead of N confusing "no designId" cascades — Playwright marks the
-  // remaining steps skipped-by-serial rather than running (and failing) them.
   test.describe.configure({ mode: "serial" });
 
   let designId = "";
@@ -332,9 +279,6 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
 
     const box = await screenBox(page);
     const from = toScreenPoint(box, 40, 40);
-    // Deliberately non-square drag delta (2:1) while holding Shift, so the
-    // assertion below actually exercises aspect-lock rather than trivially
-    // passing on an already-square drag.
     const to = toScreenPoint(box, 40 + 120, 40 + 60);
     await useTool(page, "Frame");
     await page.keyboard.down("Shift");
@@ -367,8 +311,6 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
         `from a 2:1 (120x60) drag delta, style="${style}"`,
     ).toBeLessThan(0.15);
 
-    // The layers panel keys rows by its own hashed projection id, never the
-    // raw frameId above — read the real one off the still-selected row.
     const frameLayerNodeId = await selectedLayerNodeId(page);
     await renameLayerRowById(page, frameLayerNodeId, "Icon grid");
     const renamedHtml = await indexHtml(request, designId);
@@ -657,9 +599,6 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     page,
   }) => {
     await openTutorialStep(page, designId);
-    // Documentation-only step: no context-menu item for copy/paste-style
-    // exists anywhere in the design surface (checked against the same
-    // context-menu catalog exercised by parity-context-menu.spec.ts).
     const hasMenuOpen = false;
     expect(
       hasMenuOpen,
@@ -686,9 +625,6 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
 
     await useTool(page, "Move");
     await selectLayerRowById(page, rectId!);
-    // Board objects render inside their own preview iframe (same
-    // `data-design-preview-iframe` marker as a screen, but with no
-    // `data-screen-iframe-id`) -- see pen-board-commit.spec.ts's allVectors().
     const boardIframe = page
       .locator(
         "iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
@@ -758,7 +694,7 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
     await page.keyboard.down("Shift");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.up("Shift");
-    await page.mouse.click(5, 5); // dismiss any transient focus state
+    await page.mouse.click(5, 5);
     const hasUnion = await page
       .getByRole("button", { name: /union selection/i })
       .isVisible();

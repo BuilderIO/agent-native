@@ -45,7 +45,6 @@ describe("estimate", () => {
 
     expect(spend.slots).toEqual(["contact"]);
     expect(spend.totalCost).toBe(40);
-    // A verification quote can never be mistaken for a paid one.
     expect(spend.totalCost).toBeGreaterThan(
       estimateEnrichment({
         phase: "verify",
@@ -111,7 +110,6 @@ describe("budget cap", () => {
   it("caps on the actor's spend, not the workspace's", () => {
     const decision = evaluateEnrichmentBudget({
       estimatedUnits: 10,
-      // A busy workspace must not exhaust one person's budget.
       spendToDate: { actorUnits: 5, workspaceUnits: 100_000 },
       capUnits: 500,
       periodStart,
@@ -182,9 +180,6 @@ describe("the launch gate", () => {
     ]);
 
     expect(input.recordIds).toEqual(["rec_a", "rec_c"]);
-    // Structural, not incidental: the unapproved record is absent from every
-    // member of the value the paid pass receives, and the value cannot be
-    // widened afterwards.
     expect(JSON.stringify(input)).not.toContain("rec_b");
     expect(Object.isFrozen(input)).toBe(true);
     expect(Object.isFrozen(input.targets)).toBe(true);
@@ -271,7 +266,6 @@ describe("the launch gate", () => {
     const claim = (nonce: string) =>
       claimEnrichmentRun({
         nonce,
-        // Last write wins, as an UPDATE would.
         write: async (value) => {
           stored = value;
         },
@@ -288,7 +282,6 @@ describe("the launch gate", () => {
   it("lets the claim be retried after a worker crashed before reading it back", async () => {
     let stored: string | null = null;
 
-    // Worker one writes its nonce and dies before it can read back.
     await expect(
       claimEnrichmentRun({
         nonce: "nonce-crashed",
@@ -302,8 +295,6 @@ describe("the launch gate", () => {
     ).rejects.toThrow("process died");
     expect(stored).toBe("nonce-crashed");
 
-    // The persisted row survives, so a later worker can take the claim and
-    // finish the setup rather than the run being stranded.
     await expect(
       claimEnrichmentRun({
         nonce: "nonce-resumed",

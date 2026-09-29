@@ -19,8 +19,6 @@ function fetchJson<T>(url: string): Promise<T> {
   });
 }
 
-// ─── Overview ──────────────────────────────────────────────────────────
-
 export interface ObservabilityOverview {
   totalRuns: number;
   totalCostCents: number;
@@ -39,8 +37,6 @@ export function useObservabilityOverview(sinceDays = 7) {
     refetchInterval: 30_000,
   });
 }
-
-// ─── Traces ────────────────────────────────────────────────────────────
 
 export interface TraceSummary {
   runId: string;
@@ -91,18 +87,18 @@ export function useOutputReviews(
   return query;
 }
 
-export function useOutputReviewApp(runId: string | null) {
+export function useOutputReviewApp(runId: string | null, orgId?: string) {
   return useActionQuery<AgentMcpAppPayload | null>(
     "get-observability-review-app",
-    { runId: runId ?? "" },
+    { runId: runId ?? "", ...(orgId ? { orgId } : {}) },
     { enabled: runId !== null, gcTime: 0 },
   );
 }
 
-export function useOutputReviewDetail(runId: string | null) {
+export function useOutputReviewDetail(runId: string | null, orgId?: string) {
   return useActionQuery<OutputReviewDetail>(
     "get-observability-review-detail",
-    { runId: runId ?? "" },
+    { runId: runId ?? "", ...(orgId ? { orgId } : {}) },
     { enabled: runId !== null, gcTime: 0 },
   );
 }
@@ -153,7 +149,62 @@ export function useTraceDetail(runId: string | null) {
   });
 }
 
-// ─── Feedback ──────────────────────────────────────────────────────────
+export interface PromotedTraceEval {
+  sourceRunId: string;
+  dataset: { id: string; name: string };
+  eval: {
+    name: string;
+    input: { prompt: string };
+    threshold: number;
+    source?: { kind: "trace"; runId: string };
+  };
+}
+
+export function usePromoteTraceEval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      runId: string;
+      mustContain?: string;
+      datasetName?: string;
+    }) => {
+      const res = await fetch(
+        `${BASE}/traces/${encodeURIComponent(payload.runId)}/promote`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(payload.mustContain
+              ? { mustContain: payload.mustContain }
+              : {}),
+            ...(payload.datasetName
+              ? { datasetName: payload.datasetName }
+              : {}),
+          }),
+        },
+      );
+      if (!res.ok) {
+        let code = `HTTP ${res.status}`;
+        try {
+          const body = (await res.json()) as {
+            error?: string;
+            message?: string;
+          };
+          code = body.message ?? body.error ?? code;
+        } catch {
+          // coercion-ok: non-JSON error bodies keep the HTTP status text already stored in code
+        }
+        throw new Error(code);
+      }
+      return res.json() as Promise<PromotedTraceEval>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["observability", "eval-stats"],
+      });
+    },
+  });
+}
 
 export interface FeedbackEntry {
   id: string;
@@ -253,8 +304,6 @@ export function useSaveReviewFeedback() {
   >("save-observability-review-feedback");
 }
 
-// ─── Satisfaction ──────────────────────────────────────────────────────
-
 export interface SatisfactionScore {
   id: string;
   threadId: string;
@@ -276,8 +325,6 @@ export function useSatisfaction(sinceDays = 7) {
   });
 }
 
-// ─── Evals ─────────────────────────────────────────────────────────────
-
 export interface EvalStats {
   totalEvals: number;
   avgScore: number;
@@ -292,8 +339,6 @@ export function useEvalStats(sinceDays = 7) {
     refetchInterval: 30_000,
   });
 }
-
-// ─── Experiments ───────────────────────────────────────────────────────
 
 export interface Experiment {
   id: string;

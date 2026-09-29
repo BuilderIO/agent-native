@@ -14,15 +14,9 @@ import { detectPlanTextDirection } from "./planTextDirection";
 type PlanMarkdownReaderProps = {
   markdown: string;
   className?: string;
-  /**
-   * When provided, h1/h2/h3 headings receive stable anchor ids matching the
-   * TOC (`plan-heading-{blockId}-{index}`) and a copy-link affordance so users
-   * can share deep links to individual sections.
-   */
   blockId?: string;
 };
 
-/** Flatten react-markdown's code-element children into the raw code string. */
 function extractText(node: ReactNode): string {
   if (node == null || node === false) return "";
   if (typeof node === "string") return node;
@@ -51,32 +45,12 @@ export function buildPlanMarkdownSectionCopyUrl(
   }
 }
 
-/**
- * Read-only renderer for a plan `rich-text` block.
- *
- * This is the public / shared-reviewer / SSR read path. It MUST stay
- * Tiptap-free: the shared `RichMarkdownEditor` always instantiates a live
- * ProseMirror editor (even when `editable=false`), which is edit-view-only and
- * should never mount in an SSR/public context. Anonymous viewers and the
- * server render therefore go through react-markdown here instead.
- *
- * Markdown stays the single source of truth (GFM, same dialect the editor emits)
- * and the output reuses the existing `.plan-rich-markdown-editor`
- * `.an-rich-md-prose` styling so the read view matches the edit view exactly.
- * Fenced code blocks render through the shared {@link CodeSurface} so the read
- * view gets the same syntax-highlighted, light/dark, collapse-to-N-lines
- * treatment as the editor and code tabs (Shiki is client-only with a plain
- * `<pre>` SSR fallback, so this stays SSR-safe).
- */
 export const PlanMarkdownReader = memo(function PlanMarkdownReader({
   markdown,
   className,
   blockId,
 }: PlanMarkdownReaderProps) {
-  // Track the heading count so each heading gets the same index-based id that
-  // `collectPlanTocItems` assigns: `plan-heading-{blockId}-{index}`.
   const headingIndexRef = useRef(0);
-  // Reset the counter each render (new markdown / blockId) so ids are stable.
   headingIndexRef.current = 0;
   const textDirection = detectPlanTextDirection(markdown);
   const t = useT();
@@ -84,7 +58,6 @@ export const PlanMarkdownReader = memo(function PlanMarkdownReader({
   const makeHeading = useCallback(
     (Tag: ElementType, { children }: { children?: ReactNode }) => {
       if (!blockId) {
-        // No blockId — render plain heading without anchor.
         return <Tag>{children}</Tag>;
       }
       const index = headingIndexRef.current++;

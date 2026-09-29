@@ -8,6 +8,7 @@ import {
 } from "@shared/inbox-threads.js";
 import { describe, expect, it } from "vitest";
 
+import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import {
   partitionInboxItems,
   resolveActiveTabId,
@@ -54,8 +55,6 @@ describe("resolveInboxTabs", () => {
       "f1",
       "other",
     ]);
-    // "archive" is a collapsible system view, not a triage tab; note-to-self
-    // is excluded from the tab list even when pinned.
     expect(tabs.some((t) => t.id === "archive")).toBe(false);
     expect(tabs.find((t) => t.id === "clients")?.name).toBe("VIPs");
     expect(tabs.find((t) => t.id === "f1")?.query).toBe("is:unread");
@@ -87,6 +86,25 @@ describe("resolveInboxTabs", () => {
       resolveInboxTabs({ ...config, showAllTab: false }, new Map())[0]?.id,
     ).toBe(IMPORTANT_TAB_ID);
   });
+
+  it("keeps Filtered out of the inbox split tabs", () => {
+    const tabs = resolveInboxTabs(
+      {
+        pinnedLabels: [AI_FILTER_LABEL],
+        savedFilters: [],
+        labelAliases: {},
+        combineInbox: false,
+        showAllTab: true,
+      },
+      new Map(),
+    );
+
+    expect(tabs.map((tab) => tab.id)).toEqual([
+      ALL_TAB_ID,
+      "important",
+      "other",
+    ]);
+  });
 });
 
 describe("partitionInboxItems", () => {
@@ -107,7 +125,6 @@ describe("partitionInboxItems", () => {
     const byTab = partitionInboxItems([dual], tabs);
     expect(byTab.get("automated notifications")).toContain(dual);
     expect(byTab.get("f1")).toContain(dual);
-    // Matched a custom tab, so it does NOT fall into Important/Other too.
     expect(byTab.get("important")).not.toContain(dual);
     expect(byTab.get("other")).not.toContain(dual);
   });

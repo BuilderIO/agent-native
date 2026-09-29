@@ -359,6 +359,9 @@ export default {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
+    notificationsTitle: "Notifications",
+    notificationsEmailGroup: "Email",
+    notificationsSoundGroup: "Sound",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
@@ -541,6 +544,10 @@ export default {
     failedToDecodePanel: "Failed to decode panel",
     untitledAnalysis: "Untitled analysis",
     untitledDashboard: "Untitled dashboard",
+  },
+  analysisResult: {
+    title: "Analysis result",
+    comparisonContext: "{{period}}: {{current}} vs {{previous}}",
   },
   routeTitles: {
     notFound: "Not Found - Analytics",

@@ -1,8 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import takeDesignScreenshot from "./take-design-screenshot.js";
+import takeDesignScreenshot, {
+  getScreenshotPngData,
+} from "./take-design-screenshot.js";
 
 function suggestedPngFilename(filename: string): string {
   const base = filename
@@ -17,8 +20,10 @@ function suggestedPngFilename(filename: string): string {
 export default defineAction({
   description:
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
-    "and filename, to choose the screen. Returns a durable image URL; the " +
-    "screen is rendered at 1440px wide by default and full-page height.",
+    "and filename, to choose the screen. Returns a durable image URL; MCP " +
+    "callers also receive an inline PNG preview when it fits the image limit. " +
+    "The screen is rendered " +
+    "at 1440px wide by default and full-page height.",
   schema: z
     .object({
       designId: z
@@ -102,6 +107,27 @@ export default defineAction({
     }
 
     const screenFilename = result.filename ?? filename ?? "screen.html";
+    const png =
+      ctx?.caller === "mcp" ? getScreenshotPngData(screenshot) : undefined;
+    const maxInlinePngBytes =
+      Math.floor(MAX_TOOL_RESULT_IMAGE_BASE64_CHARS / 4) * 3;
+    const imageData =
+      png && Buffer.byteLength(png) <= maxInlinePngBytes
+        ? png.toString("base64")
+        : undefined;
+    const agentImages = imageData
+      ? [
+          {
+            data: imageData,
+            mediaType: "image/png" as const,
+            label: `${screenFilename} (${screenshot.viewport.label})`,
+          },
+        ]
+      : undefined;
+    const message =
+      ctx?.caller === "mcp" && png && !imageData
+        ? "The PNG exceeds the inline image limit; use its durable URL to view it."
+        : undefined;
 
     track(
       "design_exported",
@@ -125,6 +151,8 @@ export default defineAction({
       mimeType: "image/png",
       url: screenshot.url,
       bytes: screenshot.bytes,
+      ...(agentImages ? { _agentImages: agentImages } : {}),
+      ...(message ? { message } : {}),
       viewport: screenshot.viewport,
       diagnostics: screenshot.diagnostics,
       capturedAt: result.capturedAt,

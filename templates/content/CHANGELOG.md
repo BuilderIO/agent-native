@@ -3,11 +3,28 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-26
+
+### Fixed
+
+- An empty Recent list now loads without an error after first run.
+
 ## 2026-09-25
 
 ### Added
 
+- Ask the agent to turn comment, reply, and mention emails on or off.
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Suggested edits now highlight only the changed words and punctuation. Related edits appear together, with controls to review each edit or the whole proposal.
+
+## 2026-09-24
+
+### Fixed
+
+- Suggest edits on pages inside collections, with the same review flow as other pages.
 
 ## 2026-09-23
 
@@ -21,6 +38,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Edits to different parts of a page from multiple tabs save together without asking you to choose a version.
 - Tables inserted in the visual editor now let you resize columns.
 - Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
 - The Trash view no longer highlights a document that is not in Trash.
@@ -41,6 +59,12 @@ time from the command menu (Cmd+K → "What's new").
 
 - Search now ranks exact and partial title matches above incidental matches in document bodies.
 
+## 2026-09-18
+
+### Improved
+
+- Mention a connected AI model in a comment, choose how it should respond, and keep the work in that thread.
+
 ## 2026-09-16
 
 ### Fixed
@@ -54,6 +78,10 @@ time from the command menu (Cmd+K → "What's new").
 - Google sign-in and Notion connections now open reliably in embedded browsers
 
 ## 2026-09-14
+
+### Added
+
+- Ask AI conversations now stay with the comment that started them, with inline progress, replies, recovery, and an explicit option to open the full conversation.
 
 ### Improved
 

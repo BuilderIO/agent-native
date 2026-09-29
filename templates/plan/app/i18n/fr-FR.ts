@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
+    editorGroupTitle: "Éditeur",
     editorTitle: "Extension VS Code",
     editorDescription:
       "Ouvrez et examinez les plans dans un panneau latéral de VS Code plutôt que dans un onglet de navigateur séparé.",
@@ -486,6 +487,8 @@ const messages = {
       requestAccess: "Demander l'accès",
       requestAccessTitle: "Demander l'accès à ce plan",
       requestSent: "Demande envoyée",
+      storageStatusUnavailable:
+        "Impossible de vérifier le stockage de fichiers.",
       retry: "Réessayer",
       sendFeedback: "Envoyer un retour",
       feedbackPlaceholder:

@@ -1,10 +1,3 @@
-//! Upcoming-meetings section for the tray menu.
-//!
-//! Tauri 2 menu items don't carry arbitrary payloads — we encode the meeting
-//! id directly in the menu item id (`meeting:<id>`) and `tray.rs` decodes it
-//! when the click event fires. The submenu lists at most 3 events; clicking
-//! one opens the main popover and emits `meetings:open` with the id so the
-//! renderer can navigate to the meeting.
 
 use chrono::{Datelike, Duration as ChronoDuration, Local, Timelike, Weekday};
 use serde::{Deserialize, Serialize};
@@ -17,18 +10,12 @@ use tauri::{
 pub struct MeetingItem {
     pub id: String,
     pub title: String,
-    /// RFC3339 string or preformatted display text — purely cosmetic for the
-    /// menu label.
     #[serde(default)]
     pub when_label: Option<String>,
 }
 
 pub const MEETING_ID_PREFIX: &str = "meeting:";
 
-/// Build the "Start Meeting Notes" submenu populated with up to 3 events. If
-/// the list is empty, returns a submenu containing a single disabled "No
-/// meetings ready" item — keeps the menu structure stable. Selecting a real
-/// meeting starts live notes immediately.
 pub fn build_meetings_section(
     app: &AppHandle,
     upcoming: Vec<MeetingItem>,
@@ -60,9 +47,6 @@ pub fn build_meetings_section(
     Ok(builder.build()?)
 }
 
-/// Helper used from the tray's on-menu-event handler. Decodes the meeting id
-/// from a menu item id of the form `meeting:<id>` and emits the event the
-/// renderer listens for. Returns `true` if the id matched.
 pub fn handle_meeting_menu_click(app: &AppHandle, menu_id: &str) -> bool {
     let Some(id) = menu_id.strip_prefix(MEETING_ID_PREFIX) else {
         return false;
@@ -71,9 +55,6 @@ pub fn handle_meeting_menu_click(app: &AppHandle, menu_id: &str) -> bool {
         return false;
     }
     use tauri::Emitter;
-    // Only the recording pill should open — the popover's background listener
-    // handles this event and shows the pill, so we must NOT show the popover
-    // window itself here.
     let _ = app.emit(
         "meetings:start-transcription",
         serde_json::json!({ "meetingId": id, "joinUrl": null, "reason": "tray" }),

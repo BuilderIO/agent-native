@@ -1,13 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
-/**
- * Audit capture entry point, called from the `defineAction` audit wrapper after
- * an action runs (success or error). Best-effort: any failure here is swallowed
- * so auditing never breaks the action it observes.
- *
- * This module touches the DB (`store.js`), so `action.ts` loads it lazily via
- * dynamic import on the first audited call — keeping the DB client out of every
- * bundle that merely defines actions.
- */
 import {
   deriveActorKind,
   isAuditDisabled,
@@ -23,14 +15,12 @@ import type {
   AuditTarget,
 } from "./types.js";
 
-/** Minimal view of the action run context the recorder needs. */
 export interface AuditRunContextLike {
   actionName?: string;
   caller?: string;
   userEmail?: string;
   orgId?: string | null;
   threadId?: string;
-  /** Concrete agent-loop attempt that produced this action. */
   runId?: string;
   turnId?: string;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
@@ -56,6 +46,20 @@ function errorCode(error: unknown): string | null {
     if (typeof e.name === "string") return e.name;
   }
   return "error";
+}
+
+function isRefusal(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { statusCode?: unknown; status?: unknown };
+  const status = e.statusCode ?? e.status;
+  return status === 401 || status === 403;
+}
+
+// Same key as usage's `resolveUsageAppKey`, so the audit and usage app
+// filters agree. Null, not a placeholder, when the app has no identity.
+function auditAppKey(): string | null {
+  const { app } = getAppConfig();
+  return (app.id ?? app.name)?.trim() || null;
 }
 
 function safeTarget(
@@ -87,10 +91,6 @@ function safeSummary(
   }
 }
 
-/**
- * Record one audit event. Resolves the actor, target, ownership (for scoped
- * reads), and redacted inputs, then appends a row. Never throws.
- */
 export async function recordActionAudit(
   input: RecordActionAuditInput,
 ): Promise<void> {
@@ -98,15 +98,18 @@ export async function recordActionAudit(
     if (isAuditDisabled()) return;
     const ctx = input.ctx;
     const actionName = ctx?.actionName;
-    // No name → an internal/programmatic run() with no dispatch context. Skip
-    // rather than write a nameless row.
     if (!actionName) return;
     if (!shouldRecordAudit(input.config, actionName)) return;
 
     const caller = ctx?.caller ?? "http";
     const actorEmail = ctx?.userEmail ?? null;
+    // A refused call is an attempt worth seeing, not a failure.
+    const status: AuditStatus =
+      input.status === "error" && isRefusal(input.error)
+        ? "denied"
+        : input.status;
     const meta: AuditCallMeta = {
-      status: input.status,
+      status,
       caller,
       userEmail: ctx?.userEmail,
       orgId: ctx?.orgId ?? null,
@@ -133,21 +136,17 @@ export async function recordActionAudit(
       turnId: ctx?.turnId ?? null,
       targetType: target?.type ?? null,
       targetId: target?.id ?? null,
-      status: input.status,
+      status,
       summary,
       input: inputJson,
-      errorCode: input.status === "error" ? errorCode(input.error) : null,
-      // Scope reads to the resource owner when the action declares one,
-      // otherwise to the actor (the common self-mutation case).
+      errorCode: input.error ? errorCode(input.error) : null,
       ownerEmail: target?.ownerEmail ?? actorEmail,
       visibility: target?.visibility ?? "private",
-      // Agent-loop action contexts already carry the concrete run id. The
-      // integration lineage is a second source for cross-app calls, not a
-      // prerequisite for making ordinary automation actions traceable.
       runId: ctx?.runId ?? lineage?.runId ?? null,
       networkProtocol: ctx?.networkProtocol ?? null,
       networkId: ctx?.networkId ?? null,
       networkPeer: ctx?.networkPeer ?? null,
+      app: auditAppKey(),
     };
     if (integration) {
       if (
@@ -176,7 +175,6 @@ export async function recordActionAudit(
         event.networkId = target?.id ?? "call-agent";
       }
     }
-    // org_id used for scoping defaults to the target's, else the actor's org.
     if (target?.orgId !== undefined) event.orgId = target.orgId;
 
     await insertAuditEvent(event);

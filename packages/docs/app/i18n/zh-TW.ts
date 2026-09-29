@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
+  },
   language: {
     label: "語言",
     system: "系統",
@@ -769,7 +776,6 @@ const messages = {
       s062: "從範本開始，連線資料，開始建置儀表板。",
       s063: "閱讀檔案",
       s064: "檢視所有範本",
-      // V3 到達頁文案（2026-09-14）—— 以下為 hero 到最終 CTA。
       heroEyebrow: "Analytics",
       heroTitle: "問一個問題。取得圖表、查詢和上下文。",
       heroDescription:
@@ -830,7 +836,6 @@ const messages = {
     },
     calendar: {
       s001: "Calendar 範本螢幕截圖",
-      // V3 到達頁文案(2026年9月10日)—— 從 hero 到最終 CTA。
       heroEyebrow: "Calendar",
       heroTitle: "找到時間、預訂會議並與代理商一起調整您的一天",
       heroDescription:
@@ -1010,7 +1015,6 @@ const messages = {
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "讓 AI 代理看得懂、聽得懂的螢幕錄製",
       heroDescription:
@@ -1155,7 +1159,6 @@ const messages = {
     },
     content: {
       s001: "Content 範本螢幕截圖",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "和你的 AI 代理一起建立和整理工作",
       heroDescription:
@@ -1277,7 +1280,6 @@ const messages = {
     },
     design: {
       s001: "Design 範本螢幕截圖",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "用你的 AI 代理設計互動式原型",
       heroDescription:
@@ -1398,7 +1400,6 @@ const messages = {
     },
     dispatch: {
       s001: "Dispatch 範本螢幕截圖",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "在同一個地方協調你的 AI 代理",
       heroDescription:
@@ -1648,21 +1649,21 @@ const messages = {
           "可以。同事可以請求產生一份草稿，出現在你的審核佇列中。開啟它、編輯內容，準備好後再寄送。提出請求的人無法代替你寄送；由草稿的擁有者或組織管理員來控制寄送。",
       },
       s001: "Mail 範本螢幕截圖",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "用你的 AI 代理管理收件匣",
+      heroTitle: "用 Jev 掌控你的收件匣",
       heroDescription:
-        "Mail 將優先排序、上下文感知標籤、線程摘要和後台規則引入一個鍵盤優先的 Gmail 收件箱，並有一個可以執行下一步的代理。",
+        "用日常語言告訴 Jev 哪些郵件重要。它會保留真人撰寫的 GitHub 留言，將主管的郵件排在前面，清除機器人通知，並根據你的修正持續學習。",
       heroCta: "管理你的收件匣",
-      useCasesHeading: "讓 Mail 佔據第一關",
+      mobileArchiveToast: "已封存 1,167 則機器人通知 · 保留 4 則 PR 留言",
+      useCasesHeading: "由 Jev 驅動的智慧收件匣",
       useCasesBody:
-        "显示紧急线索，按含义标记消息，并在您保持控制的同时保持重复的收件箱工作继续进行。",
-      useCase1Title: "看看今天需要什麼",
+        "用日常語言設定規則。Jev 會優先處理重要聯絡人與對話、套用合適標籤，並在重複郵件送達時自動封存。",
+      useCase1Title: "保留真人回覆，封存機器人通知",
       useCase1Body:
-        "郵件按緊急程度、截止日期和等待者對主題進行排名，然後向您提供收件匣摘要，其中包含下一步有用的操作。",
-      useCase2Title: "按含義標記訊息",
+        "告訴 Jev 什麼最重要：將 GitHub 人工 PR 留言保留在 Product，封存機器人通知，並將主管的郵件移到 Important。用提示調整規則，也能透過回饋改善垃圾郵件篩選。",
+      useCase2Title: "為每封郵件自動加上合適標籤",
       useCase2Body:
-        "代理商可以應用寄件者和對話上下文中的標籤，因此研究、財務和客戶線索很容易找到。",
+        "Jev 根據對話含義而不只是關鍵字分類，讓客戶備註、收據和研究郵件都能放在正確的位置。",
       useCase3Title: "自動化日常工作",
       useCase3Body:
         "設定規則以在背景標記或存檔新郵件，然後隨時查看運行歷史記錄。",
@@ -1682,9 +1683,9 @@ const messages = {
       feature5Title: "發送前檢查",
       feature5Body:
         "讓客服人員起草或修改回复，然後在回复離開您的收件匣之前對其進行審核和編輯。",
-      feature6Title: "多帳戶搜尋",
+      feature6Title: "越用越聰明的垃圾郵件篩選",
       feature6Body:
-        "跨連接的 Gmail 帳戶進行搜索，並在一個地方使用相同的優先順序、標籤和代理工具。",
+        "將誤判的郵件標記為需要，或回報不想要的郵件。Jev 會從每次修正中學習，並將規則套用到類似郵件。",
       finalCtaHeading: "從下一封郵件開始",
       finalCtaBody: "開啟一段對話，讓你的 AI 代理給你一份摘要或回覆草稿。",
       finalCtaButton: "管理你的收件匣",
@@ -1812,7 +1813,6 @@ const messages = {
     },
     slides: {
       s001: "Slides 範本螢幕截圖",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "用你的 AI 代理建立簡報",
       heroDescription:
@@ -2024,7 +2024,6 @@ const messages = {
           "可以。用 CLI 建立一份副本，新增你的 actions、資料和介面，然後部署你的應用。為你的環境設定驗證和服務存取權限，並在與使用者分享之前測試你新增的工作流程。",
       },
       s001: "Chat 應用截圖",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "打造屬於你自己的 AI 聊天應用",
       heroDescription:

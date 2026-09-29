@@ -8,7 +8,10 @@ import type {
   BrainSourceProvider,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import { listAccessibleAudienceIds } from "./audiences.js";
+import {
+  listAccessibleAudienceIds,
+  refreshSlackPrivateChannelAudience,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   createCapture,
@@ -809,10 +812,6 @@ export interface SlackThreadCapture {
   metadata: Record<string, unknown>;
 }
 
-/**
- * Builds the only Slack representation Brain persists. It deliberately omits
- * Slack user ids, display names, and the raw Events/Web API payload.
- */
 export function normalizeSlackThreadCapture(input: {
   channel: SlackChannel;
   messages: SlackMessage[];
@@ -863,8 +862,6 @@ export function normalizeSlackThreadCapture(input: {
       ),
       sourceUrl: input.permalink ?? null,
       permalink: input.permalink ?? null,
-      // These offsets are against `content`, the safe persisted capture, never
-      // against a provider payload.
       safeSegments,
     },
   };
@@ -1070,8 +1067,16 @@ async function slackPrivateChannelMemberEmails(
       "conversations.members",
       { channel: channelId, limit: 1_000, cursor },
     );
-    for (const memberId of response.members ?? []) {
-      if (memberId) memberIds.add(memberId);
+    if (
+      !Array.isArray(response.members) ||
+      response.members.some(
+        (memberId) => typeof memberId !== "string" || !memberId,
+      )
+    ) {
+      return null;
+    }
+    for (const memberId of response.members) {
+      memberIds.add(memberId);
     }
     const nextCursor = response.response_metadata?.next_cursor?.trim();
     if (!nextCursor) break;
@@ -1080,7 +1085,6 @@ async function slackPrivateChannelMemberEmails(
     cursor = nextCursor;
   }
   const userIds = Array.from(memberIds);
-  if (!userIds.length) return null;
   if (
     userIds.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
   ) {
@@ -1134,7 +1138,6 @@ async function slackPrivateChannelMemberEmails(
     const entry = userEmailCache.get(userId);
     return entry?.kind === "human" ? [entry.email] : [];
   });
-  if (!emails.length) return null;
   return Array.from(new Set(emails)).sort();
 }
 
@@ -2494,9 +2497,20 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
             userEmailCache,
           )
         : null;
-      if (channel.is_private && !privateMemberEmails?.length) {
-        stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-        continue;
+      if (channel.is_private) {
+        if (privateMemberEmails === null) {
+          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+          continue;
+        }
+        await refreshSlackPrivateChannelAudience({
+          source,
+          channelId: channel.id,
+          memberEmails: privateMemberEmails,
+        });
+        if (!privateMemberEmails.length) {
+          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+          continue;
+        }
       }
 
       stats.scannedChannels = Number(stats.scannedChannels) + 1;
@@ -2752,10 +2766,22 @@ export async function refreshSlackThreadCapture(
     const memberEmails = channel.is_private
       ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
       : null;
-    if (channel.is_private && !memberEmails?.length) {
-      throw new Error(
-        `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
-      );
+    if (channel.is_private) {
+      if (memberEmails === null) {
+        throw new Error(
+          `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
+        );
+      }
+      if (!memberEmails.length) {
+        await refreshSlackPrivateChannelAudience({
+          source,
+          channelId: channel.id,
+          memberEmails,
+        });
+        throw new Error(
+          `Slack private channel ${channel.id} has no human members; refusing to refresh a capture`,
+        );
+      }
     }
     const [thread, permalink] = await Promise.all([
       slackApi<SlackRepliesResponse>(token, "conversations.replies", {

@@ -19,6 +19,7 @@ import {
   type Transaction,
 } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
+import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
   act,
   createElement,
@@ -106,6 +107,12 @@ type TooltipProviderProps = Omit<
 const TooltipProviderWithoutChildren =
   TooltipProvider as ComponentType<TooltipProviderProps>;
 
+import {
+  replaceAcceptedProposalPresentations,
+  replaceAcceptedSuggestionPresentations,
+  suggestionPresentation,
+  suggestionPresentations,
+} from "./DocumentEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
@@ -113,6 +120,7 @@ import { createPreviewDocumentSaveController } from "./previewDocumentSaveContro
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
   draftSuggestionAnchors,
+  markdownSuggestionOperation,
   markdownSuggestionOperations,
 } from "./suggestions/markdown-operation";
 import {
@@ -1030,6 +1038,243 @@ describe("live suggestion presentation", () => {
       content: nfmToDoc(content),
     });
   }
+  it.each([true, false])(
+    "acknowledges a grouped readback only after the mounted editor renders it (suggesting=%s)",
+    async (suggesting) => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      const queryClient = new QueryClient();
+      const onRendered = vi.fn();
+      const before = "Before";
+      const accepted = " AddedBefore";
+      const renderEditor = (content: string, resetKey: string | null) =>
+        createElement(
+          MemoryRouter,
+          null,
+          createElement(
+            TooltipProviderWithoutChildren,
+            { delayDuration: 0 },
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(VisualEditor, {
+                content,
+                contentResetKey: resetKey,
+                contentUpdatedAt: "2026-09-28T12:00:00.000Z",
+                onChange: () => {},
+                suggesting,
+                proposalDecisionReadback:
+                  resetKey === null
+                    ? null
+                    : {
+                        generation: 7,
+                        content: accepted,
+                        beforeContent: before,
+                      },
+                onProposalDecisionRendered: onRendered,
+              }),
+            ),
+          ),
+        );
+
+      try {
+        await act(async () => root.render(renderEditor(before, null)));
+        expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+          before,
+        );
+
+        await act(async () =>
+          root.render(renderEditor(before, "proposal:7:pending")),
+        );
+        expect(onRendered).not.toHaveBeenCalled();
+
+        await act(async () =>
+          root.render(
+            renderEditor(`${accepted} peer`, "proposal:7:readback-peer"),
+          ),
+        );
+        expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+          `${accepted} peer`,
+        );
+        expect(onRendered).not.toHaveBeenCalled();
+
+        await act(async () =>
+          root.render(renderEditor(accepted, "proposal:7:readback")),
+        );
+        expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+          accepted,
+        );
+        expect(onRendered).toHaveBeenCalledWith(7);
+      } finally {
+        await act(async () => root.unmount());
+        queryClient.clear();
+        container.remove();
+      }
+    },
+  );
+  it("acknowledges grouped rejection from the mounted in-mode editor", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+    const onRendered = vi.fn();
+    const before = "Before";
+    const renderEditor = (readback: boolean) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              content: before,
+              contentResetKey: readback ? "proposal:8:readback" : null,
+              onChange: () => {},
+              suggesting: true,
+              proposalDecisionReadback: readback
+                ? { generation: 8, content: before, beforeContent: before }
+                : null,
+              onProposalDecisionRendered: onRendered,
+            }),
+          ),
+        ),
+      );
+
+    try {
+      await act(async () => root.render(renderEditor(false)));
+      expect(onRendered).not.toHaveBeenCalled();
+      await act(async () => root.render(renderEditor(true)));
+      expect(onRendered).toHaveBeenCalledWith(8);
+      expect(container.querySelector(".ProseMirror")?.textContent).toBe(before);
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
+    }
+  });
+  it("renders one settling owner after replacing a multi-span saved suggestion", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const accepted = {
+      id: "accepted",
+      status: "pending" as const,
+      operations: [markdownSuggestionOperation(before, after)!],
+    };
+    const unrelated = {
+      id: "unrelated",
+      status: "pending" as const,
+      operations: [markdownSuggestionOperation(before, `${before} Next.`)!],
+    };
+    const acceptedSpans = suggestionPresentations(accepted, before);
+    const unrelatedSpans = suggestionPresentations(unrelated, before);
+    const overlay = suggestionPresentation(accepted, before)!;
+    const editor = createSuggestionEditor(before);
+    try {
+      expect(acceptedSpans).toHaveLength(2);
+      const presentations = replaceAcceptedSuggestionPresentations(
+        [...acceptedSpans, ...unrelatedSpans],
+        { ...overlay, presentation: "settling" },
+      );
+      const specs = presentations.map((presentation) =>
+        suggestionHighlightSpec(editor.state.doc, presentation),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.filter((spec) => spec !== null),
+      });
+
+      expect(
+        editor.view.dom.querySelectorAll('[data-suggestion-id="accepted"]'),
+      ).toHaveLength(0);
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-text"),
+      ).toHaveLength(1);
+      expect(
+        editor.view.dom.querySelectorAll('[data-suggestion-id="unrelated"]')
+          .length,
+      ).toBeGreaterThanOrEqual(unrelatedSpans.length);
+      expect(docToNfm(editor.getJSON() as any)).toBe(before);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("keeps a committed group's combined text visible until canonical readback", () => {
+    const before = "Before and After";
+    const readback = " AddedBefore and Extra After";
+    const members = [
+      {
+        id: "first",
+        status: "accepted" as const,
+        operations: [
+          markdownSuggestionOperation(before, " AddedBefore and After")!,
+        ],
+      },
+      {
+        id: "second",
+        status: "accepted" as const,
+        operations: [
+          markdownSuggestionOperation(before, "Before and Extra After")!,
+        ],
+      },
+    ];
+    const unrelated = {
+      id: "unrelated",
+      status: "pending" as const,
+      operations: [markdownSuggestionOperation(before, `${before}!`)!],
+    };
+    const ordinary = [...members, unrelated].flatMap((member) =>
+      suggestionPresentations({ ...member, status: "pending" }, before),
+    );
+    const presentations = replaceAcceptedProposalPresentations(
+      ordinary,
+      members as never,
+      before,
+      readback,
+    );
+    const editor = createSuggestionEditor(before);
+    try {
+      const apply = (visible = presentations) => {
+        const specs = visible.map((presentation) =>
+          suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        setSuggestionHighlights(editor.view, {
+          specs: specs.filter((spec) => spec !== null),
+        });
+        return specs;
+      };
+      expect(apply().every((spec) => spec !== null)).toBe(true);
+
+      expect(editor.view.dom.textContent).toBe(`${readback}!`);
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-text"),
+      ).toHaveLength(2);
+      expect(
+        editor.view.dom.querySelectorAll(
+          '[data-suggestion-id="first"], [data-suggestion-id="second"]',
+        ),
+      ).toHaveLength(0);
+      expect(
+        editor.view.dom.querySelectorAll('[data-suggestion-id="unrelated"]'),
+      ).toHaveLength(1);
+      expect(docToNfm(editor.getJSON() as any)).toBe(before);
+
+      editor.commands.setContent(nfmToDoc(readback));
+      apply(
+        presentations.filter((presentation) => presentation.id !== "unrelated"),
+      );
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-text"),
+      ).toHaveLength(0);
+      expect(editor.view.dom.textContent).toBe(readback);
+      expect(docToNfm(editor.getJSON() as any)).toBe(readback);
+    } finally {
+      editor.destroy();
+    }
+  });
   it("keeps an accepted insertion visible while the mounted editor is still behind", () => {
     const before = "Before";
     const after = " AddedBefore";
@@ -3456,6 +3701,16 @@ describe("VisualEditor markdown round-tripping", () => {
     const draftBWithTrailingEmpty = "Draft B body\n<empty-block/>";
     let controller: VisualEditorHistoryController | null = null;
 
+    const seedYdoc = (target: Y.Doc, content: string) => {
+      const seedEditor = createMarkdownEditor(content);
+      const seeded = prosemirrorToYDoc(seedEditor.state.doc, "default");
+      Y.applyUpdate(target, Y.encodeStateAsUpdate(seeded));
+      seeded.destroy();
+      seedEditor.destroy();
+    };
+    seedYdoc(ydoc, "Draft A body");
+    seedYdoc(nextDocumentYdoc, "Older Page B body");
+
     const renderEditor = (
       documentId: string,
       content: string,
@@ -3733,16 +3988,6 @@ describe("VisualEditor markdown round-tripping", () => {
         container.querySelectorAll<HTMLElement>(".notion-editor > p"),
         (node) => node.textContent,
       );
-    // The seed → reconcile handoff inside useCollabReconcile is a chain of
-    // real (unfaked) setTimeout hops — never a fixed number of React ticks —
-    // so its wall-clock latency has no tight upper bound under load. Poll for
-    // the DOM it actually produces instead of sleeping a guessed duration:
-    // that keeps this fast when the machine is idle and merely patient (never
-    // silently wrong) when it is not. Confirmed against this exact test with
-    // an artificially widened reconcile retry interval: with a blind sleep it
-    // fails on stale content; with this poll it converges to the right
-    // content every time, proving the reconcile itself is not racy — only a
-    // fixed sleep waiting on it was.
     const waitForParagraphs = (expected: string[]) =>
       vi.waitFor(
         () => {
@@ -3752,9 +3997,6 @@ describe("VisualEditor markdown round-tripping", () => {
       );
 
     try {
-      // Match a real reload after an external version was previously live: seed
-      // the persisted Y.Doc through the actual VisualEditor, unmount the page,
-      // then mount a fresh editor whose SQL snapshot points somewhere else.
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
       });
@@ -4029,10 +4271,6 @@ describe("VisualEditor markdown round-tripping", () => {
   });
 
   it("rejects an empty preview remount emission when the render snapshot is also empty", () => {
-    // After a server restart, the preview can render an empty list snapshot for
-    // one tick while its retained per-document save controller still owns the
-    // previously confirmed rich body. The editor must not emit that lifecycle
-    // filler into the controller; Open page/unmount would flush it to SQL.
     expect(
       shouldPersistEffectivelyEmptyEditorUpdate({
         nextContent: "<empty-block/>",

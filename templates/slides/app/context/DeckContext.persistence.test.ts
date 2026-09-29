@@ -71,17 +71,11 @@ class MockEventSource {
     MockEventSource.instances.push(this);
   }
 
-  /** Simulate the browser successfully (re)establishing the connection. */
   simulateOpen() {
     this.readyState = MockEventSource.OPEN;
     this.onopen?.();
   }
 
-  /**
-   * Simulate a FATAL SSE error: a non-2xx HTTP response (or bad
-   * content-type). Per the EventSource spec this closes the connection and
-   * the browser does NOT retry on its own — readyState becomes CLOSED.
-   */
   simulateFatalError() {
     this.readyState = MockEventSource.CLOSED;
     this.onerror?.(new Event("error"));
@@ -104,6 +98,7 @@ function setupFetch(options?: {
   hangPut?: boolean;
   deferredPut?: boolean;
   deferredPatch?: boolean;
+  deferredKeepalivePatch?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   deferredDelete?: boolean;
@@ -118,6 +113,9 @@ function setupFetch(options?: {
   let rejectDeferredPut: ((error: unknown) => void) | null = null;
   let firstPutSignal: AbortSignal | undefined;
   let resolveDeferredPatch: (() => void) | null = null;
+  let rejectDeferredPatch: ((error: unknown) => void) | null = null;
+  let resolveDeferredKeepalivePatch: (() => void) | null = null;
+  let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
   let deferNextGetDeck = false;
   let resolveDeferredGetDeck: (() => void) | null = null;
@@ -136,10 +134,6 @@ function setupFetch(options?: {
           ? url.toString()
           : url.url;
 
-    // Legacy full-replace write. When `hangPut` is set, the request never
-    // resolves on its own — it only rejects when its AbortSignal fires, which
-    // is exactly what `callAction`'s timeout does. This lets a test prove the
-    // timeout drains `inFlightSaves` instead of wedging it.
     if (href.includes("/_agent-native/actions/save-deck")) {
       const deckId = testString(actionCallBody(init).deckId ?? "");
       const attempts = (putAttempts.get(deckId) ?? 0) + 1;
@@ -269,8 +263,22 @@ function setupFetch(options?: {
         attempts === 1
       ) {
         firstPatchSignal = init?.signal ?? undefined;
-        return new Promise<Response>((resolve) => {
+        return new Promise<Response>((resolve, reject) => {
           resolveDeferredPatch = () =>
+            resolve(
+              new Response(JSON.stringify({ ok: true }), { status: 200 }),
+            );
+          rejectDeferredPatch = reject;
+        });
+      }
+      if (
+        options?.deferredKeepalivePatch &&
+        init?.keepalive === true &&
+        !didDeferKeepalivePatch
+      ) {
+        didDeferKeepalivePatch = true;
+        return new Promise<Response>((resolve) => {
+          resolveDeferredKeepalivePatch = () =>
             resolve(
               new Response(JSON.stringify({ ok: true }), { status: 200 }),
             );
@@ -310,6 +318,9 @@ function setupFetch(options?: {
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
+    rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
+      rejectDeferredPatch?.(error),
+    resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
       deferNextGetDeck = true;
@@ -388,9 +399,6 @@ describe("DeckContext deck creation persistence", () => {
   });
 
   it("exposes an initial deck-list failure instead of an authoritative empty list", async () => {
-    // A 504 is retryable, so the failure surfaces only after the shared
-    // transient budget is spent — the page stays on the skeleton until then
-    // rather than flashing an error a retry would have made wrong.
     setupFetch({ failDeckList: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
 
@@ -434,11 +442,145 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.decks).toEqual([accessible]);
   });
 
-  it("keeps an unload flush behind the active save chain", async () => {
-    window.history.pushState({}, "", "/deck/flush-order-deck");
+  it("keeps an active ordinary save alive during an unload flush", async () => {
+    window.history.pushState({}, "", "/deck/flush-active-deck");
     const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
       deferredPatch: true,
     });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-active-deck",
+      title: "Flush active deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-active-deck",
+        "slide-1",
+        { content: "<h1>Draft</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(1);
+    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+
+    act(() => flushPendingSaves());
+
+    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
+    const { clientWrite: activeWrite, ...activePayload } = actionCallBody(
+      patchCalls()[0]?.[1],
+    );
+    const { clientWrite: keepaliveWrite, ...keepalivePayload } = actionCallBody(
+      patchCalls()[1]?.[1],
+    );
+    expect(keepalivePayload).toEqual(activePayload);
+    expect(keepaliveWrite).toMatchObject({
+      clientId: (activeWrite as { clientId: string }).clientId,
+      expectedUpdatedAt: (activeWrite as { expectedUpdatedAt: string })
+        .expectedUpdatedAt,
+    });
+    expect((keepaliveWrite as { sequence: number }).sequence).toBeGreaterThan(
+      (activeWrite as { sequence: number }).sequence,
+    );
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await result.current.flushDeckSave("flush-active-deck");
+  });
+
+  it("does not start an over-budget keepalive duplicate", async () => {
+    window.history.pushState({}, "", "/deck/flush-large-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-large-deck",
+      title: "Flush large deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-large-deck",
+        "slide-1",
+        { content: `<p>${"x".repeat(50_000)}</p>` },
+        { persistence: "immediate" },
+      );
+      flushPendingSaves();
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(1);
+    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+    expect(hasUnsavedDeckChanges("flush-large-deck")).toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await result.current.flushDeckSave("flush-large-deck");
+    expect(hasUnsavedDeckChanges("flush-large-deck")).toBe(false);
+  });
+
+  it("keeps an unload flush behind the active save chain", async () => {
+    window.history.pushState({}, "", "/deck/flush-order-deck");
+    const {
+      fetchMock,
+      resolveDeferredKeepalivePatch,
+      resolveDeferredPatch,
+      setAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, deferredKeepalivePatch: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -482,11 +624,39 @@ describe("DeckContext deck creation persistence", () => {
       flushPendingSaves();
     });
 
-    expect(
+    const patchCalls = () =>
       fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
-      ),
-    ).toHaveLength(1);
+      );
+    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
+    const activeWrite = actionCallBody(patchCalls()[0]?.[1]).clientWrite as {
+      clientId: string;
+      sequence: number;
+      expectedUpdatedAt: string;
+    };
+    const keepaliveWrite = actionCallBody(patchCalls()[1]?.[1])
+      .clientWrite as typeof activeWrite;
+    expect(keepaliveWrite.clientId).toBe(activeWrite.clientId);
+    expect(keepaliveWrite.sequence).toBeGreaterThan(activeWrite.sequence);
+    expect(keepaliveWrite.expectedUpdatedAt).toBe(
+      activeWrite.expectedUpdatedAt,
+    );
+    expect(actionCallBody(patchCalls()[1]?.[1])).toMatchObject({
+      deckId: "flush-order-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>First</h1>" },
+        },
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>Latest</h1>" },
+        },
+      ],
+    });
 
     resolveDeferredPatch();
     await act(async () => {
@@ -495,12 +665,17 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
     });
 
-    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
-      requestString(url).includes("/_agent-native/actions/patch-deck"),
-    );
-    expect(patchCalls).toHaveLength(2);
-    expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
-    expect(actionCallBody(patchCalls[1]?.[1])).toMatchObject({
+    expect(patchCalls()).toHaveLength(2);
+    resolveDeferredKeepalivePatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(patchCalls()).toHaveLength(3);
+    expect(patchCalls()[2]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls()[2]?.[1])).toMatchObject({
       deckId: "flush-order-deck",
       operations: [
         {
@@ -512,6 +687,76 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await result.current.flushDeckSave("flush-order-deck");
+  });
+
+  it("does not retry an active patch after a newer keepalive replay succeeds", async () => {
+    window.history.pushState({}, "", "/deck/flush-replay-deck");
+    const {
+      fetchMock,
+      rejectDeferredPatch,
+      resolveDeferredKeepalivePatch,
+      setAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, deferredKeepalivePatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-replay-deck",
+      title: "Flush replay deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Older" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Newest",
+      });
+      flushPendingSaves();
+    });
+
+    resolveDeferredKeepalivePatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    rejectDeferredPatch(
+      Object.assign(new Error("stale deck revision"), { status: 409 }),
+    );
+
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(3);
+    expect(actionCallBody(patchCalls[2]?.[1]).operations).toEqual([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Newest" },
+      },
+    ]);
   });
 
   it("requeues a failed keepalive flush for a normal retry", async () => {
@@ -713,8 +958,6 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await result.current.flushDeckSave("draft-revert-deck");
       });
-      // The server now holds the first draft; dropping the queued second one
-      // would leave it there.
       act(() => {
         draft(typedMore);
         draft(styled);
@@ -729,7 +972,6 @@ describe("DeckContext deck creation persistence", () => {
       const { fetchMock, result } = await openStyledDeck("draft-noop-deck");
       const typed = styled.replace("Before", "Beforex");
       act(() => {
-        // A draft the editor saw but never queued, then the typed-back one.
         result.current.updateSlide(
           "draft-noop-deck",
           "slide-1",
@@ -776,7 +1018,6 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await result.current.flushDeckSave("adopted-deck");
       });
-      // Another writer changes the slide and this tab adopts it.
       const remote = styled.replace("Before", "Remote");
       setAccessibleDeck({
         id: "adopted-deck",
@@ -1245,8 +1486,6 @@ describe("DeckContext deck creation persistence", () => {
       ),
     );
 
-    // Editor blur/selection paths can emit the current HTML again. It must not
-    // become a second invisible history entry.
     act(() => {
       result.current.updateSlide("shared-deck", "slide-1", {
         content: "<div>Edited</div>",
@@ -1433,7 +1672,6 @@ describe("DeckContext deck creation persistence", () => {
       }
       return actionCallBody(init).deckId === "inline-revert-deck";
     });
-    // The typed draft never left the queue, so the revert has nothing to undo.
     expect(patchCalls).toHaveLength(0);
   });
 
@@ -1470,8 +1708,6 @@ describe("DeckContext deck creation persistence", () => {
         { content: "<div>Draft</div>" },
         { preserveLocalState: true },
       );
-      // The editor's exit path updates local state and records the one
-      // deck-level undo entry without replaying an already-queued server op.
       result.current.updateSlide(
         "inline-undo-deck",
         "slide-1",
@@ -1763,11 +1999,9 @@ describe("DeckContext deck creation persistence", () => {
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Seed a deck with two slides directly via addSlide from empty.
     act(() => {
       result.current.createDeck("Deck", { noDefaultSlides: true });
     });
-    // The freshly created deck isn't the open route; edit it by id anyway.
     const deckId = result.current.decks[0].id;
     let slideId = "";
     act(() => {
@@ -1777,7 +2011,6 @@ describe("DeckContext deck creation persistence", () => {
       result.current.addSlide(deckId);
     });
 
-    // Edit the first slide (records an undo entry with the prior content).
     act(() => {
       result.current.updateSlide(deckId, slideId, {
         content: "<div>edited</div>",
@@ -1785,8 +2018,6 @@ describe("DeckContext deck creation persistence", () => {
     });
     await waitFor(() => expect(result.current.canUndo).toBe(true));
 
-    // setDeckSlides is the generated/import replacement path. It replaces the
-    // whole slide list and should now be undoable back to the prior deck.
     act(() => {
       result.current.setDeckSlides(
         deckId,
@@ -1817,7 +2048,6 @@ describe("DeckContext deck creation persistence", () => {
     const deckA = result.current.decks[0].id;
     const deckB = result.current.decks[1].id;
 
-    // Edit deck A (records undo), then edit deck B.
     act(() => {
       result.current.addSlide(deckA);
     });
@@ -1826,7 +2056,6 @@ describe("DeckContext deck creation persistence", () => {
     });
     const deckASlidesBefore = result.current.getDeck(deckA)!.slides.length;
 
-    // Undo the most recent entry (deck B's rename). Deck A is untouched.
     act(() => {
       result.current.undo();
     });
@@ -1835,7 +2064,6 @@ describe("DeckContext deck creation persistence", () => {
       deckASlidesBefore,
     );
 
-    // Undo again (deck A's add-slide). Deck B stays at its (undone) title.
     act(() => {
       result.current.undo();
     });
@@ -2261,6 +2489,43 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(initial.id)?.designSystemId).toBeNull();
   });
 
+  it("keeps a same-batch deck-field edit in the replacement snapshot", async () => {
+    window.history.pushState({}, "", "/deck/replacement-title-deck");
+    const initial: Deck = {
+      id: "replacement-title-deck",
+      title: "Before",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "old", notes: "", layout: "title" }],
+    };
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateDeck(initial.id, { title: "After" });
+      result.current.setDeckSlides(
+        initial.id,
+        [{ id: "slide-2", content: "new", notes: "", layout: "content" }],
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
+    );
+    expect((actionCallBody(putCall?.[1]).deck as Deck).title).toBe("After");
+    expect(result.current.getDeck(initial.id)?.title).toBe("After");
+  });
+
   it("persists immediate edits queued after a generated slide replacement", async () => {
     window.history.pushState({}, "", "/");
     const { fetchMock, resolveCreate } = setupFetch();
@@ -2342,7 +2607,6 @@ describe("DeckContext deck creation persistence", () => {
     const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
     const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
     const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
-    // Moves leave the `.fmd-slide` start tag alone, so no padding is added.
     const normalizedMovedContent = movedContent;
     const normalizedResizedContent = resizedContent;
     setAccessibleDeck({
@@ -2977,10 +3241,6 @@ describe("DeckContext deck creation persistence", () => {
   });
 
   it("does not let a read that spans a local save revert the saved slide", async () => {
-    // The write starts AFTER the read is issued, so nothing is pending at
-    // either endpoint to reveal that the response predates it. Only the local
-    // write counter can see this; without it the clean-deck branch adopts the
-    // stale snapshot wholesale and the user's edit visibly reverts.
     window.history.pushState({}, "", "/deck/race-deck");
     const original: Deck = {
       id: "race-deck",
@@ -3009,11 +3269,9 @@ describe("DeckContext deck creation persistence", () => {
       expect(result.current.getDeck("race-deck")?.slides).toHaveLength(1),
     );
 
-    // Read starts while the deck is clean — the server still holds the old body.
     deferNextGetDeck();
     const staleRefresh = result.current.refreshOpenDeck("race-deck");
 
-    // ...then the user edits and the save completes, entirely inside the read.
     vi.useFakeTimers();
     act(() => {
       result.current.updateSlide("race-deck", "slide-1", {
@@ -3814,8 +4072,6 @@ describe("DeckContext deck creation persistence", () => {
     });
     expect(barrierSettled).toBe(false);
 
-    // History waits for this barrier before issuing restore-deck-version. The
-    // server snapshot is changed only after the stale request has settled.
     resolveDeferredPatch();
     await act(async () => {
       await restoreBarrier;
@@ -3906,8 +4162,6 @@ describe("DeckContext deck creation persistence", () => {
       "<h1>Restored version</h1>",
     );
 
-    // A transport can still reject after it observes the abort. That late
-    // result must not resurrect the stale queue or schedule a retry.
     await act(async () => {
       rejectDeferredPut();
       await vi.advanceTimersByTimeAsync(1_000);
@@ -4006,8 +4260,6 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
-    // Keep the deck in the dirty reconciliation branch so agent updates still
-    // get the same undo grouping as clean-deck updates.
     act(() => {
       result.current.markDeckDirty(initial.id);
     });
@@ -4079,8 +4331,6 @@ describe("DeckContext deck creation persistence", () => {
       expect(result.current.getDeck("live-dirty-deck")?.slides).toHaveLength(1),
     );
 
-    // The human is typing in slide-1. That — not a deck-wide dirty flag — is
-    // what must hold the agent's copy of slide-1 back.
     act(() => {
       result.current.markDeckDirty("live-dirty-deck");
       markSlideEditingActive("live-dirty-deck", "slide-1");
@@ -4121,9 +4371,6 @@ describe("DeckContext deck creation persistence", () => {
     expect(deck.slides[0]?.content).toBe("<h1>Local draft</h1>");
     expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
 
-    // Once the user stops typing, the next reconcile delivers the edit that
-    // was held back. Sync events never replay, so the poll has to heal this;
-    // the reconcile is therefore idempotent rather than event-triggered once.
     act(() => {
       clearSlideEditingActive("live-dirty-deck", "slide-1");
     });
@@ -4231,19 +4478,14 @@ describe("DeckContext deck creation persistence", () => {
         first!.simulateFatalError();
       });
 
-      // A fatal error (readyState CLOSED) is not retried by the browser —
-      // our own reconnect must close the dead connection immediately...
       expect(first!.close).toHaveBeenCalled();
-      // ...but must not hammer a new connection into existence right away.
       expect(MockEventSource.instances.length).toBe(1);
 
-      // Just under the first backoff delay: still no reconnect.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(999);
       });
       expect(MockEventSource.instances.length).toBe(1);
 
-      // Crossing the delay reconnects with a brand-new EventSource instance.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1);
       });
@@ -4259,7 +4501,6 @@ describe("DeckContext deck creation persistence", () => {
 
       vi.useFakeTimers();
       let current = MockEventSource.lastInstance!;
-      // Base 1s, doubling, capped at 30s — the last two deltas repeat the cap.
       const expectedDelays = [1000, 2000, 4000, 8000, 16000, 30000, 30000];
       for (const delay of expectedDelays) {
         act(() => {
@@ -4293,13 +4534,10 @@ describe("DeckContext deck creation persistence", () => {
 
       unmount();
 
-      // Advance well past the reconnect delay and the backoff cap.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
 
-      // The pending reconnect timer was cleared by the effect's cleanup, so
-      // no new connection was created after unmount.
       expect(MockEventSource.instances.length).toBe(1);
     });
 
@@ -4336,10 +4574,6 @@ describe("DeckContext deck creation persistence", () => {
         source.simulateOpen();
       });
 
-      // The agent adds a slide server-side WHILE this tab is about to lose
-      // its SSE connection. notifyClients() is fire-and-forget with no
-      // backlog, so no event for this write will ever reach a client that
-      // reconnects after it was broadcast — only a resync recovers it.
       const withNewSlide: Deck = {
         ...initial,
         updatedAt: "2026-07-09T00:05:00.000Z",
@@ -4366,8 +4600,6 @@ describe("DeckContext deck creation persistence", () => {
         MockEventSource.instances[MockEventSource.instances.length - 1]!;
       expect(reconnected).not.toBe(source);
 
-      // Switch back to real timers before using testing-library's `waitFor`,
-      // which polls on its own timer and does not advance fake timers itself.
       vi.useRealTimers();
 
       act(() => {
@@ -4383,11 +4615,6 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     it("resync surfaces agent-added slides even when the deck is dirty, without clobbering local edits", async () => {
-      // This is the regression test for the real production incident: the poll
-      // and the resync used to bail entirely on `hasUncommittedDeckChanges`, so
-      // a dirty (or wedged-save) deck stayed permanently blind to agent-added
-      // slides. Here the deck is dirty at reconnect AND the server has both an
-      // added slide and a conflicting edit to the existing slide.
       window.history.pushState({}, "", "/deck/dirty-deck");
       const initial: Deck = {
         id: "dirty-deck",
@@ -4415,9 +4642,6 @@ describe("DeckContext deck creation persistence", () => {
         expect(result.current.getDeck("dirty-deck")?.slides.length).toBe(1),
       );
 
-      // Human is mid-edit on slide-1: the exact state that used to suppress
-      // the refetch. Only slide-1 is protected — a dirty deck is not a reason
-      // to hide agent work on any other slide.
       act(() => {
         result.current.markDeckDirty("dirty-deck");
         markSlideEditingActive("dirty-deck", "slide-1");
@@ -4428,7 +4652,6 @@ describe("DeckContext deck creation persistence", () => {
         source.simulateOpen();
       });
 
-      // Agent adds slide-2 AND rewrites slide-1 server-side while we're dirty.
       const serverVersion: Deck = {
         ...initial,
         updatedAt: "2026-07-09T00:05:00.000Z",
@@ -4468,9 +4691,7 @@ describe("DeckContext deck creation persistence", () => {
         expect(result.current.getDeck("dirty-deck")?.slides.length).toBe(2),
       );
       const deck = result.current.getDeck("dirty-deck")!;
-      // Agent addition surfaced despite the dirty deck...
       expect(deck.slides[1]?.content).toBe("<h1>Agent added</h1>");
-      // ...but the locally-edited slide-1 was NOT clobbered by server content.
       expect(deck.slides[0]?.content).toBe("<h1>Local one</h1>");
     });
   });
@@ -4504,17 +4725,12 @@ describe("DeckContext deck creation persistence", () => {
         expect(result.current.getDeck("hang-deck")?.slides.length).toBe(1),
       );
 
-      // Establish the initial SSE connection so a later reconnect is treated as
-      // a RE-connect (which resyncs), not the first connect (which does not).
       const firstSource = MockEventSource.lastInstance!;
       act(() => {
         firstSource.simulateOpen();
       });
 
       vi.useFakeTimers();
-      // A local edit via setDeckSlides enqueues the legacy full-replace
-      // save-deck call. After the 500ms debounce it moves into inFlightSaves —
-      // then hangs.
       act(() => {
         result.current.setDeckSlides("hang-deck", [
           {
@@ -4529,20 +4745,13 @@ describe("DeckContext deck creation persistence", () => {
         await vi.advanceTimersByTimeAsync(500);
       });
 
-      // In flight and hanging. Probe the pendingSaves/inFlightSaves branch of
-      // hasUncommittedDeckChanges directly by passing an EMPTY dirty set.
       expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(true);
 
-      // Advance past the 60s action timeout and the bounded retry delay. The
-      // failed batch remains queued, then the retry commits it before the save
-      // state drains.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_250);
       });
       expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(false);
 
-      // With the leak drained, an agent-added slide must now reach the open
-      // deck (it was permanently suppressed while inFlightSaves was wedged).
       const agentVersion: Deck = {
         ...initial,
         updatedAt: "2026-07-09T00:10:00.000Z",
@@ -4606,7 +4815,7 @@ describe("DeckContext deck creation persistence", () => {
       const server = deckOf([slide("a", "SERVER a"), slide("b", "b")]);
       const merged = mergeServerAddedSlides(local, server);
       expect(merged.slides.map((s) => s.id)).toEqual(["a", "b"]);
-      expect(merged.slides[0]?.content).toBe("LOCAL a"); // local preserved
+      expect(merged.slides[0]?.content).toBe("LOCAL a");
       expect(merged.slides[1]?.content).toBe("b");
     });
 
@@ -4657,10 +4866,6 @@ describe("DeckContext deck creation persistence", () => {
       expect(deckContentSignature(first)).toBe(deckContentSignature(second));
     });
 
-    // The regression this guards: an agent edit used to be adopted only for
-    // the single slide id carried in the SSE payload, so an edit announced
-    // without one — patch-deck over several slides, or any fallback poll —
-    // stayed invisible while the deck had unrelated local edits.
     it("adopts server content for every slide with no pending local write", () => {
       const local = deckOf([slide("a", "LOCAL a"), slide("b", "LOCAL b")]);
       const server = deckOf([slide("a", "AGENT a"), slide("b", "AGENT b")]);
@@ -4682,21 +4887,17 @@ describe("DeckContext deck creation persistence", () => {
       ]);
     });
 
-    // Runs on every poll, so an unchanged deck must not churn React state.
     it("returns the same local reference when the server matches", () => {
       const local = deckOf([slide("a", "a"), slide("b", "b")]);
       const server = deckOf([slide("a", "a"), slide("b", "b")]);
       expect(mergeServerSlideUpdate(local, server, "dirty-deck")).toBe(local);
     });
 
-    // Response-ordering race: the GET was issued while slide "a" was mid-save,
-    // so it carries the pre-save body even though the save has since landed and
-    // nothing is pending any more. Adopting it would revert the user's edit.
     it("holds back a slide that was mid-write when the snapshot was requested", () => {
       markSlideEditingActive("dirty-deck", "a");
       const local = deckOf([slide("a", "SAVED a"), slide("b", "LOCAL b")]);
       const pendingAtReadStart = pendingWriteSlideIds(local);
-      clearSlideEditingActive("dirty-deck", "a"); // the save landed
+      clearSlideEditingActive("dirty-deck", "a");
 
       const stale = deckOf([slide("a", "PRE-SAVE a"), slide("b", "AGENT b")]);
       const merged = mergeServerSlideUpdate(local, stale, "dirty-deck", {

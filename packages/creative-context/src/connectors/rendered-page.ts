@@ -280,9 +280,6 @@ export async function renderWithPlaywright(
     : await launchChromium(playwright.chromium);
   let isolatedContext: PlaywrightContextLike | undefined;
   try {
-    // Never reuse a connected browser's ambient context: it can carry cookies,
-    // extensions, or tabs from another workflow. The safe proxy below is only
-    // useful when the page itself is isolated from that state.
     if (!browser.newContext) {
       throw new Error("Browser did not provide isolated context support.");
     }
@@ -307,9 +304,6 @@ export async function renderWithPlaywright(
           `Browser load stabilization unavailable: ${errorMessage(error)}`,
         );
       });
-    // React hydration, CSS-in-JS insertion, and web fonts commonly finish just
-    // after `load`. Give those layers a bounded chance to settle, then capture
-    // the computed cascade rather than the server HTML.
     await page
       .waitForLoadState?.("networkidle", { timeout: 4_000 })
       .catch((error) => {
@@ -546,9 +540,6 @@ async function installNavigationGuard(
       return;
     }
 
-    // Reserve the request slot before the first await. Browser route handlers
-    // overlap, so incrementing only after the proxy response arrives lets a
-    // burst of requests all pass the limit check.
     resourceCount += 1;
     let bodyBudgetRelease: (() => void) | undefined;
     let committedBytes = 0;
@@ -707,10 +698,6 @@ async function launchChromium(
   );
 }
 
-/*
- * Kept separate from Playwright loading so a deployment can omit the large
- * serverless Chromium package and still use Builder Browser or system Chrome.
- */
 async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
   for (const specifier of [
     "playwright",
@@ -761,7 +748,6 @@ function isMissingBrowserError(error: unknown): boolean {
   );
 }
 
-/** Close common consent banners without accepting tracking or changing page data. */
 function dismissConsentOverlays(): void {
   const selectors = [
     '[aria-label*="reject" i]',
@@ -1240,10 +1226,6 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
 }
 
 function browserCaptureExpression(): string {
-  // Bundlers can inject a module-scoped `__name` helper into nested functions.
-  // Playwright serializes only the function body into Chromium, so provide the
-  // tiny identity helper in the browser expression rather than leaking a
-  // bundler runtime reference into the page.
   return `(function () {
     const __name = (value) => value;
     return (${captureRenderedWebsiteContext.toString()})();

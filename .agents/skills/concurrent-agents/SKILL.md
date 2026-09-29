@@ -57,8 +57,18 @@ Git refs are shared, so never move, rewrite, or delete a branch checked out in
 another worktree. If a branch name is already used, choose another available
 name. Preserve and carry or reapply local changes; do not stash or discard them.
 
-In a shared checkout, ask before changing branches unless the user gave the
-exact operation. Keep platform-assigned Builder.io and Fusion branches in
+Before creating or switching branches, record `git status --short
+--untracked-files=all` and classify every staged, unstaged, and untracked path.
+A switch carries the whole index and worktree, so proceed only when every dirty
+path belongs to this task. If any path is unrelated or incomplete, keep the
+checkout in place and report the exact paths without asking again.
+
+In a shared checkout, keep its branch unchanged. For an explicit `/ship` or
+PR-publishing request that cannot safely use the current checkout, follow
+`new-branch` to create a managed task-owned worktree from the correct base,
+carry only the requested task's changes, and create its task branch without
+asking. For other work, use the current branch unless the user gave an exact
+branch operation. Keep platform-assigned Builder.io and Fusion branches in
 place.
 
 ## Timing the next branch
@@ -75,11 +85,19 @@ In a task-owned worktree, do not require a checkpoint or `ship:push` just to
 create a fresh branch; preserve and carry the current task's changes. For
 post-merge rotation, follow `new-branch`'s dedicated safety checks.
 
+For an explicitly authorized branch-wide checkpoint, publish one complete
+snapshot with `corepack pnpm ship:push -m "<specific change>"`. Do not publish
+separate checkpoints for delegates or intermediate edits.
+
 ## Before you ship
 
 Before you commit, push, or merge, check `git log --oneline -5`, `git status`,
 and `gh pr list --head <branch>` for the current PR. If the work you were
 about to do just landed, continue from the latest branch snapshot.
+
+Do not rebase or merge `origin/main` just to clear behind status or restart
+checks. Rebase or merge it only when GitHub reports an actual conflict; for a
+shared branch, prefer a normal merge.
 
 ## Reading a Codex peer's intent
 
@@ -96,6 +114,6 @@ a peer's task without interrupting it or the user.
 
 ## Related
 
-- `new-branch` — safe branch creation in task-owned worktrees and guarded
-  branch changes in shared checkouts.
+- `new-branch` — safe branch creation in task-owned worktrees and automatic
+  task-worktree isolation for shipping from shared checkouts.
 - `ship` — the commit/push/PR workflow for the complete branch snapshot.

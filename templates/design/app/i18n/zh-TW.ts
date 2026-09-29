@@ -163,6 +163,8 @@ export default {
     labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
     labTweaks: "設計微調",
     labTweaksDescription: "試用 AI 設計微調功能。",
+    mcpAbout:
+      "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },
   pages: {
     presentEmpty: "沒有可展示的內容",
@@ -171,7 +173,6 @@ export default {
     notFoundDescription: "您要尋找的頁面不存在。",
     notFoundSignIn: "登入",
     notFoundBackToDesigns: "返回設計",
-    teamCreateOrgDescription: "設定團隊，與同事共用設計。",
   },
   review: {
     comments: "評論",
@@ -265,6 +266,18 @@ export default {
       change: "變更審閱狀態",
       saveFailed: "無法更新審閱狀態",
     },
+  },
+  onboarding: {
+    fileStorage: {
+      title: "連接儲存空間以上傳檔案",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
   },
   chat: {
     emptyState: "描述要建立的設計",
@@ -1503,6 +1516,18 @@ export default {
       confirmationRetryExhausted: "多次嘗試後，即時編輯器橋接器仍未確認連線。",
       connectionNotConfirmed:
         "即時編輯器橋接器未確認連線。本機開發伺服器是否仍在執行？",
+      permissionPromptTitle: "連線至本機畫面",
+      permissionPromptDescription:
+        "在 Chrome 的提示中選擇「允許」，即可啟用即時編輯。",
+      permissionPromptNoPrompt: "沒有看到 Chrome 提示？",
+      permissionPromptSettingsInstructions:
+        "點擊網址列左側的網站控制圖示，開啟網站設定，然後允許存取裝置上的 App。",
+      permissionCloseTitle: "要關閉設定嗎？",
+      permissionCloseDescription:
+        "在 Chrome 中允許存取前，即時編輯將無法使用。",
+      permissionCloseStay: "保持設定開啟",
+      permissionCloseAnyway: "仍要關閉",
+      permissionPromptRetry: "重試連線",
     },
   },
   multiScreenCanvas: {
@@ -1693,7 +1718,63 @@ export default {
     previewLabel: "本機預覽",
     layoutLabel: "畫面版面已可儲存",
   },
+  homeContext: {
+    websiteReference: "附加網站",
+    websiteUrlLabel: "網站 URL",
+    websiteUrl: "貼上網站 URL",
+    figmaUrlLabel: "Figma 連結",
+    invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案 URL。",
+    tooMany: "最多選擇 20 個參考。",
+    invalidWebsiteUrl: "請輸入有效的 HTTP 或 HTTPS URL。",
+    createSystem: "建立設計系統",
+    noSystems: "你還沒有設計系統。可以從網站、檔案或 Figma 建立。",
+    searchSystems: "搜尋設計系統…",
+    searchFrames: "搜尋 Figma 畫框…",
+    searchDesigns: "搜尋設計…",
+    searchPresentations: "搜尋簡報…",
+    searchDesign: "搜尋設計…",
+    useDesignSystem: "使用設計系統",
+    notReady: "提示尚未準備好提交。請檢查所選上下文和連線，然後重試。",
+    search: "搜尋上下文…",
+    figmaUrl: "貼上 Figma 連結",
+    browse: "瀏覽畫框",
+    loadFailed: "無法載入此參考。",
+    retry: "重試",
+    empty: "沒有相符的參考。",
+    none: "無",
+    design: "設計",
+    slides: "投影片",
+    referenceDesign: "參考設計",
+    figmaReference: "附加 Figma",
+    referenceDeck: "參考簡報",
+    quickSaas: "建立 SaaS 登陸頁",
+    quickDashboard: "建立儀表板",
+    quickDeck: "建立簡報",
+    deckPrompt:
+      "建立精美的簡報，包含標題頁、清晰的敘事、視覺化資料和簡潔的結尾頁。",
+  },
   home: {
+    suggestedPrompts: "建議提示",
+    import: "匯入",
+    importOptions: "匯入選項",
+    figmaLink: "Figma 連結",
+    importFromFigma: "從 Figma 匯入",
+    figmaFile: "Figma 檔案 (.fig)",
+    openImport: "開啟匯入",
+    importSelectedFile: "匯入所選檔案",
+    starterSaasPrompt:
+      "一個現代 SaaS 登陸頁，採用深色主題，包含主視覺區、三張功能卡片和最後的行動呼籲區。",
+    starterDashboardPrompt:
+      "一個簡潔的分析儀表板，包含側邊導覽、四張關鍵指標卡片、一個圖表和最近活動表格。",
+    starterMobilePrompt:
+      "一個顯示在手機外框內的行動應用程式原型，底部有分頁列，主畫面上有三張清單卡片。",
+    starterPricingPrompt:
+      "一個三層級定價頁面，包含月繳/年繳切換、功能清單，並醒目標示推薦方案。",
+    designPromptTitle: "讓我們建立你的第一個設計",
+    recent: "最近",
+    browseAllTemplates: "瀏覽全部",
+    connectBuilderIo: "連線 Builder.io",
+    connectingBuilder: "正在連線 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜尋設計...",
     newDesign: "新Design",
@@ -1747,6 +1828,8 @@ export default {
     paginationPage: "第 {{page}} / {{totalPages}} 頁",
   },
   templatesPage: {
+    previewEmpty: "此範本中沒有可預覽的畫面。",
+    loading: "正在載入範本",
     title: "範本",
     description: "從正確的尺寸與預設值開始，再用提示調整未鎖定的內容。",
     searchPlaceholder: "搜尋範本...",
@@ -1769,7 +1852,7 @@ export default {
     deleteFailed: "無法刪除此範本",
     deleteTitle: "刪除範本？",
     deleteDescription: "這會永久刪除 {{title}}。已從此範本建立的設計不受影響。",
-    templateActions: "範本操作",
+    templateActions: "{{title}}的操作",
     lockedCount: "已鎖定 {{count}} 個",
     categories: {
       ad: "廣告",

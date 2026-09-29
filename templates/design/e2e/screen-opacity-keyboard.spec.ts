@@ -30,8 +30,6 @@ test("Screen opacity number keys use the inspector's persisted body styles", asy
     await expect(opacity).toHaveValue("50%");
     await expect(designFrame(page).locator("body")).toHaveCSS("opacity", "0.5");
 
-    // A field commit returns focus to the canvas; subsequent digits must still
-    // target the selected Screen, and clearing selection must end that sequence.
     await opacity.fill("30");
     await opacity.press("Enter");
     await page.keyboard.press("0");

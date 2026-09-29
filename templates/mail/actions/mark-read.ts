@@ -130,8 +130,6 @@ export default defineAction({
           ? await markAllUnreadReadForAccount(input)
           : await markAllLocalUnreadRead(input);
       } finally {
-        // A provider verification read can fail after Gmail accepted the
-        // mutation. Always make the UI discard its pre-mutation list cache.
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 
@@ -174,17 +172,11 @@ export default defineAction({
 
     const results: { id: string; success: boolean; error?: string }[] = [];
 
-    // Mark-read/unread is message-level (no thread cache invalidation needed,
-    // matching markRead's own reconciliation notes), so the batch path here
-    // is simpler than archive/star.
     if (ids.length > 1 && (await isConnected(ownerEmail))) {
       const targets = ids.map((id, i) => ({
         id,
         accountEmail: accountEmailList?.[i] || args.accountEmail,
       }));
-      // Resolve every target's account once, up front, with the same rule
-      // used by the single-item path — so the Gmail mutation below and the
-      // store mirror after it never group by different accounts.
       const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
@@ -206,8 +198,6 @@ export default defineAction({
         {
           add: isRead ? undefined : ["UNREAD"],
           remove: isRead ? ["UNREAD"] : undefined,
-          // Message-scoped: mark-read targets are message ids, not whole
-          // threads (see applyLocalLabelDelta's scope handling).
           scope: "message",
         },
       );

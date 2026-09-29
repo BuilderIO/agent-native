@@ -269,8 +269,6 @@ describe("finalize-recording chunk completeness", () => {
       status: "uploading",
       uploadGenerationId: "generation-a",
     };
-    // The generation/status CAS returns no row: reset installed generation B
-    // after finalize read A but before it could claim processing.
     mockUpdateReturning.mockResolvedValueOnce([]);
 
     await expect(

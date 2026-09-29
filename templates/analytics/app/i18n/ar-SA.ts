@@ -172,6 +172,9 @@ export default {
     bellSound: "صوت الجرس",
     bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
     bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
+    notificationsTitle: "الإشعارات",
+    notificationsEmailGroup: "البريد الإلكتروني",
+    notificationsSoundGroup: "الصوت",
     replayStorage: "تخزين إعادة عرض الجلسات",
     replayStorageDescription:
       "تحتاج تسجيلات إعادة عرض الجلسات إلى مزوّد مُهيّأ لرفع الملفات. اربط Builder.io للحصول على تخزين كائنات بالباقة المجانية، أو استخدم حاوية متوافقة مع S3 خاصة بك.",
@@ -945,6 +948,10 @@ export default {
     revenueOverTime: "الإيرادات مع مرور الوقت",
     recentSales: "المبيعات الأخيرة",
     recentSalesDescription: "حققت 265 عملية بيع هذا الشهر.",
+  },
+  analysisResult: {
+    title: "نتيجة التحليل",
+    comparisonContext: "{{period}}: {{current}} مقابل {{previous}}",
   },
   routeTitles: {
     notFound: "غير موجود - Analytics",

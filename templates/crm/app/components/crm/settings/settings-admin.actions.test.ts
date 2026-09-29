@@ -1,8 +1,3 @@
-// The settings surfaces build their action payloads with the helpers in
-// `settings-admin.ts`. These tests feed those exact payloads to the real
-// actions against a real migrated database, so a payload the UI can produce but
-// the server rejects fails here rather than in the browser.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,8 +103,6 @@ beforeAll(async () => {
         ...ownership,
       },
       {
-        // Configured before per-attribute authority replaced connection-level
-        // hybrid. It must keep rendering; it must never be re-selectable.
         id: HYBRID_CONNECTION,
         provider: "hubspot",
         label: "HubSpot (legacy)",

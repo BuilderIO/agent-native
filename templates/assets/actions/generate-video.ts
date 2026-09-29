@@ -98,8 +98,6 @@ export default defineAction({
     };
     const callerAppId = normalizeCallerAppId(args.callerAppId);
     const draftAccess = await assertCanDraft(args.libraryId);
-    // Inputs answer to the same author rule as reads: another drafter's
-    // candidate must not reach the provider as a source or a reference.
     const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
@@ -453,8 +451,6 @@ export default defineAction({
           asset,
           artifactType: "video",
           Artifacts: [`Video: ${asset.url} (ID: ${asset.id}, Run: ${runId})`],
-          // Present only when the caller cannot approve: saving this candidate
-          // into the kit needs an editor.
           ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
         };
       }
@@ -468,8 +464,6 @@ export default defineAction({
       artifactType: "video",
       message:
         "Video generation started. Call refresh-generation-run with this runId until status is completed.",
-      // The poll comes back through refresh-generation-run, so the marker has
-      // to survive the async hop too or the caller loses it at completion.
       ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
     };
   },

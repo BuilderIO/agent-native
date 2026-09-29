@@ -6,11 +6,6 @@ export interface DesignBreakpointOption {
   widthPx: number;
 }
 
-/**
- * Optimistic client patch for add-breakpoint: insert (or no-op duplicate width)
- * into `designs.data.breakpointSet` before the mutation round-trips so the
- * overview frames and breakpoint bar update in the same click frame.
- */
 export function applyOptimisticBreakpointAdd(
   designData: Record<string, unknown>,
   breakpoint: { id: string; label: string; widthPx: number },
@@ -58,10 +53,6 @@ export function applyOptimisticBreakpointAdd(
   };
 }
 
-/**
- * Optimistic client patch for remove-breakpoint: drop the matching id from
- * `designs.data.breakpointSet` before the mutation round-trips.
- */
 export function applyOptimisticBreakpointRemove(
   designData: Record<string, unknown>,
   breakpointId: string,
@@ -86,10 +77,6 @@ export function applyOptimisticBreakpointRemove(
   };
 }
 
-/**
- * Reads `designs.data.breakpointSet` (§6.4) into the sorted option list the
- * breakpoint controls render. Unlabelled widths fall back to a size bucket.
- */
 export function deriveDesignBreakpoints(
   designDataJson: Record<string, unknown>,
 ): DesignBreakpointOption[] {

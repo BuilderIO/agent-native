@@ -117,16 +117,6 @@ export function McpAppRenderer({
     };
   }, [readOnly, resourceHtml]);
 
-  // Keep the latest payload/permissions/csp reachable from the bridge effect
-  // without making them effect dependencies. The embedded resource identity is
-  // fully captured by `srcDoc`. The bridge effect must NOT re-run when a benign
-  // parent re-render hands us a new `app` object reference with identical
-  // content (common during chat streaming/polling): re-running tears down a
-  // live, already-initialized MCP App (teardownResource) and re-arms the
-  // initialize watchdog against a fresh host AppBridge that the embed shell
-  // will never re-handshake (its connect promise is memoized), surfacing a
-  // false "MCP App did not finish initializing." error after the app is
-  // visibly working.
   const appRef = useRef(app);
   const supportedPermissionsRef = useRef(supportedPermissions);
   const uiCspRef = useRef(appCsp);
@@ -671,7 +661,6 @@ export async function createReadOnlyMcpAppSrcDoc(
 }
 
 async function sanitizeReadOnlyMcpAppHtml(html: string): Promise<string> {
-  // Unlike browser DOMParser, linkedom never starts resource loads while parsing.
   const { parseHTML } = await import("linkedom/worker");
   const isDocument = /<!doctype\s+html|<html(?:\s|>)/i.test(html);
   const source = isDocument

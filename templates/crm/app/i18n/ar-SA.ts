@@ -23,6 +23,11 @@ const messages = {
     retry: "إعادة المحاولة",
     search: "بحث",
   },
+  chatHome: {
+    description:
+      "استكشف سياق الحسابات المسموح به، وأعمال المتابعة، والأدلة عبر Native SQL والسجلات المتصلة.",
+    placeholder: "اسأل عن CRM الخاص بك",
+  },
   commandMenu: {
     placeholder: "ابحث في السجلات والقوائم والأوامر…",
     groupRecords: "السجلات",
@@ -64,6 +69,8 @@ const messages = {
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
+    mcpAbout:
+      "اربط CRM بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في CRM نيابةً عنك: البحث عن السجلات وتحديث الحقول وإدارة المهام. ولا يرى إلا ما يمكنك رؤيته.",
   },
   connection: {
     tab: "الاتصال",

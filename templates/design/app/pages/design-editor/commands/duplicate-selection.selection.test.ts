@@ -12,8 +12,104 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import { runDuplicateSelection } from "./duplicate-selection";
 
 describe("runDuplicateSelection selection tracking", () => {
-  // The editor re-derives a single selection from selectedElement a render
-  // later, so e2e cannot see this command selecting the wrong node.
+  it("duplicates the selected overview screen when it differs from activeFile", () => {
+    const activeFile: DesignFile = {
+      id: "first-copy",
+      filename: "index-copy.html",
+      fileType: "html",
+      content: "<main>first copy</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const duplicateScreen = vi.fn();
+
+    runDuplicateSelection({
+      activeFile,
+      designId: "design",
+      applyFileContentUpdate: vi.fn(),
+      applyLocalContentUpdate: vi.fn(),
+      canEditDesign: true,
+      files: [activeFile],
+      getFreshActiveContent: () => activeFile.content,
+      getScreenContent: () => activeFile.content,
+      getSelectedLayerSnapshots: () => [],
+      handleDuplicateScreen: duplicateScreen,
+      lastDuplicateTransformRef: { current: null },
+      overviewSelectedScreenIds: ["source"],
+      remapMotionTracksForClone: vi.fn(),
+      selectedCanvasSelector: "",
+      selectedElement: null,
+      selectedLayerIdsState: [],
+      setOverviewSelectedScreenIds: vi.fn(),
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key) => key,
+      undoManagerRef: { current: null },
+      viewModeRef: { current: "overview" },
+    });
+
+    expect(duplicateScreen).toHaveBeenCalledExactlyOnceWith(
+      "source",
+      expect.objectContaining({
+        historyBatchId: expect.any(String),
+        duplicateStackSourceIds: ["source"],
+      }),
+    );
+  });
+
+  it("duplicates a multi-screen overview selection as one history batch", () => {
+    const duplicateScreen = vi.fn();
+    const first: DesignFile = {
+      id: "first",
+      filename: "first.html",
+      fileType: "html",
+      content: "<main>first</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const second: DesignFile = {
+      id: "second",
+      filename: "second.html",
+      fileType: "html",
+      content: "<main>second</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+
+    runDuplicateSelection({
+      activeFile: first,
+      designId: "design",
+      applyFileContentUpdate: vi.fn(),
+      applyLocalContentUpdate: vi.fn(),
+      canEditDesign: true,
+      files: [first, second],
+      getFreshActiveContent: () => first.content,
+      getScreenContent: (screenId) =>
+        screenId === second.id ? second.content : first.content,
+      getSelectedLayerSnapshots: () => [],
+      handleDuplicateScreen: duplicateScreen,
+      lastDuplicateTransformRef: { current: null },
+      overviewSelectedScreenIds: [first.id, second.id],
+      remapMotionTracksForClone: vi.fn(),
+      selectedCanvasSelector: "",
+      selectedElement: null,
+      selectedLayerIdsState: [],
+      setOverviewSelectedScreenIds: vi.fn(),
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key) => key,
+      undoManagerRef: { current: null },
+      viewModeRef: { current: "overview" },
+    });
+
+    expect(duplicateScreen).toHaveBeenCalledTimes(2);
+    const requests = duplicateScreen.mock.calls.map(([, request]) => request);
+    expect(requests[0]?.historyBatchId).toEqual(expect.any(String));
+    expect(requests[1]?.historyBatchId).toBe(requests[0]?.historyBatchId);
+    expect(requests[0]?.duplicateStackSourceIds).toEqual(["first", "second"]);
+    expect(requests[1]?.duplicateStackSourceIds).toEqual(["first", "second"]);
+  });
+
   it("selects the newly inserted copy, not the pre-duplication original", () => {
     const designId = "design-title";
     const fileId = "screen-title";
@@ -96,7 +192,6 @@ describe("runDuplicateSelection selection tracking", () => {
       (candidate) =>
         candidate.dataAttributes["data-agent-native-node-id"] === "title",
     );
-    // Selection holds projection ids, not data-agent-native-node-id values.
     const copyNode = after.nodes.find(
       (candidate) =>
         candidate.dataAttributes["data-agent-native-layer-name"] ===

@@ -69,15 +69,12 @@ test("a layer dragged out of a hug-height screen onto empty canvas moves to the 
       y: cardBox.y + cardBox.height / 2,
     };
     await page.mouse.click(start.x, start.y);
-    // Below the screen but short of its bottom edge plus the card height, so
-    // a screen that grows under the dragged card would still contain it.
     const end = {
       x: start.x,
       y: screenBox.y + screenBox.height + cardBox.height * 0.25,
     };
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    // Slow enough for the screen's content-size report to land mid-drag.
     for (let step = 1; step <= 30; step += 1) {
       await page.mouse.move(
         start.x + ((end.x - start.x) * step) / 30,
@@ -86,7 +83,6 @@ test("a layer dragged out of a hug-height screen onto empty canvas moves to the 
       await page.waitForTimeout(25);
     }
     await page.waitForTimeout(700);
-    // A hand never holds perfectly still; the nudge re-reads the grown frame.
     await page.mouse.move(end.x + 1, end.y);
     await page.waitForTimeout(300);
     await page.mouse.up();

@@ -16,7 +16,8 @@ import type {
 export interface ModeChangeArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
-  blockInteraction?: boolean;
+  hasPendingVisualEdits?: boolean;
+  onPendingVisualEditsBlocked: () => void;
   clearPendingLiveEditState: () => void;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   enterSingleScreen: (fileId?: string | null) => void;
@@ -44,12 +45,13 @@ export interface ModeChangeArgs {
 export function runModeChange(
   {
     activeFile,
-    blockInteraction = false,
     canEditDesign,
     clearPendingLiveEditState,
+    onPendingVisualEditsBlocked,
     enterOverviewFromZoom,
     enterSingleScreen,
     files,
+    hasPendingVisualEdits = false,
     pendingLiveNonStyleEdits,
     pendingVisualStyleEdits,
     requestPendingLiveNonStyleRevert,
@@ -81,12 +83,11 @@ export function runModeChange(
   }
   if (
     next === "interact" &&
-    (blockInteraction ||
-      pendingVisualStyleEdits.length > 0 ||
-      pendingLiveNonStyleEdits.length > 0) &&
+    hasPendingVisualEdits &&
     !options?.discardPendingLiveEdits &&
     !options?.pendingLiveEditsAlreadyHandled
   ) {
+    onPendingVisualEditsBlocked();
     toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
     return;
   }

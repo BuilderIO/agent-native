@@ -2,35 +2,12 @@ import type * as monaco from "monaco-editor";
 
 import type { WorkbenchApi } from "./store";
 
-/**
- * Workbench command registry + keybinding matching.
- *
- * Commands power the command palette (⇧⌘P) and the workbench-level keybinding
- * dispatcher on the workbench root. Monaco's own text-editing keybindings
- * (multi-cursor, find, line moves…) are NOT registered here — Monaco owns them
- * while the editor has focus.
- *
- * Keybinding strings: lowercase tokens joined by `+`. Modifier tokens:
- * `$mod` (⌘ on macOS, Ctrl elsewhere), `ctrl`, `alt`, `shift`. Key token is
- * last: a letter/digit, `f1`–`f12`, `[`, `]`, `arrowleft`, `arrowright`,
- * `arrowup`, `arrowdown`, `enter`, `escape`.
- */
-
 export interface WorkbenchUiHandles {
-  /** Open the quick input overlay with the given prefill ("" | ">" | ":" …). */
   openQuickInput(prefill: string): void;
-  /** Focus the explorer tree (switching the side view if needed). */
   focusExplorer(): void;
-  /** Open the search view, optionally seeding the query. */
   openSearch(seed?: string): void;
-  /** The live Monaco editor instance, when mounted. */
   getEditor(): monaco.editor.IStandaloneCodeEditor | null;
-  /** Surface a command error to the user (toast). */
   reportError(message: string): void;
-  /**
-   * Ask the shell to run the local-file write-consent flow, then retry the
-   * failed operation. Wired to the design editor's consent dialog.
-   */
   requestLocalWriteConsent?(
     connectionId: string,
     retry: () => void,
@@ -38,10 +15,6 @@ export interface WorkbenchUiHandles {
   ): void;
 }
 
-/**
- * Detect the localhost provider's consent error without importing its module
- * (keeps the command registry decoupled from provider implementations).
- */
 function localWriteConsentDetails(
   error: unknown,
 ): { connectionId: string; filePath?: string } | null {
@@ -100,7 +73,6 @@ export interface WorkbenchCommand {
   title: string;
   category?: string;
   keybindings?: string[];
-  /** Hide from the command palette (still keybinding-dispatchable). */
   showInPalette?: boolean;
   when?: (context: WorkbenchCommandContext) => boolean;
   run: (context: WorkbenchCommandContext) => void | Promise<void>;
@@ -138,7 +110,6 @@ export function parseKeybinding(binding: string): ParsedKeybinding {
 }
 
 function eventKeyToken(event: KeyboardEvent): string {
-  // Bracket keys shift on some layouts; match by physical code.
   if (event.code === "BracketLeft") return "[";
   if (event.code === "BracketRight") return "]";
   const key = event.key.toLowerCase();
@@ -169,7 +140,6 @@ const MAC_KEY_LABELS: Record<string, string> = {
   escape: "⎋",
 };
 
-/** Human-readable keybinding, e.g. "⇧⌘P" on macOS or "Ctrl Shift P". */
 export function formatKeybinding(binding: string): string {
   const parsed = parseKeybinding(binding);
   const keyLabel =
@@ -194,10 +164,6 @@ export function formatKeybinding(binding: string): string {
   return parts.join(" ");
 }
 
-/**
- * Dispatch a keydown against the command list. Returns true (and prevents
- * default) when a command ran.
- */
 export function dispatchKeybinding(
   event: KeyboardEvent,
   commands: WorkbenchCommand[],
@@ -233,10 +199,6 @@ export async function runCommand(
   }
 }
 
-/**
- * Core workbench commands. Packet components may append their own commands via
- * the `extraCommands` prop on CodeWorkbench (not by editing this list).
- */
 export function createCoreCommands(): WorkbenchCommand[] {
   return [
     {
@@ -314,8 +276,6 @@ export function createCoreCommands(): WorkbenchCommand[] {
     {
       id: "editor.formatDocument",
       title: "Format Document" /* i18n-ignore */,
-      // Shift+Alt+F is Monaco's built-in binding while the editor has focus;
-      // this palette entry covers discoverability.
       run: ({ ui }) => {
         void ui.getEditor()?.getAction("editor.action.formatDocument")?.run();
       },

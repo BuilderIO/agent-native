@@ -1,16 +1,3 @@
-/**
- * Export fidelity run: design HTML -> Figma SVG -> pixels, compared against the
- * design's own render.
- *
- * This is the offline half of the export round trip. It answers "does the SVG
- * we hand Figma still look like the design?" without needing a Figma account.
- * The second half - "does Figma's own SVG importer agree?" - is `push-to-figma`,
- * which imports the same SVG into a real file through the Figma MCP.
- *
- * Usage:
- *   pnpm figma-fidelity:export             # every built-in preset case
- *   pnpm figma-fidelity:export social      # cases whose id contains "social"
- */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -21,9 +8,11 @@ import {
   DEFAULT_EXPORT_OUT_DIR,
   EXPORT_BASELINE_PATH,
   findExportBaselineProblems,
+  hashExportSource,
   loadExportBaseline,
   loadExportCases,
   runExportCase,
+  type CaseOutcome,
 } from "./lib/export-regression.js";
 
 const args = process.argv.slice(2);
@@ -32,7 +21,7 @@ const filter = args.find((arg) => !arg.startsWith("--"));
 const cases = loadExportCases(filter);
 
 const browser = await chromium.launch();
-const outcomes = [];
+const outcomes: CaseOutcome[] = [];
 try {
   for (const testCase of cases) {
     process.stdout.write(`· ${testCase.id} … `);
@@ -43,11 +32,10 @@ try {
         `${((outcome.diffRatio ?? 0) * 100).toFixed(3)}% differing pixels\n`,
       );
     } catch (error) {
-      // A case that cannot be exported is a failure to report, never a case to
-      // quietly drop from the table - a shrinking corpus reads as progress.
       const message = error instanceof Error ? error.message : String(error);
       outcomes.push({
         id: testCase.id,
+        sourceHash: hashExportSource(testCase.html),
         status: "failed" as const,
         error: message,
       });
@@ -99,6 +87,7 @@ if (updateBaseline) {
       maxDiffPercent: ceilingFor((outcome.diffRatio ?? 0) * 100),
       maxOmitted: outcome.exportOmissions ?? 0,
       maxApproximated: outcome.exportApproximations ?? 0,
+      sourceHash: outcome.sourceHash,
     };
   }
   writeFileSync(

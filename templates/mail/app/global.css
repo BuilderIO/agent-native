@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
@@ -57,6 +56,8 @@
   --mail-label-finance-text: 163 94% 24%;
   --mail-label-travel-bg: 187 85% 53% / 0.2;
   --mail-label-travel-text: 192 91% 36%;
+  --mail-importance-low: oklch(56% 0.17 25);
+  --mail-importance-high: oklch(50% 0.15 145);
 }
 
 .dark {
@@ -102,6 +103,8 @@
   --mail-label-forums-text: 199 95% 74%;
   --mail-label-finance-text: 152 76% 70%;
   --mail-label-travel-text: 188 86% 74%;
+  --mail-importance-low: oklch(78% 0.13 25);
+  --mail-importance-high: oklch(78% 0.13 145);
 }
 
 @layer base {
@@ -110,7 +113,6 @@
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
-  /* Prevent text selection on double-click for keyboard nav UX */
   .email-list-row {
     --mail-row-background: hsl(var(--background));
     background-color: var(--mail-row-background);
@@ -124,7 +126,6 @@
   }
 }
 
-/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -140,8 +141,6 @@
   background: hsl(var(--muted-foreground) / 0.34);
 }
 
-/* Referenced by the top tab bar and compose toolbar to scroll without a
-   visible scrollbar; was previously used but never defined. */
 .hide-scrollbar {
   scrollbar-width: none;
 }
@@ -149,7 +148,6 @@
   display: none;
 }
 
-/* Email body prose reset */
 .email-body-content {
   font-size: 0.9375rem;
   line-height: 1.7;
@@ -176,7 +174,6 @@
   overflow-x: auto;
 }
 
-/* Keyboard shortcut hint badges */
 .kbd-hint {
   display: inline-flex;
   align-items: center;
@@ -194,17 +191,14 @@
   letter-spacing: 0;
 }
 
-/* Highlight focused email row */
 .email-list-row.focused {
   --mail-row-background: hsl(var(--accent));
 }
 
-/* Selected email row — stronger highlight */
 .email-list-row.selected {
   --mail-row-background: hsl(var(--secondary));
 }
 
-/* Multi-selected email rows */
 .email-list-row.multi-selected {
   --mail-row-background: hsl(var(--primary) / 0.06);
 }
@@ -215,14 +209,12 @@
   --mail-row-background: hsl(var(--accent));
 }
 
-/* Compose modal animations */
 .compose-window {
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.5),
     0 0 0 1px hsl(var(--border));
 }
 
-/* Label badge colors */
 .label-badge {
   display: inline-flex;
   align-items: center;
@@ -234,10 +226,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
+  max-width: 160px;
 }
 
-/* Keep the timestamp and score fixed while actions overlay the preview. */
+/* Keep the timestamp fixed while actions overlay the preview. */
 .email-list-row .row-action-rail {
   position: relative;
   display: flex;
@@ -267,26 +259,19 @@
   overflow: hidden;
   transition: opacity 120ms ease;
 }
-.email-list-row .row-time,
-.email-list-row .email-importance-score {
+.email-list-row .row-time {
   position: relative;
   z-index: 3;
   flex: none;
 }
 .email-importance-score {
-  color: oklch(0.62 0.17 var(--mail-importance-hue, 85deg));
-}
-.dark .email-importance-score {
-  color: oklch(0.76 0.15 var(--mail-importance-hue, 85deg));
-}
-.mail-importance-ramp {
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(
-    to right in oklch,
-    oklch(0.7 0.15 25),
-    oklch(0.8 0.14 85),
-    oklch(0.74 0.15 150)
+  position: relative;
+  z-index: 3;
+  color: hsl(var(--foreground));
+  color: color-mix(
+    in oklch,
+    var(--mail-importance-low) calc(100% - var(--mail-importance-weight)),
+    var(--mail-importance-high) var(--mail-importance-weight)
   );
 }
 .email-list-row.focused .hover-actions,
@@ -307,7 +292,6 @@
   }
 }
 
-/* Sonner toast — readable width with room for actions */
 [data-sonner-toaster] {
   --width: min(36rem, calc(100vw - 2rem)) !important;
 }
@@ -330,14 +314,12 @@
   flex-shrink: 0 !important;
   white-space: nowrap !important;
 }
-/* Keep toast chrome on Mail's lighter dark gray surface. */
 .dark [data-sonner-toast] {
   background: var(--mail-toast-surface) !important;
   border-color: var(--mail-toast-border) !important;
   color: hsl(var(--foreground)) !important;
 }
 
-/* Sonner cancel button style — match action button but muted */
 [data-sonner-toast] [data-cancel] {
   background: transparent !important;
   color: hsl(220, 10%, 50%) !important;
@@ -350,8 +332,6 @@
 [data-sonner-toast] [data-cancel]:hover {
   color: hsl(220, 10%, 70%) !important;
 }
-
-/* ===== Compose Rich Text Editor (Tiptap) ===== */
 
 .compose-editor-wrapper {
   position: relative;
@@ -376,7 +356,6 @@
   margin-top: 0;
 }
 
-/* Headings */
 .compose-editor h1 {
   font-size: 1.5em;
   font-weight: 700;
@@ -400,13 +379,11 @@
   line-height: 1.4;
 }
 
-/* Paragraphs */
 .compose-editor p {
   margin: 0.85em 0;
   min-height: 1.65em;
 }
 
-/* Placeholders */
 .compose-editor p.is-editor-empty:first-child::before,
 .compose-editor p.is-empty::before {
   content: attr(data-placeholder);
@@ -416,7 +393,6 @@
   height: 0;
 }
 
-/* Lists */
 .compose-editor ul {
   list-style-type: disc;
   padding-left: 1.5em;
@@ -434,14 +410,12 @@
   margin: 0;
 }
 
-/* Blockquote */
 .compose-editor blockquote {
   border-left: 3px solid hsl(var(--foreground));
   padding-left: 1em;
   margin: 0.4em 0;
 }
 
-/* Code block */
 .compose-editor .compose-code-block,
 .compose-editor pre {
   font-family: ui-monospace, monospace;
@@ -464,7 +438,6 @@
   color: inherit;
 }
 
-/* Images */
 .compose-editor .compose-image {
   max-width: 100%;
   border-radius: 6px;
@@ -542,7 +515,6 @@
   background: hsl(0 65% 40% / 0.85);
 }
 
-/* Inline code */
 .compose-editor code {
   font-family: ui-monospace, monospace;
   font-size: 0.85em;
@@ -555,7 +527,6 @@
   color: hsl(0 60% 65%);
 }
 
-/* Links */
 .compose-link {
   color: hsl(var(--foreground));
   text-decoration: underline;
@@ -568,14 +539,12 @@
   text-decoration-color: hsl(var(--foreground));
 }
 
-/* Horizontal rule */
 .compose-editor hr {
   border: none;
   border-top: 1px solid hsl(var(--border));
   margin: 1em 0;
 }
 
-/* Text formatting */
 .compose-editor strong {
   font-weight: 600;
 }
@@ -586,12 +555,10 @@
   text-decoration: line-through;
 }
 
-/* Selection */
 .compose-editor ::selection {
   background: hsl(210 100% 52% / 0.2);
 }
 
-/* ===== Bubble Toolbar ===== */
 .bubble-toolbar {
   display: flex;
   align-items: center;
@@ -604,7 +571,6 @@
     0 0 0 1px hsl(var(--border));
 }
 
-/* ===== Slash Command Menu ===== */
 .slash-command-menu {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
@@ -624,7 +590,6 @@
   background: hsl(var(--accent));
 }
 
-/* ===== Code Block Language Picker ===== */
 .code-lang-picker {
   pointer-events: auto;
 }
@@ -649,7 +614,6 @@
   color: hsl(var(--foreground));
 }
 
-/* ===== Syntax Highlighting (lowlight) ===== */
 .compose-editor pre code .hljs-comment,
 .compose-editor pre code .hljs-quote {
   color: hsl(var(--muted-foreground));
@@ -767,13 +731,11 @@
   font-weight: 700;
 }
 
-/* Inbox Zero — negative margin pulls content up behind the header (keeps header in flow so it doesn't overlap the agent sidebar) */
 .inbox-zero .inbox-zero-header {
   margin-bottom: -3rem;
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none;
-  /* Scrim text (tabs, icons) */
   --foreground: 0 0% 95%;
   --muted-foreground: 0 0% 82%;
   --border: 0 0% 100% / 0.22;
@@ -792,10 +754,7 @@
   );
 }
 
-/* Inbox Zero — frosted glass effect on the agent chat sidebar */
 .inbox-zero .agent-sidebar-panel {
-  /* position + z-index create a stacking context above the position:fixed
-     background image so the background and blur are visible in production */
   position: relative;
   z-index: 1;
   background: rgba(0, 0, 0, 0.4);

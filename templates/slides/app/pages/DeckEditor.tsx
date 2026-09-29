@@ -14,7 +14,11 @@ import {
   emailToColor,
   emailToName,
 } from "@agent-native/core/client/collab";
-import { useSession } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  signOut,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
@@ -56,6 +60,7 @@ import SlideRenderer, {
 } from "@/components/deck/SlideRenderer";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import { DeckAccessDeniedPage } from "@/components/editor/DeckAccessDeniedPage";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   EditorActionCluster,
@@ -76,6 +81,7 @@ import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,6 +112,7 @@ import {
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
+import { useContrastAuditBridge } from "@/hooks/use-contrast-audit-bridge";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
@@ -125,10 +132,13 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
+  deckAccessCheckFor,
   deckAccessCheckKey,
+  deckAccessRequestStateFor,
   retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
@@ -320,20 +330,8 @@ type AccessRequestCapability =
   | { available: true; token: string }
   | { available: false };
 
-// The Cmd/Ctrl+C-then-V slide-duplicate shortcut can only tell "this key
-// event targets the slide rail/canvas" apart from "focus fell back to
-// nothing because a panel/dialog elsewhere just closed" by checking a
-// deny-list of known text surfaces — and that list can never be complete
-// (see the Andrew Rohman Slack thread this guards against: a slide copied
-// once early in a session kept silently re-duplicating on unrelated later
-// pastes). Bounding how long a copy stays "armed" turns a missed deny-list
-// entry from a silent, indefinite landmine into, at worst, a narrow window
-// that still covers the real copy-then-paste gesture.
 export const SLIDE_CLIPBOARD_ARM_WINDOW_MS = 30_000;
 
-/** True when a Cmd/Ctrl+V should still be treated as "paste the slide that
- * was just copied" rather than unrelated clipboard activity landing outside
- * every recognized text field. */
 export function isSlideClipboardStillArmed(
   armedAt: number | null,
   now: number = Date.now(),
@@ -535,6 +533,8 @@ export default function DeckEditor() {
   const deckAccessStatusQuery = useDeckAccessStatus(id);
   const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
+  const deniedPageAccessRequest = useRequestDeckAccess();
+  const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
   const [altDragState, setAltDragState] = useState<{
@@ -544,9 +544,6 @@ export default function DeckEditor() {
   const selectionAnchorSlideIdRef = useRef<string | null>(null);
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
-  // The blank placeholder the agent was asked to fill in place. The rail must
-  // light THAT row up as AI-active instead of appending a synthetic generating
-  // row, which reads as a second, duplicate slide.
   const [addSlideTargetId, setAddSlideTargetId] = useState<string | null>(null);
   const endAddSlideGeneration = useCallback(() => {
     setAddSlideGenerating(false);
@@ -554,8 +551,6 @@ export default function DeckEditor() {
   }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
-  // useSaveState re-renders this component when a preserved inline draft enters
-  // or leaves the shared save queue, so the deck-specific read stays current.
   const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
   const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
@@ -569,8 +564,6 @@ export default function DeckEditor() {
       presentNavigationRef.current = false;
     };
   }, [id]);
-  // Inline drafts flush through SlideEditor keepalive handlers. The native
-  // prompt only needs to cover queued or in-flight writes now.
   usePendingDeckUnloadGuard(hasPendingDeckWrites);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
@@ -595,16 +588,11 @@ export default function DeckEditor() {
     pendingDeckNavigationBlocker.proceed();
   }, [pendingDeckNavigationBlocker]);
   const { generating } = useAgentGenerating();
-  // Dedicated instance (not the `generating` one above, which reflects ANY
-  // agent chat activity) so an unrelated concurrent run can't be mistaken
-  // for this one finishing and clear the flag early. Owning the submit call
-  // here — instead of in EditorSidebar, which unmounts when the rail closes
-  // on narrow viewports — keeps both the run-scoping and the completion
-  // tracking correct across a remount.
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
   const generationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRoute =
+    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
   const retryEmptyGenerationInFlightRef = useRef(false);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
@@ -629,11 +617,6 @@ export default function DeckEditor() {
     },
     [generationSubmitId, submitTrackedQuestionContinuation],
   );
-  // Neither useAgentGenerating instance is scoped to its run until submit()
-  // fires: before then, its active tab ref is null and it reports on any chat
-  // activity. The add-slide target is set well before submission, so an
-  // unrelated run could otherwise satisfy either "seen true" guard below.
-  // Both cleanup effects stay inert until this flips true.
   const addSlideRequestSentRef = useRef(false);
   const sawAddSlideAgentGeneratingRef = useRef(false);
   useEffect(() => {
@@ -647,8 +630,6 @@ export default function DeckEditor() {
       endAddSlideGeneration();
     }
   }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
-  // Same guard for the broad `generating` signal below, which is never scoped
-  // to this run at all (by design — it reflects ANY agent chat activity).
   const sawGeneratingRef = useRef(false);
   const submitAddSlideAgent = useCallback(
     (message: string, context: string) => {
@@ -657,25 +638,19 @@ export default function DeckEditor() {
     },
     [addSlideAgentSubmit],
   );
-  // Generation intent can arrive after this route mounts because the user
-  // answers pre-generation questions from the empty editor.
-  const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const wasNewDeckCreation = useRef(isNewDeckGenerationRoute);
   const generationStartedAtRef = useRef<number | null>(null);
   const generationRunStartedRef = useRef(false);
   const generationSawActiveRef = useRef(false);
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
-  if (searchParams.get("generating") === "1") {
+  if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
-  // The slide just inserted via the toolbar's New Slide button, so the rail
-  // can anchor the "describe this slide" popover to its thumbnail once it
-  // mounts — even though the button that sets this now lives in the
-  // toolbar, outside the rail.
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   useEffect(() => {
     setDescribeSlideId(null);
@@ -709,7 +684,6 @@ export default function DeckEditor() {
     refetch: refetchOrg,
   } = useOrg();
 
-  // Dialog/popover states
   const [imageGenOpen, setImageGenOpen] = useState(false);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -843,14 +817,11 @@ export default function DeckEditor() {
     quotedText: string;
     anchor?: SlideCommentAnchor;
   } | null>(null);
-  // Track which image src to replace
   const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
   const [pendingImagePreviews, setPendingImagePreviews] = useState<
     PendingImagePreview[]
   >([]);
   const pendingImagePreviewsRef = useRef<PendingImagePreview[]>([]);
-  // Keep upload completion ahead of React when a slide edit has been queued
-  // locally but its render has not committed yet.
   const latestSlideContentRef = useRef(new Map<string, string>());
   const renderedSlideContentRef = useRef(new Map<string, string>());
 
@@ -888,8 +859,11 @@ export default function DeckEditor() {
     };
   }, []);
 
-  // Hidden file input for direct upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const storageQuery = useSlideFileStorageStatus();
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
 
   const deck = getDeck(id || "");
   const retryRecoveryStorageKey = id
@@ -911,6 +885,9 @@ export default function DeckEditor() {
   }, [deck]);
 
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
+  const deckAccessCheck = deckAccessCheckFor(deckAccessStatusQuery);
+  const showDeckAccessDeniedPage =
+    Boolean(session) && deckAccessCheck === "denied";
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
@@ -918,9 +895,6 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
-  // Mirror Google Slides: viewers see the editor shell with edit affordances
-  // disabled. Only assume edit access while the role is still loading when
-  // `createdByMe` already confirms ownership.
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const generationContext =
     deck?.generationContext &&
@@ -932,9 +906,6 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
-  const generationFailed =
-    slideCount === 0 &&
-    typeof generationContext?.generationFailureCode === "string";
   const generationRetryPending =
     retryEmptyGenerationPending ||
     (generationContext !== null &&
@@ -1110,14 +1081,16 @@ export default function DeckEditor() {
       runError: attemptRunError,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
+      canContinueAfterStall: attemptCanContinueAfterStall,
+      abortStalledRun: abortStalledGeneration,
       submitAndConfirm: submitGenerationAttemptAndConfirm,
     },
     generating: newDeckGenerationSignal,
   } = useNewDeckGenerationSignal({
     attemptId: generationAttemptId,
+    outputId: id ?? null,
     tabId: generationAttemptTabId,
-    broadGenerating: generating,
-    submitStarted: generationRunStartedRef.current,
+    progressToken: slideCount,
   });
   const targetSlideCount =
     typeof generationContext?.targetSlideCount === "number" &&
@@ -1125,6 +1098,58 @@ export default function DeckEditor() {
     generationContext.targetSlideCount > 0
       ? generationContext.targetSlideCount
       : null;
+
+  useEffect(() => {
+    if (
+      !attemptTimedOut ||
+      !attemptCanContinueAfterStall ||
+      !wasNewDeckCreation.current ||
+      !generationAttemptId ||
+      !id ||
+      !generationAttemptTabId
+    ) {
+      return;
+    }
+    toast.error(t("deckEditor.generationStalled"), {
+      id: `slides-generation-stalled:${id}:${generationAttemptId}`,
+      description: t("deckEditor.generationStalledDescription"),
+      action: {
+        label: t("deckEditor.continueInChat"),
+        onClick: async () => {
+          if (!(await abortStalledGeneration())) return;
+          await submitGenerationAttemptAndConfirm(
+            t("deckEditor.continueGenerationPrompt"),
+            [
+              `Deck ID: ${id}`,
+              `Current slide count: ${slideCount}`,
+              targetSlideCount !== null
+                ? `Target slide count: ${targetSlideCount}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            {
+              generationAttemptId,
+              generationOutputId: id,
+              openSidebar: true,
+              targetTabId: generationAttemptTabId,
+            },
+          );
+        },
+      },
+    });
+  }, [
+    attemptTimedOut,
+    attemptCanContinueAfterStall,
+    abortStalledGeneration,
+    generationAttemptId,
+    generationAttemptTabId,
+    id,
+    slideCount,
+    t,
+    targetSlideCount,
+    submitGenerationAttemptAndConfirm,
+  ]);
 
   useEffect(() => {
     if (
@@ -1729,9 +1754,12 @@ export default function DeckEditor() {
     flushPendingSaves();
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
-  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
-    deck?.designSystemId,
-  );
+  const {
+    designSystem,
+    imageStyleReferenceUrls,
+    rawData: designSystemRawData,
+  } = useDeckDesignSystem(deck?.designSystemId);
+  useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
 
   const {
@@ -1740,6 +1768,9 @@ export default function DeckEditor() {
     description: questionFlowDescription,
     skipLabel: questionFlowSkipLabel,
     submitLabel: questionFlowSubmitLabel,
+    isSubmissionBlocked: questionFlowSubmissionBlocked,
+    providerStatus: questionFlowProviderStatus,
+    retryProviderStatus: retryQuestionFlowProviderStatus,
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
     isSubmitting: questionFlowSubmitting,
@@ -1773,8 +1804,6 @@ export default function DeckEditor() {
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
-  // Generation intent can arrive after this route mounts because the user
-  // answers pre-generation questions from the empty editor.
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
     useNewDeckGeneration({
       deckId: id ?? "",
@@ -1782,6 +1811,11 @@ export default function DeckEditor() {
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
     });
+  const generationFailed =
+    slideCount === 0 &&
+    generationContext !== null &&
+    (typeof generationContext.generationFailureCode === "string" ||
+      (isNewDeckCreation && newDeckGenerationPhase === "abandoned"));
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -1813,10 +1847,6 @@ export default function DeckEditor() {
     if (!generatingSlideVisible) setGeneratingSlideSelected(false);
   }, [generatingSlideVisible]);
 
-  // The add-slide request is finished once the agent stops generating, so the
-  // rail's placeholder must not outlive it. Mirrors the "seen true first"
-  // guard above so this backstop can't fire while `generating` just hasn't
-  // caught up with a run that hasn't started sending yet.
   useEffect(() => {
     if (!addSlideRequestSentRef.current) return;
     if (generating) {
@@ -1829,12 +1859,6 @@ export default function DeckEditor() {
     }
   }, [generating, addSlideGenerating, endAddSlideGeneration]);
 
-  // Below `md` the rail is a drawer behind a full-viewport dimming scrim; at
-  // `md` and up it's docked with no scrim. `sidebarOpen` is seeded from the
-  // width at mount only, so a window that starts wide and is then narrowed
-  // (or an editor opened in a resizable preview pane) keeps `sidebarOpen`
-  // true while the scrim stops being `md:hidden` — dimming the whole editor
-  // with no way to dismiss it.
   useEffect(() => {
     const onResize = () => setSidebarOpen(window.innerWidth >= 768);
     window.addEventListener("resize", onResize);
@@ -1853,9 +1877,6 @@ export default function DeckEditor() {
     previousSlideIdsRef.current = currentSlideIds;
     if (!slideWasAdded) return;
 
-    // Keep the user's current slide stable while AI appends slides. The only
-    // exception is an explicit click on the synthetic generating-slide row,
-    // which opts the user into following that one generated slide.
     if (addedSlide && generatingSlideSelected) {
       selectionAnchorSlideIdRef.current = addedSlide.id;
       setSelectedSlideIds([addedSlide.id]);
@@ -1982,12 +2003,11 @@ export default function DeckEditor() {
             if (result.alreadyHasAccess) void reloadDecks();
           },
           onError: (error: unknown) => {
+            const message =
+              actionErrorMessage(error) ?? t("deckEditor.accessRequestFailed");
+            toast.error(message);
             if (!normalizedGuestEmail) return;
-            setRequestAccessDialogError(
-              error instanceof Error && error.message
-                ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-                : t("deckEditor.accessRequestFailed"),
-            );
+            setRequestAccessDialogError(message);
           },
         },
       );
@@ -2042,6 +2062,10 @@ export default function DeckEditor() {
     }
   }, [accessRequestSentDeckId, id]);
 
+  useEffect(() => {
+    resetDeniedPageAccessRequest();
+  }, [id, resetDeniedPageAccessRequest]);
+
   // The final generation write can race the last sync event. Pull the
   // authoritative open deck when the run settles so a stale canvas does not
   // require a browser refresh to reveal completed slides.
@@ -2077,12 +2101,6 @@ export default function DeckEditor() {
       return;
     }
     let cancelled = false;
-    // The stopped run's chatRunning event can beat the guided-question
-    // app-state read that would otherwise flip waitingOnNewDeckQuestions
-    // true — the agent can write the question after the run stops but before
-    // this hook's own reactive read picks it up. Force one fresh check
-    // before dropping the run's tab correlation, so an answer that arrives
-    // moments later still routes back to the original tab.
     void refetchPendingQuestion().then((stillWaiting) => {
       if (cancelled || stillWaiting) return;
       clearNewDeckGenerationRun(id, submitMessageId);
@@ -2108,8 +2126,6 @@ export default function DeckEditor() {
     setSearchParams,
     waitingOnNewDeckQuestions,
   ]);
-  // Clean up the generating URL param/ref when generation completes or when
-  // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
     if (
       !shouldClearNewDeckGeneratingState({
@@ -2274,7 +2290,6 @@ export default function DeckEditor() {
     [t],
   );
 
-  // Replace an image or placeholder in the current slide's HTML content.
   const replaceImageInSlide = useCallback(
     (oldSrc: string, newSrc: string, alt?: string) => {
       if (!id || !currentSlideRef.current) return;
@@ -2300,6 +2315,10 @@ export default function DeckEditor() {
       file: File,
       position?: SlideImageDropPosition,
     ) => {
+      if (!fileStorageConfigured) {
+        setShowUploadStorageSetup(true);
+        return;
+      }
       const startingSlide = currentSlideRef.current;
       if (!id || !startingSlide) return;
       const targetSlideId = startingSlide.id;
@@ -2332,8 +2351,6 @@ export default function DeckEditor() {
         ),
         initialPreview,
       ]);
-      // The preview's render takes this snapshot long before the upload ends;
-      // however the upload ends, one still untaken is stale.
       let registeredPreviewContent: string | null = null;
       if (previewProvenance) {
         const previewContent = pendingImagePreviewsRef.current
@@ -2408,7 +2425,6 @@ export default function DeckEditor() {
         }
         latestSlideContentRef.current.set(targetSlideId, updatedContent);
         if (updatedContent !== targetContent) {
-          // Only a write renders, so only a write's snapshot is ever taken.
           if (uploadProvenance) {
             registerSlideImageUploadProvenance(
               targetSlideId,
@@ -2444,6 +2460,7 @@ export default function DeckEditor() {
     },
     [
       getDeck,
+      fileStorageConfigured,
       id,
       t,
       updatePendingImagePreviews,
@@ -2452,10 +2469,6 @@ export default function DeckEditor() {
     ],
   );
 
-  // Drag an already-hosted image (e.g. dragged out of a generated-image
-  // preview in the agent chat panel) onto the slide canvas. Unlike
-  // uploadAndApplyImage there's nothing to upload — the URL is already a
-  // live asset — so this just swaps it into the target image/placeholder.
   const dropImageUrlOnSlide = useCallback(
     (
       replaceSrc: string | null,
@@ -2489,7 +2502,6 @@ export default function DeckEditor() {
     [replaceImageInSlide, updateSlideContent],
   );
 
-  // Update fit or crop position on an image in the current slide
   const updateImageFit = useCallback(
     (
       imgSrc: string,
@@ -2572,7 +2584,6 @@ export default function DeckEditor() {
       window.removeEventListener("paste", handleClipboardImagePaste, true);
   }, [handleClipboardImagePaste]);
 
-  // Toggle object-fit on an image in the current slide
   const toggleObjectFit = useCallback(
     (imgSrc: string, newFit: "cover" | "contain", imageOccurrence?: number) => {
       updateImageFit(imgSrc, { objectFit: newFit }, imageOccurrence);
@@ -2591,7 +2602,6 @@ export default function DeckEditor() {
     [updateImageFit],
   );
 
-  // Handle direct file upload and replace image
   const handleDirectUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
@@ -2611,14 +2621,6 @@ export default function DeckEditor() {
     [deck],
   );
 
-  /**
-   * Delete a slide with an "Undo" toast.
-   *
-   * Why: Rochkind reported accidental slide deletions (clicking an element →
-   * Delete → entire slide gone, no obvious recovery path). The undo
-   * mechanism existed (Cmd+Z) but wasn't discoverable. This surfaces a
-   * 6-second undo toast right next to the action.
-   */
   const deleteSlidesWithUndo = useCallback(
     (deckId: string, slideIds: string[]) => {
       deleteSlides(deckId, slideIds);
@@ -2768,9 +2770,6 @@ export default function DeckEditor() {
             }),
           );
         } else {
-          // Google opens the shared comment draft immediately when the slide
-          // itself is focused; the pin tool remains a separate, explicit C
-          // interaction for choosing a precise slide position.
           openCommentComposer("");
         }
       } else {
@@ -2795,18 +2794,9 @@ export default function DeckEditor() {
       document.removeEventListener("keydown", handleItalicShortcut, true);
   }, []);
 
-  // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
-  // rail's right-click Cut/Copy/Paste menu. Holds full slide snapshots
-  // (rather than just ids) so multi-slide paste works across tabs and paste
-  // still works after Cut has already removed the original slides from the
-  // deck.
   const slideClipboardSlidesRef = useRef<Slide[] | null>(null);
   const slideClipboardScopeRef = useRef<string | null>(null);
   const slideClipboardPersistenceFailedRef = useRef(false);
-  // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
-  // rail's right-click "Paste" menu item is an explicit click with no
-  // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
-  // long ago the copy happened.
   const slideClipboardArmedAtRef = useRef<number | null>(null);
   const slidePasteFallbackRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
@@ -2947,7 +2937,6 @@ export default function DeckEditor() {
     [id, pasteSlides, syncSlideClipboard],
   );
 
-  // Handlers backing the slide rail's right-click menu.
   const handleDeleteSlideFromRail = useCallback(
     (slideIds: string[]) => {
       deleteSlideIds(slideIds);
@@ -2981,8 +2970,6 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       preloadAddSlidePopover();
       const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
-      // Immediate persistence: mirrors handleAddEmptySlide, since this also
-      // opens the "describe this slide" popover right away.
       const newId = addSlide(
         id,
         "blank",
@@ -3026,9 +3013,6 @@ export default function DeckEditor() {
         return;
       }
 
-      // A live browser text selection (e.g. the user triple-clicked rendered,
-      // non-editable slide copy) means Cmd/Ctrl+C is a normal text copy —
-      // let it through instead of hijacking it into a slide duplicate.
       if (
         (key === "c" || key === "x") &&
         (window.getSelection()?.toString().length ?? 0) > 0
@@ -3036,12 +3020,6 @@ export default function DeckEditor() {
         return;
       }
 
-      // Radix Popper positions Popover/DropdownMenu/Select/Tooltip content
-      // inside the same [data-radix-popper-content-wrapper]. A tooltip opens
-      // on plain hover, so treating every such wrapper as blocking would
-      // disable this shortcut just by mousing over a toolbar button; only
-      // wrappers that aren't tooltips (marked with data-agent-native-tooltip)
-      // should count as an open menu/popover/dialog owning the keystroke.
       const isBlockingPopperWrapper = (el: Element) =>
         el.matches("[data-radix-popper-content-wrapper]") &&
         !el.querySelector("[data-agent-native-tooltip]");
@@ -3069,9 +3047,6 @@ export default function DeckEditor() {
       if (isInsideSafeZone(document.activeElement)) return;
       if (document.querySelector("[data-pin-popover]")) return;
       if (document.querySelector("[data-add-slide-popover]")) return;
-      // A dialog/sheet/menu/popover owning focus elsewhere in the DOM (not
-      // just under the event target) still shouldn't let this document-level
-      // shortcut duplicate the slide underneath it.
       if (
         document.querySelector(
           "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
@@ -3277,7 +3252,6 @@ export default function DeckEditor() {
     }
   }, [activeSlideId, deck, selectedSlideIds]);
 
-  // Sync active slide index to URL
   useEffect(() => {
     if (!deck || !activeSlideId) return;
     const pendingUrlSlideId = pendingUrlSlideIdRef.current;
@@ -3307,7 +3281,6 @@ export default function DeckEditor() {
     }
   }, [activeSlideId, deck, searchParams, setSearchParams]);
 
-  // Expose current selection state to agent chat / scripts via window global + data attrs
   useEffect(() => {
     if (!deck || !id) return;
     const slide =
@@ -3345,7 +3318,6 @@ export default function DeckEditor() {
   const currentSlideRef =
     useRef<typeof deck extends undefined ? null : any>(null);
 
-  // Session for collab user identity
   const currentUser = session?.email
     ? {
         email: session.email,
@@ -3354,11 +3326,6 @@ export default function DeckEditor() {
       }
     : undefined;
 
-  // Slide-level collab: one Yjs doc per slide. This tracks HUMAN collaborators
-  // editing the active slide's content (slideActiveUsers) and any agent edits
-  // that flow through the slide-content Yjs doc.
-  // Uses activeSlideId (state) so it's stable before deck loads.
-  // useCollaborativeDoc handles null docId gracefully (returns empty state).
   const slideDocId =
     id && activeSlideId ? `deck-${id}-slide-${activeSlideId}` : null;
   const {
@@ -3371,10 +3338,6 @@ export default function DeckEditor() {
     user: currentUser,
   });
 
-  // Deck-level presence: which slide each participant (human OR agent) is on.
-  // The slide-editing actions write agent presence + lingering "AI edited"
-  // highlights to THIS doc (`deck-<id>`) via agentTouchDocument, so the agent's
-  // per-slide presence and recent edits come from here.
   const {
     slidePresence,
     agentPresent: deckAgentPresent,
@@ -3387,13 +3350,9 @@ export default function DeckEditor() {
     user: currentUser,
   });
 
-  // The agent is "present"/"active" if EITHER the deck presence doc (action
-  // edits) or the slide-content doc (Yjs edits) says so — a single unified
-  // signal for the toolbar/slide chips.
   const agentPresent = generating || deckAgentPresent || slideAgentPresent;
   const agentActive = generating || deckAgentActive || slideAgentActive;
 
-  // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(
     deck ? (id ?? null) : null,
     activeSlideId,
@@ -3408,8 +3367,6 @@ export default function DeckEditor() {
     (layout: Slide["layout"]) => {
       if (!deck || !id) return;
       const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
-      // Immediate persistence keeps the selected new slide durable before
-      // subsequent editor work or an agent update reaches the server.
       const newId = addSlide(
         id,
         layout,
@@ -3474,12 +3431,40 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
-      deckAccessDeniedConfirmed: Boolean(
-        deckAccessStatus?.exists && !deckAccessStatus.hasAccess,
-      ),
+      accessCheck: deckAccessCheck,
     })
   ) {
     return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
+  }
+  if (id && !deck && showDeckAccessDeniedPage) {
+    const pendingAccessRequest = deckAccessStatus?.pendingAccessRequest;
+    return (
+      <DeckAccessDeniedPage
+        key={id}
+        canRequestAccess={deckAccessStatus?.visibility === "private"}
+        request={deckAccessRequestStateFor(
+          deniedPageAccessRequest,
+          pendingAccessRequest,
+        )}
+        savedNote={pendingAccessRequest?.note ?? null}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
+        onNoteChange={() => {
+          if (deniedPageAccessRequest.isError) resetDeniedPageAccessRequest();
+        }}
+        onRequestAccess={(note) =>
+          deniedPageAccessRequest.mutate(
+            { deckId: id, note },
+            {
+              onSuccess: (result) => {
+                if (result.alreadyHasAccess) void reloadDecks();
+              },
+            },
+          )
+        }
+        onSwitchAccount={() => void signOut()}
+        onGoHome={() => navigate("/home")}
+      />
+    );
   }
   if (!deck || !id) {
     return (
@@ -3652,11 +3637,6 @@ export default function DeckEditor() {
     return request?.preserveNativeNavigation ? true : undefined;
   };
 
-  // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
-  // first for drops landing on a slide (it calls stopPropagation), so this
-  // only fires for drops that landed in the surrounding chrome. Prevent the
-  // browser from navigating to the dropped file, and add it to the active
-  // slide at the default canvas position.
   const editorDragOver = (e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
     e.preventDefault();
@@ -3677,9 +3657,6 @@ export default function DeckEditor() {
     preloadAddSlidePopover();
     const newId = handleAddEmptySlide();
     if (newId) {
-      // The rail owns the anchor node the describe-slide popover attaches
-      // to, so it must be mounted even if it started closed on a narrow
-      // viewport where the toolbar button is still reachable.
       setSidebarOpen(true);
       setDescribeSlideId(newId);
     }
@@ -3771,10 +3748,6 @@ export default function DeckEditor() {
         onDuplicateDeck={async () => {
           const newId = `deck-${nanoid()}`;
           const optimistic = await duplicateDeck(id, newId, undefined, () => {
-            // The background duplicate-deck action failed after we already
-            // navigated to the optimistic copy. If the user is still there,
-            // send them back instead of stranding them on a "Deck
-            // unavailable" screen for a deck that no longer exists.
             if (deckIdFromPathname(window.location.pathname) === newId) {
               void navigate("/home");
             }
@@ -3788,9 +3761,6 @@ export default function DeckEditor() {
             template_name: "slides",
             format: "pdf",
           });
-          // Whole slides, not just ids: the exporter embeds this source in
-          // the PDF so re-importing it restores editable slides rather than
-          // a picture of them.
           const exportSlides = deck.slides;
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
@@ -3825,9 +3795,6 @@ export default function DeckEditor() {
           if (slides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          // Same routing as Export > PowerPoint: Google imports whichever file
-          // we upload, so an imported deck's shapes survive only if the server
-          // builds it. The server renders the persisted deck, hence the flush.
           if (canExportPptxFromServer(deck)) {
             await flushDeckSave(id);
             return exportDeckToGoogleSlides(
@@ -3879,11 +3846,6 @@ export default function DeckEditor() {
                   addSlideAgentSubmit={submitAddSlideAgent}
                   onAddSlideGeneratingChange={(isGenerating, targetSlideId) => {
                     if (isGenerating) {
-                      // A new run starts clean: neither guard's "seen true"
-                      // state may carry over from an unrelated chat run, or
-                      // from whatever state the previous add-slide run left
-                      // behind, or the auto-clear effects below could fire on
-                      // stale state before this run even sends its request.
                       sawGeneratingRef.current = false;
                       sawAddSlideAgentGeneratingRef.current = false;
                       addSlideRequestSentRef.current = false;
@@ -3966,6 +3928,9 @@ export default function DeckEditor() {
             skipLabel={questionFlowSkipLabel}
             submitLabel={questionFlowSubmitLabel}
             isSubmitting={questionFlowSubmitting}
+            isSubmissionBlocked={questionFlowSubmissionBlocked}
+            providerStatus={questionFlowProviderStatus}
+            onRetryProviderStatus={retryQuestionFlowProviderStatus}
           />
         )}
 
@@ -4010,6 +3975,22 @@ export default function DeckEditor() {
               </div>
             </div>
           ) : null)}
+
+        {deck.slides.length === 0 &&
+          !generationFailed &&
+          !generatingSlideVisible &&
+          !showQuestionFlow && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
+                  thumbnail={false}
+                  busy={false}
+                />
+              </div>
+            </div>
+          )}
 
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
@@ -4135,7 +4116,11 @@ export default function DeckEditor() {
             }}
             onUploadImage={(src) => {
               setReplaceImageSrc(src);
-              uploadInputRef.current?.click();
+              if (fileStorageConfigured) {
+                uploadInputRef.current?.click();
+              } else {
+                setShowUploadStorageSetup(true);
+              }
             }}
             onDropImage={uploadAndApplyImage}
             onDropImageUrl={dropImageUrlOnSlide}
@@ -4234,7 +4219,16 @@ export default function DeckEditor() {
         type="file"
         accept="image/*,.svg"
         onChange={handleDirectUpload}
+        disabled={!fileStorageConfigured}
         className="hidden"
+      />
+
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={showUploadStorageSetup}
+        onOpenChange={setShowUploadStorageSetup}
+        onRetry={() => void storageQuery.refetch()}
       />
 
       {/* Popovers & Dialogs */}

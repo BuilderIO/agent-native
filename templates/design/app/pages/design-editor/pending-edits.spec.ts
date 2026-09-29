@@ -432,9 +432,16 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
-  it("uses the hosted MCP handoff in coding agents", () => {
+  it("uses the hosted MCP handoff across detected and unknown hosts", () => {
     const prompt = "Apply the exact source edits from this canvas.";
-    for (const host of ["chatgpt", "claude", "codex"] as const) {
+    for (const host of [
+      "chatgpt",
+      "claude",
+      "codex",
+      "webmcp",
+      null,
+      undefined,
+    ] as const) {
       const copied = formatVisualEditClipboardPrompt(
         prompt,
         host,
@@ -443,28 +450,40 @@ describe("formatVisualEditClipboardPrompt", () => {
       );
       expect(copied).toContain("get-visual-edit-pending");
       expect(copied).toContain('{ designId: "design-1" }');
-      expect(copied).toContain("acknowledging that revision");
-      expect(copied).not.toContain("get-visual-edit-prompt");
+      expect(copied).toContain("acknowledge-visual-edit-pending");
+      const browserToolIndex = copied.indexOf("get-visual-edit-prompt");
+      if (browserToolIndex !== -1) {
+        expect(copied.indexOf("get-visual-edit-pending")).toBeLessThan(
+          browserToolIndex,
+        );
+      }
     }
   });
 
-  it("uses page-local WebMCP only for browser-capable hosts", () => {
-    expect(formatVisualEditClipboardPrompt("Apply edits.", "webmcp")).toContain(
-      "get-visual-edit-prompt",
+  it("keeps page-local WebMCP as a fallback when no MCP server is available", () => {
+    const copied = formatVisualEditClipboardPrompt(
+      "Apply edits.",
+      "webmcp",
+      false,
+      "design-1",
     );
+    expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain('{ designId: "design-1" }');
+    expect(copied).toContain("get-visual-edit-prompt");
+    expect(copied).toContain("If you cannot access the Design MCP server");
   });
 
-  it("keeps the detailed prompt for ordinary clipboard use", () => {
-    expect(formatVisualEditClipboardPrompt("Apply these edits.", null)).toBe(
-      "Apply these edits.",
-    );
+  it("uses the design id from the URL when it is not passed", () => {
+    const copied = formatVisualEditClipboardPrompt("Apply these edits.", null);
+    expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain("using the design ID from this URL");
   });
 
   it("copies full implementation instructions and the detailed handoff", () => {
     const prompt = "Apply these exact edits to the connected app source.";
     const copied = formatVisualEditClipboardPrompt(
       prompt,
-      "claude",
+      "webmcp",
       true,
       "design-1",
     );
@@ -473,6 +492,7 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(copied).toContain("Verify the running app after HMR");
     expect(copied).toContain("get-visual-edit-pending");
     expect(copied).toContain(prompt);
+    expect(copied).not.toContain("If you cannot access the Design MCP server");
   });
 });
 

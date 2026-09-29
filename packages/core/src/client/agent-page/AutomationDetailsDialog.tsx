@@ -42,10 +42,8 @@ function RunStatusDot({ status }: { status: string }) {
       ? "bg-emerald-500"
       : status === "error"
         ? "bg-destructive"
-        : // An interrupted run never reported an outcome, so it reads as
-          // unknown rather than as still making progress.
-          status === "interrupted"
-          ? "bg-muted-foreground"
+        : status === "interrupted"
+          ? "bg-destructive"
           : "bg-amber-500";
   return <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />;
 }
@@ -90,7 +88,7 @@ export function AutomationDetailsDialog({
                     defaultValue: "This automation is not running",
                   })}
                 </p>
-                <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                <p className="mt-0.5 max-w-prose min-w-0 whitespace-normal break-words text-xs text-muted-foreground">
                   {lastError}
                 </p>
               </div>
@@ -180,20 +178,37 @@ export function AutomationDetailsDialog({
                 {runs.map((run) => (
                   <li
                     key={run.id}
-                    className="flex items-center gap-2 py-1.5 text-xs"
+                    className="flex items-start gap-2 py-1.5 text-xs"
                   >
                     <RunStatusDot status={run.status} />
                     <span className="shrink-0 text-muted-foreground">
                       {formatTimestamp(run.startedAt)}
                     </span>
-                    <span className="shrink-0 font-medium">{run.status}</span>
-                    {run.error ? (
-                      <span
-                        className="min-w-0 flex-1 truncate text-muted-foreground"
-                        title={run.error}
-                      >
-                        {run.error}
-                      </span>
+                    <span
+                      className={
+                        run.status === "error" || run.status === "interrupted"
+                          ? "shrink-0 font-medium text-destructive"
+                          : "shrink-0 font-medium"
+                      }
+                    >
+                      {run.status}
+                    </span>
+                    {run.error || run.errorCode ? (
+                      <div className="min-w-0 flex-1">
+                        {run.error ? (
+                          <p
+                            className="truncate text-muted-foreground"
+                            title={run.error}
+                          >
+                            {run.error}
+                          </p>
+                        ) : null}
+                        {run.errorCode ? (
+                          <code className="mt-0.5 inline-block max-w-full break-all rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                            {run.errorCode}
+                          </code>
+                        ) : null}
+                      </div>
                     ) : (
                       <span className="min-w-0 flex-1" />
                     )}
@@ -202,7 +217,7 @@ export function AutomationDetailsDialog({
                         {Math.round((run.finishedAt - run.startedAt) / 1000)}s
                       </span>
                     ) : null}
-                    {run.error && run.threadId ? (
+                    {(run.error || run.errorCode) && run.threadId ? (
                       <Button
                         type="button"
                         variant="ghost"

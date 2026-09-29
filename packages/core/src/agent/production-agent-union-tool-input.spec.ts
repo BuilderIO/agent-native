@@ -3,12 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { runAgentLoop, type ActionEntry } from "./production-agent.js";
 
-// The real `patch-deck` shape: a discriminated union of operations whose only
-// interesting enums live three levels down, under an operation's `fields`.
-//
-// Parametrized by union keyword because both are reachable for the same Zod
-// schema — Zod v4's own `toJSONSchema` emits `oneOf` for a discriminated union,
-// while the manual fallback converter in `action.ts` emits `anyOf`.
 function patchDeckParameters(unionKeyword: "oneOf" | "anyOf") {
   return {
     type: "object" as const,
@@ -129,8 +123,6 @@ async function runPatchDeck(
     events.find((e) => e.type === "tool_done" && e.tool === "patch-deck")
       ?.result ?? "",
   );
-  // Only the validation complaints, not the `Expected:` signature that follows
-  // them — the signature legitimately names every branch.
   const errorClause = result.slice(
     result.indexOf("patch-deck: "),
     result.indexOf(". Received:"),
@@ -141,10 +133,6 @@ async function runPatchDeck(
 describe.each(["oneOf", "anyOf"] as const)(
   "discriminated-union tool input (%s)",
   (unionKeyword) => {
-    // The observed failure: a gateway pre-filled every optional field of the
-    // leaf `fields` object, so a title rename was rejected over `tweaks` /
-    // `aspectRatio` / `visibility` and re-sent verbatim until the
-    // identical-error breaker fired.
     it("strips gateway placeholders nested inside a union branch", async () => {
       const { run } = await runPatchDeck(unionKeyword, {
         deckId: "MB8Yb3BKQe",
@@ -202,7 +190,6 @@ describe.each(["oneOf", "anyOf"] as const)(
       });
 
       expect(run).not.toHaveBeenCalled();
-      // The branches the caller never meant must not be complained about.
       expect(errorClause).not.toContain("slideId");
       expect(errorClause).not.toContain("orderedIds");
       expect(errorClause).toContain("visibility");
@@ -223,10 +210,6 @@ describe.each(["oneOf", "anyOf"] as const)(
       expect(result).toContain('"patch-deck-fields"');
     });
 
-    // Every element of an array shares one `items` schema, so all their branch
-    // errors share a schemaPath and differ only by instancePath. Narrowing on
-    // schemaPath alone lets operation 0's chosen branch delete operation 1's
-    // errors, and vice versa, until nothing survives.
     it("narrows each array element against its own discriminator", async () => {
       const { errorClause } = await runPatchDeck(unionKeyword, {
         deckId: "d1",

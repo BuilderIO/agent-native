@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const esES = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   language: {
     label: "Idioma",
     system: "Sistema",
@@ -750,7 +757,6 @@ const esES = {
         answer5:
           "Sí. Comparte paneles con tu equipo o tu organización con acceso de lector, editor o administrador. También puedes programar informes por correo con los resultados actuales del panel, o configurar alertas para las condiciones que quieras vigilar.",
       },
-      // Copy V3 de la landing page (2026-09-14) — del hero al CTA final más abajo.
       heroEyebrow: "Analytics",
       heroTitle:
         "Haz una pregunta. Obtenga el gráfico, la consulta y el contexto.",
@@ -881,7 +887,6 @@ const esES = {
           "Sí. Añade coanfitriones obligatorios y Calendar comprobará su información de libre/ocupado antes de ofrecer un horario. Para respetar también el horario laboral configurado de cada coanfitrión, tú y ese coanfitrión debéis añadir vuestros calendarios mutuamente como superposiciones. Sin ese uso compartido mutuo, Calendar solo comprueba su información de libre/ocupado.",
       },
       s001: "Calendar captura de pantalla de la plantilla",
-      // Copia V3 de la página de destino (2026-09-10) — del hero al CTA final.
       heroEyebrow: "Calendar",
       heroTitle:
         "Encuentre tiempo, reserve reuniones y adapte su día con un agente",
@@ -1006,7 +1011,6 @@ const esES = {
       },
       s001: "Assets captura de pantalla de la plantilla",
       imageCredits: "Créditos de imágenes",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
       heroTitle: "Genera imágenes de marca en una conversación",
       heroDescription:
@@ -1069,7 +1073,6 @@ const esES = {
           "Sí. Crea una copia con la CLI, añade tus acciones, datos e interfaz, y despliega tu aplicación. Configura la autenticación y el acceso a proveedores para tu entorno, y prueba los flujos de trabajo que añadas antes de compartirlos con tus usuarios.",
       },
       s001: "Captura de pantalla de la app Chat",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Crea tu propia app de chat con IA",
       heroDescription:
@@ -1115,7 +1118,6 @@ const esES = {
     },
     clips: {
       s001: "Clips captura de pantalla de la plantilla",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle:
         "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
@@ -1284,7 +1286,6 @@ const esES = {
           "Sí. Los documentos nuevos son privados de forma predeterminada. Compártelos con acceso de lector, editor o administrador, y usa el historial de versiones de la página para restaurar una instantánea anterior. Restaurar una instantánea reemplaza el contenido actual de la página.",
       },
       s001: "Content captura de pantalla de la plantilla",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Crea y organiza tu trabajo con tu agente de IA",
       heroDescription:
@@ -1408,7 +1409,6 @@ const esES = {
           "Exporta HTML o un ZIP de los archivos de diseño, o prepara un traspaso para un agente de programación. El prototipo ofrece un punto de partida para el desarrollo; la lógica de la aplicación, las integraciones, las pruebas y el despliegue aún necesitan implementación y revisión. Las exportaciones HTML pueden usar recursos de tiempo de ejecución externos.",
       },
       s001: "Design captura de pantalla de la plantilla",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Diseña prototipos interactivos con tu agente de IA",
       heroDescription:
@@ -1532,7 +1532,6 @@ const esES = {
           "No. En un espacio de trabajo de equipo, Dispatch puede exigir revisión de sus propios cambios en recursos y configuraciones compartidos. Las acciones dentro de las apps conectadas, como enviar un correo electrónico, siguen los controles de esas apps. La cola de aprobaciones de Dispatch no es una puerta universal para cada acción del agente.",
       },
       s001: "Dispatch captura de pantalla de la plantilla",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordina tus agentes de IA desde un solo lugar",
       heroDescription:
@@ -1770,21 +1769,22 @@ const esES = {
           "Sí. Un compañero de equipo puede solicitar un borrador que aparece en tu cola de revisión. Ábrelo, edita el mensaje y envíalo cuando esté listo. Quien lo solicitó no puede enviarlo en tu nombre; quien es propietario del borrador o un administrador de la organización controla el envío.",
       },
       s001: "Mail captura de pantalla de la plantilla",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Gestiona tu bandeja de entrada con tu agente de IA",
+      heroTitle: "Toma el control de tu bandeja de entrada con Jev",
       heroDescription:
-        "Mail ofrece clasificación por prioridad, etiquetas contextuales, resúmenes de hilos y reglas en segundo plano en una bandeja de entrada de Gmail con teclado, con un agente que puede dar el siguiente paso.",
+        "Dile a Jev en lenguaje natural qué te importa. Mantendrá visibles los comentarios humanos de GitHub, destacará los mensajes de tu responsable y apartará las notificaciones de bots; después aprenderá de tus correcciones.",
       heroCta: "Gestiona tu bandeja de entrada",
-      useCasesHeading: "Deja que Mail dé el primer paso",
+      mobileArchiveToast:
+        "Se archivaron 1.167 notificaciones de bots · se conservaron 4 comentarios de PR",
+      useCasesHeading: "Una bandeja más inteligente, impulsada por Jev",
       useCasesBody:
-        "Descubra hilos urgentes, etiquete los mensajes según su significado y mantenga en movimiento el trabajo repetitivo de la bandeja de entrada mientras mantiene el control.",
-      useCase1Title: "Mira lo que te necesita hoy",
+        "Crea una regla en lenguaje natural. Jev da prioridad a las personas y conversaciones importantes, aplica las etiquetas adecuadas y archiva el correo repetitivo cuando llega.",
+      useCase1Title: "Conserva a las personas. Archiva los bots.",
       useCase1Body:
-        "Mail clasifica los hilos por urgencia, fechas límite y quién está esperando, luego le brinda un resumen en la bandeja de entrada con las siguientes acciones útiles.",
-      useCase2Title: "Etiquetar mensajes por significado",
+        "Dile a Jev qué importa: mantén visibles en Product los comentarios de personas en pull requests de GitHub, archiva las notificaciones de bots y mueve los correos de tu responsable a Important. Ajusta cada regla con un prompt y mejora el filtro de spam con tus comentarios.",
+      useCase2Title: "Cada correo, con su etiqueta",
       useCase2Body:
-        "El agente puede aplicar etiquetas del contexto del remitente y de la conversación, de modo que los hilos de investigación, finanzas y clientes sean fáciles de encontrar.",
+        "Jev etiqueta las conversaciones por su significado, no solo por palabras clave, para que las notas de clientes, los recibos y la investigación lleguen al lugar adecuado.",
       useCase3Title: "Automatiza el trabajo rutinario",
       useCase3Body:
         "Establezca reglas para etiquetar o archivar correo nuevo en segundo plano y luego revise el historial de ejecución cuando lo desee.",
@@ -1806,9 +1806,9 @@ const esES = {
       feature5Title: "Revisar antes de enviar",
       feature5Body:
         "Haga que el agente redacte o revise una respuesta, luego revísela y edítela antes de que salga de su bandeja de entrada.",
-      feature6Title: "Búsqueda de múltiples cuentas",
+      feature6Title: "Un filtro de spam que aprende",
       feature6Body:
-        "Busque en cuentas de Gmail conectadas y utilice la misma prioridad, etiquetas y herramientas de agente en un solo lugar.",
+        "Marca como deseado un mensaje filtrado o señala el correo no deseado. Jev aprende de cada corrección y la aplica a mensajes similares.",
       finalCtaHeading: "Empieza con tu próximo correo",
       finalCtaBody:
         "Abre una conversación y pídele a tu agente de IA un resumen o un borrador de respuesta.",
@@ -1959,7 +1959,6 @@ const esES = {
           "Exporta un archivo PPTX para abrirlo en PowerPoint. Para usar la presentación en Google Slides, impórtalo allí. Revisa las fuentes y los diseños después de exportar, porque pueden renderizarse de forma distinta entre editores.",
       },
       s001: "Slides captura de pantalla de la plantilla",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Crea presentaciones con tu agente de IA",
       heroDescription:

@@ -1,10 +1,14 @@
+import { isActionContractError } from "@agent-native/core/action";
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   getSession,
   runWithRequestContext,
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
+
+import { assertDesignSystemWorkflowsEnabled } from "../lib/design-system-workflows.js";
 
 const MAX_FIG_BYTES = 512 * 1024 * 1024;
 
@@ -14,11 +18,6 @@ interface AttachmentInput {
   declaredSize?: unknown;
 }
 
-/**
- * Opens signed resumable-upload slots so the browser can stream large `.fig`
- * bytes straight to storage. Only small JSON metadata rides through the app
- * server; the file bytes never do.
- */
 export const designSystemUploadStart = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -67,10 +66,17 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
   try {
     const uploads = await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
-      () => startBuilderDesignSystemUpload(attachments),
+      async () => {
+        await assertDesignSystemWorkflowsEnabled();
+        return startBuilderDesignSystemUpload(attachments);
+      },
     );
     return { uploads };
   } catch (err) {
+    if (isActionContractError(err)) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {
@@ -79,7 +85,7 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error: err instanceof Error ? err.message : "Failed to start upload.",
     };

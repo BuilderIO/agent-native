@@ -28,12 +28,6 @@ interface UnrunnablePanel {
   reason: string;
 }
 
-/**
- * Stored first-party panels the BigQuery sink cannot run. Cutover only flips a
- * setting — it never rewrites saved SQL — so every panel listed here starts
- * failing the moment the flip lands. Surfacing the list is the whole point: the
- * alternative is the org discovering it as broken panels afterwards.
- */
 async function findPanelsUnrunnableOnBigQuery(
   scope: FirstPartyAnalyticsScope,
 ): Promise<UnrunnablePanel[]> {
@@ -51,10 +45,6 @@ async function findPanelsUnrunnableOnBigQuery(
       if (panel?.source !== "first-party") continue;
       if (typeof panel.sql !== "string" || !panel.sql.trim()) continue;
       try {
-        // Stored `{{var}}` tokens are left uninterpolated on purpose: the
-        // translator rejects syntax, not values, and filter values are never
-        // syntax. Interpolating here would drag the dashboard-save module — and
-        // its whole import chain — into this action.
         assertFirstPartyAnalyticsBigQuerySql(panel.sql);
       } catch (error) {
         unrunnable.push({

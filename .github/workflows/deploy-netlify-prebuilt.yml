@@ -225,16 +225,12 @@ concurrency:
         || inputs.target == 'preview'
         && format('netlify-prebuilt-preview-{0}-{1}', inputs.caller, inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Caller workflows own their workflow-level queues. Preview child jobs are
-  # isolated by caller so another PR cannot replace a pending build; Netlify
-  # owns its own upload queue after the artifact is ready.
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: ${{ inputs.target }} ${{ inputs.site }} prebuilt deploy
     runs-on: ubuntu-latest
-    # Reserve time for stale beta cleanup after the 30-minute publish wait.
     timeout-minutes: 150
     steps:
       - name: Validate the source revision
@@ -315,9 +311,6 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Artifact-only preview uploads use the trusted base revision for
-          # target resolution and deployment scripts; PR code stays in the
-          # separate build job that has no deployment secrets.
           ref: ${{ inputs.checkout_ref || steps.source.outputs.source_ref }}
           fetch-depth: 1
           persist-credentials: false
@@ -437,7 +430,10 @@ jobs:
             librsvg2-dev
 
       - name: Run the release migration from the Netlify environment
-        if: inputs.migration_only
+        if: >-
+          inputs.migration_only &&
+          !(inputs.target == 'production' &&
+          steps.target.outputs.source_template == 'mail')
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -481,7 +477,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations || (inputs.target == 'production' && steps.target.outputs.source_template == 'mail') }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
@@ -680,19 +676,10 @@ jobs:
           set -euo pipefail
           GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
 
-      # Every byte here is unzipped on each cold start, and Netlify uploads each
-      # function separately. The existing 120MB ceiling never fired because it
-      # sat above the whole fleet; this measures growth from where each app
-      # actually is. An app with no recorded baseline is named, not passed.
       - name: Check serverless function sizes against their baseline
         if: inputs.migration_only != true && inputs.artifact_download != true
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
-          # source_template, not inputs.site: the input is a caller-facing alias
-          # (docs production dispatches "fw", the starter site dispatches
-          # "starter") and would miss the baseline recorded under the app's own
-          # name, taking the unmeasured branch on exactly the deploys that most
-          # need asserting.
           SITE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
@@ -932,6 +919,53 @@ jobs:
             fi
           done
           echo "::error::CRM release migration failed after 3 attempts."
+          exit 1
+
+      - name: Run Mail release migrations
+        if: >-
+          inputs.target == 'production' &&
+          (inputs.migration_only ||
+          (inputs.deploy && inputs.deploy_mode == 'production')) &&
+          steps.target.outputs.source_template == 'mail'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts 2>/dev/null ||
+              true
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getEnvVars \
+                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+            )"
+          fi
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter mail migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Mail migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Mail release migration failed after 3 attempts."
           exit 1
 
       - name: Unlock the published production deploy
@@ -1275,10 +1309,6 @@ jobs:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
           PUBLISHED_SOURCE_REF: ${{ steps.previous.outputs.published_deploy_source_ref }}
         with:
-          # Monotonic, not exact-equality: main moves faster than this job
-          # runs, so requiring an exact match livelocks the whole beta fleet.
-          # Publish when (1) our source is on main and (2) it does not regress
-          # the already-published deploy.
           script: |
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
@@ -1421,8 +1451,6 @@ jobs:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
           PUBLISHED_SOURCE_REF: ${{ steps.previous.outputs.published_deploy_source_ref }}
         with:
-          # Same monotonic check as beta_pre_migration_freshness, re-run
-          # immediately before upload since the migration step above takes time.
           script: |
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
@@ -1626,10 +1654,6 @@ jobs:
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
         with:
-          # Monotonic, not exact-equality: same check-1 policy as
-          # beta_pre_migration_freshness. There is no previous published
-          # deploy yet on this path, so there is nothing to check for
-          # regression against (check 2).
           script: |
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
@@ -1949,10 +1973,6 @@ jobs:
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
         with:
-          # Monotonic, not exact-equality: same check-1 policy as
-          # beta_pre_migration_freshness/beta_freshness. Check 2 (regression
-          # against the previously published deploy) does not apply here —
-          # after our own publish above, the published deploy IS this source.
           script: |
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
@@ -2570,13 +2590,6 @@ jobs:
               --url "$url" "${smoke_args[@]}"
           done
 
-      # The active managed client and its capability are observable only from
-      # the live host, so this is a post-publish verification. If the declared
-      # managed callback is definitively unregistered, the immediately
-      # following step restores the deploy captured above before leaving the
-      # job failed. Inconclusive checks fail loudly without destructive
-      # rollback. Draft deploy URLs are intentionally excluded because they
-      # are not registered OAuth origins.
       - name: Verify Google OAuth redirect registration
         id: google_redirect
         if: >-
@@ -2745,12 +2758,6 @@ jobs:
           });
           NODE
 
-      # An unknown URL must still be storable. When it is not, every dead link
-      # and crawler miss re-invokes the render function, and Netlify runs one
-      # request per container — so a single site's regression drains the
-      # concurrency pool the whole account shares. Source review and green
-      # builds both missed this; only the live response shows it. Run after
-      # purge so this observes the deployment just published, not its predecessor.
       - name: Verify the deployed site still caches a miss
         if: >-
           inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
@@ -3197,9 +3204,6 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Generate the record name only after every preview smoke check has
-      # passed. The random suffix prevents PR build code from pre-creating the
-      # privileged handoff artifact under a predictable name.
       - name: Prepare the trusted PR preview deploy record
         id: pr_preview_record
         if: >-

@@ -281,8 +281,8 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg"
+          size="icon-sm"
+          className="absolute right-3 top-3 z-20 cursor-pointer border border-border bg-popover/95 shadow-lg"
           onClick={props.onExit}
           aria-label={props.label}
         >
@@ -1340,15 +1340,20 @@ function ElementSelectionOutline({
           <>
             <span
               aria-hidden="true"
-              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-primary"
+              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-[var(--design-editor-accent-color)]"
               style={{ top: -18, pointerEvents: "none", zIndex: 2 }}
             />
             <span
               data-slide-rotate-handle="true"
               onPointerDown={onRotateStart}
-              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full border-2 border-primary bg-background"
+              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full"
               style={{ pointerEvents: "auto", cursor: "grab", zIndex: 3 }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0.5 rounded-full border-2 border-foreground bg-[var(--design-editor-accent-color)]"
+              />
+            </span>
           </>
         )}
         <span
@@ -2351,9 +2356,13 @@ export default function SlideEditor({
   );
 
   const flushInlineEditDraft = useCallback(() => {
+    const activeSlideId = textSessionRef.current?.slideId;
+    if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
     const draft = inlineEditDraftRef.current;
     if (!draft) return false;
-    if (draft.slideId === slide.id) captureInlineEditDraft(draft.slideId);
+    if (activeSlideId !== slide.id && draft.slideId === slide.id) {
+      captureInlineEditDraft(draft.slideId);
+    }
     flushPendingSaves();
     return true;
   }, [captureInlineEditDraft, slide.id]);
@@ -2790,7 +2799,11 @@ export default function SlideEditor({
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
-    (block: HTMLElement) => {
+    (
+      block: HTMLElement,
+      point?: { x: number; y: number },
+      selectWord = false,
+    ) => {
       const slideContent = getSlideContent();
       if (!slideContent || !slideContent.contains(block)) return;
       // A bullet is edited as part of its list: the list is the edit root, so
@@ -2836,9 +2849,12 @@ export default function SlideEditor({
           : { slideId: slide.id, content: entryContent };
       const slideId = slide.id;
       // The element itself becomes editable: no copy, overlay, or restyle, so
-      // entering edit changes nothing on the slide. The caret stays where the
-      // user's click or double-click already put the native selection.
+      // entering edit changes nothing on the slide. The caret lands at the
+      // click or double-click: a press in an object's move band is prevented,
+      // so the browser places no native selection or word there.
       const text = startInPlaceTextSession(el, {
+        caretPoint: point,
+        selectWord,
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
           // A list toggle or its undo can retag the edited element.
@@ -6725,13 +6741,89 @@ export default function SlideEditor({
     (e: React.PointerEvent, outlineRect: DOMRect) => {
       if (readOnly || e.button !== 0) return;
       if (editingElRef.current) exitInlineEdit();
-      const selection = getObjectOperationSelection();
-      if (!selection) return;
-      const movable = collectMovableSlideObjects(
-        selection.elements,
-        getObjectGeometry,
-      );
-      if (movable.length !== selection.elements.length) return;
+      let promotion: {
+        element: HTMLElement;
+        snapshot: {
+          className: string;
+          style: string | null;
+          objectId: string | null;
+          contentEditable: string | null;
+          editingBlock: string | null;
+        };
+        restoreMarkdownTree?: () => void;
+        restoreDescendants?: () => void;
+        wasFlow: boolean;
+      } | null = null;
+      const removeFreeformLayoutSpacer = (element: HTMLElement) => {
+        const objectId = element.getAttribute("data-slide-object-id");
+        if (!objectId) return;
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      };
+      const restorePromotion = () => {
+        if (!promotion) return;
+        removeFreeformLayoutSpacer(promotion.element);
+        promotion.restoreDescendants?.();
+        if (promotion.restoreMarkdownTree) {
+          promotion.restoreMarkdownTree();
+        } else {
+          restoreSlideObjectDomSnapshot(promotion.element, promotion.snapshot);
+        }
+        if (promotion.snapshot.objectId) {
+          promotion.element.setAttribute(
+            "data-slide-object-id",
+            promotion.snapshot.objectId,
+          );
+        } else {
+          promotion.element.removeAttribute("data-slide-object-id");
+        }
+        promotion = null;
+      };
+      let elements = getObjectOperationSelection()?.elements;
+      if (!elements) {
+        if (multiSelection.size > 0) return;
+        const slideContent = getSlideContent();
+        const element =
+          resolveSelectedElement() ??
+          (selectedImg && slideContent
+            ? (findPersistedImageObject(selectedImg, slideContent) ??
+              selectedImg)
+            : null);
+        if (!element) return;
+
+        promotion = {
+          element,
+          snapshot: {
+            className: element.className,
+            style: element.getAttribute("style"),
+            objectId: element.getAttribute("data-slide-object-id"),
+            contentEditable: element.getAttribute("contenteditable"),
+            editingBlock: element.getAttribute("data-editing-block"),
+          },
+          wasFlow: getComputedStyle(element).position !== "absolute",
+        };
+        const frozen = freezeElementForFreeformSelection(element);
+        promotion.restoreMarkdownTree = frozen?.restoreMarkdownTree;
+        promotion.restoreDescendants = frozen?.restoreDescendants;
+        if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+          restorePromotion();
+          return;
+        }
+        elements = [frozen.element];
+      }
+      const movable = collectMovableSlideObjects(elements, getObjectGeometry);
+      if (movable.length !== elements.length) {
+        restorePromotion();
+        return;
+      }
 
       e.preventDefault();
       e.stopPropagation();
@@ -6781,12 +6873,16 @@ export default function SlideEditor({
       };
 
       const restore = () => {
-        for (const member of members) {
-          const originalStyle = originalStyles.get(member.objectId);
-          if (originalStyle === null || originalStyle === undefined) {
-            member.element.removeAttribute("style");
-          } else {
-            member.element.setAttribute("style", originalStyle);
+        if (promotion) {
+          restorePromotion();
+        } else {
+          for (const member of members) {
+            const originalStyle = originalStyles.get(member.objectId);
+            if (originalStyle === null || originalStyle === undefined) {
+              member.element.removeAttribute("style");
+            } else {
+              member.element.setAttribute("style", originalStyle);
+            }
           }
         }
         if (multiSelection.size > 0) {
@@ -6832,22 +6928,44 @@ export default function SlideEditor({
           restore();
           return;
         }
+        if (multiSelection.size === 0) {
+          const element = members[0]?.element;
+          const selector = element && getBuilderSelector(element);
+          if (element && selector) selectElementForStyling(element, selector);
+        }
+        if (promotion?.wasFlow) {
+          preserveSlideObjectLayoutSpacer(promotion.element);
+          if (!promotion.restoreMarkdownTree) {
+            const positioningLayer = resolveSlidePositioningLayer(
+              promotion.element,
+            );
+            if (positioningLayer) {
+              releaseSlideObjectFromLeftBoxes(
+                promotion.element,
+                positioningLayer,
+              );
+            }
+          }
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html === null) {
+          restore();
+          return;
+        }
+        if (promotion?.restoreMarkdownTree) {
+          removeFreeformLayoutSpacer(promotion.element);
+          promotion.restoreMarkdownTree();
+        }
         if (multiSelection.size > 0) {
           pendingMultiSelectionResyncRef.current = {
             objectIds: members.map((member) => member.objectId),
             paths: [],
           };
-        } else {
-          const element = members[0]?.element;
-          const selector = element && getBuilderSelector(element);
-          if (element && selector) selectElementForStyling(element, selector);
         }
-        const html = readCurrentSlideContentHtml();
-        if (html !== null) {
-          onUpdateSlideRef.current({ content: html }, undefined, {
-            persistence: "immediate",
-          });
-        }
+        promotion = null;
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          persistence: "immediate",
+        });
       };
 
       const onCancel = () => {
@@ -6863,13 +6981,19 @@ export default function SlideEditor({
     [
       applyObjectGeometry,
       exitInlineEdit,
+      findPersistedImageObject,
+      freezeElementForFreeformSelection,
       getObjectGeometry,
+      getSlideContent,
       getObjectOperationSelection,
       multiSelection,
       onUpdateSlideRef,
       readCurrentSlideContentHtml,
       readOnly,
+      releaseSlideObjectFromLeftBoxes,
       refreshMultiSelectionRects,
+      resolveSelectedElement,
+      selectedImg,
       scheduleMultiSelectionRects,
       selectElementForStyling,
       selectionOverlayMeasurementKey,
@@ -7815,7 +7939,7 @@ export default function SlideEditor({
       // getData() payloads (only types) in most browsers, so this is a
       // best-effort signal; the drop handler does the real <img> check.
       (types.includes("text/html") && types.includes("text/uri-list"));
-    if (!hasImage) return;
+    if (!hasImage && !types.includes("text/uri-list")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }, []);
@@ -7841,7 +7965,14 @@ export default function SlideEditor({
       // No native file — check for a dragged <img> instead (e.g. one dragged
       // out of the agent chat panel's generated-image preview).
       const url = extractDraggedImageUrl(e.dataTransfer);
-      if (!url) return;
+      if (!url) {
+        const types = Array.from(e.dataTransfer.types ?? []);
+        if (types.includes("text/uri-list")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       if (textSessionRef.current) exitInlineEditRef.current();
@@ -8006,7 +8137,7 @@ export default function SlideEditor({
               selector: blockSelector,
             });
           }
-          enterInlineEdit(block);
+          enterInlineEdit(block, { x: e.clientX, y: e.clientY });
           return;
         }
       }
@@ -8624,7 +8755,7 @@ export default function SlideEditor({
 
       e.preventDefault();
       e.stopPropagation();
-      enterInlineEdit(block);
+      enterInlineEdit(block, { x: e.clientX, y: e.clientY }, true);
     },
     [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
@@ -9214,7 +9345,7 @@ export default function SlideEditor({
             !readOnly ? (e) => startGroupDrag(e, multiSelection) : undefined
           }
           onRotateStart={
-            !readOnly
+            !readOnly && objectOperationSelection
               ? (e) => startRotateSelection(e, multiSelectionBounds)
               : undefined
           }

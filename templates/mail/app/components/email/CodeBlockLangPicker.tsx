@@ -54,7 +54,6 @@ export function CodeBlockLangPicker({ editor }: CodeBlockLangPickerProps) {
       const lang = editor.getAttributes("codeBlock").language || "";
       setCurrentLang(lang);
 
-      // Find the code block DOM node
       const { $from } = editor.state.selection;
       let depth = $from.depth;
       while (depth > 0 && $from.node(depth).type.name !== "codeBlock") {
