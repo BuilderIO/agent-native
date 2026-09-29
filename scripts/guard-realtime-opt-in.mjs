@@ -18,8 +18,12 @@ const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-realtime-opt-in\b/;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 const FORBIDDEN_PATH =
   /^(?:packages\/docs\/|packages\/core\/docs\/)|(?:^|\/)(?:public|marketing|docs|ssr)(?:\/|\.|$)/i;
-const OPT_IN = /^\s*realtime\s*:/;
+const OPT_IN = /\brealtime\s*:/;
 const REASON = /\breason\s*:\s*["'`]\s*[^"'`\s][^"'`]*["'`]/;
+const PRIVATE_ROUTE_GATE =
+  /\b(?:isPrivate[A-Z\w]*|isAuthenticated[A-Z\w]*|isSignedIn[A-Z\w]*|isProtected[A-Z\w]*)\b/;
+const PUBLIC_ROUTE =
+  /["'`]\/(?:share|public|marketing|docs|present|login|signup|auth)(?:\/|["'`])/i;
 
 export function findRealtimeOptInViolations(file, source, addedLineNumbers) {
   if (SKIPPED.test(file) || !/\.(?:ts|tsx|js|jsx)$/.test(file)) return [];
@@ -48,15 +52,18 @@ export function findRealtimeOptInViolations(file, source, addedLineNumbers) {
     const routeScoped =
       /\bpathname\b/.test(expression) &&
       /\?/.test(expression) &&
-      /:\s*undefined\b/.test(expression);
+      /:\s*undefined\b/.test(expression) &&
+      PRIVATE_ROUTE_GATE.test(expression);
+    const publicRoute = PUBLIC_ROUTE.test(expression);
     const forbidden = FORBIDDEN_PATH.test(file);
 
-    if (!reasonPresent || forbidden || !routeScoped) {
+    if (!reasonPresent || forbidden || publicRoute || !routeScoped) {
       violations.push({
         file,
         line: lineNumber,
         missingReason: !reasonPresent,
         forbidden,
+        publicRoute,
         missingRouteGate: !routeScoped,
       });
     }
@@ -95,9 +102,11 @@ function main() {
       console.error(
         "    public, docs, marketing, and SSR routes must stay opted out",
       );
+    if (violation.publicRoute)
+      console.error("    anonymous-reachable routes must stay opted out");
     if (violation.missingRouteGate)
       console.error(
-        "    guard the opt-in by a private route pathname and return undefined elsewhere",
+        "    guard the opt-in by a private route predicate and return undefined elsewhere",
       );
   }
   console.error(

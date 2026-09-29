@@ -338,6 +338,7 @@ type MailSyncEvent = {
 
 export function createMailSyncEventHandler(qc: QueryClient) {
   let refreshSignalInvalidationScheduled = false;
+  let actionQueryInvalidationScheduled = false;
 
   return (data: MailSyncEvent) => {
     const isOwnEvent = data.requestSource === TAB_ID;
@@ -397,10 +398,15 @@ export function createMailSyncEventHandler(qc: QueryClient) {
         invalidateSettingsSurfaces();
       }
     } else if (data.source === "action") {
-      // The core sync hook already refreshes action-backed queries for action
-      // events. Email and label reads are refreshed by the explicit
-      // refresh-signal app-state event so generic action changes do not
-      // cancel and restart Gmail list requests.
+      if (!actionQueryInvalidationScheduled) {
+        actionQueryInvalidationScheduled = true;
+        queueMicrotask(() => {
+          actionQueryInvalidationScheduled = false;
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        });
+      }
     } else if (data.source === "screen-refresh") {
       if (!isOwnEvent) {
         markExternalEmailRefresh();
@@ -423,13 +429,30 @@ function DbSyncSetup() {
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     ignoreSource: TAB_ID,
     onEvent,
-    realtime:
-      location.pathname === "/inbox"
-        ? { reason: "new mail arrives while the inbox is open" }
-        : undefined,
+    realtime: isPrivateInboxPath(location.pathname)
+      ? { reason: "new mail arrives while the inbox is open" }
+      : undefined,
     pauseWhenHidden: true,
   });
   return null;
+}
+
+const PRIVATE_MAIL_VIEWS = new Set([
+  "inbox",
+  "unread",
+  "starred",
+  "snoozed",
+  "scheduled",
+  "sent",
+  "drafts",
+  "archive",
+  "trash",
+  "all",
+]);
+
+export function isPrivateInboxPath(pathname: string): boolean {
+  const view = pathname.split("/").filter(Boolean)[0];
+  return view !== undefined && PRIVATE_MAIL_VIEWS.has(view);
 }
 
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;

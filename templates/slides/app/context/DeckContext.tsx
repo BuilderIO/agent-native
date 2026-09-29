@@ -2646,7 +2646,7 @@ export function DeckProvider({
   }, [org?.orgId, orgLoading, reloadDecks, resetDeckScope]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !realtimeEnabled || isEmbedAuthActive()) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastListFetchAt = 0;
@@ -2742,7 +2742,12 @@ export function DeckProvider({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged, loading]);
+  }, [
+    loading,
+    realtimeEnabled,
+    refetchDeckListIfChanged,
+    refetchOpenDeckIfChanged,
+  ]);
 
   useEffect(() => {
     if (loading) return;
@@ -2779,9 +2784,6 @@ export function DeckProvider({
   ]);
 
   useEffect(() => {
-    if (!realtimeEnabled || isEmbedAuthActive()) return;
-    let stopped = false;
-    let hasConnectedOnce = false;
     const sideEffectTabs = new Set<string>();
 
     const onToolDone = (event: Event) => {
@@ -2823,12 +2825,24 @@ export function DeckProvider({
             error,
           );
         });
+      } else {
+        runHomeGridListRefresh();
       }
     };
 
     window.addEventListener("agent-native:tool-done", onToolDone);
     window.addEventListener("agentNative.chatRunning", onChatRunning);
 
+    return () => {
+      window.removeEventListener("agent-native:tool-done", onToolDone);
+      window.removeEventListener("agentNative.chatRunning", onChatRunning);
+    };
+  }, [refetchOpenDeckIfChanged, runHomeGridListRefresh]);
+
+  useEffect(() => {
+    if (!realtimeEnabled || isEmbedAuthActive()) return;
+    let stopped = false;
+    let hasConnectedOnce = false;
     const unsubscribe = subscribeSyncEvents({
       pauseWhenHidden: true,
       onEvents: (events) => {
@@ -2893,8 +2907,6 @@ export function DeckProvider({
 
     return () => {
       stopped = true;
-      window.removeEventListener("agent-native:tool-done", onToolDone);
-      window.removeEventListener("agentNative.chatRunning", onChatRunning);
       liveChannelConnectedRef.current = false;
       sseStreamConnectedRef.current = false;
       unsubscribe();

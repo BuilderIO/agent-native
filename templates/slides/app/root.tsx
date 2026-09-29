@@ -74,6 +74,10 @@ export function isDeckEditorPath(pathname: string): boolean {
   return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
 }
 
+function isPrivateDeckEditorPath(pathname: string): boolean {
+  return isDeckEditorPath(pathname) && !isBareContentPath(pathname);
+}
+
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
@@ -203,7 +207,7 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
-    realtime: isDeckEditorPath(location.pathname)
+    realtime: isPrivateDeckEditorPath(location.pathname)
       ? { reason: "other collaborators can edit this deck while it is open" }
       : undefined,
     pauseWhenHidden: true,

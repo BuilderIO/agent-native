@@ -174,9 +174,51 @@ describe("poll handler", () => {
       events: [expect.objectContaining(durableEvent)],
     });
     expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).not.toMatch(
+      /MAX\(updated_at\)|information_schema|pg_indexes/i,
+    );
     expect(executedSql()).not.toContain(
       "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
     );
+  });
+
+  it("uses one indexed durable read on an idle poll without initialization work", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockResolvedValue({ rows: [] });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await expect(handler({ query: { since: "1000" } })).resolves.toEqual({
+      version: 1_000,
+      events: [],
+    });
+    const queries = mockExecute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("FROM sync_events WHERE version > ?");
+  });
+
+  it("sets the initial durable cursor with one version lookup", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockExecute.mockResolvedValue({ rows: [{ max_version: 4_200 }] });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await expect(handler({ query: {} })).resolves.toEqual({
+      version: 4_200,
+      events: [],
+    });
+    const queries = mockExecute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(queries).toEqual([
+      "SELECT MAX(version) as max_version FROM sync_events",
+    ]);
   });
 
   it("does not advance past an unread durable event page when memory is ahead", async () => {

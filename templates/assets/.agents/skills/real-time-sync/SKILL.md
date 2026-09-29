@@ -60,17 +60,17 @@ for remote sync:
 ```tsx
 useDbSync({
   queryClient,
-  realtime: isDeckEditorPath(location.pathname)
+  realtime: isPrivateDeckEditorPath(location.pathname)
     ? { reason: "other collaborators can edit this deck while it is open" }
     : undefined,
   pauseWhenHidden: true,
 });
 ```
 
-The reason is required by the TypeScript API and by `guard:realtime-opt-in`.
-The guard checks only added lines, rejects public/docs/SSR paths, and requires a
-pathname-gated opt-in. A reviewed exception must put this pragma on the opt-in
-or the line immediately above it:
+The reason is required by the TypeScript API. `guard:realtime-opt-in` also
+requires a named private or authenticated pathname predicate, and rejects
+public/docs/SSR files and known anonymous routes. A reviewed exception must put
+this pragma on the opt-in or the line immediately above it:
 
 ```ts
 // guard:allow-realtime-opt-in — short reason
@@ -107,6 +107,11 @@ screen refresh only while its panel is open or a chat run is active; public docs
 can disable that boundary with `screenRefreshEnabled={false}`.
 
 ## Source counters
+
+On local tool completion, `useDbSync()` advances the action counter and any
+other raw-query source counters currently observed by the page. Generic tool
+completion events do not identify their data domain, so keep raw-query source
+lists narrow. Remote sync events advance their specific source counters.
 
 | Source | Changed by |
 | --- | --- |

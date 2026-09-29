@@ -1906,6 +1906,7 @@ export function processEvent(
           detail: {
             tool: doneTool,
             result: ev.result,
+            isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
             tabId,
             eventId: ev.eventId ?? ev.id,

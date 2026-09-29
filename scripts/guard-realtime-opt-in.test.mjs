@@ -22,6 +22,27 @@ test("accepts a reasoned opt-in behind a pathname gate", () => {
   );
 });
 
+test("finds inline opt-ins and requires a private route predicate", () => {
+  const source =
+    'useDbSync({ realtime: isPrivateInboxPath(location.pathname) ? { reason: "new mail arrives" } : undefined });';
+  assert.deepEqual(
+    findRealtimeOptInViolations(
+      "templates/mail/app/root.tsx",
+      source,
+      new Set([1]),
+    ),
+    [],
+  );
+  assert.equal(
+    findRealtimeOptInViolations(
+      "templates/mail/app/root.tsx",
+      source.replace("isPrivateInboxPath", "isInboxPath"),
+      new Set([1]),
+    )[0]?.missingRouteGate,
+    true,
+  );
+});
+
 test("rejects an opt-in without a reason", () => {
   const source = routeOptIn.replace(
     '{ reason: "collaborators can edit this record" }',
@@ -51,7 +72,7 @@ test("rejects public and unguarded routes", () => {
       "templates/example/app/root.tsx",
       [
         "useDbSync({",
-        '  realtime: { reason: "collaborators edit" },',
+        '  realtime: isPrivatePath(location.pathname) ? { reason: "collaborators edit" } : undefined,',
         "});",
       ].join("\n"),
       new Set([2]),

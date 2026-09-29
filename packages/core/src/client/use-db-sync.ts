@@ -26,6 +26,7 @@ import {
 } from "./embed-auth.js";
 import {
   bumpChangeVersion,
+  bumpActiveLocalChangeVersions,
   bumpLocalChangeVersion,
 } from "./use-change-version.js";
 
@@ -358,6 +359,7 @@ class SyncTransport {
   private consecutiveFailures = 0;
   private idlePollBackoffIndex = 0;
   private activeChatIds = new Map<string, number>();
+  private idleActivityGeneration = 0;
   // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
   // flips to "local" on health-gate revert; `token` is the current subscribe
   // token (minted from the app, rotated over the stream), never part of any
@@ -561,6 +563,15 @@ class SyncTransport {
     version: number | undefined,
     cursor: SyncCursor = this.cursorRef,
   ): void {
+    if (typeof window !== "undefined") {
+      for (const event of events) {
+        if (event.source === "screen-refresh") {
+          window.dispatchEvent(
+            new CustomEvent("agentNative:syncEvent", { detail: event }),
+          );
+        }
+      }
+    }
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version, cursor);
     }
@@ -918,6 +929,7 @@ class SyncTransport {
   private async poll(force = false, scheduled = false): Promise<void> {
     if (this.stopped || this.inFlight) return;
     if (!force && this.shouldStayIdle()) return;
+    const idleActivityGenerationAtStart = this.idleActivityGeneration;
     this.inFlight = true;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
@@ -939,7 +951,11 @@ class SyncTransport {
       const events = data.events ?? [];
       if (events.length) {
         this.idlePollBackoffIndex = 0;
-      } else if (scheduled && !this.isActive) {
+      } else if (
+        scheduled &&
+        !this.isActive &&
+        idleActivityGenerationAtStart === this.idleActivityGeneration
+      ) {
         this.idlePollBackoffIndex = Math.min(
           this.idlePollBackoffIndex + 1,
           IDLE_POLL_BACKOFF.length - 1,
@@ -1012,6 +1028,7 @@ class SyncTransport {
   };
 
   private handleActivity = (): void => {
+    this.idleActivityGeneration++;
     if (this.idlePollBackoffIndex === 0) return;
     this.idlePollBackoffIndex = 0;
     this.reschedule();
@@ -1574,7 +1591,11 @@ export function useDbSync(
     }
 
     const sideEffectToolsByTab = new Map<string, Set<string>>();
-    const eventsForTool = (tool: string, completedSideEffect: boolean) => {
+    const eventsForTool = (
+      tool: string,
+      completedSideEffect: boolean,
+      failed: boolean,
+    ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
         events.push({ source: "action", key: tool, version: 0 });
@@ -1582,7 +1603,7 @@ export function useDbSync(
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
       }
-      if (tool === "refresh-screen") {
+      if (tool === "refresh-screen" && !failed) {
         events.push({ source: "screen-refresh", key: tool, version: 0 });
       }
       return events;
@@ -1603,6 +1624,17 @@ export function useDbSync(
       )) {
         if (source) bumpLocalChangeVersion(source);
       }
+      if (
+        events.some((syncEvent) => syncEvent.source === "action") &&
+        events.every((syncEvent) =>
+          ["action", "app-state", "screen-refresh"].includes(syncEvent.source),
+        )
+      ) {
+        // Tool completion has no domain scope, so wake mounted raw-query counters too.
+        bumpActiveLocalChangeVersions(
+          events.map((syncEvent) => syncEvent.source),
+        );
+      }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
@@ -1613,13 +1645,18 @@ export function useDbSync(
         event as CustomEvent<{
           tool?: unknown;
           completedSideEffect?: unknown;
+          isError?: unknown;
           tabId?: unknown;
         }>
       ).detail;
       if (typeof detail?.tool !== "string") return;
       const tool = detail.tool;
       const completedSideEffect = detail.completedSideEffect === true;
-      const events = eventsForTool(tool, completedSideEffect);
+      const events = eventsForTool(
+        tool,
+        completedSideEffect,
+        detail.isError === true,
+      );
       if (events.length === 0) return;
       if (completedSideEffect) {
         const tabId =
@@ -1719,100 +1756,34 @@ export function useScreenRefreshKey(
     pauseWhenHidden?: boolean;
   } = {},
 ): number {
-  const {
-    enabled = true,
-    pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
-    sseUrl = resolveSseUrl(options.sseUrl),
-    interval = 2000,
-    fallbackInterval = Math.max(
-      options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
-      interval,
-    ),
-    pauseWhenHidden = true,
-  } = options;
-  const idleInterval =
-    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
+  const enabled = options.enabled ?? true;
   const [key, setKey] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
 
-    const id = Symbol("useScreenRefreshKey");
-    let subscriberVersion = 0;
-    let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
-    let transport: SyncTransport | undefined;
-
     const handleToolDone = (event: Event) => {
-      const detail = (event as CustomEvent<{ tool?: unknown }>).detail;
-      if (detail?.tool === "refresh-screen") setKey((current) => current + 1);
+      const detail = (
+        event as CustomEvent<{ tool?: unknown; isError?: unknown }>
+      ).detail;
+      if (detail?.tool === "refresh-screen" && detail.isError !== true) {
+        setKey((current) => current + 1);
+      }
+    };
+    const handleSyncEvent = (event: Event) => {
+      const detail = (event as CustomEvent<SyncEvent>).detail;
+      if (detail?.source === "screen-refresh") {
+        setKey((current) => current + 1);
+      }
     };
     window.addEventListener("agent-native:tool-done", handleToolDone);
-
-    function onEvents(
-      events: SyncEvent[],
-      version: number | undefined,
-      cursor: SyncCursor | undefined,
-    ): void {
-      const freshEvents = events.filter((event) => {
-        return isSyncEventAfterCursor(
-          event,
-          subscriberCursor,
-          subscriberVersion,
-        );
-      });
-      if (freshEvents.some((e) => e.source === "screen-refresh")) {
-        setKey((k) => k + 1);
-      }
-      const maxEventVersion = freshEvents.reduce(
-        (max, event) =>
-          Math.max(max, typeof event.version === "number" ? event.version : 0),
-        0,
-      );
-      subscriberVersion = Math.max(
-        subscriberVersion,
-        version ?? 0,
-        maxEventVersion,
-      );
-      for (const event of freshEvents) {
-        subscriberCursor = maxSyncCursor(
-          subscriberCursor,
-          syncEventCursor(event),
-        );
-      }
-      if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
-    }
-
-    transport = getOrCreateTransport(
-      pollUrl,
-      sseUrl,
-      resolveGatewayBinding(sseUrl),
-    );
-    transport.add(id, {
-      onEvents,
-      pauseWhenHidden,
-      interval,
-      idleInterval,
-      fallbackInterval,
-    });
+    window.addEventListener("agentNative:syncEvent", handleSyncEvent);
 
     return () => {
       window.removeEventListener("agent-native:tool-done", handleToolDone);
-      if (transport) {
-        transport.remove(id);
-        if (!transport["subscribers"].size) {
-          releaseTransport(pollUrl, sseUrl);
-        }
-      }
+      window.removeEventListener("agentNative:syncEvent", handleSyncEvent);
     };
-  }, [
-    enabled,
-    pollUrl,
-    sseUrl,
-    interval,
-    idleInterval,
-    fallbackInterval,
-    pauseWhenHidden,
-  ]);
+  }, [enabled]);
 
   return key;
 }

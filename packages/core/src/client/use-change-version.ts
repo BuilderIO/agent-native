@@ -70,6 +70,13 @@ class ChangeVersionStore {
     this.activeSources.clear();
   }
 
+  bumpActiveLocalSources(excludedSources: readonly string[]): void {
+    const excluded = new Set(excludedSources);
+    for (const source of [...this.activeSources.keys()]) {
+      if (!excluded.has(source)) this.bumpLocal(source);
+    }
+  }
+
   private evictUnobservedSources(): void {
     while (this.versions.size > MAX_TRACKED_SOURCES) {
       let evicted = false;
@@ -93,6 +100,12 @@ export function bumpChangeVersion(source: string, version: number): boolean {
 
 export function bumpLocalChangeVersion(source: string): boolean {
   return store.bumpLocal(source);
+}
+
+export function bumpActiveLocalChangeVersions(
+  excludedSources: readonly string[] = [],
+): void {
+  store.bumpActiveLocalSources(excludedSources);
 }
 
 export function getChangeVersion(source: string): number {
