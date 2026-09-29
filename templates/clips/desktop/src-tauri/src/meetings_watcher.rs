@@ -201,9 +201,15 @@ impl MeetingsWatcherState {
         paused
     }
 
-    pub(crate) fn note_authorized(&self, poller: Poller) {
+    pub(crate) fn note_authorized(&self, poller: Poller, credentials: &SessionCredentials) {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        g.unauthorized.remove(&poller);
+        let matches = g
+            .unauthorized
+            .get(&poller)
+            .is_some_and(|retry| &retry.credentials == credentials);
+        if matches {
+            g.unauthorized.remove(&poller);
+        }
     }
 
     pub fn resume_polling(&self) {
@@ -465,7 +471,7 @@ async fn tick_once(
     if !status.is_success() {
         return Err(format!("list-meetings http {}", status));
     }
-    state.note_authorized(Poller::Meetings);
+    state.note_authorized(Poller::Meetings, &credentials);
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     let meetings = parse_meetings(&body);
 
@@ -805,7 +811,7 @@ mod tests {
 
         state.note_unauthorized(Poller::AdhocMeetings, creds.clone(), base, now);
         state.note_unauthorized(Poller::AdhocMeetings, creds.clone(), base, now);
-        state.note_authorized(Poller::AdhocMeetings);
+        state.note_authorized(Poller::AdhocMeetings, &creds);
 
         assert!(!state.note_unauthorized(Poller::AdhocMeetings, creds, base, now));
     }
@@ -819,9 +825,31 @@ mod tests {
 
         state.note_unauthorized(Poller::FeatureFlags, creds.clone(), base, now);
         state.note_unauthorized(Poller::FeatureFlags, creds.clone(), base, now);
-        state.note_authorized(Poller::FeatureFlags);
+        state.note_authorized(Poller::FeatureFlags, &creds);
 
         assert!(!state.note_unauthorized(Poller::FeatureFlags, creds, base, now));
+    }
+
+    #[test]
+    fn stale_authorized_result_does_not_clear_a_new_session_rejection() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let stale = (Some("stale-cookie".to_string()), None);
+        let current = (Some("current-cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        for _ in 0..super::UNAUTHORIZED_PAUSE_AFTER {
+            state.note_unauthorized(Poller::Meetings, stale.clone(), base, now);
+        }
+        for _ in 0..super::UNAUTHORIZED_PAUSE_AFTER {
+            state.note_unauthorized(Poller::Meetings, current.clone(), base, now);
+        }
+
+        state.note_authorized(Poller::Meetings, &stale);
+        assert!(!state.should_poll(Poller::Meetings, &current, now));
+
+        state.note_authorized(Poller::Meetings, &current);
+        assert!(state.should_poll(Poller::Meetings, &current, now));
     }
 
     #[test]

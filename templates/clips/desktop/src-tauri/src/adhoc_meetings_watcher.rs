@@ -575,7 +575,7 @@ async fn tick_macos(
     let meeting = match create_adhoc_meeting(app, client, &session, platform, reconcile_since).await
     {
         Ok(meeting) => {
-            meetings_state.note_authorized(Poller::AdhocMeetings);
+            meetings_state.note_authorized(Poller::AdhocMeetings, &credentials);
             meeting
         }
         Err(failure) => {

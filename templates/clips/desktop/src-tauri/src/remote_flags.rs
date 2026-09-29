@@ -158,7 +158,7 @@ pub(crate) fn spawn_refresh(app: AppHandle) {
         )
         .await
         {
-            Ok(()) => state.note_authorized(Poller::FeatureFlags),
+            Ok(()) => state.note_authorized(Poller::FeatureFlags, &credentials),
             Err(RefreshError::Unauthorized) => {
                 let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
                 state.note_unauthorized(
@@ -209,7 +209,7 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
                         {
                             Ok(()) => {
                                 fetched_once = true;
-                                state.note_authorized(Poller::FeatureFlags);
+                                state.note_authorized(Poller::FeatureFlags, &credentials);
                             }
                             Err(RefreshError::NoCredentials) => {}
                             Err(RefreshError::Unauthorized) => {

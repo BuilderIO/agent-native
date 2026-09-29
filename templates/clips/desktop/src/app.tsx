@@ -1477,6 +1477,16 @@ export function App({
     }
   }, [serverUrl]);
 
+  const resumePolling = useCallback(async () => {
+    if (document.hidden) return;
+    const authResult = await checkAuth();
+    if (authResult.state !== "authenticated") return;
+    await pushMeetingsSession();
+    await invoke("meetings_watcher_resume_polling").catch(() => {
+      // Older builds may not expose this command yet — best-effort.
+    });
+  }, [checkAuth, pushMeetingsSession]);
+
   useEffect(() => {
     void checkAuth();
   }, [checkAuth]);
@@ -1492,8 +1502,7 @@ export function App({
     let unlisten: (() => void) | null = null;
     listen("meetings:auth-needed", async () => {
       console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
-      const authResult = await checkAuth();
-      if (authResult.state === "authenticated") await pushMeetingsSession();
+      await resumePolling();
     })
       .then((u) => {
         unlisten = u;
@@ -1508,26 +1517,16 @@ export function App({
         }
       }
     };
-  }, [signedInAs, serverUrl, checkAuth, pushMeetingsSession]);
+  }, [signedInAs, serverUrl, pushMeetingsSession, resumePolling]);
 
   useEffect(() => {
     if (authStatus !== "authed") return;
-    function resumePolling() {
-      if (document.hidden) return;
-      void checkAuth().then(async (authResult) => {
-        if (authResult.state !== "authenticated") return;
-        await pushMeetingsSession();
-        await invoke("meetings_watcher_resume_polling").catch(() => {
-          // Older builds may not expose this command yet — best-effort.
-        });
-      });
-    }
-    resumePolling();
+    void resumePolling();
     document.addEventListener("visibilitychange", resumePolling);
     return () => {
       document.removeEventListener("visibilitychange", resumePolling);
     };
-  }, [authStatus, checkAuth, pushMeetingsSession]);
+  }, [authStatus, resumePolling]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
