@@ -193,6 +193,27 @@ function insertionAtOperationAnchor(
   );
 }
 
+function anchoredNfmMatches(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+  expectedSource: string,
+): boolean {
+  const range = clampRange(from, to, doc.content.size);
+  const { paragraph, doc: documentNode } = doc.type.schema.nodes;
+  if (!range || !paragraph || !documentNode) return false;
+  const selected = doc.slice(range.from, range.to);
+  if (selected.content.content.some((node) => !node.isText)) return false;
+  const isolatedDocument = documentNode.create(
+    null,
+    paragraph.create(null, selected.content),
+  );
+  return (
+    canonicalizeNfm(docToNfm(isolatedDocument.toJSON())) ===
+    canonicalizeNfm(expectedSource)
+  );
+}
+
 function settledAtOperation(
   doc: ProseMirrorNode,
   spec: SuggestionHighlightSpec,
@@ -204,14 +225,14 @@ function settledAtOperation(
   if (spec.kind !== "delete" && spec.kind !== "replace") return false;
   const before = spec.settlingBeforePresentation;
   if (!before) return false;
+  if (spec.kind === "replace")
+    return anchoredNfmMatches(doc, spec.from, spec.to, spec.insertedText ?? "");
   const removed = before.source.slice(before.from, before.to);
   if (
     removed &&
     doc.textBetween(spec.from, spec.from + removed.length) === removed
   )
     return false;
-  if (spec.kind === "replace")
-    return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
   const right = presentation.source.slice(
     presentation.from,
     presentation.from + 32,

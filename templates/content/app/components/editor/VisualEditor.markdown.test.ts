@@ -108,6 +108,7 @@ const TooltipProviderWithoutChildren =
   TooltipProvider as ComponentType<TooltipProviderProps>;
 
 import {
+  preciseDraftSuggestionPresentations,
   replaceAcceptedProposalPresentations,
   replaceAcceptedSuggestionPresentations,
   suggestionPresentations,
@@ -1760,6 +1761,164 @@ describe("live suggestion presentation", () => {
       editor.destroy();
     }
   });
+
+  it("keeps an existing multi-hunk draft precise after an earlier draft insertion", () => {
+    const before =
+      "Old red lanterns shine through the western pines. Nearby insects glow softly.";
+    const after =
+      "Bright red lanterns shine through the eastern pines. Nearby insects glow softly.";
+    const prefix = "Earlier draft. ";
+    const currentMarkdown = `${prefix}${after}`;
+    const operation = markdownSuggestionOperation(before, after)!;
+    const mappedFrom = currentMarkdown.indexOf(operation.after.changedText);
+    const visualSuggestions = preciseDraftSuggestionPresentations(
+      {
+        id: "editing",
+        operations: [operation],
+        anchor: {
+          from: mappedFrom,
+          to: mappedFrom + operation.after.changedText.length,
+          prefix: currentMarkdown.slice(
+            Math.max(0, mappedFrom - 32),
+            mappedFrom,
+          ),
+          suffix: currentMarkdown.slice(
+            mappedFrom + operation.after.changedText.length,
+            mappedFrom + operation.after.changedText.length + 32,
+          ),
+        },
+      } as never,
+      currentMarkdown,
+    );
+    const unrelated = suggestionPresentations(
+      {
+        id: "unrelated",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(
+            currentMarkdown,
+            currentMarkdown.replace("lanterns", "beacon"),
+          )!,
+        ],
+      },
+      currentMarkdown,
+    );
+    const editor = createSuggestionEditor(currentMarkdown);
+
+    try {
+      expect(
+        visualSuggestions?.map((suggestion) => suggestion.afterText),
+      ).toEqual(["Bright", "eastern"]);
+      const specs = [...visualSuggestions!, ...unrelated].map((suggestion) =>
+        suggestionHighlightSpec(editor.state.doc, suggestion),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.filter((spec) => spec !== null),
+      });
+
+      expect(
+        Array.from(
+          editor.view.dom.querySelectorAll(
+            '[data-suggestion-id="editing"].suggestion-change',
+          ),
+        ).map((node) => node.textContent),
+      ).toEqual(["Bright", "eastern"]);
+      expect(
+        editor.view.dom.querySelector(
+          '[data-suggestion-id="unrelated"][data-suggestion-widget="true"]',
+        )?.textContent,
+      ).toBe("beacon");
+      expect(
+        Array.from(
+          editor.view.dom.querySelectorAll(
+            '[data-suggestion-id="editing"].suggestion-delete-widget',
+          ),
+        ).map((node) => node.textContent),
+      ).toEqual(["Old", "western"]);
+      expect(docToNfm(editor.getJSON() as any)).toBe(currentMarkdown);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      before: "The old word and old ending.",
+      after: "The new word and new ending.",
+      changed: ["new", "new"],
+      rendered: ["new", "new"],
+    },
+    {
+      before: "The Echo word and Old ending.",
+      after: "The **Echo** word and Bright ending.",
+      changed: ["**Echo**", "Bright"],
+      rendered: ["Echo", "Bright"],
+    },
+  ])(
+    "renders precise draft spans in the full session draft: $after",
+    ({ before, after, changed, rendered }) => {
+      const earlier = markdownSuggestionOperation(
+        before,
+        before.replace("The ", "TheX "),
+      )!;
+      const operation = markdownSuggestionOperation(before, after)!;
+      const currentMarkdown = after.replace("The ", "TheX ");
+      const anchors = draftSuggestionAnchors(
+        [earlier, operation],
+        currentMarkdown,
+      );
+      const presentations = preciseDraftSuggestionPresentations(
+        {
+          id: "editing",
+          operations: [operation],
+          anchor: anchors[1]!,
+        },
+        currentMarkdown,
+      );
+      const earlierPresentation = {
+        id: "earlier",
+        kind: earlier.kind,
+        beforeText: earlier.before.changedText,
+        afterText: earlier.after.changedText,
+        anchor: anchors[0]!,
+        presentation: "draft" as const,
+      };
+      const editor = createSuggestionEditor(currentMarkdown);
+      try {
+        expect(
+          presentations?.map((presentation) => presentation.afterText),
+        ).toEqual(changed);
+        const specs = [...presentations!, earlierPresentation].map(
+          (presentation) =>
+            suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        expect(specs.every((spec) => spec !== null)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.filter((spec) => spec !== null),
+        });
+        expect(
+          Array.from(
+            editor.view.dom.querySelectorAll(
+              '[data-suggestion-id="editing"].suggestion-change',
+            ),
+          ).map((node) => node.textContent),
+        ).toEqual(rendered);
+        expect(
+          editor.view.dom.querySelector(
+            '[data-suggestion-id="earlier"].suggestion-change',
+          )?.textContent,
+        ).toBe("X");
+        expect(docToNfm(editor.getJSON() as any)).toBe(currentMarkdown);
+        if (after.includes("**Echo**"))
+          expect(editor.view.dom.querySelector("strong")?.textContent).toBe(
+            "Echo",
+          );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 
   it.each(["draft", "canonical"] as const)(
     "anchors mixed replacement and insertion operations beside existing marks in %s presentation",

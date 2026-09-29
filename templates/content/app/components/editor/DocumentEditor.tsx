@@ -619,6 +619,119 @@ export function replaceAcceptedProposalPresentations(
   ];
 }
 
+export function proposalDecisionPresentations(
+  presentations: VisualEditorSuggestion[],
+  decision: {
+    accepted: boolean;
+    continueSuggesting: boolean;
+    members: ResourceSuggestion[];
+    beforeContent: string;
+    readbackContent: string | null;
+  } | null,
+): VisualEditorSuggestion[] {
+  if (!decision?.accepted) return presentations;
+  return replaceAcceptedProposalPresentations(
+    presentations,
+    decision.members,
+    decision.beforeContent,
+    decision.readbackContent,
+  );
+}
+
+export function singleSuggestionDecisionLockAfterMismatch(
+  current: { inFlight: boolean; activeSuggestionId: string | null },
+  requestedDecision: SuggestionDecision,
+  returnedStatus: ResourceSuggestion["status"],
+) {
+  return requestedDecision !== "accepted" && returnedStatus === "accepted"
+    ? { inFlight: false, activeSuggestionId: null }
+    : current;
+}
+
+export function preciseDraftSuggestionPresentations(
+  suggestion: Pick<DraftSuggestion, "id" | "operations" | "anchor">,
+  currentMarkdown: string,
+): VisualEditorSuggestion[] | null {
+  const operation = suggestion.operations[0];
+  const before = operation?.before as { markdown?: unknown } | null;
+  const after = operation?.after as {
+    markdown?: unknown;
+    changedText?: unknown;
+  } | null;
+  const operationAnchor = operation?.anchor as {
+    from?: unknown;
+    to?: unknown;
+  } | null;
+  if (
+    operation?.kind !== "replace_text" ||
+    typeof before?.markdown !== "string" ||
+    typeof after?.markdown !== "string" ||
+    typeof after.changedText !== "string" ||
+    typeof operationAnchor?.from !== "number" ||
+    typeof operationAnchor.to !== "number"
+  )
+    return null;
+
+  const mappedStart = suggestion.anchor.from;
+  const mappedEnd = suggestion.anchor.to;
+  if (
+    mappedStart < 0 ||
+    mappedEnd > currentMarkdown.length ||
+    currentMarkdown.slice(mappedStart, mappedEnd) !== after.changedText
+  )
+    return null;
+
+  try {
+    const operations = markdownSuggestionOperations(
+      before.markdown,
+      after.markdown,
+    );
+    if (operations.length === 0) return null;
+    const presentations: VisualEditorSuggestion[] = [];
+    let delta = 0;
+    for (const preciseOperation of operations) {
+      const from =
+        mappedStart +
+        preciseOperation.anchor.from -
+        operationAnchor.from +
+        delta;
+      const to = from + preciseOperation.after.changedText.length;
+      if (
+        from < 0 ||
+        to > currentMarkdown.length ||
+        currentMarkdown.slice(from, to) !== preciseOperation.after.changedText
+      )
+        return null;
+      const presentation = suggestionPresentation(
+        {
+          id: suggestion.id,
+          status: "pending",
+          operations: [preciseOperation],
+        },
+        before.markdown,
+      );
+      if (!presentation) return null;
+      presentations.push({
+        ...presentation,
+        afterPresentation: { source: currentMarkdown, from, to },
+        anchor: {
+          from,
+          prefix: currentMarkdown.slice(Math.max(0, from - 32), from),
+          suffix: currentMarkdown.slice(to, to + 32),
+        },
+        presentation: "draft",
+      });
+      delta +=
+        preciseOperation.after.changedText.length -
+        preciseOperation.before.changedText.length;
+    }
+    return presentations;
+  } catch (error) {
+    if (!(error instanceof SuggestionFormattingMappingError)) throw error;
+    return null;
+  }
+}
+
 export function metadataUpdatesWithPendingTitle<
   T extends {
     title?: string;
@@ -5337,6 +5450,15 @@ function PageEditorSessionBody({
       createdSuggestionOperationsRef.current,
     )) {
       if (suggestion.id === pendingSuggestionDecision?.suggestion.id) continue;
+      const preciseDrafts = preciseDraftSuggestionPresentations(
+        suggestion,
+        currentMarkdown,
+      );
+      if (preciseDrafts) {
+        for (const [index, presentation] of preciseDrafts.entries())
+          byId.set(`${presentation.id}:${index}`, presentation);
+        continue;
+      }
       const operation = suggestion.operations[0]!;
       const before = operation.before as { changedText: string };
       const after = operation.after as {
@@ -5389,15 +5511,10 @@ function PageEditorSessionBody({
       [...byId.values()],
       acceptedPresentations,
     );
-    return pendingProposalDecision?.accepted &&
-      !pendingProposalDecision.continueSuggesting
-      ? replaceAcceptedProposalPresentations(
-          presentations,
-          pendingProposalDecision.members,
-          pendingProposalDecision.beforeContent,
-          pendingProposalDecision.readbackContent,
-        )
-      : presentations;
+    return proposalDecisionPresentations(
+      presentations,
+      pendingProposalDecision,
+    );
   }, [
     document.content,
     editingSuggestionId,
@@ -6759,6 +6876,16 @@ function PageEditorSessionBody({
         )
           return;
         if (result.suggestion.status !== decision) {
+          const lock = singleSuggestionDecisionLockAfterMismatch(
+            {
+              inFlight: suggestionDecisionInFlightRef.current,
+              activeSuggestionId: activeSuggestionDecisionIdRef.current,
+            },
+            decision,
+            result.suggestion.status,
+          );
+          suggestionDecisionInFlightRef.current = lock.inFlight;
+          activeSuggestionDecisionIdRef.current = lock.activeSuggestionId;
           setPendingSuggestionDecision((current) =>
             current?.suggestion.id === observedSuggestion.id
               ? {

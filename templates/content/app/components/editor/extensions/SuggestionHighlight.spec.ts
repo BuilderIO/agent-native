@@ -36,10 +36,23 @@ const schema = new Schema({
     text: {},
   },
   marks: {
+    bold: { toDOM: () => ["strong", 0] },
     strong: { toDOM: () => ["strong", 0] },
     emphasis: { toDOM: () => ["em", 0] },
     underline: { toDOM: () => ["u", 0] },
     strike: { toDOM: () => ["s", 0] },
+    link: {
+      attrs: { href: {} },
+      toDOM: (mark) => ["a", { href: mark.attrs.href }, 0],
+    },
+    notionSpan: {
+      attrs: {
+        color: { default: null },
+        bgColor: { default: null },
+        underline: { default: null },
+      },
+      toDOM: (mark) => ["span", mark.attrs, 0],
+    },
   },
 });
 
@@ -301,7 +314,7 @@ describe("SuggestionHighlight", () => {
     ).toBeGreaterThan(0);
     expect(
       suggestionHighlightKey
-        .getState(setSpecs(state("New peer"), [spec]))!
+        .getState(setSpecs(state("New peer"), [{ ...spec, from: 1, to: 4 }]))!
         .decorations.find(),
     ).toHaveLength(0);
   });
@@ -424,6 +437,153 @@ describe("SuggestionHighlight", () => {
           (widget) => widget.textContent,
         ),
       ).toEqual(["first proposal", "second proposal"]);
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it.each([
+    {
+      label: "bold",
+      afterText: "**Echo**",
+      mark: () => schema.marks.bold.create(),
+    },
+    {
+      label: "link",
+      afterText: "[Echo](https://example.test)",
+      mark: () => schema.marks.link.create({ href: "https://example.test" }),
+    },
+    {
+      label: "color",
+      afterText: '<span color="red">Echo</span>',
+      mark: () => schema.marks.notionSpan.create({ color: "red" }),
+    },
+    {
+      label: "colored underline",
+      afterText: '<span color="red" underline="true">Echo</span>',
+      mark: () =>
+        schema.marks.notionSpan.create({ color: "red", underline: "true" }),
+    },
+  ])(
+    "settles accepted $label formatting at its anchor after an unrelated peer suffix",
+    ({ afterText, mark }) => {
+      const before = "Echo sample.";
+      const after = `${afterText} sample.`;
+      const spec: SuggestionHighlightSpec = {
+        suggestionId: `format-${afterText}`,
+        kind: "replace",
+        from: 1,
+        to: 5,
+        insertedText: afterText,
+        settling: true,
+        settlingBeforePresentation: { source: before, from: 0, to: 4 },
+        insertedPresentation: {
+          source: after,
+          from: 0,
+          to: afterText.length,
+        },
+      };
+      const view = new EditorView(document.createElement("div"), {
+        state: setSpecs(state(before), [spec]),
+      });
+
+      try {
+        view.dispatch(view.state.tr.insertText(" peer", 13));
+        expect(
+          view.dom.querySelector(".suggestion-settling-text"),
+        ).not.toBeNull();
+
+        view.dispatch(view.state.tr.addMark(1, 5, mark()));
+
+        expect(view.state.doc.textContent).toBe("Echo sample. peer");
+        expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
+      } finally {
+        view.destroy();
+      }
+    },
+  );
+
+  it("keeps a formatted prefix replacement pending until its full range changes", () => {
+    const before = "**New York** peer";
+    const after = "**New** peer";
+    const strong = schema.marks.bold.create();
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "shrink-prefix",
+      kind: "replace",
+      from: 1,
+      to: 9,
+      insertedText: "**New**",
+      settling: true,
+      settlingBeforePresentation: { source: before, from: 0, to: 12 },
+      insertedPresentation: { source: after, from: 0, to: 7 },
+    };
+    const editorState = EditorState.create({
+      doc: schema.node("doc", null, [
+        schema.node("paragraph", null, [
+          schema.text("New York", [strong]),
+          schema.text(" peer"),
+        ]),
+      ]),
+      plugins: [createSuggestionHighlightPlugin()],
+    });
+    const view = new EditorView(document.createElement("div"), {
+      state: setSpecs(editorState, [spec]),
+    });
+
+    try {
+      view.dispatch(view.state.tr.insertText("!", 14));
+      expect(
+        view.dom.querySelector(".suggestion-settling-text"),
+      ).not.toBeNull();
+
+      view.dispatch(
+        view.state.tr
+          .replaceWith(1, 9, schema.text("New", [strong]))
+          .setMeta(suggestionHighlightKey, {
+            specs: [{ ...spec, from: 1, to: 4 }],
+          }),
+      );
+
+      expect(view.state.doc.textContent).toBe("New peer!");
+      expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("does not let the old-text prefix guard block a completed expansion", () => {
+    const before = "New peer";
+    const after = "New York peer";
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "expand-prefix",
+      kind: "replace",
+      from: 1,
+      to: 4,
+      insertedText: "New York",
+      settling: true,
+      settlingBeforePresentation: { source: before, from: 0, to: 3 },
+      insertedPresentation: { source: after, from: 0, to: 8 },
+    };
+    const view = new EditorView(document.createElement("div"), {
+      state: setSpecs(state(before), [spec]),
+    });
+
+    try {
+      view.dispatch(view.state.tr.insertText("!", 9));
+      expect(
+        view.dom.querySelector(".suggestion-settling-text"),
+      ).not.toBeNull();
+
+      view.dispatch(
+        view.state.tr
+          .replaceWith(1, 4, schema.text("New York"))
+          .setMeta(suggestionHighlightKey, {
+            specs: [{ ...spec, from: 1, to: 9 }],
+          }),
+      );
+
+      expect(view.state.doc.textContent).toBe("New York peer!");
+      expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
     } finally {
       view.destroy();
     }

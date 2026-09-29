@@ -32,16 +32,18 @@ import {
   pageEditorSessionKey,
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
+  preciseDraftSuggestionPresentations,
+  proposalDecisionPresentations,
   recordOwnContentSave,
   refreshUnchangedContentSaveWatermark,
   replaceAcceptedSuggestionPresentations,
-  replaceAcceptedProposalPresentations,
   sameAnchoredCommentPosition,
   suggestionPresentation,
   titleRenamedByAnotherWriter,
   suggestionPresentations,
   suggestionDecisionPreviewContent,
   sameSuggestionAnchorIds,
+  singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
@@ -324,6 +326,17 @@ describe("document editor layout", () => {
         false,
       ),
     ).toBe("Canonical");
+  });
+
+  it("releases a decision lock when a non-accept request returns accepted", () => {
+    const locked = { inFlight: true, activeSuggestionId: "suggestion" };
+
+    expect(
+      singleSuggestionDecisionLockAfterMismatch(locked, "rejected", "accepted"),
+    ).toEqual({ inFlight: false, activeSuggestionId: null });
+    expect(
+      singleSuggestionDecisionLockAfterMismatch(locked, "accepted", "accepted"),
+    ).toBe(locked);
   });
 
   it("keeps a one-operation decision flowing when persistence normalizes its key", () => {
@@ -737,7 +750,7 @@ describe("document editor layout", () => {
       ),
     ).toEqual([other, overlay]);
   });
-  it("gives each accepted group member one settling owner and keeps unrelated review", () => {
+  it("keeps accepted group spans projected while Suggesting continues", () => {
     const before = "Before and After";
     const members = [
       {
@@ -765,12 +778,15 @@ describe("document editor layout", () => {
     );
 
     const readback = " AddedBefore and Extra After";
-    const presented = replaceAcceptedProposalPresentations(
-      ordinary,
-      members as never,
-      before,
-      readback,
-    );
+    const decision = {
+      generation: 1,
+      continueSuggesting: true,
+      accepted: true,
+      members: members as never,
+      beforeContent: before,
+      readbackContent: readback,
+    };
+    const presented = proposalDecisionPresentations(ordinary, decision);
     expect(presented.map((part) => [part.id, part.presentation])).toEqual([
       ["unrelated", "canonical"],
       ["first", "settling"],
@@ -780,6 +796,70 @@ describe("document editor layout", () => {
     expect(
       presented.slice(1).map((part) => part.settlementReadbackContent),
     ).toEqual([readback, readback]);
+  });
+  it("maps multi-hunk draft previews through the parent anchor into the current draft", () => {
+    const before =
+      "Old red lanterns shine through the western pines. Nearby insects glow softly.";
+    const after =
+      "Bright red lanterns shine through the eastern pines. Nearby insects glow softly.";
+    const prefix = "Earlier draft. ";
+    const currentMarkdown = `${prefix}${after}`;
+    const operation = markdownSuggestionOperation(before, after)!;
+    const mappedFrom = currentMarkdown.indexOf(operation.after.changedText);
+    const presentations = preciseDraftSuggestionPresentations(
+      {
+        id: "editing",
+        operations: [operation],
+        anchor: {
+          from: mappedFrom,
+          to: mappedFrom + operation.after.changedText.length,
+          prefix: currentMarkdown.slice(
+            Math.max(0, mappedFrom - 32),
+            mappedFrom,
+          ),
+          suffix: currentMarkdown.slice(
+            mappedFrom + operation.after.changedText.length,
+            mappedFrom + operation.after.changedText.length + 32,
+          ),
+        },
+      } as never,
+      currentMarkdown,
+    );
+    const unrelated = suggestionPresentations(
+      {
+        id: "unrelated",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(
+            currentMarkdown,
+            currentMarkdown.replace("lanterns", "beacon"),
+          )!,
+        ],
+      },
+      currentMarkdown,
+    )[0]!;
+
+    expect(
+      presentations?.map(({ beforeText, afterText }) => [
+        beforeText,
+        afterText,
+      ]),
+    ).toEqual([
+      ["Old", "Bright"],
+      ["western", "eastern"],
+    ]);
+    expect(
+      presentations?.map(({ anchor, afterText }) =>
+        currentMarkdown.slice(anchor.from, anchor.from + afterText.length),
+      ),
+    ).toEqual(["Bright", "eastern"]);
+    expect(
+      presentations?.every(
+        ({ anchor, afterText }) =>
+          anchor.from + afterText.length <= unrelated.anchor.from ||
+          unrelated.anchor.from + unrelated.beforeText.length <= anchor.from,
+      ),
+    ).toBe(true);
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
