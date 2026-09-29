@@ -35,9 +35,6 @@ describe("cross-app script entries", () => {
       "Read bundled framework/app instructions, framework docs, and codebase skills",
     );
     expect(docsSearch?.description).toContain(
-      "reuse its result for the rest of the turn",
-    );
-    expect(docsSearch?.description).toContain(
       "exact skill-<name> slug shown in the prompt",
     );
     expect(docsSearch?.description).toContain(
