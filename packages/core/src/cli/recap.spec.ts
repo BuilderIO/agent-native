@@ -2900,14 +2900,17 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
     const recapWorkflow = parseYaml(PR_VISUAL_RECAP_WORKFLOW_YML);
-    const squash = (value: unknown) => String(value).replace(/\s+/g, " ").trim();
+    const squash = (value: unknown) =>
+      String(value).replace(/\s+/g, " ").trim();
     const gateIf = squash(recapWorkflow.jobs.gate.if);
     expect(gateIf.startsWith("!(")).toBe(true);
     const ignoredEvent = gateIf.slice(1);
     expect(ignoredEvent).toContain("vars.VISUAL_RECAP_AUTO_REFRESH == 'false'");
-    expect(ignoredEvent).toContain("github.event.label.name == 'recap'");
+    expect(ignoredEvent).toContain("github.event.label.name != 'recap'");
     expect(ignoredEvent).toContain("github.event.action == 'synchronize'");
-    expect(ignoredEvent).toContain("github.event.action == 'closed'");
+    expect(ignoredEvent).toContain(
+      "(github.event.action == 'closed' && !github.event.pull_request.merged)",
+    );
     expect(squash(recapWorkflow.concurrency.group)).toBe(
       `\${{ ${ignoredEvent} && format('pr-visual-recap-ignored-{0}', github.run_id) || format('pr-visual-recap-{0}', github.event.pull_request.number) }}`,
     );
