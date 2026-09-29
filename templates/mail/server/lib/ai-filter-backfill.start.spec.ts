@@ -194,7 +194,8 @@ const mocks = vi.hoisted(() => ({
 
 const dispatch = vi.hoisted(() => ({ fireInternalDispatch: vi.fn() }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (config: unknown) => config,
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
