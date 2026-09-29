@@ -22,6 +22,7 @@ jobs:
       lint: ${{ steps.scope.outputs.lint }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       workspace_filters: ${{ steps.scope.outputs.workspace_filters }}
+      test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
@@ -77,7 +78,9 @@ jobs:
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
-        run: pnpm fmt:check && pnpm oxlint
+        # The tree carries ~15k pre-existing warnings; printing them buries
+        # the errors that actually fail this step.
+        run: pnpm fmt:check && pnpm oxlint --quiet
 
       - name: Check changed source files
         if: needs.change-scope.outputs.full != 'true'
@@ -129,7 +132,7 @@ jobs:
       - name: Typecheck affected workspaces
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
         run: |
           if [ "$CI_FULL" = "true" ]; then
             pnpm typecheck
@@ -171,21 +174,25 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_tests: ${{ steps.plan.outputs.has_tests }}
+      core_test_files: ${{ steps.plan.outputs.core_test_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          fetch-depth: 2
+          filter: blob:none
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
 
       - name: Partition affected test packages into sharded lanes
         id: plan
         env:
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
           LANES: 5
-        run: node --experimental-strip-types scripts/ci-test-lanes.ts
+        run: |
+          set -euo pipefail
+          CI_BASE_SHA="$(git rev-parse HEAD^1)" node --experimental-strip-types scripts/ci-test-lanes.ts
 
   test-rest:
     name: Fast tests ${{ matrix.lane }}
@@ -278,20 +285,40 @@ jobs:
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
-        run: >-
-          pnpm --filter @agent-native/core exec vitest run --dir src
-          --shard=${{ matrix.coreShard }}
-          --exclude "**/*.db.test.ts"
-          --exclude "**/*.integration.spec.ts"
-          --exclude "**/*.integration.test.ts"
-          --exclude "**/*.e2e.spec.ts"
-          --exclude "**/*.e2e.test.ts"
-          --exclude "**/e2e/**"
-          --exclude "**/*.live.spec.ts"
-          --exclude "**/*.live.test.ts"
-          --exclude "**/*.perf.spec.ts"
-          --exclude "**/*.perf.test.ts"
-          --exclude "**/create-e2e.spec.ts"
+        env:
+          CORE_SHARD: ${{ matrix.coreShard }}
+          CORE_TEST_MODE: ${{ matrix.coreMode }}
+          CORE_TEST_FILES: ${{ needs.discover-targeted-lanes.outputs.core_test_files }}
+        run: |
+          set -euo pipefail
+          args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
+          if [ "$CORE_TEST_MODE" = changed ]; then
+            core_test_files=()
+            while IFS= read -r -d '' file; do
+              core_test_files+=("$file")
+            done < <(
+              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(`${file}\0`)'
+            )
+            if ((${#core_test_files[@]} == 0)); then
+              echo "::error::Planner emitted a changed Core shard with no test files"
+              exit 1
+            fi
+            args+=("${core_test_files[@]}")
+          fi
+          args+=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          pnpm --filter @agent-native/core exec vitest "${args[@]}"
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -898,6 +925,13 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
+
+      - name: Test unbounded read guards
+        run: >-
+          pnpm exec tsx --test
+          scripts/guard-no-unbounded-table-reads.test.ts
+          scripts/guard-no-unscoped-queries.test.ts
+          scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
       - name: Run security guards
         run: pnpm guards

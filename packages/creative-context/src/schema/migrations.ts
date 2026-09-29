@@ -323,6 +323,7 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
   {
     version: 7,
     name: "creative-context-default-scope-uniqueness",
+    // guard:allow-unscoped — migration derives each legacy row's stable key from its own stored owner and org columns
     sql: `
       ALTER TABLE creative_contexts ADD COLUMN default_scope_key TEXT;
       UPDATE creative_contexts

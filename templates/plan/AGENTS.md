@@ -24,6 +24,7 @@ generating or editing a plan.
 - `plan-local-codebase-chat` — questions about a linked local codebase.
 - `plan-review-recaps` — recap comparison blocks and PR recap CI.
 - `plan-events` — plan lifecycle events and automations.
+- `plan-editions` — the scheduled engineering-newspaper digest of PR recaps.
 
 ## Core Rules
 
@@ -54,7 +55,9 @@ generating or editing a plan.
 
 ## Application State
 
-- `navigation.view` is `chat`, `plans`, `plan`, `extensions`, or `team`.
+- `navigation.view` is `chat`, `plans`, `plan`, `editions`, `edition`,
+  `extensions`, or `team`.
+- `navigation.editionId` identifies the active newspaper edition when present.
 - `navigation.planId` identifies the active visual plan when present.
 - `local-codebase` holds the folder the Ask Plan picker linked plus personal
   resource paths for its index, file tree, and snapshots — see
@@ -69,6 +72,7 @@ generating or editing a plan.
 | `list-visual-plans`, `get-visual-plan`, `show-visual-plan` | List, read, render plans |
 | `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions` | Create a plan per mode; one call per plan |
 | `create-visual-recap`, `search-pr-recaps` | Create and find recaps |
+| `list-edition-candidates`, `create-edition`, `get-edition`, `list-editions` | Engineering-newspaper editions: select recaps, publish, read, archive |
 | `visualize-plan`, `convert-visual-plan-to-prototype` | Convert pasted plans; legacy mock→prototype |
 | `update-visual-plan` | Patch blocks, screens, fidelity, comments, status |
 | `get-plan-blocks`, `list-plan-components`, `visual-answer` | Block schemas, components, visual answers |

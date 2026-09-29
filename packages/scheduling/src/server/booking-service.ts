@@ -59,6 +59,9 @@ export async function createBooking(
   input: CreateBookingInput,
 ): Promise<Booking> {
   const eventType = input.eventType;
+  if (input.orgId !== undefined && input.orgId !== eventType.orgId) {
+    throw new Error("Booking orgId must match the event type organization");
+  }
   const title =
     input.title ??
     eventType.eventName?.replace("{attendeeName}", input.attendee.name) ??
@@ -72,24 +75,27 @@ export async function createBooking(
     afterEventBuffer: eventType.afterEventBuffer,
     excludeBookingUid: input.fromReschedule,
   });
-  const booking = await insertBooking({
-    eventTypeId: eventType.id,
-    hostEmail: input.hostEmail,
-    title,
-    description: input.description,
-    startTime: input.startTime,
-    endTime: input.endTime,
-    timezone: input.timezone,
-    status: eventType.requiresConfirmation ? "pending" : "confirmed",
-    location: input.location ?? eventType.locations[0],
-    attendees,
-    customResponses: input.customResponses,
-    iCalUid: input.iCalUid,
-    iCalSequence: input.iCalSequence,
-    fromReschedule: input.fromReschedule,
-    ownerEmail: input.hostEmail,
-    orgId: input.orgId,
-  });
+  const booking = {
+    ...(await insertBooking({
+      eventTypeId: eventType.id,
+      hostEmail: input.hostEmail,
+      title,
+      description: input.description,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      timezone: input.timezone,
+      status: eventType.requiresConfirmation ? "pending" : "confirmed",
+      location: input.location ?? eventType.locations[0],
+      attendees,
+      customResponses: input.customResponses,
+      iCalUid: input.iCalUid,
+      iCalSequence: input.iCalSequence,
+      fromReschedule: input.fromReschedule,
+      ownerEmail: input.hostEmail,
+      orgId: eventType.orgId,
+    })),
+    teamId: eventType.teamId,
+  };
 
   let usableZoomMeeting = false;
 
@@ -141,7 +147,7 @@ export async function createBooking(
 
   const final = await getBookingByUid(booking.uid);
   if (!final) throw new Error("Booking disappeared after creation");
-  return final;
+  return { ...final, teamId: eventType.teamId };
 }
 
 export async function rescheduleBooking(input: {
@@ -247,7 +253,8 @@ export async function cancelBooking(input: {
     }
   }
 
-  await onBookingCancelled(booking);
+  const eventType = await getEventTypeById(booking.eventTypeId);
+  await onBookingCancelled({ ...booking, teamId: eventType?.teamId });
   return (await getBookingByUid(input.uid))!;
 }
 

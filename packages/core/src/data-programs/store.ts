@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull, sql } from "drizzle-orm";
 
 import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
@@ -195,8 +195,12 @@ export async function upsertDataProgram(
   const db = getDb();
   const now = new Date().toISOString();
 
+  const accessContext = {
+    userEmail: input.ownerEmail,
+    orgId: input.orgId ?? undefined,
+  };
   const existing = input.id
-    ? await getDataProgram(input.id)
+    ? await getDataProgram(input.id, input.appId, accessContext)
     : await getDataProgramByName(input.appId, input.name, input.ownerEmail);
 
   const refreshTtlMs = Math.max(
@@ -206,7 +210,7 @@ export async function upsertDataProgram(
   const refreshMode = input.refreshMode ?? existing?.refreshMode ?? "ttl";
 
   if (existing) {
-    await db
+    const updated = await db
       .update(dataPrograms)
       .set({
         title: input.title,
@@ -221,13 +225,27 @@ export async function upsertDataProgram(
         updatedAt: now,
         archivedAt: null,
       })
-      .where(eq(dataPrograms.id, existing.id));
-    const row = await getDataProgram(existing.id);
+      .where(
+        and(
+          eq(dataPrograms.id, existing.id),
+          eq(dataPrograms.appId, input.appId),
+          accessFilter(
+            dataPrograms,
+            dataProgramShares,
+            accessContext,
+            "editor",
+          ),
+        ),
+      )
+      .returning({ id: dataPrograms.id });
+    if (updated.length === 0)
+      throw new Error("data program disappeared or is not editable");
+    const row = await getDataProgram(existing.id, input.appId, accessContext);
     if (!row) throw new Error("data program disappeared during update");
     return row;
   }
 
-  const activeCount = await countActiveDataPrograms(input.appId);
+  const activeCount = await countActiveDataPrograms(input.appId, accessContext);
   if (activeCount >= MAX_ACTIVE_PROGRAMS_PER_APP) {
     throw new Error(
       `This app already has ${activeCount} active data programs (limit ${MAX_ACTIVE_PROGRAMS_PER_APP}). ` +
@@ -256,18 +274,32 @@ export async function upsertDataProgram(
     orgId: input.orgId ?? null,
     visibility: "private",
   });
-  const row = await getDataProgram(id);
+  const row = await getDataProgram(id, input.appId, accessContext);
   if (!row) throw new Error("data program failed to persist");
   return row;
 }
 
-async function countActiveDataPrograms(appId: string): Promise<number> {
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT COUNT(*) as total FROM data_programs WHERE app_id = ? AND archived_at IS NULL`,
-    args: [appId],
-  });
-  return Number((rows[0] as any)?.total ?? 0);
+async function countActiveDataPrograms(
+  appId: string,
+  ctx: AccessContext,
+): Promise<number> {
+  const ownerScope = ctx.orgId
+    ? eq(dataPrograms.orgId, ctx.orgId)
+    : and(
+        isNull(dataPrograms.orgId),
+        sql`lower(${dataPrograms.ownerEmail}) = ${ctx.userEmail?.toLowerCase() ?? ""}`,
+      );
+  const [row] = await getDb()
+    .select({ total: count() })
+    .from(dataPrograms)
+    .where(
+      and(
+        eq(dataPrograms.appId, appId),
+        isNull(dataPrograms.archivedAt),
+        ownerScope,
+      ),
+    );
+  return Number(row?.total ?? 0);
 }
 
 /**
@@ -282,12 +314,14 @@ async function countActiveDataPrograms(appId: string): Promise<number> {
 export async function getDataProgram(
   id: string,
   appId?: string,
+  ctx?: AccessContext,
 ): Promise<DataProgramRow | null> {
   await ensureDataProgramTables();
   const db = getDb();
-  const where = appId
-    ? and(eq(dataPrograms.id, id), eq(dataPrograms.appId, appId))
-    : eq(dataPrograms.id, id);
+  const filters = [eq(dataPrograms.id, id)];
+  if (appId) filters.push(eq(dataPrograms.appId, appId));
+  filters.push(accessFilter(dataPrograms, dataProgramShares, ctx));
+  const where = and(...filters);
   const rows = await db.select().from(dataPrograms).where(where);
   const row = rows[0] as RawDataProgramRow | undefined;
   return row ? rowFromRaw(row) : null;
@@ -339,14 +373,16 @@ export async function listDataPrograms(
 export async function archiveDataProgram(
   id: string,
   appId?: string,
+  ctx?: AccessContext,
 ): Promise<boolean> {
   await ensureDataProgramTables();
   const db = getDb();
-  const existing = await getDataProgram(id, appId);
+  const existing = await getDataProgram(id, appId, ctx);
   if (!existing) return false;
-  const where = appId
-    ? and(eq(dataPrograms.id, id), eq(dataPrograms.appId, appId))
-    : eq(dataPrograms.id, id);
+  const filters = [eq(dataPrograms.id, id)];
+  if (appId) filters.push(eq(dataPrograms.appId, appId));
+  filters.push(accessFilter(dataPrograms, dataProgramShares, ctx, "editor"));
+  const where = and(...filters);
   const now = new Date().toISOString();
   await db
     .update(dataPrograms)

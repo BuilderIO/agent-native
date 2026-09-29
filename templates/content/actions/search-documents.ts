@@ -193,7 +193,10 @@ export default defineAction({
         .where(eq(schema.documents.id, args.excludeSubtreeOf));
       excludedIds = excludedRoot
         ? (
-            await loadPageSubtree(db, excludedRoot, { includeTrashed: false })
+            await loadPageSubtree(db, excludedRoot, {
+              includeTrashed: false,
+              requireComplete: false,
+            })
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }

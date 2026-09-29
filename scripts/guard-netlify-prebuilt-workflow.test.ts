@@ -1042,6 +1042,28 @@ describe("production Netlify site concurrency guard", () => {
       String(betaResolveStep?.with?.script),
       /Manual beta source_ref must equal current main/,
     );
+    const betaResolveJob = (betaResolveSource.jobs as Workflow)[
+      "resolve-source"
+    ] as Workflow;
+    assert.deepEqual(betaResolveJob.permissions, { contents: "write" });
+    const betaMirrorStep = (betaResolveJob.steps as Array<Workflow>).find(
+      (step) => step.id === "mirror-beta",
+    );
+    assert(betaMirrorStep, "resolve-source must mirror main to beta");
+    assert.equal(betaMirrorStep["continue-on-error"], true);
+    assert.equal(
+      (betaResolveJob.steps as Array<Workflow>).some((step) =>
+        String(step.uses ?? "").startsWith("actions/checkout@"),
+      ),
+      false,
+      "resolve-source holds contents: write and must not check out code",
+    );
+    const betaMirrorScript = String(betaMirrorStep.with?.script);
+    assert.match(betaMirrorScript, /ref: 'heads\/beta'/);
+    assert.match(betaMirrorScript, /status === 'behind'/);
+    assert.match(betaMirrorScript, /force: status === 'diverged'/);
+    assert.match(betaMirrorScript, /updateRefs\(/);
+    assert.match(betaMirrorScript, /beforeOid: betaSha/);
     const confirmCurrentSourceStep = (
       (
         (betaResolveSource.jobs as Workflow)[
