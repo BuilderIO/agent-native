@@ -229,7 +229,7 @@ export function SessionsTriagePage() {
     [range, fromDate, toDate, params],
   );
 
-  const { data, error, isLoading, isFetching, refetch } = useActionQuery<Page>(
+  const { data, error, isPending, isFetching, refetch } = useActionQuery<Page>(
     "list-session-recordings",
     {
       paginated: true,
@@ -254,7 +254,7 @@ export function SessionsTriagePage() {
   const total = data?.total ?? 0;
   const lastPage = Math.max(1, Math.ceil(total / SESSION_PAGE_SIZE));
   useEffect(() => {
-    if (!data || isLoading || isFetching || error || page <= lastPage) return;
+    if (!data || isPending || isFetching || error || page <= lastPage) return;
     setParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -263,8 +263,8 @@ export function SessionsTriagePage() {
       },
       { replace: true },
     );
-  }, [data, isLoading, isFetching, error, page, lastPage, setParams]);
-  const checkHiddenSessions = hideEmpty && !isLoading && !error && total === 0;
+  }, [data, isPending, isFetching, error, page, lastPage, setParams]);
+  const checkHiddenSessions = hideEmpty && !isPending && !error && total === 0;
   const { data: withEmptySessions } = useActionQuery<Page>(
     "list-session-recordings",
     {
@@ -565,7 +565,7 @@ export function SessionsTriagePage() {
               t(total === 1 ? "sessions.showingSingular" : "sessions.showing", {
                 count: total.toLocaleString(),
               })
-            ) : isLoading ? (
+            ) : isPending ? (
               <Skeleton className="h-4 w-24" />
             ) : null}
           </div>
@@ -608,7 +608,7 @@ export function SessionsTriagePage() {
             <div className="p-6 text-sm text-destructive" role="alert">
               {t("sessions.loadFailed", { message: error.message })}
             </div>
-          ) : isLoading ? (
+          ) : isPending ? (
             <div className="space-y-3 p-6">
               {Array.from({ length: 7 }, (_, index) => (
                 <Skeleton key={index} className="h-14 w-full" />

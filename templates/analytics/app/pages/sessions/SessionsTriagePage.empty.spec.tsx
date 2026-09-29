@@ -8,11 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   configured: true,
   total: 0,
+  pending: false,
   error: null as Error | null,
   refetch: vi.fn(),
   useActionQuery: vi.fn(() => ({
-    data: { recordings: [], total: mocks.total, appCounts: [] },
+    data: mocks.pending
+      ? undefined
+      : { recordings: [], total: mocks.total, appCounts: [] },
     error: mocks.error,
+    isPending: mocks.pending,
     isLoading: false,
     isFetching: false,
     refetch: mocks.refetch,
@@ -61,6 +65,7 @@ describe("Sessions empty states", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.error = null;
     mocks.total = 0;
+    mocks.pending = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -133,6 +138,30 @@ describe("Sessions empty states", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the loading skeleton while a hidden-tab retry is paused", async () => {
+    mocks.configured = true;
+    mocks.pending = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?q=waiting"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelectorAll(".skeleton-shimmer").length,
+    ).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("sessions.noSessions");
+    expect(container.textContent).not.toContain("sessions.storageSetupTitle");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-recordings",
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
+    );
   });
 
   it("moves an out-of-range saved page to the last available page", async () => {
