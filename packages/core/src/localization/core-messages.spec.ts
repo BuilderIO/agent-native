@@ -118,8 +118,8 @@ describe("built-in Core chat translations", () => {
       "summaryFailed",
       "summaryExpired",
       "promoteMustContain",
-      "promoteMustContainLabel",
       "promoteMustContainOptional",
+      "promoteMustContainLabel",
       "promoteNeedsContains",
     ];
     const englishSummaryQueued =
