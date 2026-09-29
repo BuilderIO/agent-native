@@ -681,9 +681,10 @@ async function executeClaudeCliRun(options: {
 
   let mcpConfigDir: string | undefined;
   let followUpInput!: Parameters<typeof executeCodeAgentRun>[0];
-  // Every exit path (success, failure, pause) gets the same bounded retries.
-  // A config still on disk afterwards is recorded in the transcript, and on
-  // the success path it fails the run (see below).
+  // Runs exactly once per CLI run, when the CLI exits or its setup fails, so
+  // the run's status is decided from one final cleanup result. A config still
+  // on disk afterwards is recorded in the transcript, and on the success path
+  // it fails the run (see below).
   const removeMcpConfig = () => {
     const dir = mcpConfigDir;
     if (!dir) return;
@@ -719,46 +720,50 @@ async function executeClaudeCliRun(options: {
       process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null,
     );
     let mcpConfigPath: string | undefined;
-    if (mcpConfig) {
-      mcpConfigDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "agent-native-code-claude-"),
-      );
-      mcpConfigPath = path.join(mcpConfigDir, "mcp.json");
-      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig), {
-        mode: 0o600,
-      });
-    }
-    const result = await runClaudeCodeParticipant({
-      // Claude's driver uses acceptEdits, which is the closest available
-      // mapping for auto-edit and full-auto. Keep ask-before-edit on the
-      // read-only watchdog path because this non-interactive runner has no
-      // approval channel to honor an edit prompt safely.
-      role:
-        options.permissionMode === "auto-edit" ||
-        options.permissionMode === "full-auto"
-          ? "driver"
-          : "watchdog",
-      prompt: buildClaudeCliPrompt(options.run, options.prompt),
-      cwd,
-      model,
-      effort: reasoningEffort,
-      mcpConfigPath,
-      mcpServerNames: mcpConfig ? Object.keys(mcpConfig.mcpServers) : [],
-      signal: options.signal,
-      onEvent: (event) => {
-        const text = appendClaudeParticipantTranscriptEvents(
-          options.run.id,
-          event,
-          claudeToolNames,
+    let result: Awaited<ReturnType<typeof runClaudeCodeParticipant>>;
+    try {
+      if (mcpConfig) {
+        mcpConfigDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "agent-native-code-claude-"),
         );
-        if (!text) return;
-        assistantText.push(text);
-        if (streamToolOutputToStdout) options.stdout?.write(text);
-      },
-    });
-    // The CLI has exited; drop the credential-bearing config before any
-    // queued or steering follow-up starts its own run.
-    removeMcpConfig();
+        mcpConfigPath = path.join(mcpConfigDir, "mcp.json");
+        fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig), {
+          mode: 0o600,
+        });
+      }
+      result = await runClaudeCodeParticipant({
+        // Claude's driver uses acceptEdits, which is the closest available
+        // mapping for auto-edit and full-auto. Keep ask-before-edit on the
+        // read-only watchdog path because this non-interactive runner has no
+        // approval channel to honor an edit prompt safely.
+        role:
+          options.permissionMode === "auto-edit" ||
+          options.permissionMode === "full-auto"
+            ? "driver"
+            : "watchdog",
+        prompt: buildClaudeCliPrompt(options.run, options.prompt),
+        cwd,
+        model,
+        effort: reasoningEffort,
+        mcpConfigPath,
+        mcpServerNames: mcpConfig ? Object.keys(mcpConfig.mcpServers) : [],
+        signal: options.signal,
+        onEvent: (event) => {
+          const text = appendClaudeParticipantTranscriptEvents(
+            options.run.id,
+            event,
+            claudeToolNames,
+          );
+          if (!text) return;
+          assistantText.push(text);
+          if (streamToolOutputToStdout) options.stdout?.write(text);
+        },
+      });
+    } finally {
+      // The CLI has exited (or never started); drop the credential-bearing
+      // config before any queued or steering follow-up starts its own run.
+      removeMcpConfig();
+    }
     const finalMessage =
       readClaudeParticipantResultText(result.events) ??
       (assistantText.join("\n\n").trim() || "Claude Code run completed.");
@@ -889,8 +894,6 @@ async function executeClaudeCliRun(options: {
         model,
       },
     });
-  } finally {
-    removeMcpConfig();
   }
   return executeCodeAgentRun(followUpInput);
 }

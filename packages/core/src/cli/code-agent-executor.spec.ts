@@ -763,7 +763,7 @@ describe("executeCodeAgentRun", () => {
     };
   }
 
-  it("does not mark a run without follow-ups complete while its MCP config remains", async () => {
+  it("decides the run from one final MCP config cleanup", async () => {
     const root = useTempCodeAgentsHome();
     const restore = useFakeClaudeWithMcp(root, [
       "process.stdin.resume();",
@@ -780,7 +780,16 @@ describe("executeCodeAgentRun", () => {
       cwd: process.cwd(),
       metadata: { engine: "claude-cli" },
     });
-    const deletes = mockMcpConfigDelete(Number.POSITIVE_INFINITY);
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+    // Fails exactly one cleanup batch; a later attempt would succeed. The run
+    // is decided from that one final cleanup, so its errored status and the
+    // config still on disk agree.
+    const deletes = mockMcpConfigDelete(3);
 
     try {
       await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
@@ -790,6 +799,9 @@ describe("executeCodeAgentRun", () => {
       expect(String(record?.metadata?.executionError)).toContain(
         "Could not remove the temporary Claude MCP config",
       );
+      expect(record?.metadata?.pendingFollowUps).toHaveLength(1);
+      expect(deletes.dirs()).toHaveLength(1);
+      for (const dir of deletes.dirs()) expect(fs.existsSync(dir)).toBe(true);
     } finally {
       deletes.restore();
       restore();
