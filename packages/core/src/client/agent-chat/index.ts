@@ -116,8 +116,10 @@ export {
 } from "../chat-first-agent-activity.js";
 export { ChatFirstSurfacePanelToggle } from "../chat-first-surface-panel-toggle.js";
 export {
+  fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
+  type FetchAgentEngineConfiguredStateOptions,
   type UseAgentEngineConfiguredResult,
 } from "../use-agent-engine-configured.js";
 export {

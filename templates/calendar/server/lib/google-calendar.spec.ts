@@ -829,6 +829,7 @@ describe("calendar event listing", () => {
       "access-token",
       "team@example.com",
       "team-event",
+      undefined,
     );
     expect(result).toMatchObject({
       id: `google-${sourceKey}-team-event`,
@@ -2285,6 +2286,7 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "none" },
+      undefined,
     );
   });
 
@@ -2315,6 +2317,7 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "all" },
+      undefined,
     );
   });
 
@@ -2345,6 +2348,7 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "none" },
+      undefined,
     );
   });
 });
