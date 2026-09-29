@@ -59,16 +59,16 @@ export default function registerEmailTemplates(): void {
 }
 ```
 
-| 이메일 ID | Props |
-| --- | --- |
-| `core.verify-signup` | `email`, `verifyUrl` |
-| `core.reset-password` | `email`, `resetUrl` |
-| `core.magic-link` | `email`, `magicLinkUrl` |
-| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
-| `core.change-email-verification` | `email`, `verifyUrl` |
-| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
-| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
-| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+| 이메일 ID                        | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
 모든 override는 `app`(`name`, `logoUrl`)도 받습니다. 두 번째 인수에는 기본 렌더링 결과가 있어 제목이나 텍스트를 재사용할 수 있습니다.
 

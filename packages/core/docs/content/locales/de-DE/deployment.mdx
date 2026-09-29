@@ -59,16 +59,16 @@ export default function registerEmailTemplates(): void {
 }
 ```
 
-| E-Mail-ID | Props |
-| --- | --- |
-| `core.verify-signup` | `email`, `verifyUrl` |
-| `core.reset-password` | `email`, `resetUrl` |
-| `core.magic-link` | `email`, `magicLinkUrl` |
-| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
-| `core.change-email-verification` | `email`, `verifyUrl` |
-| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
-| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
-| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+| E-Mail-ID                        | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
 Jeder Override erhält zusätzlich `app` (`name`, `logoUrl`). Das zweite Argument enthält das Standard-Rendering, damit du Betreff oder Text wiederverwenden kannst.
 

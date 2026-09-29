@@ -59,16 +59,16 @@ export default function registerEmailTemplates(): void {
 }
 ```
 
-| ID de l'e-mail | Props |
-| --- | --- |
-| `core.verify-signup` | `email`, `verifyUrl` |
-| `core.reset-password` | `email`, `resetUrl` |
-| `core.magic-link` | `email`, `magicLinkUrl` |
-| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
-| `core.change-email-verification` | `email`, `verifyUrl` |
-| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
-| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
-| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+| ID de l'e-mail                   | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
 Chaque override reçoit aussi `app` (`name`, `logoUrl`). Le second argument contient le rendu par défaut, pour réutiliser son objet ou son texte.
 

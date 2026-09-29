@@ -59,16 +59,16 @@ export default function registerEmailTemplates(): void {
 }
 ```
 
-| معرّف البريد | Props |
-| --- | --- |
-| `core.verify-signup` | `email`, `verifyUrl` |
-| `core.reset-password` | `email`, `resetUrl` |
-| `core.magic-link` | `email`, `magicLinkUrl` |
-| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
-| `core.change-email-verification` | `email`, `verifyUrl` |
-| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
-| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
-| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+| معرّف البريد                     | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
 يتلقى كل override أيضًا `app` (`name`، `logoUrl`). يحمل الوسيط الثاني العرض الافتراضي، لتتمكن من إعادة استخدام العنوان أو النص.
 
