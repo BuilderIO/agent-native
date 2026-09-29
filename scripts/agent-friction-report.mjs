@@ -691,7 +691,7 @@ const PR_REVIEW_GATE_WITH_APPROVAL_RE = new RegExp(
   "i",
 );
 const PR_REVIEW_GATE_APPROVAL_HEAD_RE =
-  /^\s*(?:(?:from|by|of|is|are|was|were|required|needed|necessary|before|prior\s+to|and|or)\b|$|[.,;:!?])/i;
+  /^\s*(?:(?:from|by|of|is(?:n['’]t)?|are(?:n['’]t)?|was|were|not\s+(?:required|needed|necessary)|required|needed|necessary|before|prior\s+to|and|or)\b|$|[.,;:!?])/i;
 const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
   /\b(?:no|without)\b(?:\s+[\w’'-]+){0,3}\s*$/i;
 const PR_REVIEW_GATE_WAIVER_RE =
@@ -741,6 +741,12 @@ function hasActivePrReviewMergeGate(sentence) {
       match.index + match[0].length + 60,
     );
     if (PR_REVIEW_GATE_WAIVER_RE.test(before)) continue;
+    if (
+      match[0].toLowerCase().startsWith("approval") &&
+      !PR_REVIEW_GATE_APPROVAL_HEAD_RE.test(after)
+    ) {
+      continue;
+    }
     const mergePrefixIsConditional =
       PR_REVIEW_GATE_MERGE_PREFIX_RE.test(before);
     if (
@@ -866,6 +872,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, merge with all checks passing."],
   [false, "If no changes are needed, merge requires security approval."],
   [false, "If no changes are needed, merge needs security approval."],
+  [
+    true,
+    "If no changes are needed, merge if the approval banner is not required.",
+  ],
   [true, "If no changes are needed, don't wait for Steve's approval; merge."],
   [true, "Stop saying someone else needs to approve when the PR is ready."],
   [
