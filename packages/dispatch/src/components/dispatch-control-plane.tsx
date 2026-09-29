@@ -279,7 +279,7 @@ function AppsPanel({
                 key={app.id}
                 app={app}
                 className={APP_LIST_GRID_ROW_CLASS}
-                isPinned={layout.pinnedIds.includes(app.id)}
+                isPinned={layout.pinnedIds.includes(app.id.toLowerCase())}
                 onTogglePinned={() => togglePinned(app.id)}
               />
             ))}

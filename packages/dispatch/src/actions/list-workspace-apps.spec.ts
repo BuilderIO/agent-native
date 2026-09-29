@@ -75,4 +75,23 @@ describe("list-workspace-apps", () => {
 
     expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(5);
   });
+
+  it("returns mounted workspace apps regardless of the built-in app config", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILTIN_AGENTS_JSON",
+      JSON.stringify({ mode: "none" }),
+    );
+    const apps = [
+      { id: "crm", name: "CRM", path: "/crm" },
+      { id: "mail", name: "Our Mail", path: "/mail" },
+    ];
+    mocks.listWorkspaceApps.mockResolvedValue(apps);
+    try {
+      await expect(
+        action.run(input, context("builtin-off@example.com", "org-3")),
+      ).resolves.toEqual(apps);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

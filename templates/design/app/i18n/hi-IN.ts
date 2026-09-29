@@ -163,12 +163,6 @@ export default {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     openAgentSettings: "एजेंट प्रबंधित करें",
-    languageTitle: "भाषा",
-    languageDescription: "Design की interface भाषा चुनें।",
-    languageLabel: "इंटरफ़ेस भाषा",
-    labs: "Labs",
-    labsIntro:
-      "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
     labTweaks: "डिज़ाइन ट्वीक",
     labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
     mcpAbout:
@@ -223,6 +217,7 @@ export default {
     },
   },
   common: {
+    loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
   },
   editPanel: {
@@ -320,6 +315,8 @@ export default {
       bottomLeft: "नीचे बायां",
       bottomRight: "नीचे दायां",
       blend: "मिश्रण",
+      blendMode: "ब्लेंड मोड",
+      removeBlendMode: "ब्लेंड मोड हटाएं",
       border: "बॉर्डर",
       outline: "आउटलाइन",
       inside: "अंदर",
@@ -1466,11 +1463,6 @@ export default {
       permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर अपने डिवाइस पर ऐप्स को ऐक्सेस करने की अनुमति दें।",
-      permissionCloseTitle: "सेटअप बंद करें?",
-      permissionCloseDescription:
-        "Chrome में एक्सेस की अनुमति देने तक लाइव एडिटिंग काम नहीं करेगी।",
-      permissionCloseStay: "सेटअप खुला रखें",
-      permissionCloseAnyway: "फिर भी बंद करें",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
     },
   },

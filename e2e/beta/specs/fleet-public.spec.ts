@@ -328,8 +328,8 @@ for (const site of sites) {
     test("sends an anonymous visitor to sign-in without looping", async ({
       page,
     }) => {
-      // The page ⌘, and the account menu open: the redesigned Settings
-      // shell must gate an anonymous visitor exactly as the old tabs did.
+      // The page ⌘, and the account menu open: the Settings shell must gate
+      // an anonymous visitor.
       const settingsPath = `/settings/${SETTINGS_DEFAULT_PAGE}`;
       await page.goto(`${origin}${settingsPath}`, {
         waitUntil: "domcontentloaded",

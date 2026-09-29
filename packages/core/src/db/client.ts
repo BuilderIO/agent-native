@@ -4,13 +4,28 @@ import path from "path";
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
-import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
+import {
+  hasCloudflareRuntime,
+  isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
+export {
+  isHostedFunctionInvocationRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
+  recordDatabaseQueryResult,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
-import { isServerRuntimeStarted } from "./server-runtime.js";
+import {
+  hasHostedInvocationMarker,
+  isDeployedServerRuntime,
+} from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
@@ -73,14 +88,6 @@ function getActivePgliteTransactionExec(url: string): DbExec | undefined {
     ?.exec;
 }
 
-function hasCloudflareRuntime(): boolean {
-  const runtime = globalThis as typeof globalThis & {
-    __cf_env?: unknown;
-    __env__?: unknown;
-  };
-  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
-}
-
 export function getDatabaseUrl(fallback = ""): string {
   const testUrl = getIsolatedTestDatabaseUrl();
   if (testUrl) return testUrl;
@@ -110,6 +117,25 @@ function getConfiguredAppDatabaseUrl(
 
 function stripNeonPooler(url: string): string {
   return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+}
+
+function addNeonPooler(url: string): string {
+  if (isPgliteUrl(url)) return url;
+  try {
+    const parsed = new URL(url);
+    const labels = parsed.hostname.split(".");
+    if (
+      parsed.hostname.endsWith(".neon.tech") &&
+      labels[0]?.startsWith("ep-") &&
+      !labels[0].endsWith("-pooler")
+    ) {
+      labels[0] = `${labels[0]}-pooler`;
+      parsed.hostname = labels.join(".");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 interface RuntimeDatabaseResolution {
@@ -147,67 +173,20 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
   if (testUrl) return { url: testUrl, source: "DATABASE_URL" };
   const appName = getAppEnvPrefix();
   if (appName) {
-    const appUnpooled = usableRuntimeDatabaseValue(
-      `${appName}_DATABASE_URL_UNPOOLED`,
-    );
-    if (appUnpooled) {
-      return {
-        url: stripNeonPooler(appUnpooled),
-        source: `${appName}_DATABASE_URL_UNPOOLED`,
-      };
-    }
-
     const appUrl = usableRuntimeDatabaseValue(`${appName}_DATABASE_URL`);
     if (appUrl) {
       return {
-        url: isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl,
+        url: isServerlessRuntime() ? addNeonPooler(appUrl) : appUrl,
         source: `${appName}_DATABASE_URL`,
       };
     }
-  }
-
-  const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
-  if (configuredUnpooled && isUsableRuntimeDatabaseUrl(configuredUnpooled)) {
-    const netlifyUnpooled = usableRuntimeDatabaseValue(
-      "NETLIFY_DATABASE_URL_UNPOOLED",
-    );
-    const databaseUnpooled = usableRuntimeDatabaseValue(
-      "DATABASE_URL_UNPOOLED",
-    );
-    return {
-      url: stripNeonPooler(configuredUnpooled),
-      source:
-        netlifyUnpooled === configuredUnpooled
-          ? "NETLIFY_DATABASE_URL_UNPOOLED"
-          : databaseUnpooled === configuredUnpooled
-            ? "DATABASE_URL_UNPOOLED"
-            : "DATABASE_URL_UNPOOLED",
-    };
-  }
-
-  const netlifyUnpooled = usableRuntimeDatabaseValue(
-    "NETLIFY_DATABASE_URL_UNPOOLED",
-  );
-  if (netlifyUnpooled) {
-    return {
-      url: stripNeonPooler(netlifyUnpooled),
-      source: "NETLIFY_DATABASE_URL_UNPOOLED",
-    };
-  }
-
-  const databaseUnpooled = usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
-  if (databaseUnpooled) {
-    return {
-      url: stripNeonPooler(databaseUnpooled),
-      source: "DATABASE_URL_UNPOOLED",
-    };
   }
 
   const databaseUrl = usableRuntimeDatabaseValue("DATABASE_URL");
   const netlifyDatabaseUrl = usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL");
   const url = databaseUrl || netlifyDatabaseUrl || fallback;
   return {
-    url: isServerlessRuntime() ? stripNeonPooler(url) : url,
+    url: isServerlessRuntime() ? addNeonPooler(url) : url,
     source: databaseUrl
       ? "DATABASE_URL"
       : netlifyDatabaseUrl
@@ -218,6 +197,22 @@ function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
 
 export function getRuntimeDatabaseUrl(fallback = ""): string {
   return resolveRuntimeDatabase(fallback).url;
+}
+
+export function getLocalDatabaseUrl(fallback = ""): string {
+  if (isServerlessRuntime()) return getRuntimeDatabaseUrl(fallback);
+
+  const configuredUnpooledUrl = getConfiguredUnpooledDatabaseUrl();
+  const unpooledUrl =
+    (configuredUnpooledUrl && isUsableRuntimeDatabaseUrl(configuredUnpooledUrl)
+      ? configuredUnpooledUrl
+      : undefined) ||
+    usableRuntimeDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED") ||
+    usableRuntimeDatabaseValue("DATABASE_URL_UNPOOLED");
+  if (unpooledUrl) return stripNeonPooler(unpooledUrl);
+
+  const testUrl = getIsolatedTestDatabaseUrl();
+  return stripNeonPooler(testUrl || getRuntimeDatabaseUrl(fallback));
 }
 
 export function getRuntimeDatabaseSource(fallback = ""): string {
@@ -911,12 +906,29 @@ export async function withDbTimeout<T>(
   run: () => Promise<T>,
   ms = dbOpTimeoutMs(),
   onTimeout?: () => void | Promise<void>,
+  query?: { sql: string },
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   const finishTelemetry = beginDatabaseOperation(
     op === "connect" ? "connect" : "query",
   );
+  let queryResultRecorded = false;
+  const recordQueryResult = (value?: unknown) => {
+    if (op === "connect" || !query || queryResultRecorded) return;
+    queryResultRecorded = true;
+    const result = value as
+      | { rows?: unknown[]; length?: number }
+      | unknown[]
+      | null
+      | undefined;
+    const rowsReturned = Array.isArray(result)
+      ? result.length
+      : Array.isArray(result?.rows)
+        ? result.rows.length
+        : 0;
+    recordDatabaseQueryResult(query.sql, rowsReturned);
+  };
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -938,6 +950,7 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      recordQueryResult(value);
       finishTelemetry("success");
       complete(value);
     };
@@ -945,6 +958,7 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      recordQueryResult();
       finishTelemetry("error");
       reject(err);
     };
@@ -954,6 +968,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        recordQueryResult();
         finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
@@ -982,67 +997,62 @@ export function isServerlessRuntime(): boolean {
   );
 }
 
-export function isProductionServerlessFunctionRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY === "true" ||
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_VERSION ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION ||
-    env.VERCEL === "1",
-  );
-}
-
-export function isHostedFunctionInvocationRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (hasCloudflareRuntime()) return true;
-
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION,
-  );
-}
+export { isDeployedServerRuntime } from "./server-runtime.js";
 
 export class HostedRuntimeLocalDatabaseError extends Error {
+  readonly code = DEPLOY_SETTINGS_REQUIRED_CODE;
+
   constructor(source: string) {
     super(
-      `Hosted function invocation resolved to local PGlite (source: ${source}). ` +
-        "DATABASE_URL, DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED " +
-        "(and their <APP_NAME>_ prefixed variants) were all empty or masked — refusing to serve " +
-        "requests off an ephemeral per-instance file instead of the shared database.",
+      `This deployed server has no hosted database: it resolved to local PGlite (source: ${source}). ` +
+        "Set DATABASE_URL to a hosted Postgres URL in the host's environment, then redeploy. " +
+        "NETLIFY_DATABASE_URL and <APP_NAME>_DATABASE_URL also work; an _UNPOOLED URL alone does not, " +
+        "because requests use the pooled URL. For local development, use `pnpm dev`, which runs on PGlite.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
   }
 }
 
+/**
+ * The one decision behind the refusal: the database source this process must
+ * refuse (the env key that resolved to local PGlite, or `"default"` when none
+ * is set), or null when local PGlite is allowed. `assertHostedRuntimeDatabase()`
+ * throws on it, and the setup page that replaces sign-in and the
+ * `/_agent-native/ping?configuration=1` probe report it, so none of them can
+ * disagree with the refusal. Do not give any caller its own copy of these
+ * rules.
+ *
+ * The order is load-bearing:
+ *
+ * - `isMigrationAuthorizedRuntime()` comes first: release scripts and durable
+ *   background workers can be a real hosted invocation (a Netlify background
+ *   function still gets `NETLIFY_FUNCTION_NAME`) and may touch PGlite under
+ *   `withMigrationRuntime()`, which `assertReleaseMigrationTargetsRemoteDatabase()`
+ *   guards separately.
+ * - A hosted function invocation refuses before `isEmbeddedRuntimeAuthorized()`
+ *   is consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate
+ *   home for an intentionally embedded desktop app, so an embedded host that
+ *   ends up running as one hits the same per-instance failure either way.
+ * - The embedded exemption covers only the bare Node/Docker rule below:
+ *   `createAgentNativeEmbeddedPlugin()` hosts (packaged/desktop installs)
+ *   deliberately pass a `pglite:` `databaseUrl`, and
+ *   `configureAgentNativeEmbeddedEnvironment()` claims the duty when they do.
+ * - Bare Node/Docker has no platform marker, so it refuses when a production
+ *   server bundle is actually serving. Never gate this on `NODE_ENV`: build
+ *   steps set `NODE_ENV=production` and `node .output/server/index.mjs` runs
+ *   without it (see db/server-runtime.ts).
+ */
+export function getRefusedLocalDatabaseSource(): string | null {
+  if (isMigrationAuthorizedRuntime()) return null;
+  if (!isLocalDatabase()) return null;
+  if (hasHostedInvocationMarker()) return getRuntimeDatabaseSource();
+  if (isEmbeddedRuntimeAuthorized()) return null;
+  return isDeployedServerRuntime() ? getRuntimeDatabaseSource() : null;
+}
+
 export function assertHostedRuntimeDatabase(): void {
-  if (isMigrationAuthorizedRuntime()) return;
-  if (!isLocalDatabase()) return;
-  if (isHostedFunctionInvocationRuntime()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
-  if (isEmbeddedRuntimeAuthorized()) return;
-  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  const source = getRefusedLocalDatabaseSource();
+  if (source !== null) throw new HostedRuntimeLocalDatabaseError(source);
 }
 
 const SCHEMA_MUTATION_STATEMENT =
@@ -1063,9 +1073,12 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * is the only supported production opt-in.
  */
 export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+  const migrationRuntimeCanMutate =
+    isMigrationExecutingRuntime() ||
+    (isMigrationAuthorizedRuntime() && !isHostedFunctionInvocationRuntime());
   if (
     isProductionServerlessFunctionRuntime() &&
-    !isMigrationAuthorizedRuntime() &&
+    !migrationRuntimeCanMutate &&
     isSchemaMutationStatement(statement)
   ) {
     throw new Error(
@@ -1085,9 +1098,7 @@ function poolApplicationName(): string {
 
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
-  const max =
-    getAppConfig().runtime.databasePoolMax ??
-    (serverless ? serverlessPoolMax() : 20);
+  const max = databasePoolMax();
   return {
     onnotice: () => {},
     connection: { application_name: poolApplicationName() },
@@ -1120,23 +1131,12 @@ export function neonPoolOptions(): {
 }
 
 export function neonPoolMax(): number {
-  return (
-    getAppConfig().runtime.databasePoolMax ??
-    (isServerlessRuntime() ? serverlessPoolMax() : 20)
-  );
+  return databasePoolMax();
 }
 
-function serverlessPoolMax(): number {
-  if (isLowConnectionBackgroundRuntime()) return 1;
-  if (isBackgroundFunctionPoolContext()) return 4;
-  return 2;
-}
-
-function isLowConnectionBackgroundRuntime(): boolean {
-  return (
-    (globalThis as Record<string, unknown>)
-      .__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ === true
-  );
+function databasePoolMax(): number {
+  const configured = getAppConfig().runtime.databasePoolMax;
+  return isServerlessRuntime() ? 1 : (configured ?? 20);
 }
 
 export function isBackgroundFunctionPoolContext(): boolean {
@@ -1391,7 +1391,13 @@ async function executePglite(
 ): ReturnType<DbExec["execute"]> {
   const { rawSql, args } = sqlAndArgs(sql);
   const pgSql = toPostgresParams(rawSql);
-  const result = await client.query(pgSql, args as any[]);
+  const result = await withDbTimeout(
+    "query",
+    () => client.query(pgSql, args as any[]),
+    dbOpTimeoutMs(),
+    undefined,
+    { sql: rawSql },
+  );
   return {
     rows: Array.from(result.rows ?? []),
     rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
@@ -1491,6 +1497,8 @@ async function createDbExecInternal(
         "query",
         () => runQuery() as Promise<{ rows: unknown[]; rowCount?: number }>,
         timeoutOverrideMs ?? timeoutMs,
+        undefined,
+        { sql: rawSql },
       );
       return {
         rows: result.rows,
@@ -1563,8 +1571,12 @@ async function createDbExecInternal(
         );
         return results[1];
       };
-      const result = await withDbTimeout("query", run, timeoutMs, () =>
-        controller.abort(),
+      const result = await withDbTimeout(
+        "query",
+        run,
+        timeoutMs,
+        () => controller.abort(),
+        { sql: rawSql },
       );
       return {
         rows: result.rows,
@@ -1736,6 +1748,7 @@ async function createDbExecInternal(
               timedOut = true;
               disposePostgresPoolEventually(conn, "timed-out worker query");
             },
+            { sql: rawSql },
           );
           return {
             rows: Array.from(result),
@@ -1774,6 +1787,8 @@ async function createDbExecInternal(
                       ArrayLike<unknown> & { count?: number }
                     >,
                   timeoutMs,
+                  undefined,
+                  { sql: rawSql },
                 );
                 return {
                   rows: Array.from(result),
@@ -1825,6 +1840,7 @@ async function createDbExecInternal(
             () => query,
             timeoutMs,
             () => recyclePool(queryPool),
+            { sql: rawSql },
           );
         }, maxAttempts);
         return {
@@ -1848,6 +1864,8 @@ async function createDbExecInternal(
                     ArrayLike<unknown> & { count?: number }
                   >,
                 timeoutMs,
+                undefined,
+                { sql: rawSql },
               );
               return {
                 rows: Array.from(result),

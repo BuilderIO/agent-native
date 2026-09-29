@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
+  defineAction,
   fail,
+  type ActionRunContext,
 } from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -22,6 +24,7 @@ import {
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { hashEmail } from "../mcp-client/remote-store.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
@@ -207,6 +210,82 @@ function actionEntry(opts: {
       : {}),
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
+}
+
+function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
+  return options.messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.startsWith(
+            "This turn stopped to prevent a repeating tool loop:",
+          ),
+      ),
+  );
+}
+
+async function runToolCallSequence(
+  calls: Array<{ name: string; input: Record<string, unknown> }>,
+  actions: Record<string, ActionEntry>,
+) {
+  let nextCall = 0;
+  const events: AgentChatEvent[] = [];
+  const engine: AgentEngine = {
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream(options): AsyncIterable<EngineEvent> {
+      if (isLoopBreakerCloseout(options) || nextCall === calls.length) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "text",
+              text: isLoopBreakerCloseout(options) ? "Stopped." : "Done.",
+            },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+        return;
+      }
+      const call = calls[nextCall++];
+      yield {
+        type: "assistant-content",
+        parts: [
+          {
+            type: "tool-call",
+            id: `repeat-error-${nextCall}`,
+            name: call.name,
+            input: call.input,
+          },
+        ],
+      };
+      yield { type: "stop", reason: "tool_use" };
+    },
+  };
+
+  await runAgentLoop({
+    engine,
+    model: "test-model",
+    systemPrompt: "system",
+    tools: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+    actions,
+    send: (event) => events.push(event),
+    signal: new AbortController().signal,
+  });
+
+  return events;
 }
 
 describe("toolCallCacheKey", () => {
@@ -1683,7 +1762,7 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
-  it("does not compact repeated includeSchemas tool-search calls", async () => {
+  it("compacts repeated tool-search calls even when schemas were requested", async () => {
     const registry = attachToolSearch({
       "hubspot-deals": actionEntry({
         readOnly: true,
@@ -1704,8 +1783,8 @@ describe("buildUserContentWithAttachments", () => {
         } as any) as any;
 
         expect(first.repeated).toBeUndefined();
-        expect(second.repeated).toBeUndefined();
-        expect(second.results[0].inputSchema).toBeDefined();
+        expect(second.repeated).toBe(true);
+        expect(second.results[0].inputSchema).toBeUndefined();
       },
     );
   });
@@ -1721,8 +1800,8 @@ describe("buildUserContentWithAttachments", () => {
     const result = searchToolRegistry(registry, {});
 
     expect(result.results.map((tool) => tool.name)).toContain("hubspot-deals");
-    expect(result.message).toContain("does not load schemas");
-    expect(result.message).toContain("tool-search again with a specific query");
+    expect(result.message).toContain("Search once by capability or tool name");
+    expect(result.message).toContain("load matching schemas");
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
@@ -1908,6 +1987,72 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
+    const seenActionNames: string[][] = [];
+    const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
+    const resolveAdditionalActions = vi.fn(async () => ({
+      [mcpToolName]: actionEntry({}),
+    }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        void opts;
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      resolveAdditionalActions,
+      resolveActionSurface: async ({ availableActionNames }) => {
+        seenActionNames.push(availableActionNames);
+        return { mode: "default" };
+      },
+    });
+    const makeEvent = (threadId: string) =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Run", threadId }),
+        }),
+      );
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(makeEvent("authenticated-mcp")),
+    );
+
+    expect(resolveAdditionalActions).toHaveBeenCalledOnce();
+    expect(resolveAdditionalActions.mock.calls[0]?.[0]).toMatchObject({
+      ownerEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    expect(seenActionNames[0]).toContain(mcpToolName);
+
+    await runWithRequestContext(
+      {
+        userEmail: "anon-session@agent-native.com",
+        agentRunAnonymous: true,
+        run: {},
+      },
+      () => handler(makeEvent("anonymous-mcp")),
+    );
+
+    expect(resolveAdditionalActions).toHaveBeenCalledOnce();
+    expect(seenActionNames[1]).not.toContain(mcpToolName);
+  });
+
   it("rejects a non-string request engine before resolving provider credentials", async () => {
     const stream = vi.fn();
     const systemPrompt = vi.fn(async () => "Test");
@@ -2125,6 +2270,62 @@ describe("createProductionAgentHandler", () => {
     ]);
     expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("omits feature-gated actions from the initial request tool list", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "list-context-packs": {
+          ...actionEntry({}),
+          agentDiscoveryAvailable: ({ userEmail }) =>
+            userEmail === "enabled@example.test",
+        },
+        "list-calendar-events": actionEntry({}),
+      },
+      initialToolNames: ["list-context-packs", "list-calendar-events"],
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Check my calendar" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "disabled@example.test", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    expect(seenTools).toEqual([["list-calendar-events"]]);
   });
 
   it("passes normalized requested turn and queued message ids to the action-surface resolver", async () => {
@@ -5119,6 +5320,140 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("refreshes a read after a dynamically classified write in continuation history", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "read-after-write",
+                name: "manage-resource",
+                input: { action: "get", id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "fresh state" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async ({ action }: { action: string }) =>
+      action === "click" ? "updated" : "fresh resource state",
+    );
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "update resource" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "old-read",
+              name: "manage-resource",
+              input: { action: "get", id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-read",
+              toolName: "manage-resource",
+              toolInput: '{"action":"get","id":"doc-1"}',
+              content: "cached old state",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "old-click",
+              name: "manage-resource",
+              input: { action: "click", id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-click",
+              toolName: "manage-resource",
+              toolInput: '{"action":"click","id":"doc-1"}',
+              content: "updated",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "manage-resource": {
+          ...actionEntry({
+            readOnly: true,
+            planMode: {
+              effect: (input) =>
+                (input as { action?: string }).action === "click"
+                  ? "write"
+                  : "read",
+            },
+          }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      { action: "get", id: "doc-1" },
+      expect.any(Object),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "manage-resource",
+        result: "fresh resource state",
+      }),
+    );
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+  });
+
   it("stops the run after 3 duplicate repeats of a visible read-only result", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -5133,8 +5468,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "I have the document and no more reads are needed.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -5169,14 +5517,13 @@ describe("runAgentLoop", () => {
     });
 
     expect(readAction).toHaveBeenCalledTimes(1);
-    expect(streamCalls).toBe(4);
-    expect(events).toContainEqual({
-      type: "error",
-      error:
-        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-      errorCode: "duplicate_read_only_tool",
-      recoverable: false,
-    });
+    expect(streamCalls).toBe(5);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("stops after the third visible duplicate across continuation invocations", async () => {
@@ -5289,14 +5636,13 @@ describe("runAgentLoop", () => {
     expect(readAction).not.toHaveBeenCalled();
     expect(first.streamCalls).toBe(2);
     expect(second.streamCalls).toBe(2);
-    expect(third.streamCalls).toBe(1);
-    expect(third.events).toContainEqual({
-      type: "error",
-      error:
-        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-      errorCode: "duplicate_read_only_tool",
-      recoverable: false,
-    });
+    expect(third.streamCalls).toBe(2);
+    expect(third.events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(third.events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("does not cache repeated reads when the action opts out of deduping", async () => {
@@ -6449,8 +6795,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "Stopped after eight repeated reads; nothing remains.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6475,7 +6834,237 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "spinning-read": {
-          ...actionEntry({ readOnly: true, dedupe: false }),
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
+    });
+
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "spinning-read",
+        result: "same answer every time",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Stopped after eight repeated reads; nothing remains.",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "loop_limit" }),
+    );
+  });
+
+  it("allows nine identical reads when each successful write changes the deck", async () => {
+    let streamCalls = 0;
+    let reads = 0;
+    let writes = 0;
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (
+          isLoopBreakerCloseout(options) ||
+          streamCalls > (MAX_IDENTICAL_TOOL_CALLS + 1) * 2
+        ) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "All nine edits are measured." },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        const write =
+          streamCalls <= (MAX_IDENTICAL_TOOL_CALLS + 1) * 2 &&
+          streamCalls % 2 === 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `edit-check-${streamCalls}`,
+              name: write ? "patch-deck" : "get-layout-overflows",
+              input: write ? { revision: writes + 1 } : { deckId: "deck-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "edit" }] }],
+      actions: {
+        "get-layout-overflows": {
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
+          run: vi.fn(async () => `measurement-${++reads}`),
+        },
+        "patch-deck": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => `saved-${++writes}`),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(reads).toBe(9);
+    expect(writes).toBe(9);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: "done" }));
+  });
+
+  it("stops after eight identical successful writes while preserving the eighth result", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "write completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "The write finished." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-${streamCalls}`,
+              name: "repeat-write",
+              input: { id: "same" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: { "repeat-write": { ...actionEntry({ readOnly: false }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      MAX_IDENTICAL_TOOL_CALLS,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("does not dispatch parallel identical writes after the repeat threshold", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "write completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "The writes completed." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: Array.from(
+            { length: MAX_IDENTICAL_TOOL_CALLS + 2 },
+            (_, i) => ({
+              type: "tool-call" as const,
+              id: `parallel-write-${i + 1}`,
+              name: "repeat-parallel-write",
+              input: { id: "same" },
+            }),
+          ),
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "repeat-parallel-write": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
           run,
         },
       },
@@ -6483,9 +7072,385 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
+    const completedCalls = events.filter((event) => event.type === "tool_done");
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(completedCalls).toHaveLength(MAX_IDENTICAL_TOOL_CALLS + 2);
+    expect(
+      completedCalls.find(
+        (event) => event.id === `parallel-write-${MAX_IDENTICAL_TOOL_CALLS}`,
+      ),
+    ).toMatchObject({ result: "write completed", completedSideEffect: true });
+    expect(
+      completedCalls.filter((event) =>
+        event.result.startsWith("Not executed:"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      completedCalls
+        .filter((event) => event.result.startsWith("Not executed:"))
+        .map((event) => event.id),
+    ).toEqual([
+      `parallel-write-${MAX_IDENTICAL_TOOL_CALLS + 1}`,
+      `parallel-write-${MAX_IDENTICAL_TOOL_CALLS + 2}`,
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("keeps pending parallel-call counts after another write resets repeats", async () => {
+    let streamCalls = 0;
+    let releaseSecondWrite: (() => void) | undefined;
+    const secondWriteGate = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    const writeA = vi.fn(async () => "write A completed");
+    const writeB = vi.fn(async () => {
+      await secondWriteGate;
+      return "write B completed";
+    });
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "Both writes completed." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            streamCalls === 1
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    id: "write-a",
+                    name: "parallel-write-a",
+                    input: { id: "a" },
+                  },
+                  {
+                    type: "tool-call" as const,
+                    id: "write-b",
+                    name: "parallel-write-b",
+                    input: { id: "b" },
+                  },
+                ]
+              : [
+                  {
+                    type: "tool-call" as const,
+                    id: `repeat-b-${streamCalls}`,
+                    name: "parallel-write-b",
+                    input: { id: "b" },
+                  },
+                ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "parallel-write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeA,
+        },
+        "parallel-write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeB,
+        },
+      },
+      send: (event) => {
+        events.push(event);
+        if (event.type === "tool_done" && event.tool === "parallel-write-a") {
+          releaseSecondWrite?.();
+        }
+      },
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
+    });
+
+    expect(writeA).toHaveBeenCalledTimes(1);
+    expect(writeB).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("clears completed parallel-call counts at the next write boundary", async () => {
+    let streamCalls = 0;
+    const writeA = vi.fn(async () => "write A completed");
+    const writeB = vi.fn(async () => "write B completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const parts =
+          streamCalls === 1
+            ? [
+                {
+                  type: "tool-call" as const,
+                  id: "write-a",
+                  name: "parallel-write-a",
+                  input: { id: "a" },
+                },
+                {
+                  type: "tool-call" as const,
+                  id: "write-b",
+                  name: "parallel-write-b",
+                  input: { id: "b" },
+                },
+              ]
+            : streamCalls <= MAX_IDENTICAL_TOOL_CALLS
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    id: `repeat-a-${streamCalls}`,
+                    name: "parallel-write-a",
+                    input: { id: "a" },
+                  },
+                ]
+              : [{ type: "text" as const, text: "Done." }];
+        yield { type: "assistant-content", parts };
+        yield {
+          type: "stop",
+          reason:
+            streamCalls <= MAX_IDENTICAL_TOOL_CALLS ? "tool_use" : "end_turn",
+        };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "parallel-write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeA,
+        },
+        "parallel-write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeB,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS + 2,
+    });
+
+    expect(writeA).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(writeB).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("does not retry a timed-out call classified as a write by its arguments", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => new Promise<never>(() => {}));
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: `click-${streamCalls}`,
+              name: "mcp-command",
+              input: { action: "click" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "click" }] }],
+      actions: {
+        "mcp-command": {
+          ...actionEntry({
+            readOnly: true,
+            timeoutMs: 50,
+            planMode: {
+              effect: (input) =>
+                (input as { action?: string }).action === "click"
+                  ? "write"
+                  : "read",
+            },
+          }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: 3,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+  });
+
+  it("resets other tools' repeat-error counts after a successful write", async () => {
+    const keyedFailure = vi.fn(async () => fail("same failure"));
+    const variedFailure = vi.fn(async () => fail("same failure"));
+    const write = vi.fn(async () => "saved");
+    const events = await runToolCallSequence(
+      [
+        { name: "keyed-read", input: { id: "same" } },
+        { name: "keyed-read", input: { id: "same" } },
+        { name: "varied-read", input: { id: 1 } },
+        { name: "varied-read", input: { id: 2 } },
+        { name: "repair", input: { id: "deck" } },
+        { name: "varied-read", input: { id: 3 } },
+        { name: "keyed-read", input: { id: "same" } },
+      ],
+      {
+        "keyed-read": { ...actionEntry({ readOnly: true }), run: keyedFailure },
+        "varied-read": {
+          ...actionEntry({ readOnly: true }),
+          run: variedFailure,
+        },
+        repair: { ...actionEntry({ readOnly: false }), run: write },
+      },
+    );
+
+    expect(keyedFailure).toHaveBeenCalledTimes(3);
+    expect(variedFailure).toHaveBeenCalledTimes(3);
+    expect(write).toHaveBeenCalledOnce();
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      7,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
+  it("retains the mutating tool's keyed repeat-error count", async () => {
+    let attempts = 0;
+    const write = vi.fn(async () => {
+      attempts += 1;
+      if (attempts <= 2 || attempts === 4) fail("same failure");
+      return "saved";
+    });
+    const events = await runToolCallSequence(
+      Array.from({ length: 4 }, () => ({
+        name: "repair",
+        input: { id: "same" },
+      })),
+      { repair: { ...actionEntry({ readOnly: false }), run: write } },
+    );
+
+    expect(write).toHaveBeenCalledTimes(4);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "repair",
+        result: expect.stringContaining("Stopped after 3 identical errors"),
+      }),
+    );
+  });
+
+  it("retains the mutating tool's across-argument repeat-error count", async () => {
+    let attempts = 0;
+    const write = vi.fn(async () => {
+      attempts += 1;
+      if (attempts <= 2 || attempts === 4) fail("same failure");
+      return "saved";
+    });
+    const events = await runToolCallSequence(
+      Array.from({ length: 4 }, (_, index) => ({
+        name: "repair-across-arguments",
+        input: { id: index },
+      })),
+      {
+        "repair-across-arguments": {
+          ...actionEntry({ readOnly: false }),
+          run: write,
+        },
+      },
+    );
+
+    expect(write).toHaveBeenCalledTimes(4);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "repair-across-arguments",
+        result: expect.stringContaining(
+          "Stopped after 3 attempts at repair-across-arguments",
+        ),
+      }),
+    );
   });
 
   it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
@@ -6503,8 +7468,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated invalid calls stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6538,7 +7516,13 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).not.toHaveBeenCalled();
-    expect(streamCalls).toBe(3);
+    expect(streamCalls).toBe(4);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
@@ -6589,7 +7573,7 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        research: { ...actionEntry({ readOnly: true, dedupe: false }), run },
+        research: { ...actionEntry({ readOnly: true }), dedupe: false, run },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -6747,8 +7731,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6782,6 +7779,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).toHaveBeenCalledTimes(3);
+    expect(streamCalls).toBe(4);
     expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -6790,14 +7788,11 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        recoverable: false,
-        error: expect.stringContaining("failed 3 times"),
-        details: expect.stringContaining("DB failed"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -6815,8 +7810,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The unknown tool calls stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6844,7 +7852,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(streamCalls).toBe(3);
+    expect(streamCalls).toBe(4);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -6852,12 +7860,11 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        error: expect.stringContaining("failed 3 times"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -7416,8 +8423,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The source sweep stopped after repeating the same failure.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -7446,13 +8466,13 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBeLessThan(
-      resolveSourceSweepToolCallThreshold() + 13,
+      resolveSourceSweepToolCallThreshold() + 14,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_tool_error_across_arguments",
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "loop_limit" }),
@@ -8330,6 +9350,91 @@ describe("runAgentLoop", () => {
       }),
     );
   });
+
+  it.each([false, true])(
+    "passes each model tool-call ID to actions (defineAction: %s)",
+    async (wrapped) => {
+      const run = vi.fn(async (_args: unknown, _ctx?: ActionRunContext) => ({
+        ok: true,
+      }));
+      const action = wrapped
+        ? defineAction({
+            description: "Read a record",
+            parameters: {
+              id: { type: "string" },
+              toolCallId: { type: "string" },
+            },
+            readOnly: true,
+            run,
+          })
+        : { ...actionEntry({ readOnly: true }), run };
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: ["first", "second"].map((id) => ({
+                type: "tool-call" as const,
+                id: `model-${id}`,
+                name: "read-record",
+                input: { id, toolCallId: "untrusted-input" },
+              })),
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "text-delta", text: "Read both records." };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Read both records" }],
+          },
+        ],
+        actions: { "read-record": action },
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(2);
+      for (const id of ["first", "second"]) {
+        expect(run).toHaveBeenCalledWith(
+          { id, toolCallId: "untrusted-input" },
+          expect.objectContaining({
+            toolCallId: `model-${id}`,
+            caller: "tool",
+          }),
+        );
+      }
+      if (wrapped) {
+        await action.run(
+          { id: "direct", toolCallId: "untrusted-input" },
+          { caller: "cli" },
+        );
+        expect(run.mock.calls.at(-1)?.[1]).not.toHaveProperty("toolCallId");
+      }
+    },
+  );
 
   it("passes the turn's attachments into each tool action's run context", async () => {
     let receivedAttachments: unknown;

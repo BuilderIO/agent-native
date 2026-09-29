@@ -17,7 +17,6 @@ import React, {
 } from "react";
 import { useLocation } from "react-router";
 
-import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import {
   buildSettingsRoute,
   SETTINGS_PAGE_IDS,
@@ -33,7 +32,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -151,14 +149,10 @@ const FIRST_RUN_ROLE_OPTIONS = [
 /**
  * Where "Skip and configure manually" lands: Agent › Model, whose empty state
  * adds a provider key in one click, since the agent can't answer until a model
- * provider is set up. API keys with the redesign off.
+ * provider is set up.
  */
-export function manualSetupSettingsRoute({
-  redesign,
-}: {
-  redesign: boolean;
-}): string {
-  return buildSettingsRoute(redesign ? SETTINGS_PAGE_IDS.model : "keys");
+export function manualSetupSettingsRoute(): string {
+  return buildSettingsRoute(SETTINGS_PAGE_IDS.model);
 }
 
 export interface FirstRunOnboardingProps {
@@ -179,7 +173,11 @@ export function FirstRunOnboarding({
     profile,
     completeFirstRun,
     completeFirstRunError,
-  } = useOnboarding({ preview: previewMode, initialFirstRun });
+  } = useOnboarding({
+    preview: previewMode,
+    initialFirstRun,
+    firstRunSurface: true,
+  });
   const [screen, setScreen] = useState<FirstRunScreen>(() =>
     previewStep === "references" ? "extension" : (previewStep ?? "role"),
   );
@@ -234,7 +232,6 @@ export function FirstRunOnboarding({
     100,
     ((currentStepIndex + 1) / totalOnboardingStepCount) * 100,
   )}%`;
-  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -574,7 +571,7 @@ export function FirstRunOnboarding({
       null,
       "",
       `${appMountedPath(
-        manualSetupSettingsRoute({ redesign: redesign.enabled }),
+        manualSetupSettingsRoute(),
         pathname || STANDARD_APP_ROUTES.home,
       )}${query ? `?${query}` : ""}`,
     );

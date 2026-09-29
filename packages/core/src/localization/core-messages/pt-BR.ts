@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "Não foi possível carregar o contexto.",
   "composer.contextLinkRequired": "Insira um link.",
   "composer.submitFailed": "Não foi possível enviar. Tente novamente.",
+  "composer.attachmentsRemainAfterSubmit":
+    "A mensagem foi enviada, mas ainda há anexos. Remova-os antes de enviar novamente.",
   "composer.addContext": "Adicionar contexto",
   "composer.contextActionFailed": "Não foi possível adicionar o contexto.",
   "composer.contextBack": "Voltar",
@@ -73,6 +75,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
+  "observability.promoteMustContain": "A resposta deve conter…",
+  "observability.promoteMustContainOptional":
+    "Texto opcional a verificar na resposta…",
+  "observability.promoteMustContainLabel":
+    "Texto a verificar na resposta da avaliação promovida",
+  "observability.promoteNeedsContains":
+    "Esta execução não tem nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promover.",
   "observability.viewDetails": "Ver detalhes",
   "observability.hideDetails": "Ocultar detalhes",
   "observability.input": "Entrada",
@@ -1358,6 +1367,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Novo e-mail",
   "settings.emailNewPlaceholder": "Digite o novo e-mail",
   "usage.builderCredits": "Créditos do Builder",
+  "featureFlags.builderCreditReferrals.name": "Indicações de créditos Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "Mostrar os detalhes de indicação do espaço de trabalho Builder conectado em Uso.",
   "usage.inviteFriends": "Convide amigos",
   "usage.inviteCredits":
     "Ganhe {{amount}} créditos do Builder quando um amigo assinar.",

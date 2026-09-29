@@ -65,11 +65,12 @@ The repeated app shell has two distinct navigation surfaces:
   recommendation, synthesis, visible progress, or steering, route the button
   to the AgentSidebar and let the agent call focused actions. Keep revisions in
   the same thread instead of adding a second freeform prompt box.
-- Standalone apps with `AgentSidebar` must use the shared AgentKit chat surface
-  and one AgentKit controller/transport. Do not mount the legacy `AssistantChat`
-  renderer or create a second chat stream owner. Keep assistant-ui imports inside
-  the shared composer integration; when linked dependencies need Vite aliases,
-  resolve one `@agent-native/agentkit` context and verify a real handoff.
+- Standalone apps with `AgentSidebar` must use one AgentKit controller and
+  transport. Core's `AssistantChat` export remains supported as an alias for
+  `AgentKitAssistantChat`; use AgentKit slots and registries for custom message
+  UI. Keep assistant-ui transcript/runtime imports inside the shared composer
+  integration; when linked dependencies need Vite aliases, resolve one
+  `@agent-native/agentkit` context and verify a real handoff.
 
 Contextual agent UI is not a reason to expose every option at once. Start with
 the domain task's primary action, reveal review or configuration only when the
@@ -137,9 +138,9 @@ against `@agent-native/toolkit/conformance` in customer CI before adopting it.
 ## Settings Direction
 
 Durable settings belong in Settings. The agent sidebar should not become a
-second settings app; it can show contextual quick controls and deep links. The
-redesigned Settings (`settings-redesign` flag) has the same groups in every app,
-and page ids are stable URL segments (`/settings/<page>/<sub>`):
+second settings app; it can show contextual quick controls and deep links.
+Settings has the same groups in every app, and page ids are stable URL segments
+(`/settings/<page>/<sub>`):
 
 - Account: `profile`, `preferences`, `security`
 - Connections: `integrations` (`integrations/builder`), `api-keys`
@@ -163,9 +164,9 @@ dialog on Model, other keys on API keys, channels on Channels, and app-only
 preferences in the app's group. Only add sidebar UI when it is needed in the
 moment of agent use.
 
-### The app's group in the redesigned Settings
+### The app's group in Settings
 
-Behind the `settings-redesign` flag, Settings has a group named after the app.
+Settings has a group named after the app.
 Core owns its pages: General, Notifications, Automations, Channels, MCP server,
 Creative context, plus Labs and What's new in the footer. A template supplies
 only its own content, through these `SettingsTabsPage` props:

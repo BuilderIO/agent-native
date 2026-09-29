@@ -299,6 +299,7 @@ npx @agent-native/recap-cli@latest recap setup
 | `VISUAL_RECAP_MODEL`           | Claude 为 `claude-sonnet-5`；兼容后端下为必需 | 变量。OpenAI 兼容后端所使用的服务商模型 id（该后端下为必需）。对于 Claude，不设置时现在默认使用 `claude-sonnet-5`——可设置以覆盖，例如设为最便宜档位的 `claude-haiku-4-5`。对于 Codex，不设置时使用 Codex CLI 自身的默认值。 |
 | `VISUAL_RECAP_REASONING`       | 各模型自身的默认值                            | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于 Codex 后端。                                                                                                                                  |
 | `VISUAL_RECAP_REQUIRED_LABELS` | —                                             | 变量。以逗号分隔的 PR 标签列表。设置后，门禁会跳过回顾，直到 PR 带上列表中至少一个标签，例如 `visual recap`。                                                                                                               |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                        | 变量，仅适用于复制版本（可复用的调用方会忽略它）。设为 `false` 后，不再在每次推送时生成回顾。之后只在 PR 打开、重新打开、标记为可审阅或合并时，以及打上 `recap` 标签时生成回顾。仅打上必需标签不会触发回顾。                |
 | `RECAP_CLI_VERSION`            | `latest`                                      | 变量。固定工作流安装的 `@agent-native/recap-cli` 版本——例如 `1.5.0`。参见 [Version pinning](#version-pinning-copy-variant)。                                                                                                |
 | `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`               | Secret。仅当把 Plans 应用自托管在不同源上时才需要。                                                                                                                                                                         |
 
@@ -416,9 +417,9 @@ PR 运行时**无法访问仓库 secrets**，工作流找不到 `PLAN_RECAP_TOKE
 ### 标签门禁如何工作
 
 1. 一个分支贡献者打开了一个 PR。由于 GitHub 不会向分支运行提供 secrets，普通的 `pull_request` 工作流会跳过。
-2. 分支工作流会检查 PR 的作者关联。受信任的作者（`OWNER`、`MEMBER` 或 `COLLABORATOR`）会在打开、同步、重新打开和标记为可审阅时自动运行。
+2. 分支工作流会检查 PR 的作者关联。受信任的作者（`OWNER`、`MEMBER` 或 `COLLABORATOR`）会在打开、重新打开和标记为可审阅时自动运行。
 3. 外部贡献者需要先让一位维护者审阅当前的 diff（尤其要留意提示注入形态的内容——见下文），然后再给该 PR 打上 `recap` 标签。
-4. 面向外部贡献者的标签门禁是按 head SHA 生效的：如果贡献者推送了更多提交，下一次 synchronize 事件会被跳过，直到维护者在审阅新 diff 之后移除并重新打上 `recap`。
+4. 新提交不会触发分支工作流。要在新提交后刷新回顾，维护者需要审阅新 diff，然后移除并重新打上 `recap`。
 
 ### 分支工作流会做什么、不会做什么
 

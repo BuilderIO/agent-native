@@ -74,7 +74,7 @@ export default function ChatRoute() {
       composerLayoutVariant="hero"
       composerPlaceholder={t("chat.composerPlaceholder")}
       homeIntroSlot={
-        <div className="mx-auto mb-5 max-w-xl px-4 text-center">
+        <div className="mx-auto max-w-xl px-4 text-center">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
             {t("chat.heroTitle")}
           </h1>

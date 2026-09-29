@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
+import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
@@ -19,6 +20,21 @@ const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "constructor",
   "prototype",
 ]);
+
+function tweakDefinitionsWriteError(value: unknown): string | null {
+  return tweakDefinitionsSchema.safeParse(value).success
+    ? null
+    : "tweaks must be an array of valid definitions";
+}
+
+function designDataWriteError(path: string[], value: unknown): string | null {
+  const geometryError = numericDesignDataWriteError(path, value);
+  if (geometryError) return geometryError;
+  if (path.length === 1 && path[0] === "tweaks") {
+    return tweakDefinitionsWriteError(value);
+  }
+  return null;
+}
 
 const dataPathSchema = z
   .array(
@@ -47,10 +63,7 @@ const dataOperationSchema = z
   ])
   .superRefine((operation, context) => {
     if (operation.op !== "set") return;
-    const message = numericDesignDataWriteError(
-      operation.path,
-      operation.value,
-    );
+    const message = designDataWriteError(operation.path, operation.value);
     if (message) {
       context.addIssue({ code: "custom", path: ["value"], message });
     }
@@ -82,10 +95,7 @@ const agentDataOperationSchema = z
   ])
   .superRefine((operation, context) => {
     if (operation.op !== "set") return;
-    const message = numericDesignDataWriteError(
-      operation.path,
-      operation.value,
-    );
+    const message = designDataWriteError(operation.path, operation.value);
     if (message) {
       context.addIssue({ code: "custom", path: ["value"], message });
     }
@@ -228,12 +238,22 @@ function applyDataOperations(
 
 function validatePersistedDataSnapshot(
   raw: string,
+  designId: string,
   touchedMaps?: ReadonlySet<string>,
   touchedCanvasFrameIds?: ReadonlySet<string>,
 ): void {
   const parsed = JSON.parse(raw);
   if (!isRecord(parsed)) return;
   for (const [key, value] of Object.entries(parsed)) {
+    if (key === "tweaks") {
+      if (touchedMaps && !touchedMaps.has(key)) continue;
+      if (tweakDefinitionsWriteError(value)) {
+        throw new Error(
+          `Design ${designId} has invalid tweak definitions. Refusing to save them.`,
+        );
+      }
+      continue;
+    }
     if (
       touchedMaps &&
       NUMERIC_DESIGN_DATA_MAPS.has(key) &&
@@ -393,6 +413,10 @@ export default defineAction({
       }
       if (isRecord(parsedSnapshot)) {
         for (const [key, value] of Object.entries(parsedSnapshot)) {
+          if (key === "tweaks") {
+            const tweakError = tweakDefinitionsWriteError(value);
+            if (tweakError) throw new Error(tweakError);
+          }
           const message = numericDesignDataWriteError([key], value);
           if (message) throw new Error(message);
         }
@@ -500,6 +524,7 @@ export default defineAction({
         : undefined;
       validatePersistedDataSnapshot(
         nextData,
+        id,
         touchedMaps,
         touchedCanvasFrameIds,
       );

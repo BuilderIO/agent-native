@@ -167,7 +167,7 @@ describe("getDuplicateScreenGeometry", () => {
 });
 
 describe("runDuplicateScreen", () => {
-  it("uses the measured 40px gap for Cmd+D", async () => {
+  it("keeps Cmd+D duplicates on the board's 56px spacing", async () => {
     const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
     const args = duplicateArgs({
       designDataJsonRef: {
@@ -180,7 +180,7 @@ describe("runDuplicateScreen", () => {
 
     expect(args.focusCreatedScreen).toHaveBeenCalledWith(
       "copy",
-      expect.objectContaining({ x: 560, y: 720 }),
+      expect.objectContaining({ x: 576, y: 720 }),
       expect.any(Object),
     );
   });

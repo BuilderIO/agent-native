@@ -159,7 +159,9 @@ function deliveryStateKey(key: string, kind: "channel" | "event"): string {
 
 /**
  * Claims one idempotent notification side effect. Expired pending claims may
- * be retried; once dispatch starts, the receipt is never automatically reused.
+ * be retried. Event claims may also be replayed after their dispatch lease
+ * expires because event subscribers deduplicate by the stable event ID;
+ * channel deliveries remain non-replayable once dispatch starts.
  */
 export async function claimNotificationDelivery(
   notificationId: string,
@@ -184,8 +186,17 @@ export async function claimNotificationDelivery(
     sql: `UPDATE notification_delivery_state
       SET state = 'pending', claim_token = ?, lease_expires_at = ?, completed_at = NULL
       WHERE notification_id = ? AND delivery_key = ?
-        AND state = 'pending' AND lease_expires_at <= ?`,
-    args: [token, now + DELIVERY_CLAIM_LEASE_MS, notificationId, stateKey, now],
+        AND ((state = 'pending' AND lease_expires_at <= ?)
+          OR (? = 'event' AND state = 'dispatching' AND lease_expires_at <= ?))`,
+    args: [
+      token,
+      now + DELIVERY_CLAIM_LEASE_MS,
+      notificationId,
+      stateKey,
+      now,
+      kind,
+      now,
+    ],
   });
   if ((reclaimed.rowsAffected ?? 0) > 0) return token;
 
@@ -211,10 +222,15 @@ export async function markNotificationDeliveryDispatching(
   const client = getDbExec();
   const result = await client.execute({
     sql: `UPDATE notification_delivery_state
-      SET state = 'dispatching', lease_expires_at = 0
+      SET state = 'dispatching', lease_expires_at = ?
       WHERE notification_id = ? AND delivery_key = ?
         AND state = 'pending' AND claim_token = ?`,
-    args: [notificationId, deliveryStateKey(key, kind), claimToken],
+    args: [
+      kind === "event" ? Date.now() + DELIVERY_CLAIM_LEASE_MS : 0,
+      notificationId,
+      deliveryStateKey(key, kind),
+      claimToken,
+    ],
   });
   if (result.rowsAffected === 0) {
     throw new Error("Notification delivery claim was lost before dispatch.");

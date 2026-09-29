@@ -167,7 +167,7 @@
   width: 100%;
   max-width: min(684px, 90%);
   gap: 0.5rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 
@@ -382,7 +382,6 @@
     .analytics-chat-intro {
     width: 100%;
     max-width: min(640px, 95%);
-    margin-bottom: 0.875rem;
   }
 
   .analytics-chat-intro h1 {

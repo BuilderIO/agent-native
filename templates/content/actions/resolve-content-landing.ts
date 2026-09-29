@@ -350,6 +350,12 @@ async function resolveWelcome(
   }
 }
 
+function welcomeCreated(resolution: string) {
+  return resolution === "welcome-created"
+    ? { welcomeCreated: true as const }
+    : {};
+}
+
 export default defineAction({
   description:
     "Resolve the signed-in user's safe Content landing page, restoring an authorized last page when possible.",
@@ -387,6 +393,7 @@ export default defineAction({
         ...(target
           ? { fallbackReason: "saved-document-unavailable" as const }
           : {}),
+        ...welcomeCreated(welcome.resolution),
       } satisfies ContentSpaceLandingResult;
     }
 
@@ -402,8 +409,9 @@ export default defineAction({
         documentId: welcome.documentId,
         resolution: "fallback" as const,
         fallbackReason: "saved-document-unavailable" as const,
+        ...welcomeCreated(welcome.resolution),
       };
     }
-    return welcome;
+    return { ...welcome, ...welcomeCreated(welcome.resolution) };
   },
 });

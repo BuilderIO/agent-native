@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-28
 
+### Improved
+
+- Dispatch admin pages now use a consistent settings layout.
+
 ### Fixed
 
 - Desktop sign-in now carries over to Mail and other eligible apps.

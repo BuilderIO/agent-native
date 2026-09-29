@@ -16,6 +16,10 @@ import type { H3Event } from "h3";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  newOrgSelection,
+  ORG_SELECTION_COOKIE,
+} from "../org/request-org-cache.js";
+import {
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
@@ -53,6 +57,7 @@ import {
   getFrameworkRoutePrefix,
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
+import { isHttpsRequest } from "./https-request.js";
 
 function toWebRequest(event: H3Event): Request {
   const req = (event as any).req as Request;
@@ -86,6 +91,7 @@ type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
@@ -106,6 +112,7 @@ import type {
   ResetPasswordPageProps,
 } from "../shared/auth-page-types.js";
 import {
+  DISABLED_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
@@ -119,6 +126,7 @@ import {
   PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import {
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
@@ -191,6 +199,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
+import { getSignInBlockingSettingKeys } from "./deploy-settings.js";
 import {
   readDesktopSso,
   writeDesktopSso,
@@ -238,6 +247,7 @@ import {
 } from "./magic-link-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
+  getDeploySettingsRequiredHtml,
   getOnboardingHtml,
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
@@ -340,13 +350,15 @@ export interface AuthOptions {
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
   googleScopes?: string[];
-  marketing?: {
-    appName: string;
-    tagline: string;
-    description?: string;
-    features?: string[];
-    learnMoreUrl?: string;
-  };
+  marketing?:
+    | false
+    | {
+        appName: string;
+        tagline: string;
+        description?: string;
+        features?: string[];
+        learnMoreUrl?: string;
+      };
   signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
   googleAuthMode?: GoogleAuthMode;
   betterAuth?: BetterAuthConfig;
@@ -621,6 +633,20 @@ async function getLegacyCookieSession(
       }
     }
     if (email && resolvedToken) {
+      if (name !== COOKIE_NAME || resolvedToken !== value) {
+        setFrameworkSessionCookie(event, resolvedToken);
+      }
+      const known = await readLegacySessionUser(email);
+      if (known.kind === "canonical") {
+        return enrichLegacySessionIdentity(
+          legacySessionWithVerification(
+            email,
+            resolvedToken,
+            known.verification,
+          ),
+          known.canonicalUser,
+        );
+      }
       let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
         canonicalUser = await resolveCanonicalUserForLegacySession(email);
@@ -629,9 +655,6 @@ async function getLegacyCookieSession(
           "[auth] legacy session canonical-user backfill failed:",
           error instanceof Error ? error.message : error,
         );
-      }
-      if (name !== COOKIE_NAME || resolvedToken !== value) {
-        setFrameworkSessionCookie(event, resolvedToken);
       }
       return enrichLegacySessionIdentity(
         await mapLegacySession(email, resolvedToken),
@@ -764,11 +787,21 @@ function betterAuthCallbackURL(
   }
 }
 
-export function getConfiguredLoginHtml(event: H3Event): string | null {
+export interface ConfiguredLoginPage {
+  html: string;
+  /** 503 while the deploy is missing a setting sign-in needs. */
+  status: 200 | 503;
+}
+
+export function getConfiguredLoginHtml(
+  event: H3Event,
+): ConfiguredLoginPage | null {
   const config = _authGuardConfig;
   if (!config) return null;
   const { rawPath, search } = getRequestPathAndSearch(event);
   const requestPath = `${rawPath}${search}`;
+  const setupRequiredHtml = config.getSetupRequiredHtml?.(event, requestPath);
+  if (setupRequiredHtml) return { html: setupRequiredHtml, status: 503 };
   const loginHtml =
     config.getLoginHtml?.(event, requestPath) ?? config.loginHtml ?? null;
   if (!loginHtml) return null;
@@ -779,10 +812,13 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
     !loginHtml.includes("data-agent-native-app-origin-config")
       ? injectHeadScript(loginHtml, appOriginConfigScript)
       : loginHtml;
-  return injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(html, requestPath),
-    event,
-  );
+  return {
+    html: injectLoginSocialImageMeta(
+      injectBetaOptOutPersistence(html, requestPath),
+      event,
+    ),
+    status: 200,
+  };
 }
 
 /**
@@ -1583,6 +1619,18 @@ function publicAuthError(
   const code = typeof authError?.code === "string" ? authError.code : "";
   const details = `${code} ${message}`.trim();
 
+  // Matched by code, not by the refusal error classes: many specs mock
+  // ../db/client.js, and an unmocked class import would break them. On a
+  // deploy without a database or auth secret, Better Auth fails at startup
+  // and the fallback auth routes answer every request through this helper.
+  if (code === DEPLOY_SETTINGS_REQUIRED_CODE) {
+    return {
+      message:
+        "This deployment is missing required settings. Set them in the host's environment, then redeploy.",
+      statusCode: 503,
+      code: DEPLOY_SETTINGS_REQUIRED_CODE,
+    };
+  }
   if (details.includes(AUTH_SIGNUP_INVITE_ONLY_CODE)) {
     return {
       message:
@@ -2004,10 +2052,7 @@ async function resolveLegacySessionEmailVerification(
       args: [email],
     });
     if (rows.length === 0) return "absent";
-    const value = rows[0].email_verified;
-    if (value === true || value === 1 || value === "1") return "verified";
-    if (value === false || value === 0 || value === "0") return "unverified";
-    return "unreadable";
+    return emailVerificationFromColumn(rows[0].email_verified);
   } catch (error) {
     console.warn(
       "[auth] failed to resolve legacy session email verification:",
@@ -2017,11 +2062,71 @@ async function resolveLegacySessionEmailVerification(
   }
 }
 
-async function mapLegacySession(
+function emailVerificationFromColumn(
+  value: unknown,
+): LegacySessionEmailVerification {
+  if (value === true || value === 1 || value === "1") return "verified";
+  if (value === false || value === 0 || value === "0") return "unverified";
+  return "unreadable";
+}
+
+type LegacySessionUserRead =
+  | {
+      kind: "canonical";
+      canonicalUser: CanonicalLegacyUser;
+      verification: LegacySessionEmailVerification;
+    }
+  | { kind: "two-step" };
+
+/**
+ * One `"user"` read for both legacy-session lookups: it is the verification
+ * query widened to the profile columns. Its row is also the canonical Better
+ * Auth user only when the stored address is already the normalized one, since
+ * Better Auth's adapter matches that exact value and `"user".email` is unique.
+ * Anything else keeps the two-step path, which also backfills a missing user.
+ */
+async function readLegacySessionUser(
+  email: string,
+): Promise<LegacySessionUserRead> {
+  if (!getBetterAuthSync()) return { kind: "two-step" };
+  let row: Record<string, unknown> | undefined;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT id, email, name, image, email_verified FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      args: [email],
+    });
+    row = rows[0] as Record<string, unknown> | undefined;
+  } catch {
+    // The two-step path repeats both reads and reports their failures.
+    return { kind: "two-step" };
+  }
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    row.email !== email.trim().toLowerCase()
+  ) {
+    return { kind: "two-step" };
+  }
+  return {
+    kind: "canonical",
+    canonicalUser: {
+      user: {
+        id: row.id,
+        email: row.email,
+        ...(typeof row.name === "string" ? { name: row.name } : {}),
+        image: typeof row.image === "string" ? row.image : null,
+      },
+      accounts: [],
+    },
+    verification: emailVerificationFromColumn(row.email_verified),
+  };
+}
+
+function legacySessionWithVerification(
   email: string,
   token: string,
-): Promise<AuthSession> {
-  const verification = await resolveLegacySessionEmailVerification(email);
+  verification: LegacySessionEmailVerification,
+): AuthSession {
   return {
     email,
     ...(verification === "verified"
@@ -2033,6 +2138,17 @@ async function mapLegacySession(
   };
 }
 
+async function mapLegacySession(
+  email: string,
+  token: string,
+): Promise<AuthSession> {
+  return legacySessionWithVerification(
+    email,
+    token,
+    await resolveLegacySessionEmailVerification(email),
+  );
+}
+
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
 let trustCustomEmailVerification = false;
@@ -2040,6 +2156,12 @@ let trustCustomEmailVerification = false;
 interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
+  /**
+   * The page served instead of sign-in, or null when sign-in can work. Set
+   * only where the framework's own accounts sign people in; a custom
+   * `getSession` has its own requirements.
+   */
+  getSetupRequiredHtml?: (event: H3Event, rawPath: string) => string | null;
   authMode?: OnboardingHtmlOptions["authMode"];
   rootAuth: boolean;
   publicPaths: string[];
@@ -2211,26 +2333,49 @@ function getAuthOnboardingHtml(
   );
 }
 
+function getDeploySettingsRequiredPage(
+  event: H3Event,
+  rawPath: string,
+): string | null {
+  const keys = getSignInBlockingSettingKeys();
+  if (keys.length === 0) return null;
+  const { locale, dir } = resolveLocaleFromRequest({
+    acceptLanguage: getHeader(event, "accept-language"),
+  });
+  return getDeploySettingsRequiredHtml({
+    keys,
+    locale,
+    dir,
+    requestPath: rawPath,
+  });
+}
+
 function getOnboardingLoginHtmlConfig(
   options: AuthOptions,
   authMode?: OnboardingHtmlOptions["authMode"],
 ): Pick<
   AuthGuardConfig,
-  "loginHtml" | "getLoginHtml" | "authMode" | "rootAuth"
+  | "loginHtml"
+  | "getLoginHtml"
+  | "getSetupRequiredHtml"
+  | "authMode"
+  | "rootAuth"
 > {
   if (options.loginHtml) {
     return {
       loginHtml: options.loginHtml,
+      getSetupRequiredHtml: getDeploySettingsRequiredPage,
       authMode,
       rootAuth: options.rootAuth ?? true,
     };
   }
   return {
     authMode,
-    rootAuth: options.rootAuth ?? Boolean(options.marketing),
+    rootAuth: options.rootAuth ?? options.marketing !== undefined,
     loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
+    getSetupRequiredHtml: getDeploySettingsRequiredPage,
   };
 }
 
@@ -3486,17 +3631,33 @@ function injectHeadScript(html: string, script: string): string {
   return `<!doctype html><html><head>${script}</head><body>${html}</body></html>`;
 }
 
+function setupRequiredResponse(html: string): Response {
+  // Never cached, unlike the sign-in page: once the setting is added and the
+  // app redeployed, the next visit must reach sign-in.
+  return new Response(html, {
+    status: 503,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...DISABLED_SSR_CACHE_HEADERS,
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
 function loginHtmlResponse(
-  loginHtml: string,
+  config: AuthGuardConfig,
   event: H3Event,
+  requestPath: string,
   options: {
     includeRootAuthRedirect?: boolean;
     requestIndependent?: boolean;
   } = {},
 ): Response {
+  const setupRequiredHtml = config.getSetupRequiredHtml?.(event, requestPath);
+  if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
   const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
-  let html = loginHtml;
+  let html = config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
   if (
     appOriginConfigScript &&
     !html.includes("data-agent-native-app-origin-config")
@@ -3795,9 +3956,6 @@ function createAuthGuardFn(
       return;
     }
 
-    const loginHtml =
-      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
-
     if (
       config.rootAuth &&
       p === "/" &&
@@ -3805,7 +3963,7 @@ function createAuthGuardFn(
         "/" &&
       isHtmlDocumentRequest(event, p)
     ) {
-      return loginHtmlResponse(loginHtml, event, {
+      return loginHtmlResponse(config, event, requestPath, {
         includeRootAuthRedirect: true,
         requestIndependent: true,
       });
@@ -3829,11 +3987,11 @@ function createAuthGuardFn(
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
-      return loginHtmlResponse(loginHtml, event);
+      return loginHtmlResponse(config, event, requestPath);
     }
 
     if (p === "/login" || p === "/signup") {
-      return loginHtmlResponse(loginHtml, event);
+      return loginHtmlResponse(config, event, requestPath);
     }
 
     if (
@@ -4573,6 +4731,13 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     maxAge: sessionMaxAge,
   });
   setFrameworkSessionHintCookie(event);
+  // Signing in can assign an organization (invitations, domain join, SSO), so
+  // a new session starts from a fresh org selection on every instance.
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+  });
 }
 
 export function redirectWithStagedCookies(
@@ -4588,22 +4753,7 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-export function isHttpsRequest(event: H3Event): boolean {
-  try {
-    const xfProto = getHeader(event, "x-forwarded-proto");
-    if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
-      return true;
-    }
-    const req: any = (event as any).req ?? event.node?.req;
-    const url: string | undefined = req?.url;
-    if (typeof url === "string" && url.startsWith("https://")) return true;
-    const appUrl = getAppConfig().app.url ?? "";
-    if (appUrl.startsWith("https://")) return true;
-  } catch {
-    // ignore
-  }
-  return false;
-}
+export { isHttpsRequest };
 
 function isPublicPath(
   url: string,
@@ -5293,6 +5443,13 @@ async function mountBetterAuthRoutes(
   app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
     defineEventHandler(async (event) => {
+      // Mounted before Better Auth starts, so it outlives an init failure; its
+      // form could never sign anyone in on a deploy missing a setting.
+      const setupRequiredHtml = getDeploySettingsRequiredPage(
+        event,
+        getRequestPathAndSearch(event).rawPath,
+      );
+      if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
       if (getMethod(event) === "POST") {
         const body = await readBody<Record<string, unknown>>(event);
         const verificationURL = desktopMagicLinkVerificationUrl(event, body);
@@ -6594,13 +6751,16 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
-      const requiredProvider = await requiredAuthProviderForEmail(email);
-      if (requiredProvider) {
-        setResponseStatus(event, 403);
-        return { error: authProviderRequiredMessage(requiredProvider) };
-      }
-
       try {
+        // Inside the try: on a deploy without a database this policy read is
+        // the first database access, and its refusal must reach
+        // publicAuthError() to keep its code for the sign-in page.
+        const requiredProvider = await requiredAuthProviderForEmail(email);
+        if (requiredProvider) {
+          setResponseStatus(event, 403);
+          return { error: authProviderRequiredMessage(requiredProvider) };
+        }
+
         const auth = await getBetterAuth();
         const result = await signInWithEmailPassword(
           event,
@@ -6669,13 +6829,14 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
-      const requiredProvider = await requiredAuthProviderForEmail(email);
-      if (requiredProvider) {
-        setResponseStatus(event, 403);
-        return { error: authProviderRequiredMessage(requiredProvider) };
-      }
-
       try {
+        // Inside the try for the same reason as the login fallback above.
+        const requiredProvider = await requiredAuthProviderForEmail(email);
+        if (requiredProvider) {
+          setResponseStatus(event, 403);
+          return { error: authProviderRequiredMessage(requiredProvider) };
+        }
+
         const auth = await getBetterAuth();
         await withSignupAttributionContext(
           getHeader(event, "cookie") ?? null,
@@ -6753,7 +6914,7 @@ export async function autoMountAuth(
       if (
         options.googleOnly ||
         options.loginHtml ||
-        options.marketing ||
+        options.marketing !== undefined ||
         options.renderSignInPage
       ) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
@@ -6765,7 +6926,7 @@ export async function autoMountAuth(
       }
       if (options.rootAuth !== undefined) {
         _authGuardConfig.rootAuth = options.rootAuth;
-      } else if (options.loginHtml || options.marketing) {
+      } else if (options.loginHtml || options.marketing !== undefined) {
         _authGuardConfig.rootAuth = true;
       }
       if (options.publicPaths) {

@@ -114,14 +114,9 @@
 }
 
 .forms-list-shell,
-.forms-selection-toolbar,
-.forms-settings-card {
+.forms-selection-toolbar {
   border-radius: var(--forms-radius-surface);
   box-shadow: var(--forms-shadow-surface);
-}
-
-.forms-settings-card {
-  border: 0;
 }
 
 .forms-list-shell {
@@ -130,8 +125,7 @@
   transition-timing-function: ease-out;
 }
 
-.forms-list-shell:hover,
-.forms-settings-card:hover {
+.forms-list-shell:hover {
   box-shadow: var(--forms-shadow-surface-hover);
 }
 

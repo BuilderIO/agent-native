@@ -39,8 +39,8 @@ describe("Content product conformance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("credentials")));
   });
 
-  it("requires declaration and label edits to rerun the pilot", () => {
-    const unsafe = workflow.replace("        edited,\n", "");
+  it("requires declaration edits to rerun the pilot", () => {
+    const unsafe = workflow.replace("edited, ", "");
     const result = validateContentProductImpactWorkflow(unsafe);
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("recalibration")));

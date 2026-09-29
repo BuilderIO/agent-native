@@ -31,6 +31,15 @@ const MARKDOWN = `# Changelog
 - Older fix.
 `;
 
+const MANY_ENTRIES = `# Changelog
+
+${Array.from(
+  { length: 21 },
+  (_, index) =>
+    `## ${index < 10 ? "2026-06-23" : "2026-06-22"}\n\n- Update ${index + 1}.`,
+).join("\n\n")}
+`;
+
 describe("Changelog UI", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -81,18 +90,20 @@ describe("Changelog UI", () => {
     expect(document.body.textContent).toContain("June 23, 2026");
   });
 
-  it("ChangelogSettingsCard expands older updates inline", () => {
+  it("groups updates by date and reveals ten more cards at a time", () => {
     act(() => {
-      root.render(<ChangelogSettingsCard markdown={MARKDOWN} limit={2} />);
+      root.render(<ChangelogSettingsCard markdown={MANY_ENTRIES} />);
     });
-    expect(document.body.textContent).toContain("Recordings can be trimmed");
-    expect(document.body.textContent).toContain("Faster transcript search");
-    expect(document.body.textContent).not.toContain("Older fix.");
-    expect(document.body.textContent).toContain("View all updates");
+    expect(container.querySelectorAll("article")).toHaveLength(10);
+    expect(container.querySelectorAll("h4")).toHaveLength(1);
+    expect(container.textContent).toContain("Update 1.");
+    expect(container.textContent).toContain("Update 10.");
+    expect(container.textContent).not.toContain("Update 11.");
+    expect(container.textContent).toContain("Load more");
+    expect(container.querySelector("[class~='overflow-y-auto']")).toBeNull();
 
     const toggle = container.querySelector("button");
     expect(toggle).toBeTruthy();
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
 
     act(() => {
       toggle?.dispatchEvent(
@@ -100,16 +111,30 @@ describe("Changelog UI", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("Older fix.");
-    expect(document.body.textContent).toContain("Show fewer updates");
-    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelectorAll("article")).toHaveLength(20);
+    expect(container.querySelectorAll("h4")).toHaveLength(2);
+    expect(container.textContent).toContain("June 22, 2026");
+    expect(container.textContent).toContain("Update 20.");
+    expect(container.textContent).not.toContain("Update 21.");
+
+    act(() => {
+      toggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(container.querySelectorAll("article")).toHaveLength(21);
+    expect(container.textContent).toContain("Update 21.");
+    expect(container.querySelector("button")).toBeNull();
   });
 
-  it("ChangelogSettingsCard renders nothing for an empty changelog", () => {
+  it("ChangelogSettingsCard preserves its empty state", () => {
     act(() => {
-      root.render(<ChangelogSettingsCard markdown="" />);
+      root.render(
+        <ChangelogSettingsCard markdown="" emptyText="No updates yet." />,
+      );
     });
-    expect(container.textContent).toBe("");
+    expect(container.textContent).toContain("No updates yet.");
   });
 
   it("useChangelogSeen does not nag first-time users but flags newer releases", () => {

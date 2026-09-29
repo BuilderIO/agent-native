@@ -343,14 +343,11 @@ export default {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
-    languageTitle: "Language",
-    languageLabel: "Interface language",
     errorEmailNotifications: "Email new error alerts",
     errorEmailNotificationsDescription:
       "Send an email when a new JavaScript error is captured. Off by default.",
@@ -395,8 +392,6 @@ export default {
     storageSaved: "Storage settings saved.",
     storageSaveFailed: "Couldn't save storage settings.",
     alertsTitle: "Alerts",
-    alertsDescription:
-      "Manage first-party analytics event rules and notification delivery.",
     alertRunNow: "Run check",
     alertNew: "New alert",
     alertsEmptyTitle: "No alert rules yet",
@@ -759,6 +754,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Custom range",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

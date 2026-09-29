@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 
 const CORE_ROOT = "packages/core";
-const MAX_RUNTIME_DEPENDENCIES = 63;
+// Project generation uses esbuild and the create wizard uses Ink at runtime.
+const MAX_RUNTIME_DEPENDENCIES = 65;
 const CODE_EXTENSIONS = [
   ".ts",
   ".tsx",

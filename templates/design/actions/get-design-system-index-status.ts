@@ -16,6 +16,7 @@ export default defineAction({
     id: z.string().min(1).describe("Local design system id"),
   }),
   readOnly: true,
+  dedupe: false,
   http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);

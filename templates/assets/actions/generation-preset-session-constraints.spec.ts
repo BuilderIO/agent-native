@@ -13,6 +13,7 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
   resolveAccess: vi.fn(async () => ({ role: "owner" })),
+  accessFilter: vi.fn(() => ({ op: "accessFilter" })),
 }));
 const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
 const unrestrictedScope = vi.hoisted(() => ({
@@ -56,8 +57,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
+  or: vi.fn((...conditions) => ({ op: "or", conditions })),
 }));
 
 vi.mock("nanoid", () => ({
@@ -84,6 +87,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "presets.id",
       libraryId: "presets.library_id",
     },
+    assetLibraries: { id: "libraries.id" },
     assetTemplates: {
       id: "templates.id",
       libraryId: "templates.library_id",
@@ -125,9 +129,13 @@ function createDb(selectRows: unknown[][]) {
   const deleteFrom = vi.fn(() => ({ where: deleteWhere }));
   const insertValues = vi.fn(async () => undefined);
   const insert = vi.fn(() => ({ values: insertValues }));
-  const select = vi.fn(() => ({
+  const select = vi.fn((selection?: Record<string, unknown>) => ({
     from: vi.fn(() => ({
-      where: vi.fn(() => createWhereResult(selectRows.shift() ?? [])),
+      where: vi.fn(() =>
+        createWhereResult(
+          selection?.id === "libraries.id" ? [] : (selectRows.shift() ?? []),
+        ),
+      ),
     })),
   }));
   return {

@@ -163,8 +163,6 @@ export function validateContentProductImpactWorkflow(
       "reopened",
       "edited",
       "ready_for_review",
-      "labeled",
-      "unlabeled",
     ];
     const eventTypes = pullRequest.types;
     if (

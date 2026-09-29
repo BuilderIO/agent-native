@@ -30,6 +30,8 @@ import {
   markJobDone,
   markJobProcessing,
   markJobSendStarted,
+  markJobUncertain,
+  markExpiredScheduledSendsUncertain,
   resurfaceEmail,
   releaseJobProcessing,
   resetJobProcessingForRetry,
@@ -286,6 +288,12 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
 
 async function processJobs(context: RecurringSweepContext): Promise<void> {
   const now = Date.now();
+  const expiredSends = await markExpiredScheduledSendsUncertain(now);
+  if (expiredSends > 0) {
+    console.warn(
+      `[mail-jobs] Marked ${expiredSends} scheduled send(s) with expired dispatch leases as uncertain.`,
+    );
+  }
   const due = await getDuePendingJobs(now, MAX_DUE_JOBS_PER_TICK);
   if (isDeadlineReached(context)) {
     throw incompleteSweepError("scheduled Mail jobs remain pending.");
@@ -378,7 +386,9 @@ async function processJobs(context: RecurringSweepContext): Promise<void> {
         isDeadlineReached(context) ||
         (error instanceof Error && error.name === "AbortError")
       ) {
-        if (!sendStarted) {
+        if (sendStarted) {
+          await markJobUncertain(job.id, claimId);
+        } else {
           try {
             await releaseJobProcessing(job.id, claimId);
           } catch (releaseError) {
@@ -400,6 +410,7 @@ async function processJobs(context: RecurringSweepContext): Promise<void> {
       if (!sendStarted) {
         await markJobCancelled(job.id, claimId);
       } else {
+        await markJobUncertain(job.id, claimId);
         console.error(
           `[mail-jobs] Scheduled send ${job.id} has an uncertain provider result and will not be retried automatically.`,
         );

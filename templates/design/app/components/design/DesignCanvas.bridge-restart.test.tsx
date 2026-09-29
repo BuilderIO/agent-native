@@ -16,8 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
 
+const { translate } = vi.hoisted(() => ({
+  translate: (key: string) => key,
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => translate,
 }));
 
 const BRIDGE_URL = "http://127.0.0.1:7331";
@@ -146,6 +150,228 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").not.toContain(
       "Live editor connection failed",
     );
+  });
+
+  it("re-arms the ready watchdog after repeated live document reloads and stops showing an endless preparing state", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
+    for (const stepMs of [4200, 8200, 16200, 16200, 16200]) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(stepMs);
+        await flushMicrotasks();
+      });
+    }
+
+    expect(healthCallCount()).toBeGreaterThanOrEqual(5);
+    expect(container.textContent ?? "").toContain(
+      "Live editor connection failed",
+    );
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+  });
+
+  it("restarts the ready watchdog when a reload arrives before the first ready handshake", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2700);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ignores a health probe that rejects after the replacement document is ready", async () => {
+    let rejectHealthProbe: ((reason?: unknown) => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return new Promise((_resolve, reject) => {
+          rejectHealthProbe = reject;
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(1);
+    expect(rejectHealthProbe).toBeDefined();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+      rejectHealthProbe?.(new Error("stale health probe"));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent ?? "").not.toContain(
+      "Live editor connection failed",
+    );
+    expect(registrationCallCount()).toBe(1);
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+  });
+
+  it("ignores a health probe that rejects after the initial document becomes ready", async () => {
+    let rejectHealthProbe: ((reason?: unknown) => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return new Promise((_resolve, reject) => {
+          rejectHealthProbe = reject;
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(1);
+    expect(rejectHealthProbe).toBeDefined();
+
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+      rejectHealthProbe?.(new Error("stale health probe"));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent ?? "").not.toContain(
+      "Live editor connection failed",
+    );
+    expect(registrationCallCount()).toBe(1);
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
   });
 
   it("does NOT tear down the iframe or show an error when /health reports the SAME bridgeInstanceId at the first 4s timeout — it re-arms the watchdog instead (regression coverage)", async () => {

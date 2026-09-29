@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { emit as emitBusEvent } from "../event-bus/bus.js";
+import { emitAsync as emitBusEventAsync } from "../event-bus/bus.js";
 import { registerEvent } from "../event-bus/registry.js";
 import type { EventDefinition } from "../event-bus/types.js";
 import { truncate } from "../shared/truncate.js";
@@ -283,7 +283,7 @@ export async function notifyWithDelivery(
           "event",
         )
       : undefined;
-    let eventDispatchStarted = false;
+    let eventAccepted = false;
     try {
       if (!deliveryId || eventClaim) {
         if (deliveryId && eventClaim) {
@@ -294,8 +294,12 @@ export async function notifyWithDelivery(
             "event",
           );
         }
-        eventDispatchStarted = true;
-        emitBusEvent(
+        const eventId = deliveryId
+          ? `notification.sent:${deliveryId}`
+          : stored
+            ? `notification.sent:${stored.id}`
+            : undefined;
+        await emitBusEventAsync(
           "notification.sent",
           {
             notificationId: stored?.id,
@@ -304,8 +308,9 @@ export async function notifyWithDelivery(
             body: input.body,
             deliveredChannels: delivered,
           },
-          { owner: meta.owner },
+          { owner: meta.owner, ...(eventId ? { eventId } : {}) },
         );
+        eventAccepted = true;
         if (deliveryId && eventClaim) {
           await completeNotificationDelivery(
             deliveryId,
@@ -318,7 +323,7 @@ export async function notifyWithDelivery(
     } catch {
       if (deliveryId && eventClaim) {
         try {
-          if (eventDispatchStarted) {
+          if (eventAccepted) {
             await markNotificationDeliveryUncertain(
               deliveryId,
               "notification.sent",

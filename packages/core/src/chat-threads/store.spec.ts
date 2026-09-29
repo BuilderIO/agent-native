@@ -107,7 +107,7 @@ describe("chat thread store", () => {
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+      if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/WHERE thread_data LIKE \?/i.test(sql)) {
@@ -754,7 +754,8 @@ describe("chat thread store", () => {
 
   it("keeps the legacy message_count repair out of table bootstrap", async () => {
     vi.resetModules();
-    const updates: Array<{ count: number; id: string }> = [];
+    const updates: Array<{ count: number; id: string; ownerEmail: string }> =
+      [];
     let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -762,12 +763,13 @@ describe("chat thread store", () => {
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+      if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
         repairScans++;
         return {
           rows: [
             {
               id: "legacy-1",
+              owner_email: "user@example.com",
               thread_data: JSON.stringify({
                 messages: [
                   { message: userMessage, parentId: null },
@@ -781,9 +783,11 @@ describe("chat thread store", () => {
         };
       }
       if (
-        /UPDATE chat_threads SET message_count = \? WHERE id = \?/i.test(sql)
+        /UPDATE chat_threads SET message_count = \? WHERE id = \? AND message_count = 0 AND LOWER\(owner_email\)/i.test(
+          sql,
+        )
       ) {
-        updates.push({ count: args[0], id: args[1] });
+        updates.push({ count: args[0], id: args[1], ownerEmail: args[2] });
         return { rows: [], rowsAffected: 1 };
       }
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
@@ -801,7 +805,9 @@ describe("chat thread store", () => {
     const result = await freshStore.repairLegacyChatThreadMessageCounts();
 
     expect(repairScans).toBe(1);
-    expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(updates).toEqual([
+      { count: 2, id: "legacy-1", ownerEmail: "user@example.com" },
+    ]);
     expect(result).toEqual({ scanned: 1, updated: 1 });
   });
 
@@ -1444,19 +1450,18 @@ describe("adoptThreadScopeIfUnscoped", () => {
   it("claims an unscoped thread and reports the scope it won", async () => {
     const row = mockRow(null, null);
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
-      designA,
-    );
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designA),
+    ).toEqual(designA);
     expect(row.scope_id).toBe("design-a");
   });
 
   it("reports the winner's scope instead of retagging when another worker won", async () => {
     const row = mockRow("design", "design-a");
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
-      type: "design",
-      id: "design-a",
-    });
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designB),
+    ).toEqual({ type: "design", id: "design-a" });
     expect(row.scope_id).toBe("design-a");
   });
 });

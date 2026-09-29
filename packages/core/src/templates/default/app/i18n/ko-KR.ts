@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "연결 해제 중…",
   },
   settings: {
-    title: "설정",
-    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     agentTitle: "에이전트 설정",
     agentDescription:
       "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -32,7 +26,6 @@ const messages = {
     workspaceDescription: "팀 액세스 및 공유 작업 공간 리소스를 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    backHome: "홈으로 돌아가기",
     emailChange: "이메일 변경",
     emailChangeSent: "변경을 확인하려면 이메일을 확인하세요.",
     emailChangeError: "확인 메일을 보내지 못했습니다.",
@@ -644,8 +637,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "목록으로 돌아가기",
     promoteMustContain: "답변에 포함할 내용…",
-    promoteMustContainOptional: "답변에 포함할 내용 (선택 사항)",
-    promoteMustContainLabel: "승격된 평가 답변에 포함되어야 하는 텍스트",
+    promoteMustContainOptional: "답변에서 확인할 선택적 텍스트…",
+    promoteMustContainLabel: "승격된 평가 답변에서 확인할 텍스트",
     promoteNeedsContains:
       "이 실행에는 성공한 도구 호출이 없습니다. 평가로 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
     spans: "Spans",
