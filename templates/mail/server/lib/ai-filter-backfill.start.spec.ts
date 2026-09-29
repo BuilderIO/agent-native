@@ -193,6 +193,7 @@ const mocks = vi.hoisted(() => ({
 const dispatch = vi.hoisted(() => ({ fireInternalDispatch: vi.fn() }));
 
 vi.mock("@agent-native/core/action", () => ({
+  defineAction: (definition: unknown) => definition,
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },
