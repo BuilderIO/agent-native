@@ -786,8 +786,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 import { mutateSetting, putSetting } from "@agent-native/core/settings";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import claimDistillationAction from "../../actions/claim-distillation.js";
+import enqueueDistillationAction from "../../actions/enqueue-distillation.js";
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
@@ -954,6 +956,15 @@ describe("Brain knowledge quality gates", () => {
     expect(guidance.distillation.defaultPublishTier).toBe("team");
     expect(guidance.distillation.instructions).toBe(
       "Only extract launch decisions.",
+    );
+    expect(guidance.distillation.rules.join(" ")).toContain(
+      "launch announcements as retainable dated facts",
+    );
+    expect(guidance.distillation.rules.join(" ")).toContain(
+      "Distinguish announced plans from confirmed launches",
+    );
+    expect(guidance.distillation.rules.join(" ")).toContain(
+      "proposalMode=always",
     );
     expect(guidance.captureSanitization).toMatchObject({
       enabled: true,
@@ -2321,6 +2332,81 @@ describe("Brain knowledge quality gates", () => {
     expect(result.knowledge!.status).toBe("redacted");
     expect(JSON.stringify(result.knowledge)).not.toContain("alice@example.com");
     expect(result.knowledge!.publishedAt).toBeNull();
+  });
+
+  it("reconsiders an ignored capture only with an editor-authorized opt-in", async () => {
+    const source = seedSource();
+    const capture = seedCapture({
+      sourceId: source.id,
+      status: "ignored",
+      content: "We plan to launch the Atlas workspace app today.",
+    });
+    mocks.rows.ingestQueue.push({
+      id: "queue-completed",
+      sourceId: source.id,
+      captureId: capture.id,
+      operation: "distill",
+      status: "done",
+      priority: 50,
+      attempts: 1,
+      payloadJson: "{}",
+      error: null,
+      runAfter: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      createdAt: "2026-05-15T12:00:00.000Z",
+      updatedAt: "2026-05-15T12:01:00.000Z",
+    });
+
+    await expect(
+      enqueueDistillationAction.run({ captureId: capture.id }),
+    ).rejects.toThrow("already ignored");
+    expect(mocks.rows.ingestQueue).toHaveLength(1);
+
+    vi.mocked(assertAccess).mockRejectedValueOnce(
+      new Error("No editor access"),
+    );
+    await expect(
+      enqueueDistillationAction.run({
+        captureId: capture.id,
+        reconsiderIgnored: true,
+      }),
+    ).rejects.toThrow("No editor access");
+    expect(mocks.rows.ingestQueue).toHaveLength(1);
+
+    const result = await enqueueDistillationAction.run({
+      captureId: capture.id,
+      reconsiderIgnored: true,
+    });
+
+    expect(assertAccess).toHaveBeenCalledWith(
+      "brain-source",
+      source.id,
+      "editor",
+    );
+    expect(result.existing).toBe(false);
+    expect(result.queueItem.id).not.toBe("queue-completed");
+    expect(mocks.rows.ingestQueue).toMatchObject([
+      { id: "queue-completed", status: "done" },
+      { captureId: capture.id, operation: "distill", status: "queued" },
+    ]);
+    expect(capture.status).toBe("distilling");
+
+    const completed = await processBrainIngestQueueOnce({
+      limit: 1,
+      runDistillation: true,
+      distillationRunner: async (context) => {
+        await markCaptureDistilledAction.run({
+          captureId: context.capture.id,
+          queueId: context.queue.id,
+          claimToken: context.claimToken,
+        });
+      },
+    });
+    expect(completed.processed).toEqual([result.queueItem.id]);
+    expect(mocks.rows.ingestQueue[0]?.status).toBe("done");
+    expect(mocks.rows.ingestQueue[1]?.status).toBe("done");
+    expect(capture.status).toBe("distilled");
   });
 
   it("keeps distillation queue items queued when no distillation worker completed them", async () => {
