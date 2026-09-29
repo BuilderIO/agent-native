@@ -52,7 +52,8 @@ type GranularOp =
   | {
       op: "patch-slide";
       slideId: string;
-      fields: Partial<Omit<Slide, "id">>;
+      fields: PatchSlideFields;
+      baseContentHash?: string;
     }
   | { op: "delete-slide"; slideId: string; allowEmpty?: boolean }
   | { op: "reorder-slides"; orderedIds: string[] }
@@ -64,9 +65,7 @@ type GranularOp =
     }
   | {
       op: "patch-deck-fields";
-      fields: Partial<
-        Omit<Deck, "id" | "slides" | "createdAt" | "updatedAt" | "createdByMe">
-      >;
+      fields: PatchDeckTopLevelFields;
     }
   /** Sentinel: discard all accumulated ops and do a full PUT instead. */
   | {
@@ -74,6 +73,54 @@ type GranularOp =
       deck: Deck;
       onSaveSuccess?: (ops: GranularOp[]) => void;
     };
+
+type PatchSlideFields = Partial<
+  Omit<
+    Slide,
+    | "id"
+    | "background"
+    | "layoutWarningDismissed"
+    | "imageUrl"
+    | "imageLoading"
+    | "imagePrompt"
+    | "excalidrawData"
+    | "transition"
+    | "animations"
+    | "splitByParagraph"
+    | "skipped"
+  >
+> & {
+  background?: string | null;
+  layoutWarningDismissed?: boolean | null;
+  imageUrl?: string | null;
+  imageLoading?: boolean | null;
+  imagePrompt?: string | null;
+  excalidrawData?: string | null;
+  transition?: Slide["transition"] | null;
+  animations?: SlideAnimation[] | null;
+  splitByParagraph?: boolean | null;
+  skipped?: boolean | null;
+};
+
+type PatchDeckTopLevelFields = Partial<
+  Omit<
+    Deck,
+    | "id"
+    | "slides"
+    | "createdAt"
+    | "updatedAt"
+    | "createdByMe"
+    | "designSystemId"
+    | "tweaks"
+    | "aspectRatio"
+    | "starred"
+  >
+> & {
+  designSystemId?: string | null;
+  tweaks?: Deck["tweaks"] | null;
+  aspectRatio?: Deck["aspectRatio"] | null;
+  starred?: boolean | null;
+};
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
 
@@ -108,8 +155,7 @@ export interface UpdateSlideOptions {
 export type DeckUndoOp =
   | ({ deckId: string } & PatchDeckOp)
   | { op: "delete-deck"; deckId: string }
-  | { op: "restore-deck"; deckId: string; deck: Deck; index?: number }
-  | { op: "replace-deck"; deckId: string; deck: Deck };
+  | { op: "restore-deck"; deckId: string; deck: Deck; index?: number };
 
 export type SlideLayout =
   | "title"
@@ -294,10 +340,9 @@ interface DeckContextType {
     options?: SetDeckSlidesOptions,
   ) => void;
   markDeckDirty: (deckId: string) => void;
-  undo: () => void;
-  redo: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
+  undo: (deckId?: string) => void;
+  redo: (deckId?: string) => void;
+  undoAvailability: Record<string, { canUndo: boolean; canRedo: boolean }>;
 }
 
 const DeckContext = createContext<DeckContextType | null>(null);
@@ -588,7 +633,8 @@ async function callDeckWriteAction<TResult>(
       typeof error === "object" &&
       "status" in error &&
       error.status === 409 &&
-      !("code" in error && error.code === "client_build_mismatch")
+      !("code" in error && error.code === "client_build_mismatch") &&
+      !("errorCode" in error && error.errorCode === "slide_content_stale")
     ) {
       await fetchDeckFromAPI(deckId);
     }
@@ -909,6 +955,18 @@ function drainPendingDeckOps(
       } else {
         pendingPersistedResultHandlers.delete(deckId);
       }
+      if (
+        err &&
+        typeof err === "object" &&
+        "errorCode" in err &&
+        err.errorCode === "slide_content_stale"
+      ) {
+        deckSaveRetryAttempts.set(deckId, MAX_DECK_SAVE_RETRIES + 1);
+        failedSaveDecks.add(deckId);
+        immediateFlushRequests.delete(deckId);
+        return;
+      }
+
       const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
       deckSaveRetryAttempts.set(deckId, attempt);
       immediateFlushRequests.delete(deckId);
@@ -1032,7 +1090,10 @@ function enqueueDeckOp(
       "content" in previous.fields &&
       "content" in op.fields
     ) {
-      queue[queue.length - 1] = op;
+      queue[queue.length - 1] = {
+        ...op,
+        baseContentHash: previous.baseContentHash ?? op.baseContentHash,
+      };
     } else {
       queue.push(op);
     }
@@ -1150,14 +1211,6 @@ function clearSourceImport(deck: Deck): Deck {
   return next;
 }
 
-function isStructuralOp(op: PatchDeckOp): boolean {
-  return (
-    op.op === "delete-slide" ||
-    op.op === "reorder-slides" ||
-    op.op === "add-slide"
-  );
-}
-
 export function reorderSlidesById(
   slides: Slide[],
   activeSlideId: string,
@@ -1192,7 +1245,12 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       if (!prior || !hasChangedFields(prior, op.fields)) return deck;
       const slides = deck.slides.map((s) => {
         if (s.id !== op.slideId) return s;
-        return { ...s, ...op.fields };
+        const updated = { ...s, ...op.fields } as Slide;
+        for (const [key, value] of Object.entries(op.fields)) {
+          if (value === null)
+            delete (updated as unknown as Record<string, unknown>)[key];
+        }
+        return updated;
       });
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
@@ -1251,11 +1309,15 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
     }
     case "patch-deck-fields": {
       if (!hasChangedFields(deck, op.fields)) return deck;
+      const updated = { ...deck, ...op.fields } as Deck;
+      for (const [key, value] of Object.entries(op.fields)) {
+        if (value === null)
+          delete (updated as unknown as Record<string, unknown>)[key];
+      }
       return {
-        ...deck,
-        ...op.fields,
+        ...updated,
         updatedAt: new Date().toISOString(),
-      } as Deck;
+      };
     }
   }
 }
@@ -1276,8 +1338,10 @@ function equalDeckValue(left: unknown, right: unknown): boolean {
 function hasChangedFields(current: object, fields: object): boolean {
   const currentRecord = current as Record<string, unknown>;
   const fieldRecord = fields as Record<string, unknown>;
-  return Object.keys(fieldRecord).some(
-    (key) => !equalDeckValue(currentRecord[key], fieldRecord[key]),
+  return Object.keys(fieldRecord).some((key) =>
+    fieldRecord[key] === null
+      ? currentRecord[key] !== undefined
+      : !equalDeckValue(currentRecord[key], fieldRecord[key]),
   );
 }
 
@@ -1299,13 +1363,6 @@ export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
           ? Math.min(op.index, next.length)
           : next.length;
       next.splice(index, 0, nextDeck);
-      return next;
-    }
-    case "replace-deck": {
-      const existingIndex = decks.findIndex((deck) => deck.id === op.deckId);
-      if (existingIndex < 0) return [...decks, op.deck];
-      const next = [...decks];
-      next[existingIndex] = op.deck;
       return next;
     }
     default: {
@@ -1334,7 +1391,7 @@ export function deriveInverseOp(
     case "patch-slide": {
       const prior = before.slides.find((s) => s.id === op.slideId);
       if (!prior) return null;
-      const priorFields: Partial<Omit<Slide, "id">> = {};
+      const priorFields: PatchSlideFields = {};
       for (const key of Object.keys(op.fields) as (keyof Omit<Slide, "id">)[]) {
         if (!equalDeckValue(prior[key], op.fields[key])) {
           let priorValue: unknown = prior[key];
@@ -1343,8 +1400,10 @@ export function deriveInverseOp(
             priorValue === undefined
           ) {
             priorValue = false;
+          } else if (priorValue === undefined) {
+            priorValue = null;
           }
-          (priorFields as Record<string, unknown>)[key] = priorValue;
+          (priorFields as unknown as Record<string, unknown>)[key] = priorValue;
         }
       }
       if (Object.keys(priorFields).length === 0) return null;
@@ -1390,7 +1449,7 @@ export function deriveInverseOp(
       const nextRecord = op.fields as Record<string, unknown>;
       for (const key of Object.keys(op.fields)) {
         if (!equalDeckValue(beforeRecord[key], nextRecord[key])) {
-          priorFields[key] = beforeRecord[key];
+          priorFields[key] = beforeRecord[key] ?? null;
         }
       }
       if (Object.keys(priorFields).length === 0) return null;
@@ -1402,6 +1461,88 @@ export function deriveInverseOp(
       ];
     }
   }
+}
+
+export function deriveDeckDiffOps(before: Deck, after: Deck): PatchDeckOp[] {
+  const beforeIds = new Set(before.slides.map((slide) => slide.id));
+  const afterIds = new Set(after.slides.map((slide) => slide.id));
+  const operations: PatchDeckOp[] = [];
+
+  for (const slide of after.slides) {
+    if (!beforeIds.has(slide.id)) {
+      operations.push({
+        op: "add-slide",
+        slideId: slide.id,
+        fields: addSlideFields(slide),
+      });
+      continue;
+    }
+
+    const prior = before.slides.find((entry) => entry.id === slide.id)!;
+    const fields: Record<string, unknown> = {};
+    for (const key of [
+      "content",
+      "notes",
+      "layout",
+      "layoutWarningDismissed",
+      "background",
+      "imageUrl",
+      "imagePrompt",
+      "excalidrawData",
+      "transition",
+      "animations",
+      "splitByParagraph",
+      "skipped",
+    ] as const) {
+      if (!equalDeckValue(prior[key], slide[key])) {
+        fields[key] = slide[key] === undefined ? null : slide[key];
+      }
+    }
+    if (Object.keys(fields).length > 0) {
+      operations.push({
+        op: "patch-slide",
+        slideId: slide.id,
+        fields: fields as unknown as PatchSlideFields,
+      });
+    }
+  }
+
+  for (const slide of before.slides) {
+    if (!afterIds.has(slide.id)) {
+      operations.push({
+        op: "delete-slide",
+        slideId: slide.id,
+        ...(after.slides.length === 0 ? { allowEmpty: true } : {}),
+      });
+    }
+  }
+
+  const beforeOrder = before.slides.map((slide) => slide.id);
+  const afterOrder = after.slides.map((slide) => slide.id);
+  if (!equalDeckValue(beforeOrder, afterOrder)) {
+    operations.push({ op: "reorder-slides", orderedIds: afterOrder });
+  }
+
+  const deckFields: Record<string, unknown> = {};
+  for (const key of [
+    "title",
+    "designSystemId",
+    "tweaks",
+    "aspectRatio",
+    "starred",
+  ] as const) {
+    if (!equalDeckValue(before[key], after[key])) {
+      deckFields[key] = after[key] === undefined ? null : after[key];
+    }
+  }
+  if (Object.keys(deckFields).length > 0) {
+    operations.push({
+      op: "patch-deck-fields",
+      fields: deckFields as PatchDeckFields,
+    });
+  }
+
+  return operations;
 }
 
 async function fetchDecksFromAPI(
@@ -1749,11 +1890,13 @@ export function DeckProvider({
   loadErrorRef.current = loadError;
   const decksRef = useRef<Deck[]>([]);
 
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const undoControllerRef = useRef<LocalOpUndoController<DeckUndoOp> | null>(
-    null,
+  const [undoAvailability, setUndoAvailability] = useState<
+    Record<string, { canUndo: boolean; canRedo: boolean }>
+  >({});
+  const undoControllerRef = useRef(
+    new Map<string, LocalOpUndoController<DeckUndoOp>>(),
   );
+  const lastUndoDeckIdRef = useRef<string | null>(null);
   const lastExternalUpdateRef = useRef(0);
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
   const pendingCreatePromisesRef = useRef<Map<string, Promise<void>>>(
@@ -2070,71 +2213,120 @@ export function DeckProvider({
     decksRef.current = decks;
   }, [decks]);
 
-  if (!undoControllerRef.current) {
-    undoControllerRef.current = createLocalOpUndoController<DeckUndoOp>({
-      apply: (ops) => {
-        setDecks((prev) => {
-          let next = prev;
+  const undoControllerForDeck = useCallback(
+    (deckId: string) => {
+      const existing = undoControllerRef.current.get(deckId);
+      if (existing) return existing;
+
+      const controller = createLocalOpUndoController<DeckUndoOp>({
+        apply: (ops) => {
+          setDecks((prev) => {
+            let next = prev;
+            for (const op of ops) {
+              next = applyUndoOpToDecks(next, op);
+            }
+            return next;
+          });
+          let currentDecks = decksRef.current;
           for (const op of ops) {
-            next = applyUndoOpToDecks(next, op);
-          }
-          return next;
-        });
-        for (const op of ops) {
-          markDeckDirty(op.deckId);
-          if (op.op === "delete-deck") {
-            discardPendingDeckOps(op.deckId);
-            deleteDeckAfterPendingCreate(op.deckId);
-          } else if (op.op === "restore-deck" || op.op === "replace-deck") {
-            markReplacedSlideOmissions(
-              decksRef.current.find((deck) => deck.id === op.deckId),
-              op.deck,
-            );
-            enqueueDeckOp(
-              op.deckId,
-              { op: "full-replace", deck: op.deck },
-              {
-                onSaveSuccess: captureReplacedSlideDeleteTombstones(op.deck),
+            markDeckDirty(op.deckId);
+            if (op.op === "delete-deck") {
+              discardPendingDeckOps(op.deckId);
+              deleteDeckAfterPendingCreate(op.deckId);
+              currentDecks = applyUndoOpToDecks(currentDecks, op);
+            } else if (op.op === "restore-deck") {
+              markReplacedSlideOmissions(
+                currentDecks.find((deck) => deck.id === op.deckId),
+                op.deck,
+              );
+              enqueueDeckOp(
+                op.deckId,
+                { op: "full-replace", deck: op.deck },
+                {
+                  onSaveSuccess: captureReplacedSlideDeleteTombstones(op.deck),
+                  onPersisted: (results, slideWriteSequences) =>
+                    reconcilePersistedLayoutFit(
+                      op.deckId,
+                      results,
+                      slideWriteSequences,
+                    ),
+                },
+              );
+              currentDecks = applyUndoOpToDecks(currentDecks, op);
+            } else {
+              const { deckId, ...granular } = op;
+              if (granular.op === "delete-slide") {
+                markSlideDeleteTombstone(deckId, granular.slideId);
+              } else if (granular.op === "add-slide") {
+                clearSlideDeleteTombstone(deckId, granular.slideId);
+              }
+              const currentDeck = currentDecks.find(
+                (deck) => deck.id === deckId,
+              );
+              const persistedOp =
+                granular.op === "patch-slide" &&
+                typeof granular.fields.content === "string" &&
+                currentDeck
+                  ? {
+                      ...granular,
+                      baseContentHash: hashSlideContent(
+                        currentDeck.slides.find(
+                          (slide) => slide.id === granular.slideId,
+                        )?.content ?? "",
+                      ),
+                    }
+                  : granular;
+              enqueueDeckOp(deckId, persistedOp, {
+                layoutFitSlideIds: layoutFitSlideIdsForDeckFields(
+                  currentDeck,
+                  persistedOp,
+                ),
                 onPersisted: (results, slideWriteSequences) =>
                   reconcilePersistedLayoutFit(
-                    op.deckId,
+                    deckId,
                     results,
                     slideWriteSequences,
                   ),
-              },
-            );
-          } else {
-            const { deckId, ...granular } = op;
-            if (granular.op === "delete-slide") {
-              markSlideDeleteTombstone(deckId, granular.slideId);
-            } else if (granular.op === "add-slide") {
-              clearSlideDeleteTombstone(deckId, granular.slideId);
+              });
+              currentDecks = applyUndoOpToDecks(currentDecks, op);
             }
-            const currentDeck = decksRef.current.find(
-              (deck) => deck.id === deckId,
-            );
-            enqueueDeckOp(deckId, granular, {
-              layoutFitSlideIds: layoutFitSlideIdsForDeckFields(
-                currentDeck,
-                granular,
-              ),
-              onPersisted: (results, slideWriteSequences) =>
-                reconcilePersistedLayoutFit(
-                  deckId,
-                  results,
-                  slideWriteSequences,
-                ),
-            });
           }
-        }
-      },
-      onChange: () => {
-        const c = undoControllerRef.current;
-        setCanUndo(c ? c.canUndo() : false);
-        setCanRedo(c ? c.canRedo() : false);
-      },
-    });
-  }
+        },
+        onChange: () => {
+          const current = undoControllerRef.current.get(deckId);
+          if (!current) return;
+          lastUndoDeckIdRef.current = deckId;
+          setUndoAvailability((previous) => ({
+            ...previous,
+            [deckId]: {
+              canUndo: current.canUndo(),
+              canRedo: current.canRedo(),
+            },
+          }));
+        },
+      });
+      undoControllerRef.current.set(deckId, controller);
+      return controller;
+    },
+    [
+      captureReplacedSlideDeleteTombstones,
+      clearSlideDeleteTombstone,
+      deleteDeckAfterPendingCreate,
+      markDeckDirty,
+      markReplacedSlideOmissions,
+      markSlideDeleteTombstone,
+      reconcilePersistedLayoutFit,
+    ],
+  );
+
+  const clearUndoHistory = useCallback(() => {
+    for (const controller of undoControllerRef.current.values()) {
+      controller.clear();
+    }
+    undoControllerRef.current.clear();
+    lastUndoDeckIdRef.current = null;
+    setUndoAvailability({});
+  }, []);
 
   const recordUndo = useCallback(
     (
@@ -2142,20 +2334,6 @@ export function DeckProvider({
       redoOp: PatchDeckOp,
       opts?: { label?: string; coalesceKey?: string },
     ) => {
-      if (
-        before.sourceImport !== undefined &&
-        before.sourceImport !== null &&
-        isStructuralOp(redoOp) &&
-        applyOpToDeck(before, redoOp) !== before
-      ) {
-        undoControllerRef.current?.push({
-          undo: [{ op: "replace-deck", deckId: before.id, deck: before }],
-          redo: [{ deckId: before.id, ...redoOp }],
-          label: opts?.label,
-          coalesceKey: opts?.coalesceKey,
-        });
-        return;
-      }
       const inverseOps = deriveInverseOp(before, redoOp);
       if (!inverseOps || inverseOps.length === 0) return;
       const entry: LocalOpUndoEntry<DeckUndoOp> = {
@@ -2164,74 +2342,37 @@ export function DeckProvider({
         label: opts?.label,
         coalesceKey: opts?.coalesceKey,
       };
-      undoControllerRef.current?.push(entry);
+      undoControllerForDeck(before.id).push(entry);
     },
-    [],
+    [undoControllerForDeck],
   );
 
   const recordUndoBatch = useCallback(
     (before: Deck, redoOps: PatchDeckOp[], label: string) => {
       let state = before;
-      let structuralMutation = false;
       const undoOps: PatchDeckOp[] = [];
       for (const redoOp of redoOps) {
         const nextState = applyOpToDeck(state, redoOp);
-        if (isStructuralOp(redoOp) && nextState !== state) {
-          structuralMutation = true;
-        }
         const inverseOps = deriveInverseOp(state, redoOp);
         if (inverseOps) undoOps.unshift(...inverseOps);
         state = nextState;
       }
       if (undoOps.length === 0) return;
-      if (
-        before.sourceImport !== undefined &&
-        before.sourceImport !== null &&
-        structuralMutation
-      ) {
-        undoControllerRef.current?.push({
-          undo: [{ op: "replace-deck", deckId: before.id, deck: before }],
-          redo: redoOps.map((op) => ({ deckId: before.id, ...op })),
-          label,
-        });
-        return;
-      }
-      undoControllerRef.current?.push({
+      undoControllerForDeck(before.id).push({
         undo: undoOps.map((op) => ({ deckId: before.id, ...op })),
         redo: redoOps.map((op) => ({ deckId: before.id, ...op })),
         label,
       });
     },
-    [],
+    [undoControllerForDeck],
   );
 
   const applyRemoteDeckUpdate = useCallback(
-    (
-      updated: Deck,
-      label = "Agent edit",
-      options?: { clearPendingWrites?: boolean; agentChangeId?: string },
-    ) => {
+    (updated: Deck, options?: { clearPendingWrites?: boolean }) => {
       if (options?.clearPendingWrites) {
         discardPendingDeckOps(updated.id);
         dirtyDeckIdsRef.current.delete(updated.id);
         clearDeckDeleteTombstones(updated.id);
-      }
-      const before = decksRef.current.find((d) => d.id === updated.id);
-      if (
-        before &&
-        deckContentSignature(before) !== deckContentSignature(updated)
-      ) {
-        undoControllerRef.current?.push({
-          undo: [{ op: "replace-deck", deckId: updated.id, deck: before }],
-          redo: [{ op: "replace-deck", deckId: updated.id, deck: updated }],
-          label,
-          ...(options?.agentChangeId
-            ? {
-                coalesceKey: `agent:${updated.id}:${options.agentChangeId}`,
-                coalesceWindowMs: Number.POSITIVE_INFINITY,
-              }
-            : {}),
-        });
       }
       setDecks((prev) => {
         const idx = prev.findIndex((d) => d.id === updated.id);
@@ -2243,11 +2384,7 @@ export function DeckProvider({
         return [...prev, updated];
       });
     },
-    [
-      captureReplacedSlideDeleteTombstones,
-      clearDeckDeleteTombstones,
-      reconcilePersistedLayoutFit,
-    ],
+    [clearDeckDeleteTombstones],
   );
 
   const refetchDeckListIfChanged = useCallback(async () => {
@@ -2378,7 +2515,7 @@ export function DeckProvider({
   const refetchOpenDeckIfChanged = useCallback(
     async (
       currentOpenId: string,
-      options?: { clearPendingWrites?: boolean; agentChangeId?: string },
+      options?: { clearPendingWrites?: boolean },
     ): Promise<Deck | null> => {
       const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
@@ -2407,12 +2544,7 @@ export function DeckProvider({
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
       if (options?.clearPendingWrites) {
         lastExternalUpdateRef.current = Date.now();
-        applyRemoteDeckUpdate(serverDeck, "Deck restored", {
-          clearPendingWrites: true,
-          ...(options.agentChangeId
-            ? { agentChangeId: options.agentChangeId }
-            : {}),
-        });
+        applyRemoteDeckUpdate(serverDeck, { clearPendingWrites: true });
         return serverDeck;
       }
 
@@ -2437,13 +2569,7 @@ export function DeckProvider({
         );
         if (merged === clientDeck) return serverDeck;
         lastExternalUpdateRef.current = Date.now();
-        applyRemoteDeckUpdate(
-          merged,
-          "Agent edit",
-          options?.agentChangeId
-            ? { agentChangeId: options.agentChangeId }
-            : undefined,
-        );
+        applyRemoteDeckUpdate(merged);
         return serverDeck;
       }
 
@@ -2453,13 +2579,7 @@ export function DeckProvider({
         deckContentSignature(clientDeck) !== deckContentSignature(serverDeck);
       if (!changed) return serverDeck;
       lastExternalUpdateRef.current = Date.now();
-      applyRemoteDeckUpdate(
-        serverDeck,
-        "Agent edit",
-        options?.agentChangeId
-          ? { agentChangeId: options.agentChangeId }
-          : undefined,
-      );
+      applyRemoteDeckUpdate(serverDeck);
       return serverDeck;
     },
     [
@@ -2504,9 +2624,13 @@ export function DeckProvider({
           : [...reconciledDecks, ...preserved];
       });
       for (const id of nextIds) localCreateSeqByIdRef.current.delete(id);
-      undoControllerRef.current?.clear();
+      clearUndoHistory();
     },
-    [isNewerThanSnapshot, reconcileServerDeckWithDeleteTombstones],
+    [
+      clearUndoHistory,
+      isNewerThanSnapshot,
+      reconcileServerDeckWithDeleteTombstones,
+    ],
   );
 
   const reloadDecksWithStatus =
@@ -2586,7 +2710,12 @@ export function DeckProvider({
     successfulReplacementTombstoneBoundariesRef.current.clear();
     localCreateSeqRef.current = 0;
     localCreateSeqByIdRef.current.clear();
-    undoControllerRef.current?.clear();
+    for (const controller of undoControllerRef.current.values()) {
+      controller.clear();
+    }
+    undoControllerRef.current.clear();
+    lastUndoDeckIdRef.current = null;
+    setUndoAvailability({});
     lastExternalUpdateRef.current = Date.now();
     decksRef.current = [];
     setDeckScopeOrgId(nextOrgId);
@@ -2861,7 +2990,7 @@ export function DeckProvider({
     const unsubscribe = subscribeSyncEvents({
       pauseWhenHidden: true,
       onEvents: (events) => {
-        const changedDeckIds = new Map<string, string | undefined>();
+        const changedDeckIds = new Set<string>();
         for (const data of events) {
           if (
             (data.source !== "deck" && data.source !== undefined) ||
@@ -2873,12 +3002,7 @@ export function DeckProvider({
             lastExternalUpdateRef.current = Date.now();
             setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
           } else if (data.type === "deck-changed") {
-            changedDeckIds.set(
-              data.deckId,
-              typeof data.agentChangeId === "string"
-                ? data.agentChangeId
-                : undefined,
-            );
+            changedDeckIds.add(data.deckId);
           }
         }
         if (changedDeckIds.size === 0) return;
@@ -2886,11 +3010,7 @@ export function DeckProvider({
         const openId = currentOpenDeckIdFromWindow();
         if (openId) {
           if (changedDeckIds.has(openId)) {
-            const agentChangeId = changedDeckIds.get(openId);
-            const refetchPromise = refetchOpenDeckIfChanged(
-              openId,
-              agentChangeId ? { agentChangeId } : undefined,
-            );
+            const refetchPromise = refetchOpenDeckIfChanged(openId);
             void refetchPromise.catch((error) => {
               console.error(
                 `Failed to refresh deck ${openId} after sync event:`,
@@ -2946,13 +3066,21 @@ export function DeckProvider({
     };
   }, []);
 
-  const undo = useCallback(() => {
-    void undoControllerRef.current?.undo();
-  }, []);
+  const undo = useCallback(
+    (deckId = currentOpenDeckIdFromWindow() ?? lastUndoDeckIdRef.current) => {
+      if (!deckId) return;
+      void undoControllerRef.current.get(deckId)?.undo();
+    },
+    [],
+  );
 
-  const redo = useCallback(() => {
-    void undoControllerRef.current?.redo();
-  }, []);
+  const redo = useCallback(
+    (deckId = currentOpenDeckIdFromWindow() ?? lastUndoDeckIdRef.current) => {
+      if (!deckId) return;
+      void undoControllerRef.current.get(deckId)?.redo();
+    },
+    [],
+  );
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -3030,7 +3158,7 @@ export function DeckProvider({
           }
         });
       setDecksLocal((prev) => [...prev, newDeck]);
-      undoControllerRef.current?.push({
+      undoControllerForDeck(newDeck.id).push({
         undo: [{ op: "delete-deck", deckId: newDeck.id }],
         redo: [
           {
@@ -3044,7 +3172,7 @@ export function DeckProvider({
       });
       return newDeck;
     },
-    [noteLocalCreate, setDecksLocal],
+    [noteLocalCreate, setDecksLocal, undoControllerForDeck],
   );
 
   const ensureDeckPersisted = useCallback(
@@ -3162,7 +3290,7 @@ export function DeckProvider({
         });
 
       setDecksLocal((prev) => [...prev, optimistic]);
-      undoControllerRef.current?.push({
+      undoControllerForDeck(optimistic.id).push({
         undo: [{ op: "delete-deck", deckId: optimistic.id }],
         redo: [
           {
@@ -3176,7 +3304,7 @@ export function DeckProvider({
       });
       return optimistic;
     },
-    [decks, noteLocalCreate, setDecksLocal],
+    [decks, noteLocalCreate, setDecksLocal, undoControllerForDeck],
   );
 
   const deleteDeck = useCallback(
@@ -3202,7 +3330,7 @@ export function DeckProvider({
       });
       setDecksLocal((prev) => prev.filter((d) => d.id !== id));
       if (beforeDeck) {
-        undoControllerRef.current?.push({
+        undoControllerForDeck(id).push({
           undo: [
             {
               op: "restore-deck",
@@ -3216,7 +3344,7 @@ export function DeckProvider({
         });
       }
     },
-    [deleteDeckAfterPendingCreate, setDecksLocal],
+    [deleteDeckAfterPendingCreate, setDecksLocal, undoControllerForDeck],
   );
 
   const updateDeck = useCallback(
@@ -3399,6 +3527,9 @@ export function DeckProvider({
         op: "patch-slide",
         slideId,
         fields: normalizedUpdates,
+        ...(typeof normalizedUpdates.content === "string" && previousSlide
+          ? { baseContentHash: hashSlideContent(previousSlide.content) }
+          : {}),
       };
       if (options?.preserveLocalState && previousSlide) {
         draftCommittedContent.set(op, previousSlide.content);
@@ -3494,6 +3625,14 @@ export function DeckProvider({
         op: "patch-slide",
         slideId,
         fields: updates,
+        ...(typeof updates.content === "string"
+          ? {
+              baseContentHash: hashSlideContent(
+                before.slides.find((slide) => slide.id === slideId)?.content ??
+                  "",
+              ),
+            }
+          : {}),
       }));
       const applyUpdates = (d: Deck) => {
         if (d.id !== deckId) return d;
@@ -3822,17 +3961,18 @@ export function DeckProvider({
             reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
         },
       );
-      undoControllerRef.current?.push({
-        undo: [{ op: "replace-deck", deckId, deck: before }],
-        redo: [{ op: "replace-deck", deckId, deck: after }],
-        label: "Replace slides",
-      });
+      recordUndoBatch(
+        before,
+        deriveDeckDiffOps(before, after),
+        "Replace slides",
+      );
     },
     [
       captureReplacedSlideDeleteTombstones,
       markDeckDirty,
       markReplacedSlideOmissions,
       reconcilePersistedLayoutFit,
+      recordUndoBatch,
       setDecksLocal,
     ],
   );
@@ -3867,8 +4007,7 @@ export function DeckProvider({
         markDeckDirty,
         undo,
         redo,
-        canUndo,
-        canRedo,
+        undoAvailability,
       }}
     >
       {children}

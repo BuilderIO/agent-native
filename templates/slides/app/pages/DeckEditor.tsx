@@ -528,11 +528,12 @@ export default function DeckEditor() {
     setDeckSlides,
     undo,
     redo,
-    canUndo,
-    canRedo,
+    undoAvailability,
     loading,
     loadError,
   } = useDecks();
+  const canUndo = undoAvailability[id ?? ""]?.canUndo ?? false;
+  const canRedo = undoAvailability[id ?? ""]?.canRedo ?? false;
   const deckAccessStatusQuery = useDeckAccessStatus(id);
   const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
@@ -3714,8 +3715,8 @@ export default function DeckEditor() {
         addSlideGenerating={addSlideGenerating}
         canUndo={canUndo}
         canRedo={canRedo}
-        onUndo={canEdit ? undo : undefined}
-        onRedo={canEdit ? redo : undefined}
+        onUndo={canEdit ? () => undo(id) : undefined}
+        onRedo={canEdit ? () => redo(id) : undefined}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         onDownloadBackup={handleDownloadDeckBackup}
         onImportDeckBackup={handleImportDeckBackup}

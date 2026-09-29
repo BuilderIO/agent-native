@@ -128,25 +128,29 @@ const SlideAnimationSchema = z.object({
 const SlideFieldsSchema = z.object({
   content: z.string().optional(),
   notes: z.string().optional(),
-  background: z.string().optional(),
+  background: z.string().nullable().optional(),
   layout: z.string().optional(),
-  layoutWarningDismissed: z.boolean().optional(),
-  imageUrl: z.string().optional(),
-  imageLoading: z.boolean().optional(),
-  imagePrompt: z.string().optional(),
-  excalidrawData: z.string().optional(),
+  layoutWarningDismissed: z.boolean().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  imageLoading: z.boolean().nullable().optional(),
+  imagePrompt: z.string().nullable().optional(),
+  excalidrawData: z.string().nullable().optional(),
   transition: z
     .enum(["instant", "none", "fade", "slide", "zoom"])
+    .nullable()
     .optional()
     .describe("Transition used when entering this slide"),
   animations: z
     .array(SlideAnimationSchema)
+    .nullable()
     .optional()
     .describe(
       "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
     ),
+  splitByParagraph: z.boolean().nullable().optional(),
   skipped: z
     .boolean()
+    .nullable()
     .optional()
     .describe(
       "Exclude this slide from Present/Presenter playback without deleting it.",
@@ -266,11 +270,12 @@ const PatchDeckFieldsOp = z.object({
       designSystemId: z.string().nullable().optional(),
       tweaks: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+        .nullable()
         .optional(),
-      aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
+      aspectRatio: z.enum(ASPECT_RATIO_VALUES).nullable().optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
-      starred: z.boolean().optional(),
+      starred: z.boolean().nullable().optional(),
       generationContext: z.record(z.string(), z.unknown()).optional(),
     })
     .passthrough(),
@@ -508,25 +513,27 @@ export function applyOperation(
         slide.content = nextContent;
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
-      if (fields.background !== undefined) slide.background = fields.background;
-      if (fields.layout !== undefined) slide.layout = fields.layout;
-      if (fields.imageUrl !== undefined) slide.imageUrl = fields.imageUrl;
-      if (fields.imageLoading !== undefined)
-        slide.imageLoading = fields.imageLoading;
-      if (fields.imagePrompt !== undefined)
-        slide.imagePrompt = fields.imagePrompt;
-      if (fields.excalidrawData !== undefined)
-        slide.excalidrawData = fields.excalidrawData;
-      if (fields.transition !== undefined) slide.transition = fields.transition;
-      if (fields.animations !== undefined) slide.animations = fields.animations;
-      if (fields.skipped !== undefined) slide.skipped = fields.skipped;
+      for (const key of [
+        "background",
+        "layout",
+        "layoutWarningDismissed",
+        "imageUrl",
+        "imageLoading",
+        "imagePrompt",
+        "excalidrawData",
+        "transition",
+        "animations",
+        "splitByParagraph",
+        "skipped",
+      ] as const) {
+        const value = fields[key];
+        if (value === null) delete slide[key];
+        else if (value !== undefined) slide[key] = value;
+      }
       const layoutChanged = slideFitRenderFieldsChanged(
         previousFitFields,
         slide,
       );
-      if (fields.layoutWarningDismissed !== undefined) {
-        slide.layoutWarningDismissed = fields.layoutWarningDismissed;
-      }
       if (layoutChanged) {
         slide.layoutFitRevision = createLayoutFitRevision();
         if (
@@ -643,12 +650,15 @@ export function applyOperation(
       }
       if ("designSystemId" in fields)
         deck.designSystemId = fields.designSystemId;
-      if (fields.tweaks !== undefined) deck.tweaks = fields.tweaks;
-      if (fields.aspectRatio !== undefined)
+      if (fields.tweaks === null) delete deck.tweaks;
+      else if (fields.tweaks !== undefined) deck.tweaks = fields.tweaks;
+      if (fields.aspectRatio === null) delete deck.aspectRatio;
+      else if (fields.aspectRatio !== undefined)
         deck.aspectRatio = fields.aspectRatio;
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
-      if (fields.starred !== undefined) deck.starred = fields.starred;
+      if (fields.starred === null) delete deck.starred;
+      else if (fields.starred !== undefined) deck.starred = fields.starred;
       if (fields.generationContext !== undefined)
         deck.generationContext = fields.generationContext;
       return false;

@@ -115,7 +115,7 @@ describe("new deck generation flow", () => {
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
     expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
-      promptSubmit.indexOf("if (options?.slidesContext)"),
+      promptSubmit.indexOf("const promptReferenceDeckId ="),
     );
     expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
     expect(referenceStep).toContain("text: pending.prompt");
