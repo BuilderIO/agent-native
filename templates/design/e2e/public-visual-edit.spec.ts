@@ -1420,31 +1420,9 @@ test.describe.serial("public visual edit", () => {
       await expect
         .poll(() => publicationStatuses.some((status) => status === 200))
         .toBe(true);
-      const pendingVisualStyleToolbar = page.locator(
-        "[data-design-pending-visual-style-toolbar]",
-      );
-      await expect(pendingVisualStyleToolbar).toBeVisible({ timeout: 20_000 });
       await expect(
-        pendingVisualStyleToolbar.getByRole("button", {
-          name: "Copy prompt to your agent",
-          exact: true,
-        }),
-      ).toBeVisible();
-      await pendingVisualStyleToolbar
-        .getByRole("button", { name: "Pending visual preview", exact: true })
-        .click();
-      await expect(
-        page.getByRole("menuitem", {
-          name: "Copy prompt to your agent",
-          exact: true,
-        }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", {
-          name: "Copy full prompt",
-          exact: true,
-        }),
-      ).toBeVisible();
+        page.getByRole("button", { name: "Apply edits", exact: true }),
+      ).toBeVisible({ timeout: 20_000 });
 
       await page.screenshot({
         path: path.resolve(

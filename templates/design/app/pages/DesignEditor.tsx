@@ -3984,7 +3984,8 @@ function DesignEditor() {
   const canApplyPendingVisualEditsWithAgent =
     canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
   const canApplyPendingVisualEditsFromToolbar =
-    canApplyPendingVisualEditsWithAgent && !isVisualEditSurface;
+    canApplyPendingVisualEditsWithAgent &&
+    (!isVisualEditSurface || hostEmbeddedEditor);
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;

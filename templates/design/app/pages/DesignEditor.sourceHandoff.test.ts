@@ -55,7 +55,7 @@ describe("DesignEditor pending source handoff", () => {
     );
     expect(toolbar).not.toBe("");
     expect(source).toMatch(
-      /const canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent && !isVisualEditSurface;/,
+      /const canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent &&\s*\(!isVisualEditSurface \|\| hostEmbeddedEditor\);/,
     );
     expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar");
     expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
