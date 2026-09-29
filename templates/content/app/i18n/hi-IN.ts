@@ -1252,10 +1252,6 @@ const overrides = {
   },
   settings: {
     title: "सेटिंग्स",
-    description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
-    emailNotifications: "ईमेल सूचनाएँ",
-    emailNotificationsDescription:
-      "जब कोई आपके दस्तावेज़ पर टिप्पणी करे, जवाब दे या आपका उल्लेख करे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
     notificationsEmail: "ईमेल",
     commentsRepliesMentions: "टिप्पणियाँ, जवाब और उल्लेख",
@@ -1264,9 +1260,6 @@ const overrides = {
     retry: "फिर से कोशिश करें",
     mcpAbout:
       "Content को Claude, ChatGPT, Cursor या MCP को सपोर्ट करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Content में काम कर सकता है: दस्तावेज़ खोजना, लिखना और संपादित करना। वह सिर्फ़ वही देखता है जो आप देख सकते हैं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
     openTeamSettings: "कार्यस्थान पहुंच खोलें",

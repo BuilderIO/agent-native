@@ -183,22 +183,22 @@ Toolkit 样式包含共享布局尺寸。`@agent-native/toolkit/app-shell/prompt
 
 ## 代理并聊天UI {#agent-chat-ui}
 
-| API                                  | 导入路径                                      | 何时使用                                                    |
-| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` 或 `/client/chat` | 您希望应用程序周围有完整的侧边栏。                          |
-| `<AgentToggleButton>`                | `@agent-native/core/client` 或 `/client/chat` | 您为侧边栏渲染自己的标题按钮。                              |
-| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路线、对话框或侧栏中显示完整面板。      |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` 或 `/client/chat` | 您希望在面板或页面模式下聊天，而不需要侧边栏包装。          |
-| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat`   | 您希望拥有周围的镶边，同时保持标准对话和作曲家运行时。      |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的线程选项卡没有 `AgentPanel` chrome。            |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 或 `/client/chat` | 您有一个 BYO 代理端点，用于流式传输规范化的聊天事件。       |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 代理 SDK 流，并希望围绕它进行标准聊天 UI。  |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 响应事件流，并希望将其规范化到聊天 UI 中。  |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client`或`/client/chat`   | 您有一个 AG-UI 事件流，并希望将其规范化到聊天 UI 中。       |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client`或`/client/chat`   | 您有一个 Claude 代理 SDK 流，并希望将其规范化到聊天 UI 中。 |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 或 `/client/chat` | 您有一个 Vercel AI SDK 流，并希望将其规范化到聊天 UI 中。   |
-| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat`   | 您需要自定义话题列表、历史记录选择器或范围聊天 UI。         |
-| `sendToAgentChat()`                  | `@agent-native/core/client` 或 `/client/chat` | 产品操作应该将工作交给代理聊天。                            |
+| API                                  | 导入路径                               | 何时使用                                                    |
+| ------------------------------------ | -------------------------------------- | ----------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | 您希望应用程序周围有完整的侧边栏。                          |
+| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | 您为侧边栏渲染自己的标题按钮。                              |
+| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | 您希望在自己的布局、路线、对话框或侧栏中显示完整面板。      |
+| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | 您希望在面板或页面模式下聊天，而不需要侧边栏包装。          |
+| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | 您希望拥有周围的镶边，同时保持标准对话和作曲家运行时。      |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | 您希望框架的线程选项卡没有 `AgentPanel` chrome。            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 您有一个 BYO 代理端点，用于流式传输规范化的聊天事件。       |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | 您有一个 OpenAI 代理 SDK 流，并希望围绕它进行标准聊天 UI。  |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | 您有一个 OpenAI 响应事件流，并希望将其规范化到聊天 UI 中。  |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | 您有一个 AG-UI 事件流，并希望将其规范化到聊天 UI 中。       |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | 您有一个 Claude 代理 SDK 流，并希望将其规范化到聊天 UI 中。 |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | 您有一个 Vercel AI SDK 流，并希望将其规范化到聊天 UI 中。   |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | 您需要自定义话题列表、历史记录选择器或范围聊天 UI。         |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | 产品操作应该将工作交给代理聊天。                            |
 
 `AgentChatRuntime` 是标准聊天 shell 的 BYO 代理合约。通过
 当外部代理应该为 `runtime` 到 `<AssistantChat>` 供电时
@@ -212,7 +212,7 @@ Agent-Native 保留作曲家、文字记录、工具卡和
 最短的自定义路线仍然是预接线表面：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -222,7 +222,10 @@ export default function ChatRoute() {
 对于标准运行时的自定义镶边：
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import {
+  AssistantChat,
+  useChatThreads,
+} from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -438,7 +441,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 当操作结果应呈现为应用质量 UI 时，请使用本机工具小部件
 内部聊天而不是普通的 JSON。内置可重复使用的输出包括
 `DataTableWidget`、`DataChartWidget` 和 `DataWidgetResult`；它们被导出
-来自 `@agent-native/core/client/chat` 和根客户端条目。请参阅
+来自 `@agent-native/core/client/widgets` 和根客户端条目。请参阅
 [Native 聊天界面](/docs/native-chat-ui) 表示操作结果合约。
 
 | API                              | 何时使用                                                                      |

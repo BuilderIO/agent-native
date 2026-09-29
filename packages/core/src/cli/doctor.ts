@@ -16,11 +16,25 @@ import {
 } from "../guards/index.js";
 import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
+  AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
   scanDeprecatedImports,
   type MigrationManifest,
 } from "../package-lifecycle/index.js";
 import { formatBytes, scanCleanTargets } from "./clean.js";
+
+const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
+  "../../docs/migrations/agentkit-chat.md",
+  import.meta.url,
+).href;
+const AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
+
+function resolveRemovedExportMigrationGuide(guide?: string): string {
+  return !guide || guide === AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL
+    ? AGENTKIT_CHAT_MIGRATION_GUIDE_URL
+    : guide;
+}
 
 export type GuardName =
   | "no-drizzle-push"
@@ -157,11 +171,17 @@ function runGuard(
       return {
         name,
         findings: imports
-          .filter((finding) => finding.status === "active")
+          .filter(
+            (finding) =>
+              finding.status === "active" || finding.status === "removed",
+          )
           .map((finding) => ({
             file: path.relative(root, finding.file),
             line: finding.line,
-            message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+            message:
+              finding.status === "removed"
+                ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${resolveRemovedExportMigrationGuide(finding.migrationGuide)}`
+                : `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
           })),
         warnings: imports
           .filter((finding) => finding.status === "planned")

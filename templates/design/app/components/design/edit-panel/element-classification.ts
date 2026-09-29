@@ -7,6 +7,8 @@ import {
 import type { ElementInfo } from "../types";
 import { normalizedElementTagName } from "./code-inspect-helpers";
 import { commitStylePatch } from "./field-primitives";
+import { splitCssLayers } from "./fill-gradient-helpers";
+import { colorHasVisibleAlpha } from "./position-helpers";
 import type {
   StyleChangeHandler,
   StyleChangeMeta,
@@ -278,6 +280,62 @@ export function isTextElement(element: ElementInfo): boolean {
     return true;
   }
   return false;
+}
+
+const BORDER_SIDES = ["Top", "Right", "Bottom", "Left"];
+
+function hasVisibleEdge(
+  width: string | undefined,
+  style: string | undefined,
+  color: string | undefined,
+): boolean {
+  return (
+    (Number.parseFloat(width ?? "") || 0) > 0 &&
+    Boolean(style) &&
+    style !== "none" &&
+    style !== "hidden" &&
+    colorHasVisibleAlpha(color)
+  );
+}
+
+function isSetEffect(value: string | undefined): boolean {
+  const trimmed = value?.trim();
+  return Boolean(trimmed) && trimmed !== "none";
+}
+
+// Figma disables corner radius on text because text has no box. HTML text can
+// paint one, and border-radius then visibly rounds it, so only boxless text
+// loses the control.
+export function isBoxlessText(element: ElementInfo): boolean {
+  if (!isTextElement(element)) return false;
+  const styles = element.computedStyles;
+  const clips = splitCssLayers(styles.backgroundClip || "");
+  const hasBoxBackgroundImage = splitCssLayers(
+    styles.backgroundImage || "",
+  ).some(
+    (layer, index) =>
+      isSetEffect(layer) &&
+      clips[index % Math.max(clips.length, 1)]?.trim().toLowerCase() !== "text",
+  );
+  const hasBorder = BORDER_SIDES.some((side) =>
+    hasVisibleEdge(
+      styles["border" + side + "Width"] ?? styles.borderWidth,
+      styles["border" + side + "Style"] ?? styles.borderStyle,
+      styles["border" + side + "Color"] ?? styles.borderColor,
+    ),
+  );
+  return !(
+    colorHasVisibleAlpha(styles.backgroundColor) ||
+    hasBoxBackgroundImage ||
+    hasBorder ||
+    hasVisibleEdge(
+      styles.outlineWidth,
+      styles.outlineStyle,
+      styles.outlineColor,
+    ) ||
+    isSetEffect(styles.boxShadow) ||
+    isSetEffect(styles.backdropFilter)
+  );
 }
 
 export function availableSizingForElement(

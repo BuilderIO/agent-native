@@ -58,10 +58,6 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import {
-  useFeatureFlagState,
-  type FeatureFlagState,
-} from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
@@ -73,7 +69,6 @@ import {
   AppSidebarHeader,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -367,18 +362,11 @@ export function shouldQueryChatFirstApps(
 }
 
 /**
- * The redesigned Settings brings its own navigation, header, and agent
- * toggle, so it renders full width. While the flag loads it shows the
- * shell's skeleton, which needs the same frame.
+ * Settings brings its own navigation, header, and agent toggle, so it renders
+ * full width.
  */
-export function isRedesignedSettingsPath(
-  pathname: string,
-  settingsRedesign: FeatureFlagState,
-): boolean {
-  return (
-    isSettingsPathname(localDispatchPath(pathname)) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading")
-  );
+export function isSettingsShellPath(pathname: string): boolean {
+  return isSettingsPathname(localDispatchPath(pathname));
 }
 
 function chatFirstPrimaryTabForPath(
@@ -1404,10 +1392,7 @@ export function Layout({
   );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
-  const isRedesignedSettingsRoute = isRedesignedSettingsPath(
-    location.pathname,
-    useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
-  );
+  const isSettingsShellRoute = isSettingsShellPath(location.pathname);
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
@@ -2333,9 +2318,7 @@ export function Layout({
   }
 
   const showAgentControls =
-    !isChatRoute &&
-    !isRedesignedSettingsRoute &&
-    !pageOwnsToolbar(localPathname);
+    !isChatRoute && !isSettingsShellRoute && !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2558,7 +2541,7 @@ export function Layout({
       <DispatchWorkspaceAppLauncherContext.Provider value={chatHomeAppLauncher}>
         <HeaderActionsProvider>
           <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-            {isRedesignedSettingsRoute ? null : (
+            {isSettingsShellRoute ? null : (
               <aside
                 data-collapsed={sidebarCollapsed ? "true" : "false"}
                 className={cn(

@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "Wird getrennt…",
   },
   settings: {
-    title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     agentTitle: "Agent-Einstellungen",
     agentDescription:
       "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
@@ -36,7 +30,6 @@ const messages = {
     emailChange: "E-Mail-Adresse ändern",
     emailChangeSent: "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
     emailChangeError: "Bestätigung konnte nicht gesendet werden.",
-    backHome: "Zur Startseite",
     builderConnection: {
       manage: "Builder.io-Verbindung verwalten",
     },

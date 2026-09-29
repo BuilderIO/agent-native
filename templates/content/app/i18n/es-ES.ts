@@ -1557,10 +1557,6 @@ const overrides = {
   },
   settings: {
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para Content.",
-    emailNotifications: "Notificaciones por correo",
-    emailNotificationsDescription:
-      "Recibe un correo cuando alguien comente, responda o te mencione en tu documento.",
     saveFailed: "No se pudo guardar",
     notificationsEmail: "Correo electrónico",
     commentsRepliesMentions: "Comentarios, respuestas y menciones",
@@ -1569,10 +1565,6 @@ const overrides = {
     retry: "Reintentar",
     mcpAbout:
       "Conecta Content con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Content por ti: buscar, escribir y editar documentos. Solo ve lo que tú puedes ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona colaboradores y acceso a documentos compartidos.",

@@ -1030,6 +1030,25 @@ describe("org handlers", () => {
       expect(mockMarkActiveOrgSelectionChanged).toHaveBeenCalledWith(event);
     });
 
+    it("answers a null switch with the current org without storing it", async () => {
+      mockGetOrgContext.mockResolvedValueOnce({
+        email: "member@example.test",
+        orgId: "org-1",
+        orgName: "First",
+        role: "member",
+      });
+      const event = makeEvent("/_agent-native/org/switch", { orgId: null });
+
+      await expect(switchOrgHandler(event)).resolves.toEqual({
+        orgId: "org-1",
+        orgName: "First",
+        role: "member",
+      });
+
+      expect(putUserSetting).not.toHaveBeenCalled();
+      expect(mockMarkActiveOrgSelectionChanged).not.toHaveBeenCalled();
+    });
+
     it("leaves the selection alone when the caller is not a member", async () => {
       mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
 

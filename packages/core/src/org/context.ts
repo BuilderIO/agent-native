@@ -869,6 +869,16 @@ async function tryCreateDefaultOrg(
       args: [nanoid(), orgId, email, "owner", now],
     });
     invalidateMemberOrgCaches();
+    updateMembershipsForEvent(event, email, [
+      {
+        orgId,
+        role: "owner",
+        orgName,
+        allowedDomain: null,
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
 
     await setActiveOrgId(
       email,

@@ -781,9 +781,19 @@ export {
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,
+  renderTransactionalEmailPreviewAsync,
   type TransactionalEmailDefinition,
   type RegisteredTransactionalEmail,
 } from "../email-catalog/registry.js";
+export {
+  overrideTransactionalEmail,
+  removeTransactionalEmailOverride,
+  type CoreTransactionalEmailArgs,
+  type CoreTransactionalEmailId,
+  type CoreTransactionalEmailProps,
+  type TransactionalEmailOverride,
+  type TransactionalEmailOverrideResult,
+} from "../email-catalog/templates.js";
 export {
   notifyActivity,
   runActivityNotification,
@@ -799,6 +809,8 @@ export {
   emailStrong,
   emailQuote,
   emailLink,
+  escapeEmailHtml,
+  type EmailTemplateApp,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,

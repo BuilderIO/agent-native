@@ -1940,7 +1940,9 @@ pub async fn native_fullscreen_recording_begin(
             )
         };
 
-        crate::remote_flags::spawn_refresh(server_url.clone(), cookie.clone(), auth_token.clone());
+        if !local_only.unwrap_or(false) {
+            crate::remote_flags::spawn_refresh(app.clone());
+        }
 
         let is_warmed = {
             let guard = state.inner.lock().map_err(|e| e.to_string())?;

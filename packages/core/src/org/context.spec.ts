@@ -40,6 +40,7 @@ import {
   getOrgA2ASecret,
   getA2ASecretByDomain,
   isSoleOrgDomain,
+  listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
   resolveOrgByDomain,
 } from "./context.js";
@@ -818,6 +819,37 @@ describe("getOrgContext", () => {
         { orgId: ctx.orgId, at: expect.any(String) },
         { requestSource: "org-auto-create" },
       );
+    });
+
+    it("lists the auto-created org to later readers of the same request", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "jane@startup.dev",
+        name: "Jane Doe",
+        emailVerified: true,
+      });
+      queueSelect(
+        [], // memberships
+        [], // domain auto-join lookup
+        [], // acquireClaim INSERT settings (resolves -> claim acquired)
+        [], // hasPendingInvitation
+        [], // hasDomainMatch
+        [], // INSERT organizations
+        [], // INSERT org_members
+      );
+      const event = makeEvent();
+      const ctx = await getOrgContext(event);
+      const executeCalls = mockExecute.mock.calls.length;
+
+      expect(
+        await listOrgMembershipsForEvent(event, "jane@startup.dev", null),
+      ).toEqual([
+        expect.objectContaining({
+          orgId: ctx.orgId,
+          orgName: "Jane Doe's workspace",
+          role: "owner",
+        }),
+      ]);
+      expect(mockExecute.mock.calls.length).toBe(executeCalls);
     });
 
     it("derives the workspace name from the email local-part when session has no name", async () => {

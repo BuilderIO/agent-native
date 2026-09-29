@@ -355,8 +355,7 @@ describe("redactResourceContent", () => {
   });
 
   it("redacts JWT-labeled values from the serialized pack", () => {
-    const jwt =
-      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fake-signature-material";
+    const jwt = "test-jwt-placeholder";
     const result = redactResourceContent("settings.yaml", `jwt: ${jwt}\n`);
     const pack = buildResourcePack(
       [{ path: "settings.yaml", scope: "personal", content: result.content }],
@@ -370,7 +369,7 @@ describe("redactResourceContent", () => {
 
   it("redacts YAML literal and folded block scalar contents without breaking YAML", () => {
     const token = "literal-block-secret-line";
-    const jwt = "folded-block-jwt-part.one.two";
+    const jwt = "folded-block-jwt-placeholder";
     const source = [
       "credentials:",
       "  token: |2-",

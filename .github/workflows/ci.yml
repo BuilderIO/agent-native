@@ -35,6 +35,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -529,6 +530,45 @@ jobs:
       - name: Run Plan action E2E tests
         run: pnpm test:plan-e2e
 
+  slides-chat-e2e:
+    name: Slides chat caret in Chromium
+    needs: change-scope
+    if: >-
+      needs.change-scope.outputs.full == 'true' ||
+      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check selection direction and chat typing while slide text editing remains active
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+      - name: Check IME Escape preserves inline slide text editing
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check typing fidelity across Slides text surfaces
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
   brain-evals:
     name: Brain evals
     needs: change-scope
@@ -587,6 +627,72 @@ jobs:
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
+
+  neon-query-budget:
+    name: Cold-request query budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AUTH_DISABLED: "true"
+      BETTER_AUTH_SECRET: neon-query-budget-test-secret
+      DATABASE_URL: pglite:memory
+      NETLIFY: "true"
+      NODE_ENV: production
+      RUN_BACKGROUND_JOBS: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Build and measure every active first-party template
+        run: |
+          set -euo pipefail
+          for app in analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides tasks; do
+            app_dir="templates/$app"
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            NITRO_PRESET=netlify pnpm --filter "$app" build
+            pnpm ops:neon-query-budget --app "$app" --mode check
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+          done
+
+  neon-connection-budget:
+    name: Serverless Postgres connection budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: neon-budget
+          POSTGRES_DB: neon_budget
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d neon_budget"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # guard:allow-secret-literal — local ephemeral CI Postgres service only.
+      DATABASE_URL: postgresql://postgres:neon-budget@127.0.0.1:5432/neon_budget
+      NETLIFY: "true"
+      NETLIFY_FUNCTION_NAME: neon-query-budget
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Measure one cold and five warm requests against local Postgres
+        run: pnpm ops:neon-connection-budget
 
   trusted-acceptance:
     name: Trusted acceptance substrate
@@ -781,6 +887,9 @@ jobs:
 
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
+
+      - name: Test Neon transfer alert and offline backtest
+        run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards
         run: |

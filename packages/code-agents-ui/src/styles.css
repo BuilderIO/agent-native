@@ -1409,7 +1409,7 @@
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: 999px;
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
 }
@@ -2939,7 +2939,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
   cursor: pointer;

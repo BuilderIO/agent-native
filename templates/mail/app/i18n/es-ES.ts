@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Nota para mí",
     },
     inbox: {
+      atLeastCount: "Al menos {{count}}",
       syncing: "Sincronizando bandeja...",
     },
     sort: {
@@ -579,9 +580,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -811,8 +809,6 @@ const messages = {
     peoplePlural: "{{count}} personas",
     deleteAliasDescription:
       '¿Eliminar el alias "{{name}}"? Esta acción no se puede deshacer.',
-    aliasesDescription:
-      "Grupos de direcciones que puedes usar al redactar correos.",
     newAlias: "Nuevo alias",
     noAliases: "Aún no hay alias. Crea uno para empezar.",
     applyLabel: "Aplicar etiqueta",
@@ -831,16 +827,6 @@ const messages = {
     actions: "Acciones",
     editRule: "Editar regla",
     deleteRule: "Eliminar regla",
-    noEventAutomations:
-      "Aún no hay automatizaciones activadas por eventos de correo.",
-    eventAutomationsPrompt:
-      'Pide al agente crear una automatización como "cuando reciba un correo de mi jefe, destácalo y avísame".',
-    disabled: "desactivado",
-    on: "en",
-    when: "cuando",
-    lastRun: "Última ejecución:",
-    automationsDescription:
-      "Reglas que procesan automáticamente nuevos correos de la bandeja usando IA.",
     allowAutomationSends:
       "Permitir que las automatizaciones envíen correos automáticamente",
     allowAutomationSendsDescription:
@@ -852,17 +838,12 @@ const messages = {
     noAutomationRules: "Aún no hay reglas de automatización.",
     noAutomationRulesDescription:
       "Crea reglas para etiquetar correos, archivar newsletters, destacar mensajes importantes y más. También puedes pedirle al agente de IA que las configure.",
-    eventTriggers: "Disparadores de eventos",
-    eventTriggersDescription:
-      "Automatizaciones que se ejecutan cuando ocurren eventos de correo (p. ej., nuevo correo recibido). Gestionadas por el agente.",
     importedSignature: "Firma importada desde {{account}}.",
     noGmailSignature: "No se encontró firma de Gmail para {{account}}.",
     importSignatureFailed: "No se pudo importar la firma de Gmail.",
     draftingSettingsSaved: "Ajustes de redacción guardados.",
     draftingSettingsSaveFailed:
       "No se pudieron guardar los ajustes de redacción.",
-    draftingDescription:
-      "Preferencias usadas al redactar y generar borradores de correo.",
     signature: "Firma",
     importFromGmail: "Importar desde Gmail",
     signatureHelp:
@@ -877,42 +858,14 @@ const messages = {
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",
     reset: "Restablecer",
-    trackingDescription:
-      "Sabe cuándo los destinatarios abren tus correos y hacen clic en enlaces. Las estadísticas aparecen bajo cada mensaje enviado.",
     trackEmailOpens: "Rastrear aperturas",
     trackEmailOpensDescription:
       "Inserta un píxel 1×1 en correos salientes para ver cuándo los abren.",
     trackLinkClicks: "Rastrear clics",
     trackLinkClicksDescription:
       "Reescribe enlaces externos en correos salientes para contar cuándo hacen clic.",
-    slackLoadFailed: "No se pudo cargar el estado de Slack",
-    slackUpdateFailed: "No se pudo actualizar la entrada de Slack",
-    slackConfigured: "Las credenciales de Slack están configuradas.",
-    slackNeedsCredentials:
-      "La entrada personalizada antigua requiere SLACK_BOT_TOKEN y SLACK_SIGNING_SECRET. Para nuevas automatizaciones de mensajería de Slack, conecta un espacio de trabajo en Configuración > Mensajería.",
-    slackIntake: "Entrada de Slack (antigua)",
-    slackDescription:
-      "Integración personalizada antigua que permite poner borradores de correo en cola desde Slack.",
-    enabled: "Activado",
-    disable: "Desactivar",
-    enable: "Activar",
-    slackPostEndpoint: "Endpoint POST de Slack",
-    slackPostEndpointHelp:
-      "Úsalo en Slack Event Subscriptions. Un GET desde el navegador puede mostrar Not Found.",
-    title: "Configuracion",
-    general: "General",
-    generalDescription: "Idioma y preferencias de cuenta para Mail.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz para esta cuenta. Mail lo recuerda en todos tus dispositivos.",
-    languageLabel: "Idioma de la interfaz",
-    whatsNew: "Novedades",
-    whatsNewDescription:
-      "Cambios recientes para usuarios en Agent-Native Mail.",
     drafting: "Redaccion",
     snippets: "Fragmentos",
-    snippetsDescription:
-      "Respuestas guardadas que puedes insertar en un borrador escribiendo / y el nombre del fragmento.",
     newSnippet: "Nuevo fragmento",
     noSnippets: "Aun no hay fragmentos. Crea uno para empezar.",
     snippetName: "Nombre del fragmento",
@@ -923,7 +876,6 @@ const messages = {
     deleteSnippet: "Eliminar fragmento",
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
-    automations: "Automatizaciones",
     rules: "Reglas",
     rulesModel: "Modelo de reglas",
     rulesModelDescription: "Compara el correo entrante con tus reglas.",
@@ -936,7 +888,6 @@ const messages = {
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
-    slack: "Slack",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

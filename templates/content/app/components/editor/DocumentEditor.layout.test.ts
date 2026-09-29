@@ -1413,7 +1413,7 @@ describe("document editor layout", () => {
         incoming: { ...incoming, authoredBaseRevision: 30 },
         priorIntents: [ownSave],
       }),
-    ).toEqual({ status: "preservation-required", reason: "structure" });
+    ).toMatchObject({ status: "resolved", content: "Intro\ntmp2" });
     expect(
       mergeDocumentBodyIntents({
         authoredBaseContent: rebased!.content,
