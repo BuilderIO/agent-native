@@ -689,6 +689,110 @@ describe("controlled composer context", () => {
     expect(onSubmit.mock.calls[0][3].contextItems).toEqual([updatedContext]);
   });
 
+  it("uses the latest host submit callback after readiness resolves", async () => {
+    let resolveReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveReadiness = resolve;
+    });
+    let updateSelection!: React.Dispatch<React.SetStateAction<string>>;
+    const initialSubmit = vi.fn();
+    const updatedSubmit = vi.fn();
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onBeforeSubmit = vi.fn(() => readiness);
+    function SelectionPrompt() {
+      const [selection, setSelection] = React.useState("initial");
+      updateSelection = setSelection;
+      return (
+        <PromptComposer
+          composerRef={composerRef}
+          onSubmit={(text) =>
+            (selection === "initial" ? initialSubmit : updatedSubmit)(text)
+          }
+          onBeforeSubmit={onBeforeSubmit}
+          initialText="Submit after selection changes"
+          initialTextKey="selection-refresh"
+          showModelSelector={false}
+          modelStatusChecksEnabled={false}
+          includeDefaultSlashSkills={false}
+          voiceEnabled={false}
+        />
+      );
+    }
+
+    await act(async () => root.render(<SelectionPrompt />));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+
+    await act(async () => updateSelection("updated"));
+    await act(async () => {
+      resolveReadiness(true);
+      await readiness;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(initialSubmit).not.toHaveBeenCalled();
+    expect(updatedSubmit).toHaveBeenCalledOnce();
+    expect(updatedSubmit).toHaveBeenCalledWith(
+      "Submit after selection changes",
+    );
+  });
+
+  it.each([
+    ["in the same paragraph", " "],
+    ["in a new paragraph", "\n"],
+  ])(
+    "removes an appended submitted prompt and keeps a follow-up $0",
+    async (_placement, separator) => {
+      let resolveSubmit!: () => void;
+      const submission = new Promise<void>((resolve) => {
+        resolveSubmit = resolve;
+      });
+      const { composerRef, onSubmit } = await mount({
+        initialText: "Submitted prompt",
+        initialTextKey: "submitted-prefix-follow-up",
+      });
+      onSubmit.mockReturnValue(submission);
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          )!
+          .click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(onSubmit).toHaveBeenCalledOnce();
+
+      await act(async () =>
+        composerRef.current!.setText(`Submitted prompt${separator}Follow-up`),
+      );
+      expect(
+        container.querySelector('[contenteditable="true"]')?.textContent,
+      ).toBe(`Submitted prompt${separator === "\n" ? "" : " "}Follow-up`);
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      )!;
+      await act(async () => {
+        resolveSubmit();
+        await submission;
+        for (
+          let attempt = 0;
+          attempt < 10 && editor.textContent !== "Follow-up";
+          attempt++
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      });
+
+      expect(editor.textContent?.trim()).toBe("Follow-up");
+    },
+  );
+
   it("cleans submitted attachments and keeps later attachment and reference edits", async () => {
     let resolveSubmit!: () => void;
     const submission = new Promise<void>((resolve) => {

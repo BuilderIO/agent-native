@@ -2662,6 +2662,8 @@ export function TiptapComposer({
   const composingRef = useRef(false);
   const onAttachmentErrorRef = useRef(onAttachmentError);
   onAttachmentErrorRef.current = onAttachmentError;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
   const execModeRef = useRef(execMode);
   execModeRef.current = execMode;
   const onExecModeChangeRef = useRef(onExecModeChange);
@@ -4033,15 +4035,57 @@ export function TiptapComposer({
       };
 
       const clearSubmittedDraft = () => {
-        const canClearText =
+        if (
           !isComposerEditorUsable(ed) ||
-          ed.state.doc.eq(submittedEditorDocument);
+          ed.state.doc.eq(submittedEditorDocument)
+        ) {
+          clearEditorAfterSubmit(
+            submittingDraftSnapshot,
+            submittedSlotReferences,
+          );
+          return true;
+        }
+
         clearEditorAfterSubmit(
           submittingDraftSnapshot,
           submittedSlotReferences,
-          canClearText,
+          false,
         );
-        return canClearText;
+        const currentDocument = ed.state.doc;
+        const submittedDocumentSize = submittedEditorDocument.content.size;
+        const sameBlockCount =
+          currentDocument.content.childCount ===
+          submittedEditorDocument.content.childCount;
+        const submittedPrefixSize =
+          submittedDocumentSize - (sameBlockCount ? 1 : 0);
+        const currentText = extractComposerPayload().text;
+        if (
+          textOverride === undefined &&
+          text.length > 0 &&
+          currentText.startsWith(text) &&
+          currentText.length > text.length &&
+          isCurrentDraftScope() &&
+          submittedPrefixSize <= currentDocument.content.size &&
+          currentDocument.content
+            .cut(0, submittedPrefixSize)
+            .eq(submittedEditorDocument.content)
+        ) {
+          const followUpDocument =
+            currentDocument.content.cut(submittedPrefixSize);
+          ed.commands.setContent({
+            type: "doc",
+            content: followUpDocument.toJSON(),
+          });
+          const current = syncComposerState();
+          if (!current.text && current.references.length === 0) {
+            clearEditorAfterSubmit(submittingDraftSnapshot, [], true);
+          } else {
+            flushComposerDraft();
+          }
+          return true;
+        }
+
+        return false;
       };
 
       if (handleLocalSubmission()) return true;
@@ -4170,61 +4214,64 @@ export function TiptapComposer({
         return true;
       }
 
-      if (onSubmit) {
+      const currentOnSubmit = onSubmitRef.current;
+      if (currentOnSubmit) {
         if (submitInFlightRef.current) return false;
         const submittedAttachments = [...attachments];
         submitInFlightRef.current = true;
         try {
-          await onSubmit(text, references, submittedAttachments, {
-            intent,
-            ...(contextSnapshot === undefined
-              ? {}
-              : { contextItems: contextSnapshot }),
-          });
-        } catch (error) {
-          setContextSubmissionError(
-            formatAttachmentError(
-              error,
-              t("agentChat.composer.submitFailed", {
-                defaultValue: "Could not submit. Try again.",
-              }),
-            ),
+          try {
+            await currentOnSubmit(text, references, submittedAttachments, {
+              intent,
+              ...(contextSnapshot === undefined
+                ? {}
+                : { contextItems: contextSnapshot }),
+            });
+          } catch (error) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+            return false;
+          }
+          if (!isCurrentDraftScope()) {
+            clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+            return true;
+          }
+          const clearSubmittedAttachments = attachmentCleanupRef.current.then(
+            async () => {
+              for (const attachment of submittedAttachments) {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) => item === attachment);
+                if (index === -1) continue;
+                await composerRuntime.getAttachmentByIndex(index).remove();
+              }
+            },
           );
-          return false;
+          attachmentCleanupRef.current = clearSubmittedAttachments.catch(
+            (error) => {
+              console.error(
+                "Could not clear submitted composer attachments",
+                error,
+              );
+            },
+          );
+          await attachmentCleanupRef.current;
+          if (!clearOnSubmit) {
+            closePopover();
+            return true;
+          }
+          cancelActiveVoice();
+          clearSubmittedDraft();
+          return true;
         } finally {
           submitInFlightRef.current = false;
         }
-        if (!isCurrentDraftScope()) {
-          clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
-          return true;
-        }
-        const clearSubmittedAttachments = attachmentCleanupRef.current.then(
-          async () => {
-            for (const attachment of submittedAttachments) {
-              const index = composerRuntime
-                .getState()
-                .attachments.findIndex((item) => item === attachment);
-              if (index === -1) continue;
-              await composerRuntime.getAttachmentByIndex(index).remove();
-            }
-          },
-        );
-        attachmentCleanupRef.current = clearSubmittedAttachments.catch(
-          (error) => {
-            console.error(
-              "Could not clear submitted composer attachments",
-              error,
-            );
-          },
-        );
-        await attachmentCleanupRef.current;
-        if (!clearOnSubmit) {
-          closePopover();
-          return true;
-        }
-        cancelActiveVoice();
-        clearSubmittedDraft();
-        return true;
       } else {
         if (textOverride !== undefined) composerRuntime.setText(text);
         composerRuntime.send();
@@ -4245,7 +4292,7 @@ export function TiptapComposer({
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
       onBeforeSubmit,
-      onSubmit,
+      extractComposerPayload,
       syncComposerState,
       voice,
       allSlashCommands,
