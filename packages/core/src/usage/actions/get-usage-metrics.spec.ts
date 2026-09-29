@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listAppUsageMetricsMock, isFeatureFlagEnabledMock } = vi.hoisted(
-  () => ({
-    listAppUsageMetricsMock: vi.fn(),
-    isFeatureFlagEnabledMock: vi.fn(),
-  }),
-);
+const listAppUsageMetricsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
@@ -14,10 +9,6 @@ vi.mock("../../action.js", () => ({
 vi.mock("../metrics-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../metrics-store.js")>()),
   listAppUsageMetrics: listAppUsageMetricsMock,
-}));
-
-vi.mock("../../feature-flags/store.js", () => ({
-  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
 }));
 
 import { resetAppConfigForTests } from "../../app-config/index.js";
@@ -29,7 +20,6 @@ describe("get-usage-metrics action", () => {
     resetAppConfigForTests();
     vi.stubEnv("AGENT_NATIVE_APP_ID", "configured-app");
     listAppUsageMetricsMock.mockResolvedValue({ ok: true });
-    isFeatureFlagEnabledMock.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -53,7 +43,7 @@ describe("get-usage-metrics action", () => {
         sinceDays: 30,
         scope: "me",
         userEmail: undefined,
-        builderCreditsEnabled: false,
+        builderCreditsEnabled: true,
       },
       {
         ownerEmail: "owner@example.com",
@@ -127,9 +117,7 @@ describe("get-usage-metrics action", () => {
     });
   });
 
-  it("enables reported Builder credits only when the registered flag is on", async () => {
-    isFeatureFlagEnabledMock.mockResolvedValue(true);
-
+  it("always includes per-call Builder credit reporting", async () => {
     await getUsageMetrics.run(
       { sinceDays: 30, scope: "me" },
       { caller: "frontend", userEmail: "owner@example.com" },
