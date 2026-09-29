@@ -48,24 +48,28 @@ author and draft state:
  - For remaining human PRs, read the current review summary to determine
    whether the PR already has a current, non-dismissed `APPROVED` review.
 
- - A current, non-dismissed `APPROVED` review targeting the current PR head
-   suppresses duplicate code review only while no newer commit, comment,
-   review, or check result exists. Such a PR still enters the merge-readiness
-   pass and recap; merge it if it meets the readiness gate. A later event
-   triggers a fresh review.
+ - Reuse that review as the code assessment only after verifying the reviewer
+   is a different, current BuilderIO member and is eligible under the PR's
+   author- and scope-specific rules, including any independent-review
+   requirement. An unknown or ineligible reviewer never suppresses a full diff
+   review. A valid approval suppresses duplicate code review only while no
+   newer commit, comment, review, or check result exists; the PR still enters
+   the merge-readiness pass and recap.
 
 All remaining non-draft human PRs enter the evidence sweep below. For
-current-head-approved PRs with no newer event, skip duplicate code review but
-check merge readiness and merge when ready. Eligible Liam PRs with only
-older-head approvals enter the sweep so the current head can be reviewed.
+PRs with a verified eligible current-head approval and no newer event, skip
+duplicate code review but check merge readiness and merge when ready. Eligible
+Liam PRs with only older-head approvals enter the sweep so the current head can
+be reviewed.
 
 For every PR you inspect, read:
 
  - the title, body, linked issue, and source links;
  - for PRs requiring a new or repeat code review, the complete changed-file
    list and diff, including generated or migration files; a current-head
-   approval with no newer event is the existing code assessment, so check its
-   merge evidence without repeating that review;
+   approval from a verified eligible reviewer with no newer event is the
+   existing code assessment, so check its merge evidence without repeating that
+   review;
  - all current human and bot review summaries, inline comments, and replies;
  - every current check/status context and actual conclusion, marking pending,
    skipped, unknown, or failing separately;
@@ -78,11 +82,12 @@ Inspect repository rulesets as well as branch protection. List them with
 omit ruleset requirements; never infer that no checks are required from that
 command alone.
 
-Use the GitHub organization membership API to verify that the author is a
-member of `BuilderIO`. Do not infer internal status from a display name, email,
-company claim, branch name, `authorAssociation`, or a familiar-looking bot.
-If membership cannot be verified, do not approve. External authors are never
-auto-approved, even when the patch looks safe or the issue is obviously valid.
+Use the GitHub organization membership API to verify that the author and any
+reviewer whose approval you rely on are current members of `BuilderIO`. Do not
+infer membership from a display name, email, company claim, branch name,
+`authorAssociation`, or a familiar-looking bot. If author membership cannot be
+verified, do not approve. External authors are never auto-approved, even when
+the patch looks safe or the issue is obviously valid.
 
 ## Liamdebeasi approval policy
 
