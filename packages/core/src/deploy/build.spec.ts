@@ -753,9 +753,7 @@ describe("Cloudflare module Worker entry", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
     expect(entry).toContain("globalThis.__env__ = env;");
-    expect(entry).toContain(
-      'globalThis.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ =\n    process.env.NODE_ENV === "production";',
-    );
+    expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
@@ -1284,13 +1282,22 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       expect(source).toContain("initializeBindings(env);");
     });
 
-    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+    it("sets the production marker from bindings when process.env starts empty", async () => {
+      vi.stubEnv("NODE_ENV", "");
       const worker = await importGeneratedWorker(generateWorkerEntry([], []));
-      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+      const bindings = {
+        DATABASE_URL: "postgres://example.test/db",
+        NODE_ENV: "production",
+      };
 
       await worker.fetch(new Request("https://app.test/"), bindings, {});
 
       expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+      expect(
+        (globalThis as Record<string, unknown>)[
+          "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__"
+        ],
+      ).toBe(true);
     });
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {

@@ -26,9 +26,9 @@ describe("DesignEditor pending live edits", () => {
     expect(toolbar).toContain('"min-w-0 shrink-0 cursor-pointer');
     expect(toolbar).toContain('className="h-9 w-8');
     expect(toolbar).not.toContain("h-11");
-    expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent");
+    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar");
     expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent ? null");
+    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar ? null");
 
     expect(
       enUSMessages.designEditor.pendingVisualStyles.applyDesignUpdates,
@@ -73,7 +73,7 @@ describe("DesignEditor pending live edits", () => {
     expect(menu).toContain("onClick={handleAbortPendingVisualStyles}");
   });
 
-  it("keeps signed-out visual-edit sessions on the copy-prompt handoff", () => {
+  it("keeps visual-edit sessions on copy unless a host agent can receive the handoff", () => {
     const source = readFileSync(
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
@@ -84,7 +84,9 @@ describe("DesignEditor pending live edits", () => {
       "isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost()",
     );
     expect(source).toContain("handleCopyPendingVisualStylePrompt");
-    expect(source).toContain("isVisualEditSurface &&");
+    expect(source).toMatch(
+      /canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent &&\s*\(!isVisualEditSurface \|\| hostEmbeddedEditor\);/,
+    );
   });
 
   it("publishes the handoff for agents that do not have the Design tab", () => {

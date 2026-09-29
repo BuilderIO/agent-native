@@ -27,7 +27,7 @@ import {
   getFeedbackStats,
   getSatisfactionScores,
   getEvalStats,
-  listExperiments,
+  listExperimentsPageResult,
   insertExperiment,
   getExperiment,
   updateExperiment,
@@ -319,6 +319,7 @@ export function createObservabilityHandler() {
         import("./feedback.js")
           .then(({ computeSatisfactionScore }) =>
             computeSatisfactionScore(threadId!, {
+              ownerEmail: owner,
               userId: owner,
             }).catch(() => {}),
           )
@@ -398,7 +399,15 @@ export function createObservabilityHandler() {
     }
 
     if (method === "GET" && parts.length === 1 && parts[0] === "experiments") {
-      return listExperiments();
+      const q = getQuery(event);
+      const beforeCreatedAt = Number(q.beforeCreatedAt);
+      const beforeId = typeof q.beforeId === "string" ? q.beforeId : undefined;
+      return listExperimentsPageResult({
+        limit: parseLimit(q),
+        ...(Number.isFinite(beforeCreatedAt) && beforeId
+          ? { before: { createdAt: beforeCreatedAt, id: beforeId } }
+          : {}),
+      });
     }
 
     if (

@@ -60,6 +60,7 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
   {
     version: 3,
     name: "chat-threads-source-backfill",
+    // guard:allow-unscoped — migration marks pre-existing integration threads from their own stored message data
     sql: `
       UPDATE chat_threads
         SET source_platform = 'integration'
