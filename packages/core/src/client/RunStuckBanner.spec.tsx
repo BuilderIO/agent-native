@@ -4,13 +4,33 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RunStuckBanner } from "../../../toolkit/src/app/chat/RunStuckBanner.js";
+import {
+  RunStuckBanner as ToolkitRunStuckBanner,
+  type RunStuckBannerProps,
+} from "../../../toolkit/src/app/chat/RunStuckBanner.js";
+import { createToolkitI18nCatalog } from "../../../toolkit/src/app/i18n.js";
 import {
   clearActiveRun,
   setActiveRun,
   updateActiveRunSeq,
 } from "./active-run-state.js";
+import { AgentNativeI18nProvider } from "./i18n.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
+
+const toolkitCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function RunStuckBanner(props: RunStuckBannerProps) {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitCatalog}
+      initialLocale="en-US"
+      initialPreference="en-US"
+      persistPreference={false}
+    >
+      <ToolkitRunStuckBanner {...props} />
+    </AgentNativeI18nProvider>
+  );
+}
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),

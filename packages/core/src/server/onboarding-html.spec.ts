@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AuthPage } from "../../../toolkit/src/app/auth/AuthPage.js";
 import {
   defineAppConfig,
   resetAppConfigForTests,
@@ -182,6 +185,8 @@ describe("getOnboardingHtml", () => {
     const html = getOnboardingHtml({
       requestHost: "chat.agent-native.com",
       marketing: false,
+      renderSignInPage: (props) =>
+        renderToString(createElement(AuthPage, props)),
     });
 
     expect(html).toContain('class="auth-centered"');

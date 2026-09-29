@@ -9,7 +9,6 @@ const sendToAgentChat = vi.hoisted(() => vi.fn());
 const setupCard = vi.hoisted(() => vi.fn(() => "shared setup"));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  BuilderSetupCard: setupCard,
   sendToAgentChat,
   useAgentEngineConfigured: () => ({
     missing: agentState.state === "missing",
@@ -19,6 +18,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: setupCard,
 }));
 
 vi.mock("@/components/ui/popover", () => ({

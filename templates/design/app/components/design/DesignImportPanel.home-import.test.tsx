@@ -45,7 +45,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => mocks.fileStorageStatus,
 }));
-vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({ open }: { open: boolean }) =>
     open ? <div data-testid="file-storage-setup" /> : null,
 }));

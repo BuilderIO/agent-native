@@ -4,7 +4,6 @@ import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
 import {
   isAgentNativeDesktop,
   isBuilderDesktop,
-  isElectron,
   normalizeOAuthReturnPath,
   shouldRetryAuthSessionProbe,
 } from "@agent-native/core/client/auth/auth-page-helpers";

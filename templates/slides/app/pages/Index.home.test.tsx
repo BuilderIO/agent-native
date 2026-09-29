@@ -133,8 +133,17 @@ vi.mock("@agent-native/core/client/notifications", () => ({
   NotificationsBell: () => null,
 }));
 vi.mock("@agent-native/core/client/progress", () => ({ RunsTray: () => null }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  useAgentEngineConfigured: () => agentEngine,
+  fetchAgentEngineConfiguredState,
+}));
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentToggleButton: () => null,
+}));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,
@@ -150,8 +159,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       <a href="/settings/keys">Custom keys</a>
     </div>
   ),
-  useAgentEngineConfigured: () => agentEngine,
-  fetchAgentEngineConfiguredState,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,

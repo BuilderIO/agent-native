@@ -10,12 +10,10 @@ import {
   useSetOrgWorkspaceUrl,
 } from "@agent-native/core/client/org";
 import {
-  uploadEditorImage,
   uploadWorkspacePrivateIcon,
   workspacePrivateIconLibraryUrl,
   workspacePrivateIconUrl,
 } from "@agent-native/core/client/uploads";
-import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
 import type { IconValue } from "@agent-native/core/icons";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
 import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";

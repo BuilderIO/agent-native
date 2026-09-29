@@ -15,14 +15,18 @@ const mocks = vi.hoisted(() => ({
   setContext: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   actionErrorMessage: () => undefined,
   useActionMutation: (name: string) =>
     name === "save-generated-image" ? mocks.save : mocks.update,
   useActionQuery: () => mocks.query,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   setAgentChatContextItem: mocks.setContext,
 }));
 

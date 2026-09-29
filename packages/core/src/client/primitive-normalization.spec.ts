@@ -24,12 +24,16 @@ const teamPageModules = [
 ];
 
 const buttonWrapperSurfaces = [...settingsSurfaces, "./org/TeamPrimitives.tsx"];
+const toolkitAppSource = new URL("../../../toolkit/src/app/", import.meta.url);
 
 describe("Core design-system primitive normalization", () => {
   it.each([...settingsSurfaces, ...teamPageModules])(
     "%s routes buttons and pickers through Toolkit primitives",
     (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+      const source = readFileSync(
+        new URL(sourcePath, toolkitAppSource),
+        "utf8",
+      );
 
       if (sourcePath.includes("settings/")) {
         expect(source).toMatch(
@@ -49,15 +53,18 @@ describe("Core design-system primitive normalization", () => {
   it.each(buttonWrapperSurfaces)(
     "%s routes buttons through the shared primitive wrapper",
     (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+      const source = readFileSync(
+        new URL(sourcePath, toolkitAppSource),
+        "utf8",
+      );
 
       expect(source).toContain("PrimitiveButton");
     },
   );
 
-  it("ui/PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
+  it("PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
     const source = readFileSync(
-      new URL("./ui/PrimitiveButton.tsx", import.meta.url),
+      new URL("./PrimitiveButton.tsx", toolkitAppSource),
       "utf8",
     );
 

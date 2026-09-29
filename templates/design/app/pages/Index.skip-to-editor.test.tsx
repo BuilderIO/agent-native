@@ -40,29 +40,41 @@ const mocks = vi.hoisted(() => ({
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  BuilderSetupCard: ({
-    bouncePulse = 0,
-    onConnected,
-  }: {
-    bouncePulse?: number;
-    onConnected?: () => void;
-  }) => (
-    <div
-      data-setup-card
-      data-testid="ai-setup-card"
-      data-bounce-pulse={bouncePulse}
-    >
-      Connect AI
-      <button type="button" onClick={onConnected}>
-        Connect Builder.io
-      </button>
-      <a href="/settings/keys">Custom keys</a>
-    </div>
-  ),
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
 }));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/chat/run-recovery",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/chat/run-recovery")
+    >()),
+    BuilderSetupCard: ({
+      bouncePulse = 0,
+      onConnected,
+    }: {
+      bouncePulse?: number;
+      onConnected?: () => void;
+    }) => (
+      <div
+        data-setup-card
+        data-testid="ai-setup-card"
+        data-bounce-pulse={bouncePulse}
+      >
+        Connect AI
+        <button type="button" onClick={onConnected}>
+          Connect Builder.io
+        </button>
+        <a href="/settings/keys">Custom keys</a>
+      </div>
+    ),
+  }),
+);
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
@@ -83,7 +95,8 @@ vi.mock("@agent-native/core/client/collab", () => ({
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
   useOrgMembers: () => ({ data: undefined }),
 }));
 

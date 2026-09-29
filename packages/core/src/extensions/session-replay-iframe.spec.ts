@@ -19,7 +19,16 @@ import {
 } from "./session-replay-iframe.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_CLIENT_DIR = join(HERE, "..", "client", "extensions");
+const EXTENSION_CLIENT_DIR = join(
+  HERE,
+  "..",
+  "..",
+  "..",
+  "toolkit",
+  "src",
+  "app",
+  "extensions",
+);
 
 describe("cooperative iframe session replay", () => {
   it("pins the installed rrweb recorder and waits for a trusted start message", () => {

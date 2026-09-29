@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
@@ -12,7 +13,6 @@ import {
   dispatchNavLinkTarget,
   formatThreadAge,
   isElectronEmbeddedSearch,
-  isSettingsShellPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -30,7 +30,10 @@ const clientState = vi.hoisted(() => ({
     .mockResolvedValue({ startUrl: "about:blank" }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
@@ -48,8 +51,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   }),
 }));
 
-vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <div data-agent-sidebar>{children}</div>
   ),
@@ -67,7 +69,8 @@ vi.mock("@agent-native/core/client/api-path", () => ({
       : path,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (action: string) => ({
     data:
       action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
@@ -204,14 +207,14 @@ describe("Dispatch workspace app sidebar", () => {
 
 describe("Dispatch Settings frame", () => {
   it("drops the Dispatch chrome on Settings", () => {
-    expect(isSettingsShellPath("/settings")).toBe(true);
-    expect(isSettingsShellPath("/settings/members")).toBe(true);
-    expect(isSettingsShellPath("/settings/app")).toBe(true);
+    expect(isSettingsPathname("/settings")).toBe(true);
+    expect(isSettingsPathname("/settings/members")).toBe(true);
+    expect(isSettingsPathname("/settings/app")).toBe(true);
   });
 
   it("keeps the Dispatch chrome off Settings", () => {
-    expect(isSettingsShellPath("/admin")).toBe(false);
-    expect(isSettingsShellPath("/apps/mail/settings")).toBe(false);
+    expect(isSettingsPathname("/admin")).toBe(false);
+    expect(isSettingsPathname("/apps/mail/settings")).toBe(false);
   });
 });
 
@@ -748,8 +751,8 @@ describe("chat-first surface panel toggle stacking", () => {
   it("keeps the toggle above the mobile full-screen surface panel overlay", async () => {
     const { ChatFirstSurfacePanelToggle: RealChatFirstSurfacePanelToggle } =
       await vi.importActual<
-        typeof import("@agent-native/core/client/agent-chat")
-      >("@agent-native/core/client/agent-chat");
+        typeof import("@agent-native/toolkit/app/chat/chat-first")
+      >("@agent-native/toolkit/app/chat/chat-first");
     const { ChatFirstSurfacePanel } =
       await import("@agent-native/toolkit/app/chat/chat-first");
 

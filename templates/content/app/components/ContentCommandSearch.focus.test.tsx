@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal()),
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/client/navigation", async (importOriginal) => ({
+vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
   ...(await importOriginal()),
   useCommandMenuNestedDialog: () => undefined,
 }));

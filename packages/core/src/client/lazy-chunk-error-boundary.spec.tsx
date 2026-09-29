@@ -7,13 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const recoverFromStaleChunkError = vi.hoisted(() => vi.fn(() => false));
 
-vi.mock("./route-chunk-recovery.js", () => ({
+vi.mock("@agent-native/core/client/route-chunk-recovery", () => ({
   recoverFromStaleChunkError,
 }));
 
+import { createToolkitI18nCatalog } from "../../../toolkit/src/app/i18n.js";
+import { LazyChunkErrorBoundary } from "../../../toolkit/src/app/shared/LazyChunkErrorBoundary.js";
+import { LazyChunkRetryFallback } from "../../../toolkit/src/app/shared/LazyChunkRetryFallback.js";
 import { AgentNativeI18nProvider } from "./i18n.js";
-import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
-import { LazyChunkRetryFallback } from "./lazy-chunk-retry-fallback.js";
 
 const FailingLazy = lazy(() =>
   Promise.reject(new Error("Failed to fetch dynamically imported module")),
@@ -42,6 +43,7 @@ describe("LazyChunkErrorBoundary", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={createToolkitI18nCatalog({ messages: {} })}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

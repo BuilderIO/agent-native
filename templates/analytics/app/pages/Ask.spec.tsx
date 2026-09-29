@@ -13,6 +13,13 @@ const clientMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useAgentChatContext: () => ({
+    items: clientMocks.contextItems,
+    remove: clientMocks.remove,
+  }),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatHome: ({
     composerSlot,
     homeIntroSlot,
@@ -25,10 +32,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       {homeIntroSlot}
     </div>
   ),
-  useAgentChatContext: () => ({
-    items: clientMocks.contextItems,
-    remove: clientMocks.remove,
-  }),
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({

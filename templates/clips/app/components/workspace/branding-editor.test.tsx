@@ -19,7 +19,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
 }));
 
-vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({
     open,
     onConnected,

@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
 
 function readSidebarSource(relativePath: string) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(
+    /\r\n/g,
+    "\n",
+  );
 }
 
 function treeNode(
@@ -386,7 +389,7 @@ describe("document sidebar layout", () => {
       "return handleSelectContentSpace(space, null, true)",
     );
     expect(sidebar).toContain(
-      'import { OrgSwitcher } from "@agent-native/core/client/org";',
+      'import { OrgSwitcher } from "@agent-native/toolkit/app/org";',
     );
     expect(sidebar).toContain("reserveSpace");
     expect(sidebar).toContain("<OrgSwitcher");

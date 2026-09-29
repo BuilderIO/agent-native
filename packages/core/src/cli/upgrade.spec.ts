@@ -50,6 +50,13 @@ const upgradeEnvKeys = [
   "MICROSOFT_TEAMS_APP_PASSWORD",
 ] as const;
 const savedUpgradeEnv = new Map<string, string | undefined>();
+const toolkitRange = readMigrationManifest(bundledCoreMigrationManifestPath())
+  ?.dependencyVersions?.["@agent-native/toolkit"];
+if (!toolkitRange) {
+  throw new Error(
+    "Core migration manifest must specify a toolkit version range",
+  );
+}
 
 function clearUpgradeEnvironment(): void {
   for (const key of upgradeEnvKeys) {
@@ -124,6 +131,13 @@ function writeInstalledPackage(
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
     `${JSON.stringify({ name, version })}\n`,
+  );
+}
+
+function writeInstalledToolkitManifest(toolkitDir: string): void {
+  fs.writeFileSync(
+    path.join(toolkitDir, "migration-manifest.json"),
+    `${JSON.stringify({ sinceVersion: "0.5.0", moves: {} })}\n`,
   );
 }
 
@@ -769,13 +783,17 @@ describe("runUpgrade", () => {
             `${JSON.stringify({
               name: "@agent-native/toolkit",
               version: "0.5.2",
-              exports: { "./editor": "./editor.js" },
+              exports: {
+                "./editor": "./editor.js",
+                "./migration-manifest.json": "./migration-manifest.json",
+              },
             })}\n`,
           );
           fs.writeFileSync(
             path.join(toolkitDir, "editor.js"),
             "export const RichMarkdownEditor = {};\n",
           );
+          writeInstalledToolkitManifest(toolkitDir);
         }
         return {
           status: 0,
@@ -797,7 +815,7 @@ describe("runUpgrade", () => {
     expect(installDependencies).toEqual([
       expect.objectContaining({
         "@agent-native/core": "latest",
-        "@agent-native/toolkit": ">=0.196.0",
+        "@agent-native/toolkit": toolkitRange,
       }),
     ]);
     expect(fs.readFileSync(source, "utf-8")).toContain(
@@ -828,10 +846,14 @@ describe("runUpgrade", () => {
       `${JSON.stringify({
         name: "@agent-native/toolkit",
         version: "0.5.2",
-        exports: { ".": "./index.js" },
+        exports: {
+          ".": "./index.js",
+          "./migration-manifest.json": "./migration-manifest.json",
+        },
       })}\n`,
     );
     fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+    writeInstalledToolkitManifest(toolkitDir);
     const { io, err } = captureIo();
 
     const code = await runUpgrade(
@@ -874,10 +896,14 @@ describe("runUpgrade", () => {
             `${JSON.stringify({
               name: "@agent-native/toolkit",
               version: "0.5.2",
-              exports: { ".": "./index.js" },
+              exports: {
+                ".": "./index.js",
+                "./migration-manifest.json": "./migration-manifest.json",
+              },
             })}\n`,
           );
           fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+          writeInstalledToolkitManifest(toolkitDir);
         }
         return {
           status: 0,
@@ -902,7 +928,7 @@ describe("runUpgrade", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     ) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies["@agent-native/toolkit"]).toBe(">=0.196.0");
+    expect(pkg.dependencies["@agent-native/toolkit"]).toBe(toolkitRange);
   });
 
   it("reports dependency changes when installation fails before source rewrites", async () => {
@@ -952,7 +978,7 @@ describe("runUpgrade", () => {
     };
     expect(result.codemod.files).toEqual(["package.json"]);
     expect(result.codemod.diff).toContain(
-      '"@agent-native/toolkit": ">=0.196.0"',
+      `"@agent-native/toolkit": "${toolkitRange}"`,
     );
   });
 
