@@ -290,6 +290,19 @@ function FeatureFlagRow({
   const actor = formatActor(flag.rules.updatedBy);
   const when = formatWhen(flag.rules.updatedAt);
   const metadata = [actor, when].filter(Boolean).join(" · ");
+  const isBuilderCreditReferrals =
+    flag.key === "billing.builder-credit-usage-reporting";
+  const displayName = isBuilderCreditReferrals
+    ? t("agentChat.featureFlags.builderCreditReferrals.name", {
+        defaultValue: "Builder credit referrals",
+      })
+    : (flag.displayName ?? flag.key);
+  const description = isBuilderCreditReferrals
+    ? t("agentChat.featureFlags.builderCreditReferrals.description", {
+        defaultValue:
+          "Show connected Builder workspace referral details in Usage.",
+      })
+    : flag.description;
 
   return (
     <article
@@ -299,7 +312,7 @@ function FeatureFlagRow({
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="truncate text-sm font-medium text-foreground">
-            {flag.displayName ?? flag.key}
+            {displayName}
           </h3>
           {flag.displayName && flag.displayName !== flag.key ? (
             <code className="truncate text-xs text-muted-foreground">
@@ -313,10 +326,8 @@ function FeatureFlagRow({
             {modeLabel(flag.rules, t)}
           </Badge>
         </div>
-        {flag.description ? (
-          <p className="mt-1 text-sm text-muted-foreground">
-            {flag.description}
-          </p>
+        {description ? (
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>

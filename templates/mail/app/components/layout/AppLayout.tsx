@@ -5,7 +5,6 @@ import {
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
@@ -23,7 +22,6 @@ import {
   FeedbackButton,
   RouterSidebarLink,
 } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
@@ -226,7 +224,6 @@ function isSettingsPath(pathname: string): boolean {
 
 function isStandardLayoutPath(pathname: string): boolean {
   return (
-    isSettingsPath(pathname) ||
     pathname === "/agent" ||
     pathname === "/chat" ||
     pathname === "/team" ||
@@ -337,18 +334,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isAgentChatRoute = location.pathname === "/chat";
 
   const t = useT();
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  // The redesigned Settings shell brings its own navigation, header, and
-  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
-  // so the app chrome stays out then too instead of appearing and vanishing.
-  const settingsOwnsChrome =
-    isSettingsPath(location.pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
-  const content = settingsOwnsChrome ? (
+  // Settings brings its own navigation, header, and agent toggle.
+  const content = isSettingsPath(location.pathname) ? (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {children}
     </div>
@@ -2262,13 +2253,7 @@ function StandardLayout({ children }: AppLayoutProps) {
     location.pathname.startsWith("/extensions/");
 
   const fallbackTitle = (() => {
-    if (location.pathname === "/settings") return t("settings.title");
-    if (
-      location.pathname === "/agent" ||
-      location.pathname.startsWith("/settings/agent")
-    ) {
-      return t("settings.agentTitle");
-    }
+    if (location.pathname === "/agent") return t("settings.agentTitle");
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");

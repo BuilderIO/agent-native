@@ -230,7 +230,7 @@ describe("AgentSidebar lazy panel boundary", () => {
       ".agent-sidebar-panel[data-agent-sidebar-layout='desktop']",
     );
     expect(panel?.style.getPropertyValue("--agent-sidebar-background")).toBe(
-      "var(--agent-native-raised-surface, hsl(var(--background)))",
+      "var(--agent-kit-nav-surface)",
     );
 
     await act(async () => {

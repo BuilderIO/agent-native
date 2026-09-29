@@ -9,18 +9,11 @@ const {
   flushDeckSaveMock,
   useDecksMock,
   creativeContextLabEnabled,
-  settingsRedesign,
 } = vi.hoisted(() => ({
   agentSidebarMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
   useDecksMock: vi.fn(),
   creativeContextLabEnabled: { value: false },
-  settingsRedesign: {
-    value: { status: "ready", enabled: false } as {
-      status: "ready";
-      enabled: boolean;
-    },
-  },
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -69,9 +62,6 @@ vi.mock("@tabler/icons-react", () => ({
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));
-vi.mock("@/hooks/use-settings-redesign", () => ({
-  useSettingsRedesign: () => settingsRedesign.value,
-}));
 vi.mock("@/hooks/use-sidebar-collapsed", () => ({
   useSidebarCollapsed: () => ({ collapsed: false, setCollapsed: vi.fn() }),
 }));
@@ -130,7 +120,6 @@ describe("Slides Layout", () => {
       flushDeckSave: flushDeckSaveMock,
     });
     creativeContextLabEnabled.value = false;
-    settingsRedesign.value = { status: "ready", enabled: false };
   });
 
   it("hides the Creative Context composer chip until its lab is enabled", () => {
@@ -353,8 +342,7 @@ describe("Slides Layout", () => {
     );
   });
 
-  it("gives the redesigned Settings the full width", () => {
-    settingsRedesign.value = { status: "ready", enabled: true };
+  it("gives Settings the full width", () => {
     renderLayout("/settings/notifications");
 
     expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
@@ -364,14 +352,6 @@ describe("Slides Layout", () => {
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
     expect(screen.getByTestId("page-content")).toBeTruthy();
-  });
-
-  it("keeps the app shell around Settings with the redesign off", () => {
-    settingsRedesign.value = { status: "ready", enabled: false };
-    renderLayout("/settings");
-
-    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
-    expect(screen.getByTestId("header")).toBeTruthy();
   });
 
   it("renders full-page chat without the sidebar wrapper", () => {

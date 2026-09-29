@@ -21,6 +21,7 @@ export default defineAction({
     designId: z.string().describe("Design project ID backed by a fusion app."),
   }),
   readOnly: true,
+  dedupe: false,
   http: { method: "GET" },
   run: async ({ designId }, ctx) => {
     if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {

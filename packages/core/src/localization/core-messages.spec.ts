@@ -20,6 +20,29 @@ function placeholders(value: string): string[] {
 }
 
 describe("built-in Core chat translations", () => {
+  it("localizes resource pack labels in every built-in locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      const pack = messages.agentResources as Record<string, string>;
+      expect(pack.exportPack, locale).toEqual(expect.any(String));
+      expect(pack.importPack, locale).toEqual(expect.any(String));
+      expect(pack.exportPackSuccess, locale).toEqual(expect.any(String));
+      expect(pack.exportPackFailed, locale).toEqual(expect.any(String));
+      expect(pack.importPackFailed, locale).toEqual(expect.any(String));
+      expect(pack.importPackInvalid, locale).toEqual(expect.any(String));
+      expect(placeholders(pack.importPackSuccess), locale).toEqual([
+        "imported",
+        "skipped",
+      ]);
+      if (locale !== "en-US") {
+        expect(pack.exportPack, locale).not.toBe("Export pack");
+        expect(pack.importPackInvalid, locale).not.toBe(
+          "That file is not a valid resource pack",
+        );
+      }
+    }
+  });
+
   it("localizes environment badge copy in every built-in locale", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);
@@ -84,7 +107,7 @@ describe("built-in Core chat translations", () => {
     }
   });
 
-  it("exposes localized human-review summary copy to the shared UI", async () => {
+  it("exposes localized observability copy to the shared UI", async () => {
     const summaryKeys = [
       "summarizeWithAgent",
       "regenerateSummary",
@@ -94,6 +117,10 @@ describe("built-in Core chat translations", () => {
       "summaryQueued",
       "summaryFailed",
       "summaryExpired",
+      "promoteMustContain",
+      "promoteMustContainOptional",
+      "promoteMustContainLabel",
+      "promoteNeedsContains",
     ];
     const englishSummaryQueued =
       defaultEnglishMessages.observability.summaryQueued;
@@ -112,6 +139,43 @@ describe("built-in Core chat translations", () => {
       }
       if (locale !== "en-US") {
         expect(observability.summaryQueued).not.toBe(englishSummaryQueued);
+      }
+    }
+  });
+
+  it("localizes observability promotion copy in every built-in locale", async () => {
+    const promotionKeys = [
+      "promoteMustContain",
+      "promoteMustContainOptional",
+      "promoteMustContainLabel",
+      "promoteNeedsContains",
+    ];
+    const englishMessages = await loadCoreMessagesForLocale("en-US");
+    const englishObservability = englishMessages.observability as Record<
+      string,
+      string
+    >;
+
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      const observability = messages.observability as Record<string, string>;
+
+      for (const key of promotionKeys) {
+        expect(observability[key], `${locale}:${key}`).toEqual(
+          expect.any(String),
+        );
+        expect(placeholders(observability[key]!), `${locale}:${key}`).toEqual(
+          placeholders(englishObservability[key]!),
+        );
+        if (locale !== "en-US") {
+          expect(observability[key], `${locale}:${key}`).not.toBe(
+            englishObservability[key],
+          );
+        } else {
+          expect(englishObservability[key], key).toBe(
+            defaultEnglishMessages.observability[key],
+          );
+        }
       }
     }
   });
