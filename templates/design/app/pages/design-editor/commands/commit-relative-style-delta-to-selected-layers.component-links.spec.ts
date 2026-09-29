@@ -128,67 +128,77 @@ it("routes relative multi-target values through one linked batch", () => {
   expect(applyFileContentUpdate).not.toHaveBeenCalled();
 });
 
-it("equalizes an edited spacing pair for each selected layer", () => {
-  const main = `<section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="linked-child" style="padding-top: 8px; padding-right: 8px; padding-bottom: 8px; padding-left: 8px">Linked</div></section><div data-agent-native-node-id="plain-child" style="padding-top: 20px; padding-right: 24px; padding-bottom: 28px; padding-left: 32px">Plain</div>`;
-  const selectedLayerTargets = targetsFor(main, "main-file", [
-    "linked-child",
-    "plain-child",
-  ]);
-  const applyLinkedComponentEdit = vi.fn();
-  const activeFile: DesignFile = {
-    id: "main-file",
-    filename: "main.html",
-    fileType: "html",
-    content: main,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
+it.each([
+  ["paddingLeft", "paddingRight"],
+  ["paddingRight", "paddingLeft"],
+  ["marginTop", "marginBottom"],
+  ["marginBottom", "marginTop"],
+])(
+  "equalizes the edited %s spacing pair for each selected layer",
+  (property, oppositeProperty) => {
+    const cssProperty = (value: string) =>
+      value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    const main = `<section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="linked-child" style="${cssProperty(property)}: 8px; ${cssProperty(oppositeProperty)}: 12px">Linked</div></section><div data-agent-native-node-id="plain-child" style="${cssProperty(property)}: 20px; ${cssProperty(oppositeProperty)}: 24px">Plain</div>`;
+    const selectedLayerTargets = targetsFor(main, "main-file", [
+      "linked-child",
+      "plain-child",
+    ]);
+    const applyLinkedComponentEdit = vi.fn();
+    const activeFile: DesignFile = {
+      id: "main-file",
+      filename: "main.html",
+      fileType: "html",
+      content: main,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
 
-  const applied = runCommitRelativeStyleDeltaToSelectedLayers(
-    {
-      activeBreakpointUpperBoundPx: null,
-      activeBreakpointWidthStateRef: { current: undefined },
-      activeCanvasSourceType: "inline",
-      activeContent: main,
-      activeFile,
-      applyFileContentUpdate: vi.fn(),
-      applyLinkedComponentEdit,
-      canEditDesign: true,
-      effectiveCodeLayerStateRef: {
-        current: { lockedIds: new Set(), hiddenIds: new Set() },
+    const applied = runCommitRelativeStyleDeltaToSelectedLayers(
+      {
+        activeBreakpointUpperBoundPx: null,
+        activeBreakpointWidthStateRef: { current: undefined },
+        activeCanvasSourceType: "inline",
+        activeContent: main,
+        activeFile,
+        applyFileContentUpdate: vi.fn(),
+        applyLinkedComponentEdit,
+        canEditDesign: true,
+        effectiveCodeLayerStateRef: {
+          current: { lockedIds: new Set(), hiddenIds: new Set() },
+        },
+        getScreenContent: () => main,
+        lastLocalContentRef: { current: null },
+        latestActiveContentRef: { current: null },
+        responsiveEditScopeRef: { current: "cascade-smaller" },
+        selectedLayerTargetsRef: { current: selectedLayerTargets },
+        setSelectedElement: vi.fn(),
       },
-      getScreenContent: () => main,
-      lastLocalContentRef: { current: null },
-      latestActiveContentRef: { current: null },
-      responsiveEditScopeRef: { current: "cascade-smaller" },
-      selectedLayerTargetsRef: { current: selectedLayerTargets },
-      setSelectedElement: vi.fn(),
-    },
-    ["paddingLeft", "paddingRight"],
-    1,
-  );
+      [property, oppositeProperty],
+      1,
+    );
 
-  expect(applied).toBe(true);
-  expect(applyLinkedComponentEdit).toHaveBeenCalledWith(
-    "main-file",
-    "linked-child",
-    {
-      kind: "styleTargetsBatch",
-      targets: [
-        {
-          fileId: "main-file",
-          nodeId: "linked-child",
-          styles: { paddingLeft: "9px", paddingRight: "9px" },
-        },
-        {
-          fileId: "main-file",
-          nodeId: "plain-child",
-          styles: { paddingLeft: "33px", paddingRight: "33px" },
-        },
-      ],
-    },
-  );
-});
+    expect(applied).toBe(true);
+    expect(applyLinkedComponentEdit).toHaveBeenCalledWith(
+      "main-file",
+      "linked-child",
+      {
+        kind: "styleTargetsBatch",
+        targets: [
+          {
+            fileId: "main-file",
+            nodeId: "linked-child",
+            styles: { [property]: "9px", [oppositeProperty]: "9px" },
+          },
+          {
+            fileId: "main-file",
+            nodeId: "plain-child",
+            styles: { [property]: "21px", [oppositeProperty]: "21px" },
+          },
+        ],
+      },
+    );
+  },
+);
 
 it("hands linked localhost relative targets to the live source route", () => {
   const source = `<section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="linked-child" style="width: 100px">Linked</div></section><div data-agent-native-node-id="plain-child" style="width: 200px">Plain</div><section data-agent-native-node-id="copy-root" ${COMPONENT_REF_ATTR}="card"><div data-agent-native-node-id="copy-child" ${COMPONENT_SOURCE_NODE_ID_ATTR}="linked-child" style="width: 100px">Linked</div></section>`;

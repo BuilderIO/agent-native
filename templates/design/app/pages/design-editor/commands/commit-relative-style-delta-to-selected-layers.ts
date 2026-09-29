@@ -161,9 +161,12 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
   ];
   if (properties.length === 0) return false;
   const mirroredProperty =
-    properties.length === 2 &&
-    oppositeSpacingProperty(properties[0]!) === properties[1]
-      ? properties[1]
+    properties.length === 2
+      ? oppositeSpacingProperty(properties[0]!) === properties[1]
+        ? properties[1]
+        : oppositeSpacingProperty(properties[1]!) === properties[0]
+          ? properties[0]
+          : undefined
       : undefined;
   const relativeStylesByTarget = new Map<
     SelectedLayerTarget,
