@@ -323,7 +323,7 @@ export function sanitizeBackfillError(error: unknown): string {
     .replace(/\nparams:[\s\S]*/i, "")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(
-      /(["']?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|token)\b["']?\s*[:=]\s*["']?)[^"'\s,}&]+/gi,
+      /(["']?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|token)\b["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^"'\s,}&]+)/gi,
       "$1[redacted]",
     )
     .slice(0, 500);
@@ -1755,7 +1755,6 @@ async function processRunningBatch(
         new Error(`Gmail account ${candidate.accountEmail} is unavailable.`),
       );
     }
-    let candidateFailed = false;
     let candidateHasUnavailableAction = false;
     for (const match of matches) {
       const rule = state.rules.find((item) => item.id === match.ruleId);
@@ -1844,18 +1843,8 @@ async function processRunningBatch(
           );
         }
       } catch (error) {
-        candidateFailed = true;
-        const message = sanitizeBackfillError(error);
         if (!state.failedKeys.includes(candidate.key))
           state.failedKeys.push(candidate.key);
-        const retryable = aiFilterBackfillRetryDelay(error) !== null;
-        if (!state.incompleteCoverage) state.error = message;
-        else if (
-          !retryable ||
-          (state.retryCount ?? 0) >= MAX_BACKFILL_RETRIES
-        ) {
-          state.error = appendBackfillError(state.error, message);
-        }
         throw error;
       }
       state.snapshots[candidate.key] = applied.snapshot;
@@ -1887,14 +1876,12 @@ async function processRunningBatch(
         return;
       }
     }
-    if (!candidateFailed) {
-      if (!candidateHasUnavailableAction)
-        state.failedKeys = state.failedKeys.filter(
-          (key) => key !== candidate.key,
-        );
-      state.processedThreads += 1;
-      state.candidateIndex += 1;
-    }
+    if (!candidateHasUnavailableAction)
+      state.failedKeys = state.failedKeys.filter(
+        (key) => key !== candidate.key,
+      );
+    state.processedThreads += 1;
+    state.candidateIndex += 1;
   }
 
   if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state))) return;

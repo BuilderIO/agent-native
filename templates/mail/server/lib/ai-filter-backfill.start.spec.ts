@@ -496,13 +496,15 @@ describe("startMailAiFilterBackfill", () => {
 
   it("redacts OAuth credentials from persisted error details", () => {
     const error = sanitizeBackfillError(
-      '{"refresh_token":"example-refresh"}, client_secret: example-secret, access_token=example-access',
+      `{"refresh_token":"example-refresh,part}","client_secret":"example-secret,part}","access_token":"example-access&part","id_token":"example-id\\"quoted,part}"} token=example-token`,
     );
 
     expect(error).not.toContain("example-refresh");
     expect(error).not.toContain("example-secret");
     expect(error).not.toContain("example-access");
-    expect(error.match(/\[redacted\]/g)).toHaveLength(3);
+    expect(error).not.toContain("example-id");
+    expect(error).not.toContain("example-token");
+    expect(error.match(/\[redacted\]/g)).toHaveLength(5);
   });
 
   it("skips delayed retries before bounding worker queue candidates", async () => {
@@ -669,7 +671,7 @@ describe("startMailAiFilterBackfill", () => {
     const row = runningRow([activeRule]);
     const state: any = JSON.parse(row.stateJson);
     state.incompleteCoverage = true;
-    state.error = `Partial Gmail coverage: ${"c".repeat(476)}`;
+    state.error = "unavailable@example.test: refresh failed.";
     row.stateJson = JSON.stringify(state);
     database.rows.push(row);
     mocks.writeLocalEmails.mockRejectedValueOnce(
@@ -681,7 +683,10 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(row.stateJson);
     expect(row.status).toBe("failed");
     expect(saved.error).toContain("Mail write failed permanently.");
-    expect(saved.error.startsWith(state.error.slice(0, 249))).toBe(true);
+    expect(saved.error).toContain(state.error);
+    expect(saved.error.match(/Mail write failed permanently\./g)).toHaveLength(
+      1,
+    );
     expect(saved.error.length).toBeLessThanOrEqual(500);
     expect(saved.failedKeys).toEqual(["local:thread-a"]);
   });
