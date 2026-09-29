@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   extractConsumptionRows,
   findTransferAlerts,
+  publishDailyTransferAlerts,
   type TransferPoint,
 } from "./neon-transfer-alert.js";
 
@@ -99,6 +100,43 @@ describe("Neon transfer alert", () => {
       findTransferAlerts([...incompleteBaseline, qualifying]).length,
       0,
     );
+  });
+
+  it("publishes confirmed project alerts while reporting another project's missing baseline", async () => {
+    const completeProject: TransferPoint[] = Array.from(
+      { length: 8 },
+      (_, index) => ({
+        projectId: "confirmed",
+        projectName: "Confirmed",
+        date: `2026-09-${String(index + 1).padStart(2, "0")}`,
+        bytes: index === 7 ? 1_000_000_000_001 : 10_000_000_000,
+      }),
+    );
+    const incompleteProject: TransferPoint[] = [1, 2, 4, 5, 6, 7, 8].map(
+      (day) => ({
+        projectId: "incomplete",
+        projectName: "Incomplete",
+        date: `2026-09-${String(day).padStart(2, "0")}`,
+        bytes: day === 8 ? 60_000_000_000 : 10_000_000_000,
+      }),
+    );
+    let posted:
+      | { alerts: unknown[]; incompleteBaselines: string[] }
+      | undefined;
+
+    const result = await publishDailyTransferAlerts(
+      [...completeProject, ...incompleteProject],
+      "2026-09-08",
+      true,
+      async (alerts, incompleteBaselines) => {
+        posted = { alerts, incompleteBaselines };
+      },
+    );
+
+    assert.equal(result.alerts.length, 1);
+    assert.deepEqual(result.incompleteBaselines, ["Incomplete"]);
+    assert.equal(posted?.alerts.length, 1);
+    assert.deepEqual(posted?.incompleteBaselines, ["Incomplete"]);
   });
 
   it("runs the full synthetic September scenario backtest without posting", () => {

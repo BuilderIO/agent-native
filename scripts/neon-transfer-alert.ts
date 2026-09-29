@@ -341,6 +341,25 @@ export function formatAlertTable(alerts: TransferAlert[]): string {
   return [header, ...rows].join("\n");
 }
 
+export async function publishDailyTransferAlerts(
+  points: TransferPoint[],
+  date: string,
+  shouldSend: boolean,
+  publish: (
+    alerts: TransferAlert[],
+    incompleteBaselines: string[],
+  ) => Promise<void>,
+): Promise<{ alerts: TransferAlert[]; incompleteBaselines: string[] }> {
+  const alerts = findTransferAlerts(points).filter(
+    (alert) => alert.date === date,
+  );
+  const incompleteBaselines = projectsMissingMedianBaseline(points, date);
+  if (shouldSend && alerts.length > 0) {
+    await publish(alerts, incompleteBaselines);
+  }
+  return { alerts, incompleteBaselines };
+}
+
 async function readBacktest(): Promise<TransferPoint[]> {
   const fixtureUrl = new URL(
     "./fixtures/neon-transfer-backtest-scenarios.json",
@@ -406,12 +425,18 @@ function parseArgs(args: string[]): {
   return { dryRun: !send, send, backtest: args.includes("--backtest") };
 }
 
-async function postSlack(alerts: TransferAlert[]): Promise<void> {
+async function postSlack(
+  alerts: TransferAlert[],
+  incompleteBaselines: string[],
+): Promise<void> {
   if (!SLACK_WEBHOOK)
     throw new Error(
       "SLACK_NEON_TRANSFER_WEBHOOK_URL is required to post live alerts.",
     );
-  const body = `Neon public network transfer alerts\n\n${formatAlertTable(alerts)}`;
+  const warning = incompleteBaselines.length
+    ? `\n\nMedian checks could not be completed for: ${incompleteBaselines.join(", ")}. Missing history was not treated as zero.`
+    : "";
+  const body = `Neon public network transfer alerts\n\n${formatAlertTable(alerts)}${warning}`;
   const response = await fetch(SLACK_WEBHOOK, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -473,29 +498,26 @@ async function run(): Promise<void> {
   const projects = await listProjects();
   if (projects.size === 0) throw new Error("Neon project list was empty.");
   const fetched = await fetchTransferPoints(projects, from, throughExclusive);
-  const alerts = findTransferAlerts(fetched).filter(
-    ({ date }) => date === lastFullDay,
+  const { alerts, incompleteBaselines } = await publishDailyTransferAlerts(
+    fetched,
+    lastFullDay,
+    !dryRun && send,
+    postSlack,
   );
 
   console.log(
     `Neon public transfer for ${lastFullDay} (GB, trailing seven complete days):`,
   );
   console.log(formatAlertTable(alerts));
-  const incompleteBaselines = projectsMissingMedianBaseline(
-    fetched,
-    lastFullDay,
-  );
   if (incompleteBaselines.length > 0) {
     console.error(
       `[neon-transfer-alert] could not run the median check: ${incompleteBaselines.join(", ")} exceeded 50 GB but lacked seven consecutive returned daily measurements. Missing values were not treated as zero.`,
     );
     process.exitCode = 2;
-    return;
   }
-  if (dryRun || alerts.length === 0) return;
-  if (!send) return;
-  await postSlack(alerts);
-  console.log(`Posted ${alerts.length} Neon transfer alert(s) to Slack.`);
+  if (!dryRun && send && alerts.length > 0) {
+    console.log(`Posted ${alerts.length} Neon transfer alert(s) to Slack.`);
+  }
 }
 
 if (
