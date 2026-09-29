@@ -22,7 +22,6 @@ import {
   resolveBuilderConnectCallbackState,
 } from "./builder-browser.js";
 import {
-  builderConnectReplacesOrgConnection,
   disconnectBuilderConnectionAtScope,
   parseBuilderConnectionScope,
   resolveBuilderActivationWrite,
@@ -228,28 +227,13 @@ describe("resolveBuilderCallbackWrite", () => {
     requestedScope: "org" | "personal" | null,
     currentRole: string | null,
     personalAllowed = true,
-    orgConnected = false,
   ) =>
     resolveBuilderCallbackWrite({
       requestedScope,
       pendingOrgId: "org-123",
       currentRole,
       personalAllowed,
-      orgConnected,
     });
-
-  it("never lets a connect that named no scope replace the org's connection", () => {
-    expect(write(null, "admin", true, true)).toEqual({
-      deny: "This organization already has a Builder.io connection. An owner or admin can change it in Settings.",
-    });
-    // Reconnecting the org connection by name still replaces it.
-    expect(write("org", "owner", true, true)).toEqual({
-      scope: "org",
-      role: "owner",
-    });
-    // A member's scopeless connect lands personally and leaves the org's alone.
-    expect(write(null, "member", true, true)).toEqual({ role: null });
-  });
 
   it("writes the org grant only while the connector is an owner or admin there", () => {
     expect(write("org", "owner")).toEqual({ scope: "org", role: "owner" });
@@ -299,7 +283,6 @@ describe("resolveBuilderCallbackWrite", () => {
         pendingOrgId: "org-a",
         currentRole: "member",
         personalAllowed: true,
-        orgConnected: false,
       }),
     ).toEqual({ scope: "user", role: null });
   });
@@ -311,7 +294,6 @@ describe("resolveBuilderCallbackWrite", () => {
         pendingOrgId: null,
         currentRole: null,
         personalAllowed: true,
-        orgConnected: false,
       }),
     ).toEqual({ role: null });
   });
@@ -578,42 +560,6 @@ describe("selectLiveBuilderConnectStates", () => {
   });
 });
 
-describe("builderConnectReplacesOrgConnection", () => {
-  const replaces = (
-    requestedScope: "org" | "personal" | null,
-    role: string | null,
-    provisioning: boolean,
-    orgConnected = true,
-  ) =>
-    builderConnectReplacesOrgConnection({
-      requestedScope,
-      role,
-      provisioning,
-      orgConnected,
-    });
-
-  it("refuses activation in an org that already has a Builder connection", () => {
-    for (const scope of ["org", "personal", null] as const) {
-      for (const role of ["owner", "admin", "member"]) {
-        expect(replaces(scope, role, true)).toBe(true);
-      }
-    }
-  });
-
-  it("refuses an owner or admin's scopeless connect once the org is connected", () => {
-    expect(replaces(null, "owner", false)).toBe(true);
-    expect(replaces(null, "admin", false)).toBe(true);
-    expect(replaces("org", "admin", false)).toBe(false);
-    expect(replaces(null, "member", false)).toBe(false);
-    expect(replaces("personal", "member", false)).toBe(false);
-  });
-
-  it("allows every connect while the org has no Builder connection", () => {
-    expect(replaces(null, "owner", true, false)).toBe(false);
-    expect(replaces(null, "admin", false, false)).toBe(false);
-  });
-});
-
 describe("resolveBuilderActivationWrite", () => {
   const activate = (
     requestedScope: "org" | "personal" | null,
@@ -621,15 +567,20 @@ describe("resolveBuilderActivationWrite", () => {
     orgId: string | null = "org-123",
   ) => resolveBuilderActivationWrite({ requestedScope, orgId, role });
 
-  it("stores an owner or admin's new account as the organization's connection", () => {
-    expect(activate(null, "owner")).toEqual({
-      orgId: "org-123",
-      role: "owner",
-    });
+  it("stores a new account for the organization only when the org connection is named", () => {
     expect(activate("org", "admin")).toEqual({
       orgId: "org-123",
       role: "admin",
     });
+    expect(activate("org", "owner")).toEqual({
+      orgId: "org-123",
+      role: "owner",
+    });
+  });
+
+  it("keeps an owner or admin's activation personal when no connection is named", () => {
+    expect(activate(null, "owner")).toBeNull();
+    expect(activate(null, "admin")).toBeNull();
   });
 
   it("stores a member's new account personally", () => {

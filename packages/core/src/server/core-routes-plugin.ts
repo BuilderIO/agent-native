@@ -244,7 +244,6 @@ import {
   canUseDeployCredentialFallbackForRequest,
   CredentialStoreUnavailableError,
   getBuilderKeyConnections,
-  hasWorkspaceBuilderKeyConnection,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
@@ -573,50 +572,6 @@ const BUILDER_PERSONAL_CONNECTION_DENIED =
   "Owners and admins connect Builder.io for the organization.";
 const BUILDER_CONNECTION_MEMBERSHIP_ENDED =
   "You're no longer a member of the organization this Builder.io connection started in. Restart it from Settings.";
-const BUILDER_ORG_ALREADY_CONNECTED =
-  "This organization already has a Builder.io connection. An owner or admin can change it in Settings.";
-const BUILDER_ORG_CONNECTION_UNREADABLE =
-  "Couldn't check this organization's Builder.io connection. Try again.";
-export const BUILDER_ORG_ALREADY_CONNECTED_ERROR_CODE =
-  "builder_org_already_connected";
-
-/**
- * Whether the organization's members share a Builder.io connection: an org
- * OAuth grant, an org key pair, or the workspace key pair they fall back to.
- * An org write would take over from any of them. Throws when the credential
- * store can't be read, so a caller never mistakes "could not look" for "not
- * connected" and overwrites it.
- */
-export async function hasBuilderOrgConnection(
-  ownerEmail: string,
-  orgId: string,
-): Promise<boolean> {
-  const [grant, keys, workspaceKeys] = await Promise.all([
-    hasStoredBuilderOAuthGrant(ownerEmail, "org", orgId),
-    getBuilderKeyConnections(ownerEmail, orgId),
-    hasWorkspaceBuilderKeyConnection(orgId),
-  ]);
-  return grant || Boolean(keys.org) || workspaceKeys;
-}
-
-/**
- * Whether a connect would replace the organization's existing Builder.io
- * connection without the caller asking to. A connect that names no connection
- * lands on the org for an owner or admin, and account activation creates a new
- * Builder account that would stand in for the org's wherever it is stored, so
- * every member would bill the new account's quota. Only an explicit reconnect
- * of the org connection may replace it.
- */
-export function builderConnectReplacesOrgConnection(input: {
-  requestedScope: BuilderConnectionScope | null;
-  role: string | null;
-  provisioning: boolean;
-  orgConnected: boolean;
-}): boolean {
-  if (!input.orgConnected) return false;
-  if (input.provisioning) return true;
-  return input.requestedScope === null && isBuilderOrgManagerRole(input.role);
-}
 
 /**
  * Who may start a connect for the named Builder.io connection. The org
@@ -685,9 +640,7 @@ export async function resolveScopelessBuilderConnectRestriction(
  * connects personally only while the org allows personal grants. A flow that
  * started in an organization the connector has since left is refused outright:
  * the policy check doesn't look at membership, so falling through to a personal
- * grant would hand a removed member a working connection. A connect that named
- * no connection never replaces an org connection that appeared mid-flow (see
- * builderConnectReplacesOrgConnection).
+ * grant would hand a removed member a working connection.
  */
 export function resolveBuilderCallbackWrite(input: {
   requestedScope: BuilderConnectionScope | null;
@@ -696,21 +649,9 @@ export function resolveBuilderCallbackWrite(input: {
   currentRole: string | null;
   /** Whether the org's policy allows this connector a personal grant. */
   personalAllowed: boolean;
-  /** Whether `pendingOrgId` already holds a Builder.io connection. */
-  orgConnected: boolean;
 }): { scope?: BuilderOAuthScope; role: string | null } | { deny: string } {
   if (input.pendingOrgId !== null && input.currentRole === null) {
     return { deny: BUILDER_CONNECTION_MEMBERSHIP_ENDED };
-  }
-  if (
-    builderConnectReplacesOrgConnection({
-      requestedScope: input.requestedScope,
-      role: input.currentRole,
-      provisioning: false,
-      orgConnected: input.orgConnected,
-    })
-  ) {
-    return { deny: BUILDER_ORG_ALREADY_CONNECTED };
   }
   const managerRole =
     input.pendingOrgId !== null && isBuilderOrgManagerRole(input.currentRole)
@@ -735,20 +676,21 @@ export function resolveBuilderCallbackWrite(input: {
 }
 
 /**
- * Where a new Builder.io account from account activation is stored. An owner
- * or admin activates for the organization, as they connect for it, so a
- * first-run owner's account powers the workspace instead of becoming a
- * personal grant that shadows the org's connection. Anyone else activates
- * personally. Authorization for a named connection is checked before this, and
- * activation is refused before this runs when the org is already connected.
+ * Where a new Builder.io account from account activation is stored: the
+ * organization only when the connect names the org connection (owner/admin is
+ * checked before this), personally otherwise. An activation that names no
+ * connection stays personal for every role, so an owner or admin clicking a
+ * generic prompt never swaps the org's Builder account, and the quota every
+ * member bills, for a newly created one.
  */
 export function resolveBuilderActivationWrite(input: {
   requestedScope: BuilderConnectionScope | null;
   orgId: string | null;
   role: string | null;
 }): { orgId: string; role: string } | null {
-  if (input.requestedScope === "personal") return null;
-  return input.orgId && isBuilderOrgManagerRole(input.role)
+  return input.requestedScope === "org" &&
+    input.orgId &&
+    isBuilderOrgManagerRole(input.role)
     ? { orgId: input.orgId, role: input.role as string }
     : null;
 }
@@ -3571,7 +3513,6 @@ export function createCoreRoutesPlugin(
           grants: {},
           canConnect: { org: false, personal: false },
         };
-        let activationOffered = false;
         // Every response names which connection is in effect for this caller
         // (`effective`) alongside the grants that exist, so the UI can show
         // the organization and personal connections as separate rows.
@@ -3592,7 +3533,8 @@ export function createCoreRoutesPlugin(
           return {
             ...withConnections,
             agentNativeProvisioningEnabled:
-              status.agentNativeProvisioningEnabled && activationOffered,
+              status.agentNativeProvisioningEnabled &&
+              Boolean(provisioningToken),
             agentNativeProvisioningToken: provisioningToken,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
           };
@@ -3620,21 +3562,6 @@ export function createCoreRoutesPlugin(
           orgId,
           role: orgRole,
         });
-        // Activation is refused once the org's members share a connection (see
-        // builderConnectReplacesOrgConnection), so it isn't offered then. The
-        // workspace pair is read on its own: a member's personal connection
-        // would hide it from the effective source.
-        activationOffered =
-          Boolean(provisioningToken) &&
-          connections.grants !== null &&
-          !connections.grants.org;
-        if (activationOffered && orgId) {
-          activationOffered = !(await hasWorkspaceBuilderKeyConnection(
-            orgId,
-          ).catch(
-            () => true, // coercion-ok: an unreadable store offers no activation, never one that could replace a connection
-          ));
-        }
 
         return runWithRequestContext(
           { userEmail, orgId: orgId ?? undefined },
@@ -4163,44 +4090,6 @@ export function createCoreRoutesPlugin(
               PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
             );
           }
-          const connectMember =
-            scopedConnectAuthorization ??
-            (await resolveBuilderOrgMutation(event, {
-              allowMemberInitiation: true,
-            }));
-          if (connectMember.orgId) {
-            let orgConnected: boolean;
-            try {
-              orgConnected = await hasBuilderOrgConnection(
-                ownerEmail,
-                connectMember.orgId,
-              );
-            } catch (error) {
-              console.error(
-                "[builder] could not read the organization's Builder connection:",
-                error instanceof Error ? error.message : error,
-              );
-              return denyConnect(
-                503,
-                BUILDER_ORG_CONNECTION_UNREADABLE,
-                "org_connection_unreadable",
-              );
-            }
-            if (
-              builderConnectReplacesOrgConnection({
-                requestedScope: requestedConnectionScope,
-                role: connectMember.role,
-                provisioning: shouldProvisionAgentNativeAccount,
-                orgConnected,
-              })
-            ) {
-              return denyConnect(
-                409,
-                BUILDER_ORG_ALREADY_CONNECTED,
-                BUILDER_ORG_ALREADY_CONNECTED_ERROR_CODE,
-              );
-            }
-          }
           if (shouldProvisionAgentNativeAccount) {
             const failProvisioning = async (
               status: number,
@@ -4266,10 +4155,15 @@ export function createCoreRoutesPlugin(
             }
 
             try {
+              const activationMember =
+                scopedConnectAuthorization ??
+                (await resolveBuilderOrgMutation(event, {
+                  allowMemberInitiation: true,
+                }));
               const activationOrg = resolveBuilderActivationWrite({
                 requestedScope: requestedConnectionScope,
-                orgId: connectMember.orgId,
-                role: connectMember.role,
+                orgId: activationMember.orgId,
+                role: activationMember.role,
               });
               const credentials = await provisionBuilderAccount({
                 email: ownerEmail,
@@ -5099,27 +4993,6 @@ export function createCoreRoutesPlugin(
           const landsPersonally =
             requestedConnectionScope !== "org" &&
             !(pendingOrgId && isBuilderOrgManagerRole(currentRole));
-          let orgConnected = false;
-          if (requestedConnectionScope === null && pendingOrgId) {
-            try {
-              orgConnected = await hasBuilderOrgConnection(
-                ownerEmail,
-                pendingOrgId,
-              );
-            } catch (error) {
-              console.error(
-                "[builder] could not read the organization's Builder connection:",
-                error instanceof Error ? error.message : error,
-              );
-              return fail(
-                503,
-                BUILDER_ORG_CONNECTION_UNREADABLE,
-                ownerEmail,
-                "org_connection_unreadable",
-                tracking,
-              );
-            }
-          }
           const callbackWrite = resolveBuilderCallbackWrite({
             requestedScope: requestedConnectionScope,
             pendingOrgId,
@@ -5130,7 +5003,6 @@ export function createCoreRoutesPlugin(
                   orgId: pendingOrgId,
                 })
               : true,
-            orgConnected,
           });
           if ("deny" in callbackWrite) {
             return fail(
