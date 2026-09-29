@@ -3350,14 +3350,19 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
-  const previewFrameLoadedRef = useRef(previewFrameLoaded);
-  previewFrameLoadedRef.current = previewFrameLoaded;
+  const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
+    useState<string | null>(null);
+  const loadedPreviewDocumentIdentityRef = useRef(
+    loadedPreviewDocumentIdentity,
+  );
+  loadedPreviewDocumentIdentityRef.current = loadedPreviewDocumentIdentity;
   const reportRuntimeLayerSnapshotReadiness = useCallback(
     (readiness: RuntimeLayerSnapshotReadiness) => {
       if (
         readiness.status !== "loading" &&
         externalPreviewUrlRef.current &&
-        (!previewFrameLoadedRef.current ||
+        (loadedPreviewDocumentIdentityRef.current !==
+          iframeDocumentIdentityRef.current ||
           readyIframeDocumentIdentityRef.current !==
             iframeDocumentIdentityRef.current)
       ) {
@@ -3378,6 +3383,15 @@ export function DesignCanvas({
     bootReadyRef.current = true;
     onBootReady();
   }, [onBootReady]);
+  const markExternalPreviewDocumentLoaded = useCallback(() => {
+    const documentIdentity = iframeDocumentIdentityRef.current;
+    loadedPreviewDocumentIdentityRef.current = documentIdentity;
+    setLoadedPreviewDocumentIdentity(documentIdentity);
+  }, []);
+  useLayoutEffect(() => {
+    loadedPreviewDocumentIdentityRef.current = null;
+    setLoadedPreviewDocumentIdentity(null);
+  }, [iframeDocumentIdentity]);
   useLayoutEffect(() => {
     if (!externalPreviewUrl) {
       pendingRuntimeLayerSnapshotReadinessRef.current = null;
@@ -3396,7 +3410,7 @@ export function DesignCanvas({
     }
     if (
       !externalPreviewUrl ||
-      !previewFrameLoaded ||
+      loadedPreviewDocumentIdentity !== iframeDocumentIdentity ||
       readyIframeDocumentIdentity !== iframeDocumentIdentity
     ) {
       return;
@@ -3406,8 +3420,8 @@ export function DesignCanvas({
   }, [
     externalPreviewUrl,
     iframeDocumentIdentity,
+    loadedPreviewDocumentIdentity,
     onRuntimeLayerSnapshotReadinessChange,
-    previewFrameLoaded,
     readyIframeDocumentIdentity,
   ]);
   const liveEditDocumentPending =
@@ -3815,6 +3829,8 @@ export function DesignCanvas({
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
+          loadedPreviewDocumentIdentityRef.current = null;
+          setLoadedPreviewDocumentIdentity(null);
           readyRuntimeLayerDocumentIdRef.current = null;
           runtimeLayerSnapshotDocumentIdRef.current = null;
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
@@ -7187,6 +7203,7 @@ export function DesignCanvas({
           }}
           onLoad={(event) => {
             tabFocusedLiveFrames.delete(event.currentTarget);
+            markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
             focusScrollSurface(true);

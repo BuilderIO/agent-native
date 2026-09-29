@@ -13,6 +13,7 @@ import { DesignCanvas } from "./DesignCanvas";
 let container: HTMLDivElement;
 let root: Root;
 let iframeServer: Server | null = null;
+let pendingIframeResponseReleases: Array<() => void> = [];
 
 beforeEach(() => {
   (
@@ -32,6 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  for (const release of pendingIframeResponseReleases.splice(0)) release();
   await act(async () => root.unmount());
   if (iframeServer) {
     await new Promise<void>((resolve) => iframeServer!.close(() => resolve()));
@@ -46,7 +48,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
   it("keeps local layers immediate and captures shared HTML after its reservation", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      response.end("<!doctype html><html><body>Runtime</body></html>");
+      pendingIframeResponseReleases.push(() =>
+        response.end("<!doctype html><html><body>Runtime</body></html>"),
+      );
     });
     const iframePort = await new Promise<number>((resolve, reject) => {
       iframeServer!.once("error", reject);
@@ -114,6 +118,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           "iframe[data-design-preview-iframe]",
         )?.src,
       ).toContain("/live-edit?");
+      expect(pendingIframeResponseReleases).toHaveLength(1);
     });
     const iframe = container.querySelector<HTMLIFrameElement>(
       "iframe[data-design-preview-iframe]",
@@ -253,6 +258,19 @@ describe("DesignCanvas one-shot bridge queue", () => {
     await sendSnapshot(40, "<body>Current iframe</body>", undefined, {
       readinessRequestId,
     });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
+    const releaseInitialIframeLoad = pendingIframeResponseReleases.shift();
+    expect(releaseInitialIframeLoad).toBeDefined();
+    await act(async () => releaseInitialIframeLoad?.());
+    await vi.waitFor(() => {
+      expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+        status: "ready",
+        documentId,
+      });
+    });
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
       status: "ready",
       documentId,
@@ -367,6 +385,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
         documentId,
         readinessRequestId: postReloadReadinessRequestId,
       },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+      documentId,
+    });
+    await act(async () => {
+      iframe.dispatchEvent(new Event("load"));
     });
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
       status: "error",
