@@ -1,4 +1,3 @@
-/** Compatibility re-export for the canonical recap CLI implementation. */
 export {
   DEFAULT_PLAN_APP_URL,
   defaultPlanBlocksOut,

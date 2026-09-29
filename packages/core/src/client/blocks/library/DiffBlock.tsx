@@ -44,36 +44,12 @@ import { DevInput, DevLabel, DevTextarea, DevSelect } from "./dev-doc-ui.js";
 import type { DiffAnnotation, DiffData, DiffMode } from "./diff.config.js";
 import { useInNarrowContainer } from "./narrow-container.js";
 
-/**
- * GitHub-style before/after diff block. The read renderer computes a line-level
- * diff, then renders it either unified (one column, `+`/`−` gutters) or split
- * (side-by-side). Long unchanged runs collapse into an expandable "N unchanged
- * lines" row (progressive disclosure). The read surface keeps the GitHub diff
- * shape while using the framework Tailwind theme tokens, so it follows each
- * host app's light/dark appearance instead of bringing its own palette.
- *
- * Lives in core so any app can register the dev-doc block. The line differ is
- * inlined (a small LCS-based `diffLines`) rather than pulling the `diff` package
- * into core; the output shape (`{ value, added, removed }` change records) is
- * identical to what the read renderer consumed before.
- *
- * Editing is panel-driven (config-style, like the HTML block): two monospace
- * textareas (Before / After) plus filename, language, and mode controls.
- */
-
-/* ── Inline line differ (LCS) — replaces jsdiff `diffLines` ─────────────────── */
-
 interface Change {
   value: string;
   added?: boolean;
   removed?: boolean;
 }
 
-/**
- * Split text into lines, each KEEPING its trailing newline (so the change
- * `value`s concatenate back to the original and `splitLines` below behaves the
- * same as it did against jsdiff output).
- */
 function toLineTokens(text: string): string[] {
   if (text === "") return [];
   const out: string[] = [];
@@ -88,13 +64,6 @@ function toLineTokens(text: string): string[] {
   return out;
 }
 
-/**
- * A minimal line-level diff producing jsdiff-compatible `Change[]` records
- * (`{ value }` for context, `{ value, added: true }`, `{ value, removed: true }`).
- * Uses a classic LCS table over line tokens; the inputs here are short code
- * snippets so the O(n·m) table is fine. Removed lines are emitted before added
- * lines within a change region, matching jsdiff's ordering.
- */
 export function diffLines(before: string, after: string): Change[] {
   const a = toLineTokens(before);
   const b = toLineTokens(after);
@@ -109,7 +78,6 @@ export function diffLines(before: string, after: string): Change[] {
     ];
   }
 
-  // LCS length table.
   const lcs: number[][] = Array.from({ length: n + 1 }, () =>
     new Array<number>(m + 1).fill(0),
   );
@@ -123,7 +91,6 @@ export function diffLines(before: string, after: string): Change[] {
   }
 
   const changes: Change[] = [];
-  // Push a token onto the last change if same kind, else open a new change.
   const push = (value: string, kind: "context" | "added" | "removed") => {
     const last = changes[changes.length - 1];
     const sameKind =
@@ -166,8 +133,6 @@ export function diffLines(before: string, after: string): Change[] {
   }
   return changes;
 }
-
-/* ── Syntax highlighting ───────────────────────────────────────────────────── */
 
 const lowlight = createLowlight(common);
 
@@ -323,20 +288,15 @@ function SyntaxHighlightedLine({
   return <>{highlighted ?? code}</>;
 }
 
-/* ── Diff model ────────────────────────────────────────────────────────────── */
-
 type DiffRowKind = "context" | "added" | "removed";
 
 interface DiffRow {
   kind: DiffRowKind;
-  /** Line number in the OLD file (omitted for added rows). */
   oldNo?: number;
-  /** Line number in the NEW file (omitted for removed rows). */
   newNo?: number;
   text: string;
 }
 
-/** A contiguous run of context lines collapsed when longer than the threshold. */
 interface CollapsedRun {
   collapsed: true;
   rows: DiffRow[];
@@ -344,50 +304,31 @@ interface CollapsedRun {
 
 type DiffSegment = DiffRow | CollapsedRun;
 
-/** Which column a split-view row belongs to (the unified view passes nothing). */
 type RowSide = "old" | "new";
 
-/**
- * Resolve the markers landing on a row. `side` scopes the lookup to one column
- * in the split view (so a left cell only lights from `before` annotations and a
- * right cell from `after`); the unified view omits it to merge both sides.
- */
 type MarkersForRow = (
   row: DiffRow,
   side?: RowSide,
 ) => ResolvedAnnotation<DiffAnnotation>[];
 
-/** The default side an annotation targets when `side` is omitted. */
 function annotationSide(annotation: DiffAnnotation): "before" | "after" {
   return annotation.side === "before" ? "before" : "after";
 }
 
-/**
- * Count 1-based source lines in a side's text, matching how `buildRows` numbers
- * `oldNo`/`newNo`: a trailing newline does not add a phantom final line.
- */
 function countLines(text: string): number {
   if (text === "") return 0;
   return splitLines(text).length;
 }
 
-/** Number of context lines above which an unchanged run is collapsed. */
 const COLLAPSE_THRESHOLD = 6;
-/** Context lines kept visible at each edge of a collapsed run. */
 const CONTEXT_EDGE = 3;
 
-/**
- * Split a change `value` into individual lines. Most hunks carry a trailing
- * newline; drop the empty final element it produces so a 2-line change does not
- * render a phantom 3rd blank line.
- */
 function splitLines(value: string): string[] {
   const lines = value.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines;
 }
 
-/** Flatten change objects into numbered diff rows. */
 function buildRows(changes: Change[]): DiffRow[] {
   const rows: DiffRow[] = [];
   let oldNo = 0;
@@ -411,24 +352,12 @@ function buildRows(changes: Change[]): DiffRow[] {
   return rows;
 }
 
-/**
- * Group rows into segments, collapsing interior runs of >COLLAPSE_THRESHOLD
- * context rows (keeping CONTEXT_EDGE visible at each side). Leading/trailing runs
- * collapse too, but keep only the inner edge visible.
- *
- * `isAnchored` marks context rows that carry an annotation (or sit adjacent to
- * one): an anchored row is NEVER hidden inside a collapsed run, so a note that
- * targets an unchanged line stays reachable. An anchor splits its run into the
- * separately-collapsible spans on either side of it, with CONTEXT_EDGE rows kept
- * visible around the anchor.
- */
 function segmentRows(
   rows: DiffRow[],
   isAnchored?: (row: DiffRow) => boolean,
 ): DiffSegment[] {
   const segments: DiffSegment[] = [];
 
-  // Collapse one contiguous context run [from, to) that contains NO anchors.
   const collapseRun = (run: DiffRow[], atStart: boolean, atEnd: boolean) => {
     if (run.length <= COLLAPSE_THRESHOLD) {
       for (const row of run) segments.push(row);
@@ -449,7 +378,6 @@ function segmentRows(
       i += 1;
       continue;
     }
-    // Gather the full contiguous context run.
     let j = i;
     while (j < rows.length && rows[j].kind === "context") j += 1;
     const fullRun = rows.slice(i, j);
@@ -459,9 +387,6 @@ function segmentRows(
     if (!isAnchored || !fullRun.some(isAnchored)) {
       collapseRun(fullRun, runAtStart, runAtEnd);
     } else {
-      // Walk the run, emitting anchored rows verbatim and collapsing the
-      // unanchored spans between them. An anchored row is always visible; the
-      // spans on each side of it collapse independently.
       let spanStart = 0;
       for (let k = 0; k <= fullRun.length; k += 1) {
         const atAnchor = k < fullRun.length && isAnchored(fullRun[k]);
@@ -483,8 +408,6 @@ function segmentRows(
   }
   return segments;
 }
-
-/* ── Theme-aware row styling (light + dark) ────────────────────────────────── */
 
 const ROW_BG: Record<DiffRowKind, string> = {
   added: "bg-emerald-500/10 dark:bg-emerald-500/15",
@@ -521,22 +444,8 @@ const MAX_DIFF_LCS_CELLS = 1_000_000;
 const DIFF_MODE_STORAGE_KEY = "agent-native:diff-view-mode";
 const DIFF_MODE_STORAGE_EVENT = "agent-native:diff-view-mode-change";
 
-/**
- * Below this rendered container width (px) a diff drops side-by-side `split`
- * mode and falls back to `unified`: split's two line-number gutters double the
- * width the code needs, exactly where space is tightest (e.g. a diff nested in a
- * vertical-tabs content column). Measured from the block's own box, not the
- * viewport, so the fallback fires by available width at any nesting depth.
- */
 const SPLIT_MIN_WIDTH = 560;
 
-/**
- * Observe the rendered inline width of an element. Returns a ref to attach plus
- * the measured content-box width (null until the first ResizeObserver tick).
- * Lets the diff pick an effective mode from the width it was actually handed — a
- * measurement CSS container queries can't drive, since switching split↔unified
- * is a structural (DOM) change, not a style toggle.
- */
 function useContainerWidth<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
   const [width, setWidth] = useState<number | null>(null);
@@ -647,8 +556,6 @@ function DiffLineText({ language, text }: { language: string; text: string }) {
   );
 }
 
-/* ── Read ──────────────────────────────────────────────────────────────────── */
-
 function DiffRead({
   data,
   blockId,
@@ -656,17 +563,11 @@ function DiffRead({
   summary,
   ctx,
 }: BlockReadProps<DiffData>) {
-  // Default layout when none is authored is SPLIT so reviewers can compare
-  // before/after code side-by-side. An explicitly authored `mode` or stored
-  // viewer preference still wins, and truly narrow hosts can fall back below.
   const inNarrowContainer = useInNarrowContainer();
   const [mode, setMode] = usePreferredDiffMode(data.mode);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [showAllRows, setShowAllRows] = useState(false);
   const [containerRef, containerWidth] = useContainerWidth<HTMLElement>();
-  // On-hover popover (anchored to the right of the code) replaces the old
-  // persistent rail: nothing is shown when idle. `codeRef` measures the code
-  // box's right edge; `hover` carries the active index + captured geometry.
   const hover = useAnnotationHover();
   const { activeIndex } = hover;
   const codeRef = useRef<HTMLDivElement | null>(null);
@@ -685,10 +586,6 @@ function DiffRead({
   );
   const splitLineCount = useMemo(() => pairSplitRows(rows).length, [rows]);
 
-  // Resolve annotations against the side they target. A `before` annotation's
-  // `lines` ref is clamped to the OLD file's line count and matched on `oldNo`;
-  // an `after` (default) ref to the NEW file and matched on `newNo`. Markers are
-  // authoring-order across BOTH sides so a note ↔ row ↔ rail card share one id.
   const beforeLineCount = useMemo(() => countLines(data.before), [data.before]);
   const afterLineCount = useMemo(() => countLines(data.after), [data.after]);
   const showAnnotationOverlays = Boolean(ctx.showCodeAnnotationOverlays);
@@ -735,24 +632,12 @@ function DiffRead({
     () => resolved.find((item) => item.range)?.index ?? null,
     [resolved],
   );
-  // Effective render mode. Annotations live in a SEPARATE right-hand rail (not
-  // over the code), so they no longer force a mode. When no mode was authored, a
-  // truly narrow container still falls back to unified so split's doubled
-  // gutters never crush the code; an explicitly authored `mode` wins even in a
-  // narrow host. `canSplit` only hides the toggle for auto-mode narrow fallbacks.
   const measuredNarrow =
     containerWidth != null && containerWidth < SPLIT_MIN_WIDTH;
   const narrow = data.mode == null && (measuredNarrow || inNarrowContainer);
   const canSplit = !narrow;
   const effectiveMode: DiffMode = canSplit ? mode : "unified";
 
-  // Annotations (diff): NO persistent column. Hovering a marked code line (or
-  // its numbered pip) opens THAT note's card as an on-hover popover anchored to
-  // the RIGHT of the code box, never over the code. The in-code pip stays as the
-  // anchor indicator + active-line highlight. `onRowEnter` captures the code
-  // box's right edge + the hovered row's vertical position to place the card;
-  // `onRowLeave` schedules a short-delay close so the pointer can cross the gap
-  // into the card (which cancels the close while hovered).
   const onRowEnter = useCallback(
     (index: number, rowEl: HTMLElement) => {
       const startRow =
@@ -776,7 +661,6 @@ function DiffRead({
     },
     [hover],
   );
-  // Side-scoped line → markers maps so a row only lights from its own side.
   const beforeMarkers = useMemo(
     () =>
       buildLineMarkerMap(
@@ -811,13 +695,11 @@ function DiffRead({
       return out;
     };
   }, [beforeMarkers, afterMarkers]);
-  // A context row that carries a marker is an anchor: never collapse it away.
   const anchoredRow = useMemo(() => {
     if (!hasAnnotations) return undefined;
     return (row: DiffRow) => markersForRow(row).length > 0;
   }, [hasAnnotations, markersForRow]);
 
-  // The resolved annotation whose card is currently shown on hover.
   const activeItem = useMemo<ResolvedAnnotation<DiffAnnotation> | null>(
     () =>
       activeIndex == null
@@ -837,7 +719,6 @@ function DiffRead({
   const totalVisibleLineCount =
     effectiveMode === "split" ? splitLineCount : rows.length;
   const shouldLimitRows = totalVisibleLineCount > DEFAULT_VISIBLE_DIFF_LINES;
-  // Never truncate away an annotated row: extend the window past the last one.
   const collapsedRowLimit = useMemo(() => {
     if (!shouldLimitRows) return undefined;
     let limit = DEFAULT_VISIBLE_DIFF_LINES;
@@ -865,9 +746,6 @@ function DiffRead({
       return next;
     });
 
-  // The bordered code box. It always spans its full width — annotations surface
-  // as an on-hover popover anchored to this box's right edge, never as a column.
-  // `codeRef` measures that right edge for the popover's placement.
   const diffBox = (
     <div
       ref={codeRef}
@@ -1062,20 +940,14 @@ function ModeButton({
   );
 }
 
-/* ── Annotation wiring shared by both views ────────────────────────────────── */
-
-/** Marker + hover props threaded into the unified/split rows. */
 interface RowAnnotationProps {
   markersForRow: MarkersForRow;
   anchoredRow?: (row: DiffRow) => boolean;
   activeIndex: number | null;
   showAnnotationOverlays: boolean;
   ctx: BlockRenderContext;
-  /** Hovering an annotated row opens its popover, anchored to this row's box. */
   onRowEnter: (index: number, rowEl: HTMLElement) => void;
-  /** Leaving an annotated row schedules the popover's close. */
   onRowLeave: () => void;
-  /** Clicking/tapping an annotated row toggles its popover (for touch). */
   onRowClick: (index: number, rowEl: HTMLElement) => void;
   annotationOverlayMode: "capture" | "margin";
   annotationOverlaySide: AnnotationMarginSide;
@@ -1085,11 +957,6 @@ interface RowAnnotationProps {
   persistentAnnotationIndexes: ReadonlySet<number>;
 }
 
-/**
- * The numbered marker pip(s) for a row plus the active-state it derives. Returns
- * `null` when the row carries no annotation so unannotated diffs render an empty
- * marker column (or no column at all when the whole diff is unannotated).
- */
 function rowMarkerInfo(
   markers: ResolvedAnnotation<DiffAnnotation>[],
   activeIndex: number | null,
@@ -1099,7 +966,6 @@ function rowMarkerInfo(
   return { isActive, primaryIndex: markers[0].index };
 }
 
-/** Shared amber wash for an annotated row, brighter when active. */
 function annotatedRowBg(
   info: { isActive: boolean } | null,
   persistentlyVisible = false,
@@ -1113,13 +979,6 @@ function annotatedRowBg(
     : "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]";
 }
 
-/**
- * Whether `row` is the FIRST line of `marker`'s resolved range. The numbered pip
- * renders only on this line, so a multi-line annotation shows a single marker at
- * the top of its span instead of repeating the same number down every line it
- * covers. The amber band still washes the whole range (via `annotatedRowBg`), so
- * the span stays visually grouped without the column of duplicate numbers.
- */
 function isMarkerRangeStart(
   row: DiffRow,
   marker: ResolvedAnnotation<DiffAnnotation>,
@@ -1129,8 +988,6 @@ function isMarkerRangeStart(
     annotationSide(marker.annotation) === "before" ? row.oldNo : row.newNo;
   return lineNo === marker.range.start;
 }
-
-/* ── Unified view ──────────────────────────────────────────────────────────── */
 
 function UnifiedView({
   rows,
@@ -1161,7 +1018,6 @@ function UnifiedView({
     () => segmentRows(rows, anchoredRow),
     [rows, anchoredRow],
   );
-  // Any annotation present ⇒ reserve the marker column so rows stay aligned.
   const showMarkerColumn = useMemo(
     () => rows.some((row) => markersForRow(row).length > 0),
     [rows, markersForRow],
@@ -1342,13 +1198,6 @@ function UnifiedRow({
   );
 }
 
-/**
- * The fixed-width marker column rendered between the sign gutter and the code.
- * `startMarker` is set only on the FIRST line of an annotation's range, so the
- * numbered pip appears once at the top of a span; every other row (the rest of a
- * span, and every unannotated row in a diff that has annotations) renders an
- * empty spacer so the code text stays aligned.
- */
 function MarkerCell({
   startMarker,
   active,
@@ -1390,18 +1239,11 @@ function CollapsedRow({
   );
 }
 
-/* ── Split (side-by-side) view ─────────────────────────────────────────────── */
-
 interface SplitRow {
   left?: DiffRow;
   right?: DiffRow;
 }
 
-/**
- * Pair removed lines (left) with added lines (right) so a modification shows the
- * old and new side by side; context lines mirror on both columns. Leftover adds
- * or removes fall through as half-empty rows (GitHub split behavior).
- */
 function pairSplitRows(rows: DiffRow[]): SplitRow[] {
   const out: SplitRow[] = [];
   let i = 0;
@@ -1412,7 +1254,6 @@ function pairSplitRows(rows: DiffRow[]): SplitRow[] {
       i += 1;
       continue;
     }
-    // Collect a contiguous block of removed-then-added rows.
     const removed: DiffRow[] = [];
     const added: DiffRow[] = [];
     while (i < rows.length && rows[i].kind === "removed")
@@ -1450,7 +1291,6 @@ function SplitView({
 } & Omit<RowAnnotationProps, "anchoredRow">) {
   const pairs = useMemo(() => pairSplitRows(rows), [rows]);
   const displayedPairs = rowLimit ? pairs.slice(0, rowLimit) : pairs;
-  // Reserve the marker column on a side only if any visible row there has one.
   const showOldMarkers = useMemo(
     () =>
       displayedPairs.some(
@@ -1657,8 +1497,6 @@ function SplitCell({
   );
 }
 
-/* ── Edit (panel) ──────────────────────────────────────────────────────────── */
-
 const codeAreaClass =
   "min-h-[140px] font-mono [font-size:var(--plan-code-size)] leading-5";
 
@@ -1678,7 +1516,7 @@ function DiffEdit({ data, onChange, editable }: BlockEditProps<DiffData>) {
     patch({ annotations: annotations.filter((_, i) => i !== index) });
 
   const addAnnotation = () => {
-    if (annotations.length >= 80) return; // schema max
+    if (annotations.length >= 80) return;
     patch({
       annotations: [
         ...annotations,

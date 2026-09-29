@@ -17,17 +17,11 @@ type McpIntegrationDialogProps = ComponentProps<
   typeof McpIntegrationDialogLazy
 >;
 
-// The MCP integration dialog bundle is heavy; keep it out of first-load by
-// fetching it only when the dialog is first opened. The fallback mirrors the
-// dialog's overlay geometry so the first uncached open never reads as a
-// swallowed click while the chunk fetches.
 export function McpIntegrationDialogDeferred(props: McpIntegrationDialogProps) {
   const [opened, setOpened] = useState(false);
   useEffect(() => {
     if (props.open) setOpened(true);
   }, [props.open]);
-  // A close during the first load must unmount the overlay fallback too —
-  // the blocking backdrop has no dismissal path until the real dialog mounts.
   if (!opened || !props.open) return null;
   return (
     <Suspense

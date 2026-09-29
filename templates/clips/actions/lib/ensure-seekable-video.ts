@@ -1,24 +1,3 @@
-/**
- * Repair an already-stored recording so it plays back and seeks instantly.
- *
- * This is the fetch-based counterpart to the inline seekable pass in
- * `finalize-recording`. It re-fetches a recording's stored provider media,
- * runs the format-appropriate seekable rewrite (MP4 faststart / WebM Cues
- * remux), and, when that changed the bytes, re-uploads the fixed file and
- * repoints the recording at it.
- *
- * Used by:
- *   - `reprocess-recording` — owner/agent triggered backfill of clips that were
- *     uploaded before the seekable pass existed (or via the streaming path,
- *     which never applied it).
- *   - `finalize-recording` — a best-effort background pass for the resumable
- *     streaming path, whose bytes live at the provider and were never buffered
- *     server-side for an inline rewrite.
- *
- * Everything is best-effort and non-destructive: if we can't fetch, can't
- * improve, or can't re-upload, the existing recording is left exactly as-is.
- */
-
 import {
   readAppState,
   writeAppState,
@@ -61,16 +40,10 @@ export interface EnsureSeekableResult {
   detail?: string;
 }
 
-/** application_state key marking a recording's media as already made seekable. */
 export function seekableMarkerKey(recordingId: string): string {
   return `recording-seekable-${recordingId}`;
 }
 
-/**
- * Record that `videoUrl` for `recordingId` has been made seekable, so later
- * sweeps skip it. Scoped by URL so a re-upload that changes the URL is not
- * mistaken for already-processed.
- */
 export async function markRecordingSeekable(
   recordingId: string,
   videoUrl: string | null | undefined,
@@ -102,11 +75,6 @@ export function isRemoteProviderUrl(
   return typeof videoUrl === "string" && /^https:\/\//i.test(videoUrl.trim());
 }
 
-/**
- * Download stored provider media for server-side processing. Shared with the
- * filmstrip sprite path — both need the same size cap and timeout, and both
- * report the same two failure reasons rather than an empty buffer.
- */
 export async function fetchProviderBytes(
   videoUrl: string,
 ): Promise<
@@ -141,10 +109,6 @@ export async function fetchProviderBytes(
   }
 }
 
-/**
- * Ensure a single recording's stored media is seekable. Owner-scoped: pass the
- * resolved owner email so the DB lookup can only touch that owner's rows.
- */
 async function ensureRecordingSeekableInternal(params: {
   recordingId: string;
   ownerEmail: string;
@@ -187,9 +151,6 @@ async function ensureRecordingSeekableInternal(params: {
   if (!rec.videoUrl) {
     return { recordingId, status: "skipped-no-media", changed: false };
   }
-  // Only provider-hosted media can be re-fetched and re-uploaded. Local/dev
-  // blobs (served from application_state via /api/video) and other relative
-  // URLs are left untouched.
   if (!isRemoteProviderUrl(rec.videoUrl)) {
     return {
       recordingId,
@@ -239,7 +200,6 @@ async function ensureRecordingSeekableInternal(params: {
           "Timeline normalization could not produce a verified MP4; the original recording was left unchanged.",
       };
     }
-    // Already seekable (or unimprovable) — remember so we don't refetch it.
     await markRecordingSeekable(recordingId, rec.videoUrl);
     return {
       recordingId,
@@ -267,7 +227,6 @@ async function ensureRecordingSeekableInternal(params: {
   });
 
   if (!upload?.url) {
-    // Could not re-upload — do NOT touch the row; the original still plays.
     return {
       recordingId,
       status: "skipped-upload-failed",

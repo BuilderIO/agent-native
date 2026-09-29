@@ -127,7 +127,6 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   if (mcpChatBridgeActive) {
     if (scope == null) return true;
     if (mcpChatBridgeScope == null || mcpChatBridgeScope === scope) {
-      // Capture the scope now that we have one; future calls can compare.
       mcpChatBridgeScope = scope;
       return true;
     }
@@ -139,8 +138,6 @@ export function isEmbedMcpChatBridgeActive(): boolean {
       MCP_CHAT_BRIDGE_STORAGE_KEY,
     );
     if (storedScope && (scope == null || storedScope === scope)) {
-      // Promote the persisted enrollment into in-memory state so subsequent
-      // reads survive sessionStorage becoming unavailable later in the session.
       mcpChatBridgeActive = true;
       mcpChatBridgeScope = storedScope;
       return true;
@@ -271,9 +268,6 @@ function notifyMcpChatBridgeViewportHeight(win: Window): void {
   };
   pendingMcpChatBridgeViewportNotification = nextPending;
   const notifyIfCurrent = () => {
-    // Some hosts expose requestAnimationFrame/timers from a different clock
-    // than the one used by clearTimeout. The identity guard keeps a superseded
-    // setup from notifying even when cancellation cannot reach that clock.
     if (pendingMcpChatBridgeViewportNotification !== nextPending) return;
     notify();
   };
@@ -290,7 +284,6 @@ function notifyMcpChatBridgeViewportHeight(win: Window): void {
   }
 }
 
-/** Internal test helper. Do not use in app code. */
 export function _resetEmbedAuthForTests(): void {
   if (pendingMcpChatBridgeViewportNotification) {
     const pending = pendingMcpChatBridgeViewportNotification;
@@ -324,7 +317,6 @@ function isOpaqueOriginFrame(win: Window): boolean {
   try {
     return win.location.origin === "null";
   } catch {
-    // A thrown access is itself a signal of an opaque/cross-origin context.
     return true;
   }
 }
@@ -411,9 +403,6 @@ function isAuthFailureStatus(status: number): boolean {
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
-  // Suffix, not equality: an app mounted under a base path serves
-  // `/<app>/sign-in` (or the legacy framework path), which an exact match
-  // would miss.
   if (
     url.pathname.endsWith(SIGN_IN_ENTRY_PATH) ||
     url.pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH)

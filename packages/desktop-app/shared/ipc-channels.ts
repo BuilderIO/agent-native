@@ -1,4 +1,3 @@
-/** IPC channel names shared between main, preload, and renderer. */
 import type { CodeAgentPermissionMode } from "./code-agents";
 import type { DesktopDesignPreviewRect } from "./design-preview-placement";
 import type {
@@ -16,26 +15,19 @@ import type {
 } from "./quick-prompt";
 
 export const IPC = {
-  /** Window control channels (renderer → main) */
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_TOGGLE_WINDOW_MODE: "window:toggle-window-mode",
   WINDOW_CLOSE: "window:close",
   WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
-  /** Inter-app message relay (renderer → main → renderer) */
   INTER_APP_SEND: "inter-app:send",
   INTER_APP_MESSAGE: "inter-app:message",
 
-  /** App status events (main → renderer) */
   APP_STATUS: "app:status",
-  /** OAuth popup closed in the main process (main → originating webview) */
   OAUTH_POPUP_CLOSED: "oauth:popup:closed",
-  /** Close an OAuth popup opened by this webview for the given attempt */
   OAUTH_POPUP_CANCEL: "oauth:popup:cancel",
-  /** System-browser OAuth returned focus to the app (main → originating webview) */
   OAUTH_SYSTEM_BROWSER_RETURNED: "oauth:system-browser:returned",
 
-  /** Desktop workspace identity (renderer intent/status only; no secrets) */
   IDENTITY_STATUS_GET: "identity:status:get",
   IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
@@ -49,7 +41,6 @@ export const IPC = {
   IDENTITY_MAGIC_LINK_REQUEST: "identity:magic-link:request",
   IDENTITY_SIGN_OUT: "identity:sign-out",
 
-  /** App config management (renderer ↔ main) */
   APPS_LOAD: "apps:load",
   APPS_LOAD_WORKSPACE: "apps:load-workspace",
   APPS_ADD: "apps:add",
@@ -64,21 +55,16 @@ export const IPC = {
   APPS_PREPARE_LOCAL_CODE_CHANGE: "apps:prepare-local-code-change",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
 
-  /** Loopback relay for shell-owned chat requests using an app's session */
   DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
-  /** Loopback relay for discovering a local app's PTY WebSocket */
   DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
-  /** Local CLI MCP tool → renderer app-sidebar request */
   DESKTOP_CHAT_OPEN_APP: "desktop-chat:open-app",
 
-  /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
   PLAN_FILES_CHOOSE_FOLDER: "plan-files:choose-folder",
   PLAN_FILES_WRITE: "plan-files:write",
   PLAN_FILES_READ: "plan-files:read",
   PLAN_FILES_CLEAR_FOLDER: "plan-files:clear-folder",
 
-  /** Hosted Content app local-file sync (Content webview ↔ main) */
   CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
   CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
   CONTENT_FILES_ASSOCIATE_SOURCE: "content-files:associate-source",
@@ -92,27 +78,21 @@ export const IPC = {
   CONTENT_FILES_UNSUBSCRIBE_CHANGES: "content-files:unsubscribe-changes",
   CONTENT_FILES_CHANGED: "content-files:changed",
 
-  /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
 
-  /** Focused Design native preview (Design guest ↔ main) */
   DESIGN_PREVIEW_REQUEST: "design-preview:request",
   DESIGN_PREVIEW_STATE: "design-preview:state",
 
-  /** Clipboard helpers (renderer ↔ main) */
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
   SHELL_OPEN_EXTERNAL: "shell:open-external",
 
-  /** Auto-update (renderer ↔ main) */
   UPDATE_CHECK: "update:check",
   UPDATE_DOWNLOAD: "update:download",
   UPDATE_INSTALL: "update:install",
   UPDATE_GET_STATUS: "update:get-status",
-  /** Broadcast (main → renderer) */
   UPDATE_STATUS_CHANGED: "update:status-changed",
 
-  /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
   CODE_AGENTS_LIST_SCHEDULES: "code-agents:list-schedules",
   CODE_AGENTS_CREATE_SCHEDULE: "code-agents:create-schedule",
@@ -151,17 +131,14 @@ export const IPC = {
   CODE_AGENTS_PROVIDER_SETTINGS_UPDATE: "code-agents:provider-settings:update",
   CODE_AGENTS_PROVIDER_BUILDER_CONNECT: "code-agents:provider-builder:connect",
 
-  /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
 
-  /** Local desktop app-launch shortcuts (renderer ↔ main) */
   SHORTCUTS_ACTIVATE: "shortcuts:activate",
   SHORTCUTS_ACTIVATE_ACK: "shortcuts:activate-ack",
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
 
-  /** Global Quick Prompt overlay (renderer ↔ main) */
   QUICK_PROMPT_LOAD: "quick-prompt:load",
   QUICK_PROMPT_UPDATE: "quick-prompt:update",
   QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
@@ -211,7 +188,6 @@ export interface CodeAgentScheduleResult {
   error?: string;
 }
 
-/** Auto-update status surfaced from electron-updater. */
 export type UpdateStatus =
   | { state: "idle" }
   | { state: "unsupported"; reason: string }
@@ -245,20 +221,15 @@ export interface DesktopIdentitySettings {
 }
 
 export interface DesktopEnvironmentLaneState {
-  /** What the user chose. "auto" follows the signed-in email. */
   preference: DesktopEnvironmentLanePreference;
-  /** What "auto" currently resolves to, and what webviews will load. */
   lane: DesktopEnvironmentLane;
-  /** Whether the signed-in account is eligible for the automatic beta lane. */
   eligible: boolean;
 }
 
 export interface ActiveWebviewTarget {
   appId: string;
   webContentsId?: number;
-  /** False releases this exact owner without racing a newly active tab. */
   active?: boolean;
-  /** App webview bounds in BrowserWindow content coordinates. */
   hostBounds?: DesktopDesignPreviewRect;
 }
 
@@ -289,7 +260,6 @@ export interface DesktopAppCreationSettings {
   appsRoot: string;
 }
 
-/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
 export interface DesktopAppCreationSettingsUpdateResult {
   ok: boolean;
   settings: DesktopAppCreationSettings;
@@ -326,7 +296,6 @@ export interface DesktopIdentityMagicLinkResult {
   error?: string;
 }
 
-/** Token-free result for the optional signed-in workspace app inventory. */
 export interface DesktopWorkspaceAppListResult {
   enabled: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
@@ -424,11 +393,8 @@ export type DesktopPlanFilesResult =
 export interface DesktopContentFilesFolder {
   id?: string;
   name: string;
-  /** Persistent folders are human-selected; temporary copies are agent-opened. */
   kind?: "persistent" | "temporary";
-  /** Derived local Git labels; no repository path is sent to the webview. */
   repository?: DesktopContentFilesRepository;
-  /** Opaque Content IDs needed to resume reconciliation after Desktop restarts. */
   contentSource?: {
     sourceId: string;
     databaseId?: string;
@@ -448,7 +414,6 @@ export interface DesktopContentFilesRepository {
 export interface DesktopContentFilesWriteRequest {
   folderId?: string;
   files: Record<string, string>;
-  /** Complete disk snapshot observed before export; null means the path was absent. */
   expectedRevisions: Record<string, string | null>;
 }
 
@@ -456,7 +421,6 @@ export interface DesktopContentFileWriteRequest {
   folderId?: string;
   path: string;
   content: string;
-  /** SHA-256 revision observed by the caller; null means the path was absent. */
   expectedRevision?: string | null;
 }
 
@@ -468,7 +432,6 @@ export interface DesktopContentFileRevealRequest {
 export interface DesktopContentFileDeleteRequest {
   folderId?: string;
   path: string;
-  /** SHA-256 revision observed by the caller. */
   expectedRevision: string;
 }
 
@@ -506,7 +469,6 @@ export type DesktopContentFilesResult =
       files?: string[];
       sources?: Record<string, string>;
       revisions?: Record<string, string>;
-      /** Opaque bridge identity that remains stable when a file is renamed. */
       identities?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
@@ -585,7 +547,6 @@ export interface CodeAgentPromptAttachment {
   type?: string;
   size?: number;
   text?: string;
-  /** Base64 data URL for image attachments (e.g. "data:image/png;base64,..."). */
   dataUrl?: string;
 }
 
@@ -724,12 +685,6 @@ export interface CodeAgentTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
-  /**
-   * Structured marker for events that need special UI handling beyond
-   * free-text matching. `"credential-gap"` marks the status event reporting
-   * that no LLM provider key (or Codex CLI login) is available. Optional so
-   * older persisted transcripts without the field keep parsing unchanged.
-   */
   signal?: "credential-gap";
 }
 

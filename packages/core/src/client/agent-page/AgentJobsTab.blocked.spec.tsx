@@ -78,7 +78,6 @@ describe("AgentJobsTab blocked automation", () => {
                 scheduleDescription: "Every day at 8 AM",
                 instructions: "Send the briefing.",
                 enabled: true,
-                // The job has never executed; a blocked tick only sets lastCheck.
                 lastRun: null,
                 lastCheck: "2026-07-31T17:04:14.688Z",
                 lastStatus: "skipped",
@@ -173,9 +172,6 @@ describe("AgentJobsTab blocked automation", () => {
     expect(document.body.textContent).toContain("Open thread");
   });
 
-  // The date itself is the misleading part: it is derived from the cron
-  // expression, so it renders identically whether or not anything will run it.
-  // A failed scheduler check must not let it read as confirmed.
   it("qualifies the next run date when the scheduler check failed", () => {
     jobMocks.useScheduledTriggerState.mockReturnValue({
       kind: "unknown",
@@ -198,8 +194,6 @@ describe("AgentJobsTab blocked automation", () => {
     );
   });
 
-  // The known-dead case keeps replacing the date outright: there is nothing to
-  // qualify when no driver exists.
   it("replaces the next run date when no scheduler exists", () => {
     jobMocks.useScheduledTriggerState.mockReturnValue({
       kind: "resolved",
@@ -229,13 +223,23 @@ describe("AgentJobsTab blocked automation", () => {
       root.render(<AgentJobsTab />);
     });
 
-    const editButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Edit",
+    // Edit lives in the row's More actions menu.
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      'article button[aria-haspopup="menu"]',
     );
-    expect(editButton).toBeDefined();
+    expect(menuTrigger).not.toBeNull();
+    act(() => {
+      menuTrigger!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Edit");
+    expect(editItem).toBeDefined();
 
     act(() => {
-      editButton?.click();
+      editItem?.click();
     });
 
     const input = document.querySelector<HTMLInputElement>(

@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-내부적으로 각 앱은 `APP_BASE_PATH`/`VITE_APP_BASE_PATH`로 설정되는 `/mail` 같은 URL 접두사인 자체 **base path**로 빌드된 다음, 대상 Nitro 프리셋에 맞게 패키징됩니다. Cloudflare Pages는 생성된 **디스패처 워커(dispatcher worker)**, 즉 들어오는 경로를 읽어 해당하는 앱으로 요청을 전달하는 `dist/_worker.js`의 작은 스크립트를 통해 라우팅합니다. Netlify는 앱마다 하나의 함수와 생성된 리디렉션을 사용합니다. Vercel은 Build Output API를 사용해 작업 공간 수준의 `.vercel/output`을 작성합니다.
+내부적으로 각 앱은 `APP_BASE_PATH`/`VITE_APP_BASE_PATH`로 설정되는 `/mail` 같은 URL 접두사인 자체 **base path**로 빌드된 다음, 대상 Nitro 프리셋에 맞게 패키징됩니다. **Netlify**가 기본값입니다. 앱마다 하나의 함수와 생성된 리디렉션을 사용합니다. Vercel은 Build Output API를 사용해 작업 공간 수준의 `.vercel/output`을 작성합니다.
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (기본값)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify(기본값)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },

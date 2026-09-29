@@ -1,20 +1,3 @@
-/**
- * S3-compatible file upload provider for the Assets template.
- *
- * Mirrors the clips template's provider but reads `ASSETS_STORAGE_*` env vars
- * first (with legacy `IMAGES_STORAGE_*` and `S3_*` fallbacks) so an
- * assets-only deploy can configure storage
- * without leaking into other apps' env. SigV4 signing via Web Crypto — no SDK.
- *
- * Env vars (first found wins, ASSETS_STORAGE_* preferred):
- *   ASSETS_STORAGE_BUCKET | IMAGES_STORAGE_BUCKET | S3_BUCKET — required
- *   ASSETS_STORAGE_ACCESS_KEY_ID | IMAGES_STORAGE_ACCESS_KEY_ID | S3_ACCESS_KEY_ID — required
- *   ASSETS_STORAGE_SECRET_ACCESS_KEY | IMAGES_STORAGE_SECRET_ACCESS_KEY | S3_SECRET_ACCESS_KEY — required
- *   ASSETS_STORAGE_ENDPOINT | IMAGES_STORAGE_ENDPOINT | S3_ENDPOINT — required
- *   ASSETS_STORAGE_REGION | IMAGES_STORAGE_REGION | S3_REGION — optional, default "auto"
- *   ASSETS_STORAGE_PUBLIC_BASE_URL | IMAGES_STORAGE_PUBLIC_BASE_URL | S3_PUBLIC_BASE_URL — optional
- */
-
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
 
 interface S3Config {
@@ -76,8 +59,6 @@ function readS3Config(): S3Config | null {
       ).replace(/\/+$/, "") || null,
   };
 }
-
-// ── SigV4 helpers (Web Crypto, no SDK) ────────────────────────────────
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -376,8 +357,6 @@ export async function getPresignedS3ObjectUrl(
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
   };
 }
-
-// ── Provider ──────────────────────────────────────────────────────────
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",

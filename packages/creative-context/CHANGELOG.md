@@ -1,5 +1,54 @@
 # @agent-native/creative-context
 
+## 0.8.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.8.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.8
 
 ### Patch Changes

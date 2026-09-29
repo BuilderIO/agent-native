@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action-ui";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -15,6 +16,7 @@ import {
   resolveFindTimeRange,
 } from "../server/lib/find-time.js";
 import type { FindTimeBusyBlock } from "../shared/api.js";
+import { calendarTimeChoiceChange } from "./action-chat-ui.js";
 import { listCalendarEvents } from "./list-events.js";
 
 function formatSlotTime(value: string, timezone: string): string {
@@ -34,6 +36,39 @@ function dayName(date: string, timezone: string): string {
     .toLowerCase();
 }
 
+interface CheckAvailabilitySlot {
+  start: string;
+  end: string;
+  startAt: string;
+  endAt: string;
+}
+
+interface CheckAvailabilityResult {
+  date: string;
+  timezone: string;
+  actionable: boolean;
+  errors: unknown[];
+  slots: CheckAvailabilitySlot[];
+}
+
+function projectTimeChoice(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+  const value = result as CheckAvailabilityResult;
+  const slot = value.slots?.[0];
+  if (
+    value.actionable &&
+    !value.errors?.length &&
+    slot &&
+    value.date &&
+    value.timezone
+  ) {
+    return calendarTimeChoiceChange(slot.startAt, slot.endAt, value.timezone);
+  }
+  return null;
+}
+
 export default defineAction({
   description: "Check available time slots for a given date",
   schema: z.object({
@@ -48,6 +83,11 @@ export default defineAction({
       .describe("Minimum slot duration in minutes (default: 30)"),
   }),
   http: false,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => projectTimeChoice(result) !== null,
+    projectResult: (_args, result) => projectTimeChoice(result),
+  },
   run: async (args) => {
     if (!args.date) throw new Error("date is required (YYYY-MM-DD format)");
 
@@ -73,9 +113,6 @@ export default defineAction({
     const busyBlocks: FindTimeBusyBlock[] = [];
     for (const event of listed.events.filter(eventBlocksAvailability)) {
       busyBlocks.push({
-        // listCalendarEvents includes every owned calendar. Availability is
-        // for the signed-in user, so secondary-account conflicts belong to the
-        // organizer even though the source event keeps its account metadata.
         participantEmail: ownerEmail.toLowerCase(),
         start: event.allDay ? range.from : event.start,
         end: event.allDay ? range.to : event.end,
@@ -103,6 +140,8 @@ export default defineAction({
       slots: slots.map((slot) => ({
         start: formatSlotTime(slot.start, timezone),
         end: formatSlotTime(slot.end, timezone),
+        startAt: slot.start,
+        endAt: slot.end,
         durationMin: Math.round(
           (new Date(slot.end).getTime() - new Date(slot.start).getTime()) /
             60_000,

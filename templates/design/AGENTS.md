@@ -29,11 +29,14 @@ Read the relevant skill before deeper work in that area.
 
 | Action | Purpose |
 | --- | --- |
-| `list-design-templates` / `list-designs` | Resolve a named template or prior design; paginated (`page`, `pageSize`, `createdBy: "me"`, `search`) |
+| `list-design-templates` / `list-designs` | Search paginated templates or designs |
+| `generate-home-suggestions` | Personalized home prompts |
+| `read-composer-source` | Read bounded Design, Slides, or Figma references |
 | `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
 | `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
-| `open-visual-edit` | Open a running localhost app as live URL-backed iframe screens without a Design login |
-| `add-localhost-screens` / `update-screen-source` | Add route/state screens or switch one selected screen between live URL and static HTML |
+| `open-visual-edit` | Open a localhost app as live iframe screens without Design login |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set snapshot opt-in; signed-in editors can enable it |
+| `add-localhost-screens` / `update-screen-source` | Add routes/states or switch a screen between live URL and static HTML |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |
 | `edit-design` | Adapt an existing or copied design/screen in place |
 | `apply-visual-edit` | Make deterministic layer edits; `booleanSubtract` creates an editable mask from supported selected sibling shapes |
@@ -66,17 +69,15 @@ Read the relevant skill before deeper work in that area.
   solid fills. The first layer in source order supplies the result paint; the original
   operands remain editable under the Subtract layer. Other shapes, custom
   markup, non-solid paints, and non-sibling selections are not converted.
-- Design source modes are `inline`, `localhost`, and `fusion` — see
-  `full-app-build`. Public `/design/:id` links remain read-only without a
-  session. Public `/visual-edit/:id` links allow browser-only DOM editing of
-  public localhost screens, signed in or out. Edits stay in the running iframe
-  and local bridge until an editor applies the handoff. The short-lived,
-  design-scoped `capability:visual-edit` embed scopes agent-controlled
-  localhost connection/source-handoff actions; it is not an account session
-  and cannot save/share/generate or access another design. Persisted design
-  and source writes remain editor-gated. `get-visual-edit-prompt` returns the
-  latest pending handoff. External agents call `get-visual-edit-pending`;
-  browser agents use the page-local `get-visual-edit-prompt`.
+- Source modes are `inline`, `localhost`, and `fusion`; see `full-app-build`.
+  Public `/design/:id` links are read-only; public
+  `/visual-edit/:id` links allow DOM-only localhost edits, signed in or out.
+  Source writes remain editor-gated. The design-scoped
+  `capability:visual-edit` scopes localhost handoff actions, not an account
+  session or access to other designs. Shared snapshots default off; only a
+  signed-in editor can opt in and publish, and viewers get no snapshot while
+  off. `get-visual-edit-prompt` returns the pending handoff; external agents
+  call `get-visual-edit-pending`, browser agents use the page-local tool.
 
 ## Application State
 

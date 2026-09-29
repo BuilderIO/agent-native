@@ -305,8 +305,6 @@ beforeEach(() => {
   acceptPendingInvitationsForEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
-  // Stands in for the package layer: outside a template checkout package.json
-  // is core's own, which the first-party table does not match.
   defineAppConfig({ app: { name: "mail" } });
   vi.stubGlobal(
     "fetch",
@@ -791,7 +789,6 @@ describe("additive JIT linking", () => {
       "created-alice@example.test",
       expect.objectContaining({ emailVerified: true }),
     );
-    // The user-create hook skipped these while the row was still unverified.
     expect(acceptPendingInvitationsForEmailMock).toHaveBeenCalledWith(
       "alice@example.test",
     );
@@ -824,11 +821,8 @@ describe("additive JIT linking", () => {
       "/callback",
     );
 
-    // Sign-in still succeeds; the caller owns the session.
     expect(response.status).toBe(302);
     expect(createOAuthSessionMock).toHaveBeenCalled();
-    // Recording verification here would make the dropped invitations permanent,
-    // because the next login would skip the reconciliation branch entirely.
     expect(updateUserMock).not.toHaveBeenCalled();
     expect(
       adapterUsers.find((user) => user.email === "alice@example.test")

@@ -33,6 +33,7 @@ const INITIAL_TOOL_NAMES = [
   "update-ai-request-status",
   "remove-filler-words",
   "export-to-brain",
+  "complete-workflow",
   "navigate",
   "refresh-list",
 ];
@@ -41,9 +42,6 @@ export default createAgentChatPlugin({
   appId: "clips",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
-  // Declared in source rather than left to AGENT_CHAT_DURABLE_BACKGROUND alone:
-  // a site-level env var silently overrides netlify.toml, which is how plan and
-  // brain each spent their whole lifetime pinned to the ~58s synchronous wall.
   durableBackgroundRuns: true,
   extraContext: async () =>
     `<clips-transcript-guidance>

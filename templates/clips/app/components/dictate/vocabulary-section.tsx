@@ -472,7 +472,7 @@ export function VocabularyManager() {
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={t("dictateRoute.dictionarySearch")}
-                      className="h-9 ps-9 text-base sm:text-sm"
+                      className="ps-9 text-base sm:text-sm"
                     />
                   </div>
                 ) : null}
@@ -537,8 +537,8 @@ export function VocabularyManager() {
                             <Button
                               type="button"
                               variant="ghost"
-                              size="icon"
-                              className="size-8 text-muted-foreground hover:text-destructive"
+                              size="icon-sm"
+                              className="text-muted-foreground hover:text-destructive"
                               aria-label={t("dictateRoute.dictionaryRemove")}
                               onClick={() => setRemoveCandidate(entry)}
                             >

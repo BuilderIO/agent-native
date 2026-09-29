@@ -327,10 +327,6 @@ function withoutDocumentBodyRevisions<T extends { documents: any[] }>(
   };
 }
 
-/**
- * Terminal replays must be observationally inert. Keep timestamps and the
- * receipt here: stripping them would hide a lock or receipt rewrite.
- */
 async function readDurableMigrationState(
   seed: Awaited<ReturnType<typeof fixture>>,
 ) {

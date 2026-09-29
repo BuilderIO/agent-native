@@ -251,7 +251,7 @@ export default defineAction({
     if (!args.dryRun && !readiness.ready) {
       throw new Error(
         readiness.warning ??
-          "Configure exactly one embedding provider before backfilling.",
+          "Set up an embeddings provider before backfilling.",
       );
     }
 

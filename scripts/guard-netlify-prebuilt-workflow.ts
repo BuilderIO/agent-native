@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
+import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
+
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
 const crmNetlifyPath = "templates/crm/netlify.toml";
@@ -104,12 +106,13 @@ export function validateReusableWorkflowPermissions(
   const permissions = asRecord(workflow.permissions);
   if (
     permissions?.contents !== "read" ||
+    permissions?.["pull-requests"] !== "read" ||
     Object.keys(permissions ?? {}).some(
-      (permission) => permission !== "contents",
+      (permission) => !["contents", "pull-requests"].includes(permission),
     )
   ) {
     return [
-      `${reusablePath} must declare only the read permissions used by the reusable deploy job`,
+      `${reusablePath} must declare only contents: read and pull-requests: read for the reusable deploy job`,
     ];
   }
   return [];
@@ -126,6 +129,11 @@ export function validateReusableCallerPermissions(
   )) {
     const job = asRecord(value);
     if (job?.uses !== `./${reusablePath}`) continue;
+    if (asRecord(job.with)?.target === "preview" && path !== pullRequestPath) {
+      issues.push(
+        `${path} ${jobName} must not call the PR preview target outside ${pullRequestPath}`,
+      );
+    }
     const permissions = asRecord(job.permissions) ?? workflowPermissions;
     if (
       !permissions ||
@@ -133,6 +141,15 @@ export function validateReusableCallerPermissions(
     ) {
       issues.push(
         `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
+      );
+    }
+    if (
+      asRecord(job.with)?.target === "preview" &&
+      asRecord(job.with)?.deploy === true &&
+      permissions?.["pull-requests"] !== "read"
+    ) {
+      issues.push(
+        `${path} ${jobName} preview caller must grant pull-requests: read for the trusted PR recheck`,
       );
     }
   }
@@ -149,14 +166,42 @@ export function validateReusablePreviewRecordPlacement(
   const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
   const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
   const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
+  const sourceIndex = stepIndex("Validate the source revision");
+  const prRecheckIndex = stepIndex(
+    "Revalidate the internal PR before preview upload",
+  );
+  const trustedPreviewBuildIndex = stepIndex(
+    "Build trusted preview Functions for the PR artifact",
+  );
+  const prRecheck = steps[prRecheckIndex];
+  const prRecheckEnv = asRecord(prRecheck?.env);
+  const prRecheckScript = String(asRecord(prRecheck?.with)?.script ?? "");
   if (
     recordIndex < 0 ||
     previewSmokeIndex < 0 ||
     docsSmokeIndex < 0 ||
-    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex)
+    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex) ||
+    sourceIndex < 0 ||
+    prRecheckIndex <= sourceIndex ||
+    trustedPreviewBuildIndex <= prRecheckIndex ||
+    !String(prRecheck?.if ?? "").includes("inputs.target == 'preview'") ||
+    !String(prRecheck?.if ?? "").includes("inputs.deploy") ||
+    !String(prRecheck?.if ?? "").includes("inputs.pull_request_number > 0") ||
+    prRecheckEnv?.PULL_REQUEST_NUMBER !== "${{ inputs.pull_request_number }}" ||
+    prRecheckEnv?.SOURCE_REF !== "${{ steps.source.outputs.source_ref }}" ||
+    !prRecheckScript.includes("github.rest.pulls.get") ||
+    !prRecheckScript.includes("pullRequest.state !== 'open'") ||
+    !prRecheckScript.includes("pullRequest.base.ref !== 'main'") ||
+    !prRecheckScript.includes("pullRequest.base.repo?.full_name") ||
+    !prRecheckScript.includes("pullRequest.author_association") ||
+    !prRecheckScript.includes(
+      "pullRequest.head.sha !== process.env.SOURCE_REF",
+    ) ||
+    !prRecheckScript.includes("pullRequest.head.repo?.full_name") ||
+    !prRecheckScript.includes("pullRequest.user?.type !== 'User'")
   ) {
     return [
-      `${reusablePath} must publish PR preview records only after every preview smoke check`,
+      `${reusablePath} must revalidate the current internal PR before trusted preview deploy steps and publish records only after smoke checks`,
     ];
   }
   return [];
@@ -226,20 +271,30 @@ export function validateNetlifyPrPreviewWorkflow(
   const issues: string[] = [];
   const triggers = asRecord(workflow.on);
   const jobs = asRecord(workflow.jobs);
+  const issueComment = asRecord(triggers?.issue_comment);
+  const issueCommentTypes = issueComment?.types;
+  const pullRequestTarget = asRecord(triggers?.pull_request_target);
+  const pullRequestTargetTypes = pullRequestTarget?.types;
+  const authorize = asRecord(jobs?.authorize);
+  const authorizeSteps =
+    (authorize?.steps as Array<Record<string, unknown>> | undefined) ?? [];
+  const commandScript = String(
+    authorizeSteps.find((step) => step.name === "Parse the selected app")
+      ?.run ?? "",
+  );
+  const authorizeScript = String(
+    authorizeSteps
+      .map((step) => asRecord(step.with))
+      .find((withValues) =>
+        String(withValues?.script ?? "").includes("github.rest.pulls.get"),
+      )?.script ?? "",
+  );
   const build = asRecord(jobs?.build);
   const buildWith = asRecord(build?.with);
   const buildPermissions = asRecord(build?.permissions);
-  const discover = asRecord(jobs?.discover);
-  const discoverCheckout = (
-    (discover?.steps as Array<Record<string, unknown>> | undefined) ?? []
-  ).find(
-    (step) =>
-      typeof step.uses === "string" &&
-      step.uses.startsWith("actions/checkout@"),
-  );
-  const discoverCheckoutWith = asRecord(discoverCheckout?.with);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
+  const deployConcurrency = asRecord(deploy?.concurrency);
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
   const deploymentScript = githubScript(deployment ?? {});
@@ -251,25 +306,110 @@ export function validateNetlifyPrPreviewWorkflow(
     deploymentScript,
     "createDeploymentStatus",
   );
+  const createDeploymentIndex = deploymentScript.indexOf(
+    "github.rest.repos.createDeployment({",
+  );
+  const firstEligibilityCheckIndex = deploymentScript.indexOf(
+    "if (!(await isCurrentInternalPullRequest()))",
+  );
+  const secondEligibilityCheckIndex = deploymentScript.indexOf(
+    "if (!(await isCurrentInternalPullRequest()))",
+    firstEligibilityCheckIndex + 1,
+  );
+  const createSuccessStatusIndex = deploymentScript.indexOf(
+    "github.rest.repos.createDeploymentStatus({",
+  );
+  const createInactiveStatusIndex =
+    deploymentScript.indexOf("state: 'inactive'");
 
-  if (!asRecord(triggers?.pull_request_target)) {
-    issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
-  }
-  if (asRecord(triggers?.pull_request) || source.includes("pull_request:")) {
-    issues.push(`${pullRequestPath} must not use pull_request for previews`);
+  if (
+    asRecord(triggers?.workflow_dispatch) ||
+    !issueComment ||
+    !Array.isArray(issueCommentTypes) ||
+    issueCommentTypes.length !== 1 ||
+    issueCommentTypes[0] !== "created"
+  ) {
+    issues.push(
+      `${pullRequestPath} must use a default-branch PR comment as its manual preview trigger`,
+    );
   }
   if (
+    asRecord(triggers?.pull_request) ||
+    source.includes("pull_request:") ||
+    !pullRequestTarget ||
+    !Array.isArray(pullRequestTargetTypes) ||
+    pullRequestTargetTypes.length !== 1 ||
+    pullRequestTargetTypes[0] !== "closed" ||
+    !Array.isArray(pullRequestTarget.branches) ||
+    !pullRequestTarget.branches.includes("main")
+  ) {
+    issues.push(
+      `${pullRequestPath} must disable automatic PR previews and retain only closed-PR cleanup`,
+    );
+  }
+  if (workflow.concurrency !== undefined) {
+    issues.push(
+      `${pullRequestPath} must coordinate preview deploys and cleanup per PR and app at the job level`,
+    );
+  }
+  const authorizeIf = String(authorize?.if ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (
+    !authorize ||
+    authorize["runs-on"] !== "ubuntu-latest" ||
+    !authorizeIf.includes("github.event_name == 'issue_comment'") ||
+    !authorizeIf.includes("github.event.action == 'created'") ||
+    !authorizeIf.includes("github.event.issue.pull_request") ||
+    !authorizeIf.includes("github.event.comment.author_association") ||
+    !authorizeIf.includes("github.event.comment.user.type == 'User'") ||
+    !authorizeIf.includes(
+      "startsWith(github.event.comment.body, '/preview ')",
+    ) ||
+    asRecord(authorize.permissions)?.contents !== "read" ||
+    asRecord(authorize.permissions)?.["pull-requests"] !== "read" ||
+    Object.keys(asRecord(authorize.permissions) ?? {}).some(
+      (permission) => !["contents", "pull-requests"].includes(permission),
+    ) ||
+    !source.includes("context.payload.comment.author_association") ||
+    !source.includes("context.payload.comment.user?.type !== 'User'") ||
+    !source.includes("pullRequest.author_association") ||
+    !source.includes("['OWNER', 'MEMBER']") ||
+    !source.includes("pullRequest.user?.type !== 'User'") ||
+    !source.includes("pullRequest.state !== 'open'") ||
+    !source.includes("pullRequest.base.ref !== 'main'") ||
     !source.includes(
-      "github.event.pull_request.head.repo.full_name == github.repository",
+      "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
+    !commandScript.includes("previewSiteFromCommand(event.comment.body)") ||
+    !commandScript.includes("readFileSync(process.env.GITHUB_EVENT_PATH") ||
+    !commandScript.includes("process.env.GITHUB_OUTPUT") ||
+    !source.includes("github.event.issue.number") ||
+    !source.includes("steps.command.outputs.site")
+  ) {
+    issues.push(
+      `${pullRequestPath} must gate internal comments to one eligible site and an internal, open, same-repository PR targeting main`,
+    );
+  }
+  if (
+    !authorizeScript.includes("github.rest.pulls.get") ||
+    !authorizeScript.includes("pullRequest.author_association") ||
+    !authorizeScript.includes("['OWNER', 'MEMBER']") ||
+    !authorizeScript.includes("pullRequest.user?.type !== 'User'") ||
+    !authorizeScript.includes("pullRequest.state !== 'open'") ||
+    !authorizeScript.includes("pullRequest.base.ref !== 'main'") ||
+    !authorizeScript.includes(
+      "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
+    !authorizeScript.includes(
+      "core.setOutput('source_ref', pullRequest.head.sha)",
+    ) ||
+    !authorizeScript.includes(
+      "core.setOutput('checkout_ref', pullRequest.base.sha)",
     )
   ) {
     issues.push(
-      `${pullRequestPath} must restrict deployment jobs to same-repository PRs`,
-    );
-  }
-  if (deploy?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
-    issues.push(
-      `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
+      `${pullRequestPath} must resolve the PR and pin its head and base revisions before deployment`,
     );
   }
   if (build?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
@@ -277,16 +417,9 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} build job must call the reusable Netlify workflow`,
     );
   }
-  if (
-    discoverCheckoutWith?.ref !== "${{ github.event.pull_request.base.sha }}"
-  ) {
+  if (deploy?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
     issues.push(
-      `${pullRequestPath} discover job must load its helper from the trusted pull request base`,
-    );
-  }
-  if (!source.includes('git fetch --no-tags origin "$HEAD_SHA"')) {
-    issues.push(
-      `${pullRequestPath} discover job must fetch the pull request head for its path diff`,
+      `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
     );
   }
   if (buildWith?.target !== "preview" || buildWith?.deploy !== false) {
@@ -311,17 +444,32 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
+    !Array.isArray(build?.needs) ||
+    !build.needs.includes("authorize") ||
+    !String(build.if ?? "").includes("needs.authorize.result == 'success'") ||
+    buildWith?.site !== "${{ needs.authorize.outputs.site }}" ||
+    buildWith?.source_ref !== "${{ needs.authorize.outputs.source_ref }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} build job must depend on authorization and use its pinned PR source`,
+    );
+  }
+  if (
     !deployment ||
     deployment["runs-on"] !== "ubuntu-latest" ||
     !Array.isArray(deployment.needs) ||
     !deployment.needs.includes("deploy") ||
+    !deployment.needs.includes("authorize") ||
     deploymentPermissions?.actions !== "read" ||
     deploymentPermissions?.contents !== "read" ||
     deploymentPermissions?.deployments !== "write" ||
     Object.keys(deploymentPermissions ?? {}).some(
       (permission) =>
-        !["actions", "contents", "deployments"].includes(permission),
+        !["actions", "contents", "deployments", "pull-requests"].includes(
+          permission,
+        ),
     ) ||
+    deploymentPermissions?.["pull-requests"] !== "read" ||
     asRecord(jobs?.comment) ||
     !source.includes("actions/download-artifact@") ||
     !source.includes("actions/github-script@") ||
@@ -346,8 +494,22 @@ export function validateNetlifyPrPreviewWorkflow(
       "environment_url: record.deployUrl",
     ) ||
     !createDeploymentStatusOptions.includes("log_url:") ||
+    !deploymentScript.includes("github.rest.pulls.get") ||
+    !deploymentScript.includes("pullRequest.state === 'open'") ||
+    !deploymentScript.includes("pullRequest.base.ref === 'main'") ||
     !deploymentScript.includes(
-      "const environment = `pr-${context.issue.number}-${record.siteName}`",
+      "['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+    ) ||
+    !deploymentScript.includes(
+      "pullRequest.head.sha === process.env.SOURCE_REF",
+    ) ||
+    firstEligibilityCheckIndex < 0 ||
+    firstEligibilityCheckIndex >= createDeploymentIndex ||
+    secondEligibilityCheckIndex <= createSuccessStatusIndex ||
+    secondEligibilityCheckIndex < 0 ||
+    createInactiveStatusIndex <= secondEligibilityCheckIndex ||
+    !deploymentScript.includes(
+      "const environment = `pr-${process.env.PULL_REQUEST_NUMBER}-${record.siteName}`",
     ) ||
     source.includes("issues: write") ||
     source.includes("pull-requests: write") ||
@@ -360,6 +522,17 @@ export function validateNetlifyPrPreviewWorkflow(
   }
   if (deployWith?.target !== "preview") {
     issues.push(`${pullRequestPath} deploy job must pass target=preview`);
+  }
+  if (
+    !deployConcurrency ||
+    deployConcurrency.group !==
+      "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}" ||
+    deployConcurrency["cancel-in-progress"] !== false ||
+    asRecord(deploy.permissions)?.["pull-requests"] !== "read"
+  ) {
+    issues.push(
+      `${pullRequestPath} deploy job must retain each app request in its PR-and-app queue and permit the trusted PR recheck`,
+    );
   }
   if (deployWith?.build_context !== "deploy-preview") {
     issues.push(
@@ -377,7 +550,7 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
-    deployWith?.checkout_ref !== "${{ github.event.pull_request.base.sha }}"
+    deployWith?.checkout_ref !== "${{ needs.authorize.outputs.checkout_ref }}"
   ) {
     issues.push(
       `${pullRequestPath} deploy job must use the trusted pull request base checkout`,
@@ -385,19 +558,17 @@ export function validateNetlifyPrPreviewWorkflow(
   }
   if (
     !Array.isArray(deploy?.needs) ||
-    !deploy.needs.includes("discover") ||
-    !deploy.needs.includes("build")
+    !deploy.needs.includes("authorize") ||
+    !deploy.needs.includes("build") ||
+    !String(deploy.if ?? "").includes("needs.authorize.result == 'success'") ||
+    !String(deploy.if ?? "").includes("needs.build.result == 'success'") ||
+    deployWith?.site !== "${{ needs.authorize.outputs.site }}" ||
+    deployWith?.source_ref !== "${{ needs.authorize.outputs.source_ref }}" ||
+    deployWith?.pull_request_number !==
+      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}"
   ) {
     issues.push(
-      `${pullRequestPath} deploy job must wait for discovery and the secret-free build`,
-    );
-  }
-  if (
-    !source.includes("needs.discover.outputs.has_targets == 'true'") ||
-    !source.includes("has_targets: ${{ steps.targets.outputs.has_targets }}")
-  ) {
-    issues.push(
-      `${pullRequestPath} must skip preview matrices with no buildable targets`,
+      `${pullRequestPath} deploy job must wait for authorization and the secret-free build`,
     );
   }
   if (
@@ -409,11 +580,29 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   const cleanup = asRecord(jobs?.cleanup);
-  if (!cleanup) {
+  const cleanupConcurrency = asRecord(cleanup?.concurrency);
+  const cleanupMatrix = asRecord(asRecord(cleanup?.strategy)?.matrix);
+  if (
+    !cleanup ||
+    cleanup["timeout-minutes"] !== 15 ||
+    !String(cleanup.if ?? "").includes("github.event.action == 'closed'") ||
+    !String(cleanup.if ?? "").includes(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    )
+  ) {
     issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
-  } else if (cleanup["timeout-minutes"] !== 15) {
+  }
+  if (
+    !Array.isArray(cleanupMatrix?.site) ||
+    JSON.stringify(cleanupMatrix.site) !==
+      JSON.stringify(previewEligibleSiteNames()) ||
+    cleanupConcurrency?.group !==
+      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}" ||
+    cleanupConcurrency["cancel-in-progress"] !== true ||
+    !source.includes('--site "$SITE_NAME"')
+  ) {
     issues.push(
-      `${pullRequestPath} cleanup job must declare a 15-minute timeout`,
+      `${pullRequestPath} cleanup must cancel each eligible PR-and-app deploy queue and target that app`,
     );
   }
   if (
@@ -1336,7 +1525,7 @@ if (
   betaBuildWith?.artifact_upload !== true ||
   typeof betaBuildWith?.artifact_name !== "string" ||
   !String(betaBuildWith.artifact_name).includes("github.run_id") ||
-  asRecord(betaBuildJob?.strategy)?.["max-parallel"] !== 16 ||
+  asRecord(betaBuildJob?.strategy)?.["max-parallel"] !== 8 ||
   !betaBuildNeeds.includes("resolve-source") ||
   !betaBuildNeeds.includes("discover-sites") ||
   !betaDeployNeeds.includes("resolve-source") ||
@@ -1602,8 +1791,6 @@ if (
   !firstBetaPublish.includes(
     "did not become ready and published within 30 minutes",
   ) ||
-  // Monotonic, not exact-equality: the immediate pre-publish recheck inside
-  // this step must use the same ancestor-of-main compare, not a hard match.
   !firstBetaPublish.includes("compare_status") ||
   firstBetaPublish.includes('"${main_sha,,}" != "${SOURCE_REF,,}"') ||
   !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
@@ -1644,8 +1831,6 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  // Monotonic, not exact-equality: the source must be an ancestor of (or
-  // equal to) main, and must not regress the already-published deploy.
   !reusableBetaFreshness.includes("published_deploy_source_ref") ||
   !reusableBetaFreshness.includes("not on main") ||
   !reusableBetaFreshness.includes("is already newer") ||

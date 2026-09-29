@@ -145,6 +145,8 @@ export default {
     untitledAnalysis: "未命名分析",
   },
   settings: {
+    agentObservability: "代理可观测性",
+    reviewPreviewUnavailable: "无法预览",
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
@@ -162,6 +164,9 @@ export default {
     bellSound: "提示音",
     bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
     bellSoundSaveFailed: "无法保存提示音偏好设置。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "邮件",
+    notificationsSoundGroup: "声音",
     replayStorage: "会话回放存储",
     replayStorageDescription:
       "会话回放录制需要配置文件上传服务商。可连接 Builder.io 使用免费层对象存储，或使用您自己的 S3 兼容存储桶。",

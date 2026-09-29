@@ -1,11 +1,29 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
 import { agentNativePath, isWorkspaceAppPath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
+import { rememberSettingsReturnPath } from "./settings/shell/return-path.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+/**
+ * Records the app route for Settings' "Back to {App}". It mounts with the app
+ * chrome, not with the agent panel: URLSync only runs while the panel is open,
+ * so recording there sent Back home whenever the panel was closed.
+ */
+export function SettingsReturnPathRecorder() {
+  return useInRouterContext() ? <RecordSettingsReturnPath /> : null;
+}
+
+function RecordSettingsReturnPath() {
+  const location = useLocation();
+  React.useEffect(() => {
+    rememberSettingsReturnPath(location.pathname, location.search);
+  }, [location.pathname, location.search]);
+  return null;
+}
 
 export function URLSync({ browserTabId }: { browserTabId?: string }) {
   const location = useLocation();
@@ -26,7 +44,6 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     [normalizedBrowserTabId],
   );
 
-  // Outbound: write the current URL to app-state whenever it changes.
   React.useEffect(() => {
     const searchParams: Record<string, string> = {};
     for (const [k, v] of new URLSearchParams(location.search).entries()) {
@@ -108,10 +125,6 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
         hash: cmd.hash,
       });
     if (lastProcessedDedupKeyRef.current === dedupKey) {
-      // Same command we already handled — the DELETE below races against the
-      // next polling refetch, so when it loses the same command can show up
-      // again on the next tick. Re-fire DELETE and bail rather than navigate
-      // again.
       fetch(
         agentNativePath(`/_agent-native/application-state/${command.key}`),
         {
@@ -124,8 +137,6 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     }
     lastProcessedDedupKeyRef.current = dedupKey;
 
-    // Delete the one-shot command before applying so duplicate events
-    // don't cause repeated navigation.
     fetch(agentNativePath(`/_agent-native/application-state/${command.key}`), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
@@ -146,14 +157,6 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
       const nextHash = cmd.hash ?? current.hash;
       const qs = nextSearch.toString();
       const url = nextPath + (qs ? `?${qs}` : "") + (nextHash || "");
-      // Skip the navigation if the URL is already at the target state —
-      // avoids needless react-router work and any revalidation side-effects
-      // that come with it.
-      // Mark that the agent just wrote the URL so consumers (e.g. a
-      // dashboard restoring saved filter defaults) can skip any auto-
-      // restore that would clobber the agent's change. Set this BEFORE
-      // the same-URL short-circuit — a no-op nav is still an explicit
-      // "agent authored this state" signal that consumers depend on.
       try {
         sessionStorage.setItem("__agentUrlAppliedAt__", String(Date.now()));
       } catch {
@@ -165,9 +168,6 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
         queryClient.setQueryData(setUrlQueryKey, null);
         return;
       }
-      // Replace rather than push so repeated agent URL updates don't
-      // clutter the history stack and can't trigger extra remounts from
-      // router navigation lifecycle.
       if (isWorkspaceAppPath(url)) {
         window.location.replace(url);
       } else {
@@ -181,24 +181,6 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
 
   return null;
 }
-/**
- * Remounts its children whenever the framework's `refresh-screen` tool is
- * invoked. Used inside AgentSidebar so the main content area re-fetches
- * without disturbing the chat sidebar's in-flight state.
- *
- * Two mechanisms work together here:
- *
- *  1. Before the remount, every react-query cache entry is marked stale
- *     via `invalidateQueries({ refetchType: "none" })`. This does NOT
- *     trigger a refetch on its own, so active queries elsewhere (chat
- *     sidebar, left nav) keep their current data — they'll refetch only
- *     on their next natural trigger.
- *  2. The React `key` then bumps, unmounting and remounting the subtree.
- *     On remount, child components re-subscribe to their queries, see
- *     the data is stale, and refetch — regardless of configured
- *     `staleTime`. This is what makes the dashboard pick up the agent's
- *     edits even when the query uses `staleTime: 30_000` or similar.
- */
 
 export function ScreenRefreshBoundary({
   children,
@@ -210,9 +192,6 @@ export function ScreenRefreshBoundary({
   const lastKeyRef = React.useRef(key);
   if (key !== lastKeyRef.current) {
     lastKeyRef.current = key;
-    // Mark every cached query stale without kicking off a refetch. The
-    // subtree-level refetches happen naturally when the new tree mounts
-    // below and child components re-subscribe.
     void queryClient.invalidateQueries({ refetchType: "none" });
   }
   return <React.Fragment key={key}>{children}</React.Fragment>;

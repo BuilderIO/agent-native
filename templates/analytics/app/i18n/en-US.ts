@@ -337,6 +337,8 @@ export default {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
+    agentObservability: "Agent Observability",
+    reviewPreviewUnavailable: "Preview unavailable",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -357,6 +359,9 @@ export default {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
+    notificationsTitle: "Notifications",
+    notificationsEmailGroup: "Email",
+    notificationsSoundGroup: "Sound",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",

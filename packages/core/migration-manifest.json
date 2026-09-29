@@ -96,7 +96,6 @@
         "ClientOnly": {
           "to": "@agent-native/core/client/ui"
         },
-        "CodeAgentChatController": "CodeAgentChatController",
         "CodeBlockClassNames": {
           "to": "@agent-native/toolkit/editor"
         },
@@ -567,14 +566,12 @@
         "cn": {
           "to": "@agent-native/toolkit/utils"
         },
-        "codeAgentTranscriptHasPendingApproval": "codeAgentTranscriptHasPendingApproval",
         "configureTracking": {
           "to": "@agent-native/core/client/analytics"
         },
         "createAgentNativeQueryClient": {
           "to": "@agent-native/core/client/hooks"
         },
-        "createCodeAgentChatAdapter": "createCodeAgentChatAdapter",
         "createCodeBlockNode": {
           "to": "@agent-native/toolkit/editor"
         },

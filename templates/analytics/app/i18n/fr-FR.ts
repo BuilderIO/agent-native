@@ -155,6 +155,8 @@ export default {
     untitledAnalysis: "Analyse sans titre",
   },
   settings: {
+    agentObservability: "Observabilité de l’agent",
+    reviewPreviewUnavailable: "Aperçu indisponible",
     agentTitle: "Gérer l’agent",
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
@@ -177,6 +179,9 @@ export default {
     bellSoundDescription:
       "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
     bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
+    notificationsTitle: "Notifications",
+    notificationsEmailGroup: "E-mail",
+    notificationsSoundGroup: "Son",
     replayStorage: "Stockage des relectures de session",
     replayStorageDescription:
       "Les enregistrements de relecture de session nécessitent un fournisseur d'envoi de fichiers configuré. Connectez Builder.io pour un stockage d'objets en formule gratuite, ou utilisez votre propre bucket compatible S3.",

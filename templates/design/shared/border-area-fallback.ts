@@ -1,12 +1,3 @@
-/**
- * A gradient stroke is a background layer with `background-clip: border-area`.
- * Engines without border-area drop that declaration and paint the gradient
- * over the whole box, so the persisted style carries a fallback: plain
- * `background-size` hides the stroke layer and `border-image` draws it as a
- * (square-cornered) ring, while the `-webkit-` aliases, written after them,
- * restore the real values through `if(supports(...))` where it is understood.
- */
-
 const SUPPORTED = "supports(background-clip: border-area)";
 
 export const BORDER_AREA_FALLBACK_PROPERTIES = [
@@ -36,7 +27,6 @@ export function borderAreaSupported(supported: string, fallback: string) {
   return `if(${SUPPORTED}: ${supported}; else: ${fallback})`;
 }
 
-/** The supported branch of a value written by `borderAreaSupported`. */
 export function borderAreaSupportedBranch(
   value: string | undefined,
 ): string | null {
@@ -60,10 +50,6 @@ export function borderAreaLayerIndex(backgroundClip: string): number {
   );
 }
 
-/**
- * Fallback declarations for a style whose background layer `index` is clipped
- * to border-area, given the real (border-area engine) background-size list.
- */
 export function borderAreaFallback(
   backgroundImage: string,
   realBackgroundSize: string,

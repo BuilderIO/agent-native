@@ -106,8 +106,6 @@ describe("generation artifact access capabilities", () => {
       "read",
     );
 
-    // Both operations can now resolve to `viewer`, so the operation binding is
-    // the only thing left separating a provenance read from a provenance write.
     expect(() =>
       assertGenerationArtifactAccessProof(identity, readProof, "record"),
     ).toThrow(/verified by the host application/i);

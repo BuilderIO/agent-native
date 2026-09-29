@@ -72,9 +72,10 @@ allows ordinary failed, pending, skipped, or unknown checks and ordinary
 unresolved feedback for a verified BuilderIO member; record those exact states
 and never call them clean. The ultra-scary gate always remains manual for auth,
 permissions, tenant isolation, secrets, destructive data loss or migrations,
-remote code execution, SSRF, payments, deployment, or unexplained dependency
-and infrastructure risk. Active credible safety findings in fresh review
-evidence remain blocking for every author, including Liam.
+remote code execution, MCP iframe sandboxing, CSP, HTML sanitization, SSRF,
+payments, deployment, or unexplained dependency and infrastructure risk. Active
+credible safety findings in fresh review evidence remain blocking for every
+author, including Liam.
 
 For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, a
 current BuilderIO membership check is still required. When the current,
@@ -89,7 +90,14 @@ The verified owner exceptions are current and must be applied only after
 membership and the ultra-scary assessment: Alice (\`3mdistal\`) for Content,
 Nick (\`NKoech123\`) for Slides, Enzo (\`enzoames\`) for Factory-specific PRs,
 and Sid (\`sidmohanty11\`) for Design. Alice and Nick may include supporting
-shared framework/Desktop plumbing required by their app feature. The docs-only
+shared framework/Desktop plumbing required by their app feature. For
+BuilderIO/agent-native PRs, Shomix (shomix, GitHub user ID 100691266) may be
+auto-approved across app and framework areas, including UX changes, refactors,
+ordinary unresolved feedback, and failed or pending checks. Match both the login
+and immutable GitHub author ID; do not rely on login alone. This exception never
+applies to review/approval policy, agent-safety instructions, membership
+verification, or CI/deployment security changes;
+those require independent human review. The docs-only
 exception applies to \`kapunahelewong\` and Wes (\`bwreid\`) only when every
 changed file is documentation, localization, docs navigation/redirect, or a
 docs-specific test. These exceptions cover ordinary UX/refactor/check/review

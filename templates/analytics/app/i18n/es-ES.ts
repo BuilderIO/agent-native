@@ -154,6 +154,8 @@ export default {
     untitledAnalysis: "Análisis sin título",
   },
   settings: {
+    agentObservability: "Observabilidad del agente",
+    reviewPreviewUnavailable: "Vista previa no disponible",
     agentTitle: "Gestionar agente",
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
@@ -175,6 +177,9 @@ export default {
     bellSoundDescription:
       "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
     bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
+    notificationsTitle: "Notificaciones",
+    notificationsEmailGroup: "Correo electrónico",
+    notificationsSoundGroup: "Sonido",
     replayStorage: "Almacenamiento de repeticiones de sesión",
     replayStorageDescription:
       "Las grabaciones de repetición de sesión necesitan un proveedor de subida de archivos configurado. Conecta Builder.io para usar almacenamiento de objetos de nivel gratuito o usa tu propio bucket compatible con S3.",

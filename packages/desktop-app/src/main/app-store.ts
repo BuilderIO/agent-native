@@ -106,7 +106,6 @@ export interface DesktopAppPreferences {
   appOrder: string[];
   appModeDefaultsVersion?: number;
   desktopSsoEnabled: boolean;
-  /** Which hosted environment app webviews load. "auto" follows the signed-in email. */
   desktopEnvironmentLane: DesktopEnvironmentLanePreference;
 }
 
@@ -135,10 +134,6 @@ function defaultApps(): AppConfig[] {
 function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
   const shouldBackfillProdUrl = !appConfig.url?.trim() && Boolean(def.url);
 
-  // Preserve everything the user can edit in the settings dialog. Only
-  // structural fields the user can't edit (id, icon, isBuiltIn, placeholder)
-  // and template-canonical metadata (color) come from `def`. Without this,
-  // every restart wipes user-edited devUrl/url/name/etc. back to defaults.
   return {
     ...def,
     enabled: appConfig.enabled ?? def.enabled,
@@ -352,7 +347,6 @@ function saveShortcutStore(store: ShortcutStore): void {
 
 function encodeProviderSecret(value: string): StoredSecret {
   return {
-    // Keep credentials in the app-owned 0600 file so startup never touches macOS Keychain.
     encoding: "local-file-v1",
     value,
     updatedAt: new Date().toISOString(),
@@ -691,27 +685,20 @@ export function loadApps(): AppConfig[] {
   try {
     parsed = JSON.parse(fs.readFileSync(getStorePath(), "utf-8"));
   } catch {
-    // Nothing readable is stored yet. A first launch and a file we cannot parse
-    // at all are the only cases where writing defaults over the store is right.
     return seedDefaultApps();
   }
   if (!Array.isArray(parsed)) return seedDefaultApps();
 
   try {
     let apps = parsed as AppConfig[];
-    // Migrations
     let migrated = false;
 
-    // Build a lookup of canonical built-in app defaults by id
     const defaults = defaultApps();
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
     const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
     const preferences = loadDesktopAppPreferences();
     const persistedIds = new Set(apps.map((a) => a.id));
 
-    // Remove stale desktop apps that should no longer appear, then preserve
-    // other first-party template ids so existing user configs can still be
-    // migrated instead of disappearing.
     const before = apps.length;
     apps = apps.filter(
       (a) =>
@@ -720,7 +707,6 @@ export function loadApps(): AppConfig[] {
     );
     if (apps.length !== before) migrated = true;
 
-    // Add new built-in apps that aren't in the persisted config
     for (const def of defaults) {
       if (!persistedIds.has(def.id)) {
         apps.push({ ...def });
@@ -741,9 +727,6 @@ export function loadApps(): AppConfig[] {
         migrated = true;
       }
 
-      // Sync any app whose id matches a default back to canonical built-in
-      // metadata. Older persisted configs could keep stale placeholder/URL
-      // fields and leave apps such as Dispatch non-rendering.
       const def = defaultsById.get(app.id);
       if (def) {
         const canonical = canonicalizeDefaultApp(app, def);
@@ -754,11 +737,6 @@ export function loadApps(): AppConfig[] {
         continue;
       }
 
-      // User-added or legacy entries that match a first-party template should
-      // still get canonical URL backfills. This covers old desktop configs
-      // where hidden-but-known templates existed with an empty production URL,
-      // which otherwise falls through to an invalid local target and renders a
-      // blank tab.
       const templateDef = templateAppsById.get(app.id);
       if (templateDef) {
         const canonical = canonicalizeTemplateApp(app, templateDef);
@@ -790,11 +768,6 @@ export function loadApps(): AppConfig[] {
     if (migrated) saveApps(apps);
     return apps;
   } catch (error) {
-    // The store parsed, so anything failing past this point is migration or the
-    // write itself — a malformed entry, or a transient ENOSPC/EACCES. Seeding
-    // defaults here would turn that into permanent loss of the user's custom
-    // and self-hosted apps, so return what was stored and leave the file alone
-    // to be retried on the next launch.
     console.error(
       "[app-store] keeping stored apps unmigrated after a load failure",
       error,

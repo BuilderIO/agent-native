@@ -3,7 +3,6 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { useBuilderStatus } from "@agent-native/core/client/settings";
 import { useEffect } from "react";
 
 import { shouldEnableBrainProviderStatusChecks } from "@/lib/brain-chat-readiness";
@@ -25,11 +24,8 @@ export function meta() {
   ];
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
 export default function AskRoute() {
   const t = useT();
-  const { status: builderStatus, stale: builderStatusStale } =
-    useBuilderStatus();
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -60,10 +56,7 @@ export default function AskRoute() {
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
         composerPlaceholder={t("ask.composerPlaceholder")}
-        providerStatusChecksEnabled={shouldEnableBrainProviderStatusChecks(
-          builderStatus?.configured === true,
-          builderStatusStale,
-        )}
+        providerStatusChecksEnabled={shouldEnableBrainProviderStatusChecks()}
         composerSlot={
           <div className="brain-chat-intro">
             <h1>{t("ask.heroTitle")}</h1>

@@ -30,10 +30,11 @@ const coordinator = steps.find(
 ) as Workflow;
 
 describe("release everything workflow", () => {
-  it("runs a DST-aware Monday-Thursday noon Pacific patch release", () => {
+  it("runs Monday-Thursday at noon and Friday at 10 AM Pacific", () => {
     assert.equal(workflow.name, "🚀 Release everything");
     assert.deepEqual(schedules, [
       { cron: "0 12 * * 1-4", timezone: "America/Los_Angeles" },
+      { cron: "0 10 * * 5", timezone: "America/Los_Angeles" },
     ]);
     assert.match(
       String((job.env as Workflow).RELEASE_TYPE),

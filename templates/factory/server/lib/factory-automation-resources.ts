@@ -62,11 +62,6 @@ export function factoryIdFromAutomationName(name: string): string | null {
   return null;
 }
 
-/**
- * Load Factory jobs by their stored path. Membership is the folder (or the
- * default-factory `jobs/factory-*.md` convention), not `domain` / `triggerType`.
- * A scheduler status write that dropped those tags must not hide the job.
- */
 export async function listFactoryAutomationDefinitions(
   orgId: string,
   factoryId: string,

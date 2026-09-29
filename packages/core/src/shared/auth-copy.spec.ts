@@ -8,12 +8,6 @@ const LOCALES = Object.keys(NATIVE_AUTH_COPY) as Array<
 
 describe("native auth copy", () => {
   it("keeps account creation discoverable from the entry subtitle", () => {
-    // Every surface that uses this subtitle (the web magic-link entry view,
-    // the desktop identity gate, the mobile sign-in sheet) renders one email
-    // field and no account chooser. Dropping the promise entirely would hide
-    // signup; promising a separate step sends new users looking for a button
-    // that does not exist. The subtitle must attach both outcomes to the one
-    // visible continue action.
     expect(NATIVE_AUTH_COPY["en-US"].welcomeSubtitle).toBe(
       "Sign in or create your account",
     );

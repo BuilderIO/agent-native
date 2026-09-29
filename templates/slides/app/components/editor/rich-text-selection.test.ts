@@ -7,9 +7,13 @@ import {
   getEditableTextRange,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
+  normalizeInlineTextSpans,
+  normalizeSlideClipboardHtml,
   restoreEditableTextRange,
   selectAllEditableText,
+  setInlineTextLink,
   snapshotEditableTextRange,
+  toggleInlineTextFormat,
 } from "./rich-text-selection";
 
 function rangeFor(
@@ -50,7 +54,7 @@ describe("rich text selection", () => {
     expect(block.querySelector("span")?.style.color).toBe("#609ff8");
   });
 
-  it("preserves nested markup and applies style across multiple text nodes", () => {
+  it("styles each selected run inside its own markup without splitting it", () => {
     const block = editable("one <strong>two</strong> three");
     const [one, two] = [
       block.firstChild as Text,
@@ -60,11 +64,113 @@ describe("rich text selection", () => {
 
     applyInlineTextStyle(block, { fontWeight: "700", color: "rgb(0, 0, 255)" });
 
-    const wrapper = block.querySelector("span[data-slide-inline-style]")!;
-    expect(wrapper.textContent).toBe("e tw");
-    expect(wrapper.querySelector("strong")?.textContent).toBe("tw");
-    expect(wrapper.querySelector("strong")?.style.color).toBe("rgb(0, 0, 255)");
+    const wrappers = Array.from(
+      block.querySelectorAll<HTMLSpanElement>("span[data-slide-inline-style]"),
+    );
+    expect(wrappers.map((wrapper) => wrapper.textContent)).toEqual([
+      "e ",
+      "tw",
+    ]);
+    expect(wrappers[1].parentElement?.tagName).toBe("STRONG");
+    expect(wrappers.every((wrapper) => wrapper.style.color)).toBe(true);
+    expect(block.querySelectorAll("strong")).toHaveLength(1);
+    expect(block.querySelector("strong")!.textContent).toBe("two");
     expect(block.textContent).toBe("one two three");
+    expect(window.getSelection()!.toString()).toBe("e tw");
+  });
+
+  it("styles part of a pill inside the one pill", () => {
+    const block = editable(
+      'Solar <span class="pill" style="background: rgb(220, 252, 231); padding: 4px 10px;">Done now</span> more',
+    );
+    const lead = block.firstChild as Text;
+    const pillText = block.querySelector(".pill")!.firstChild as Text;
+    rangeFor(lead, 3, pillText, 4);
+
+    applyInlineTextStyle(block, { color: "rgb(0, 0, 255)" });
+
+    const pills = block.querySelectorAll<HTMLSpanElement>(".pill");
+    expect(pills).toHaveLength(1);
+    expect(pills[0].textContent).toBe("Done now");
+    expect(pills[0].firstElementChild?.textContent).toBe("Done");
+    expect(block.textContent).toBe("Solar Done now more");
+  });
+
+  it("never removes an empty author span or merges author spans", () => {
+    const block = editable(
+      '<span class="dot" style="width: 8px; height: 8px; background: red;"></span><span style="color: red;">a</span><span style="color: red;">b</span> tail',
+    );
+    const a = block.children[1].firstChild as Text;
+    const tail = block.lastChild as Text;
+    rangeFor(a, 0, tail, 3);
+
+    applyInlineTextStyle(block, { fontSize: "30px" });
+
+    expect(block.querySelector(".dot")).not.toBeNull();
+    expect(block.querySelectorAll('span[style="color: red;"]')).toHaveLength(2);
+  });
+
+  it("normalizes only its own style spans", () => {
+    const block = editable(
+      '<span data-slide-inline-style="true" style="color: red;">a</span><span data-slide-inline-style="true" style="color: red;">b</span><span data-slide-inline-style="true"></span><span></span><span data-slide-inline-style="true">c</span>',
+    );
+
+    normalizeInlineTextSpans(block);
+
+    expect(block.innerHTML).toBe(
+      '<span data-slide-inline-style="true" style="color: red;">ab</span><span></span>c',
+    );
+  });
+
+  it("toggles bold from the computed weight, writing 400 over a class", () => {
+    const style = document.createElement("style");
+    style.textContent = ".heavy { font-weight: 700; }";
+    document.head.append(style);
+    const block = editable('<span class="heavy">Heavy</span> plain');
+    const heavy = block.querySelector(".heavy")!.firstChild as Text;
+    rangeFor(heavy, 0, heavy, 5);
+
+    toggleInlineTextFormat(block, "bold");
+
+    const unbolded = block.querySelector<HTMLSpanElement>(
+      ".heavy > span[data-slide-inline-style]",
+    )!;
+    expect(unbolded.style.fontWeight).toBe("400");
+    expect(block.querySelector(".heavy")!.getAttribute("class")).toBe("heavy");
+
+    const plain = block.lastChild as Text;
+    rangeFor(plain, 1, plain, 6);
+    toggleInlineTextFormat(block, "bold");
+    const bolded = block.lastElementChild as HTMLSpanElement;
+    expect(bolded.textContent).toBe("plain");
+    expect(bolded.style.fontWeight).toBe("700");
+    style.remove();
+  });
+
+  it("toggles italic and removes a line drawn by a fully selected ancestor", () => {
+    const block = editable(
+      '<a style="text-decoration: underline;">under</a> rest',
+    );
+    const under = block.querySelector("a")!.firstChild as Text;
+    rangeFor(under, 0, under, 5);
+
+    toggleInlineTextFormat(block, "italic");
+    expect(
+      block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]")!
+        .style.fontStyle,
+    ).toBe("italic");
+
+    rangeFor(under, 0, under, 5);
+    toggleInlineTextFormat(block, "underline");
+    expect(block.querySelector("a")!.style.textDecorationLine).toBe("none");
+    expect(block.querySelectorAll("a")).toHaveLength(1);
+
+    rangeFor(under, 0, under, 5);
+    toggleInlineTextFormat(block, "underline");
+    expect(
+      block.querySelector<HTMLSpanElement>("span[data-slide-inline-style]")!
+        .style.textDecorationLine,
+    ).toBe("underline");
   });
 
   it("overrides existing nested inline styles without touching their markup", () => {
@@ -180,5 +286,146 @@ describe("rich text selection", () => {
     expect(
       getInlineTextStyleSnapshotForRange(block, savedMixed).mixed,
     ).toContain("color");
+  });
+});
+
+describe("setInlineTextLink", () => {
+  it("links each selected run without splitting author elements", () => {
+    const block = document.createElement("p");
+    block.innerHTML = 'Read <em class="pill">the docs</em> now';
+    document.body.replaceChildren(block);
+    const [before, inside] = [
+      block.firstChild as Text,
+      block.querySelector("em")!.firstChild as Text,
+    ];
+    rangeFor(before, 5, inside, 3);
+
+    expect(setInlineTextLink(block, "https://example.com").scope).toBe(
+      "selection",
+    );
+    expect(block.innerHTML).toBe(
+      'Read <em class="pill"><a href="https://example.com">the</a> docs</em> now',
+    );
+
+    rangeFor(block.querySelector("a")!.firstChild as Text, 0);
+    setInlineTextLink(block, null);
+    expect(block.innerHTML).toBe('Read <em class="pill">the docs</em> now');
+  });
+
+  it("splits an author link around a re-linked part instead of nesting links", () => {
+    const block = document.createElement("p");
+    block.innerHTML =
+      '<a href="https://old.test" style="color: green">2026 sustainability report</a>';
+    document.body.replaceChildren(block);
+    const text = block.querySelector("a")!.firstChild as Text;
+    rangeFor(text, 5, text, 19);
+
+    setInlineTextLink(block, "https://new.test");
+
+    expect(block.innerHTML).toBe(
+      '<a href="https://old.test" style="color: green">2026 </a><a href="https://new.test" style="color: green">sustainability</a><a href="https://old.test" style="color: green"> report</a>',
+    );
+    const reparsed = document.createElement("p");
+    reparsed.innerHTML = block.innerHTML;
+    expect(reparsed.innerHTML).toBe(block.innerHTML);
+  });
+});
+
+describe("normalizeSlideClipboardHtml", () => {
+  it("keeps rich clipboard styling without source layout or editor context", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p data-pm-slice="1 1 []" style="position:absolute;left:80px;font-size:34px;font-weight:500">First</p><p style="font-size:34px"><strong><br></strong></p><p style="visibility:hidden;pointer-events:none;height:76px">Spacer</p><p style="position:absolute;top:185px;width:800px;font-size:34px;font-weight:500"><span style="color:rgb(34,211,238)"><strong>Blue text</strong></span></p>',
+    );
+
+    expect(html).toContain("First");
+    expect(html).toContain("Blue text");
+    expect(html).toContain("font-size: 34px");
+    expect(html).toContain("font-weight: 500");
+    expect(html).toContain("color: rgb(34, 211, 238)");
+    expect(html).toContain("<br>");
+    expect(html).not.toContain("data-pm-slice");
+    expect(html).not.toContain("position:");
+    expect(html).not.toContain("visibility:");
+    expect(html).not.toContain("Spacer");
+  });
+
+  it("does not persist embedded clipboard image payloads", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p>Copied text<img src="data:image/png;base64,AAAA" alt="image label"></p><p><img src="data:image/png;base64,BBBB"></p>',
+    );
+
+    expect(html).toContain("Copied text");
+    expect(html).toContain("image label");
+    expect(html).not.toContain("data:image");
+  });
+});
+
+describe("review round 3", () => {
+  function drawsLine(text: Text, block: HTMLElement, line: string) {
+    for (
+      let element = text.parentElement;
+      element && block.contains(element);
+      element = element.parentElement
+    ) {
+      if (getComputedStyle(element).textDecorationLine.includes(line)) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  it("removes an underline drawn by a partly selected ancestor, keeping it on the rest", () => {
+    const block = editable(
+      '<span id="u" style="text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: red;">Hello world</span>',
+    );
+    const text = block.querySelector("#u")!.firstChild as Text;
+    rangeFor(text, 6, text, 11);
+    toggleInlineTextFormat(block, "underline");
+    const world = Array.from(block.querySelectorAll("*"))
+      .flatMap((element) => Array.from(element.childNodes))
+      .find(
+        (node): node is Text => node instanceof Text && node.data === "world",
+      )!;
+    const hello = Array.from(block.querySelectorAll("*"))
+      .flatMap((element) => Array.from(element.childNodes))
+      .find(
+        (node): node is Text => node instanceof Text && node.data === "Hello ",
+      )!;
+    expect(drawsLine(world, block, "underline")).toBeNull();
+    const kept = drawsLine(hello, block, "underline")!;
+    expect(kept).not.toBeNull();
+    expect(getComputedStyle(kept).textDecorationStyle).toBe("wavy");
+    expect(getComputedStyle(kept).textDecorationColor).toBe("red");
+    expect(block.querySelectorAll("#u")).toHaveLength(1);
+    expect(block.textContent).toBe("Hello world");
+  });
+
+  it("removes a strike drawn by a partly selected ancestor, keeping it on the rest", () => {
+    const block = editable(
+      '<span id="s" style="text-decoration-line: line-through; text-decoration-style: wavy; text-decoration-color: red;">Hello world</span>',
+    );
+    const text = block.querySelector("#s")!.firstChild as Text;
+    rangeFor(text, 6, text, 11);
+    toggleInlineTextFormat(block, "strike");
+    const textNodes = Array.from(block.querySelectorAll("*"))
+      .flatMap((element) => Array.from(element.childNodes))
+      .filter((node): node is Text => node instanceof Text);
+    const hello = textNodes.find((node) => node.data === "Hello ")!;
+    const world = textNodes.find((node) => node.data === "world")!;
+
+    expect(drawsLine(world, block, "line-through")).toBeNull();
+    const kept = drawsLine(hello, block, "line-through")!;
+    expect(kept).not.toBeNull();
+    expect(getComputedStyle(kept).textDecorationStyle).toBe("wavy");
+    expect(getComputedStyle(kept).textDecorationColor).toBe("red");
+    expect(block.querySelectorAll("#s")).toHaveLength(1);
+    expect(block.textContent).toBe("Hello world");
+  });
+
+  it("strips element identity from clipboard HTML but keeps its look", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p id="a">x<span id="b" data-slide-object-id="c" class="k" style="color: red">y</span></p>',
+    );
+    expect(html).toBe('<p>x<span class="k" style="color: red;">y</span></p>');
   });
 });

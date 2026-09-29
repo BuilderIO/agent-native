@@ -1,23 +1,3 @@
-/**
- * P0 PERSISTENT DATA CORRUPTION — a localhost screen's `design_files.content`
- * IS its route URL. Dragging a layer row onto a SCREEN row in the Layers panel
- * concatenated the serialized subtree onto that URL, so the stored content
- * became "http://localhost:8210/<div …>". The screen's iframe then requested
- * a percent-encoded garbage route: the static target served its 404 page (the
- * Layers panel listed "Error code: 404" as the screen's layers) while Vite's
- * SPA fallback MASKED it on the React target — the app still rendered while
- * the stored URL was silently wrong. It survived a full reload.
- *
- * Two producers and one persist gate, all on the same predicate:
- *  - `moveNodeBetweenDocuments` and `applyVisualEdit` refuse to PRODUCE the
- *    next content — every document transform in the editor and in the
- *    agent-callable edit actions bottoms out in one of the two. Multi-file
- *    gestures write source screens before the destination, so refusing only at
- *    persist time would delete the node from its source and land it nowhere.
- *  - `assertDesignHtmlEditIntegrity` refuses to PERSIST it, covering every
- *    other writer (agent `update-file`, node-rewrite, source workspace, canvas
- *    gestures, undo replay).
- */
 import { describe, expect, it } from "vitest";
 
 import { applyVisualEdit, moveNodeBetweenDocuments } from "./code-layer.js";
@@ -29,7 +9,6 @@ import {
 
 const SCREEN_URL = "http://localhost:8210/";
 
-/** The literal shape observed in the corrupted row, reproduced twice. */
 const CORRUPTED_CONTENT =
   `${SCREEN_URL}<div data-agent-native-node-id="an-17l5gng" ` +
   `data-agent-native-layer-name="Group" style="position:absolute; left:126px; ` +
@@ -44,9 +23,6 @@ describe("isStandaloneHttpUrl", () => {
   });
 
   it("rejects the corrupted route-plus-markup content", () => {
-    // Regression: `new URL()` percent-encodes the markup rather than throwing,
-    // so a parse-only predicate called this a valid URL and every guard that
-    // asked "is the result still a URL?" answered yes.
     expect(() => new URL(CORRUPTED_CONTENT)).not.toThrow();
     expect(isStandaloneHttpUrl(CORRUPTED_CONTENT)).toBe(false);
   });
@@ -66,7 +42,6 @@ describe("moveNodeBetweenDocuments on a URL-backed screen", () => {
 
     expect(result.status).toBe("unsupported");
     expect(result.message).toMatch(/live route URL/i);
-    // Neither side may be partially rewritten: the node stays in its source.
     expect(result.destHtml).toBe(SCREEN_URL);
     expect(result.sourceHtml).toBe(SOURCE_SCREEN);
   });
@@ -95,14 +70,6 @@ describe("moveNodeBetweenDocuments on a URL-backed screen", () => {
 });
 
 describe("applyVisualEdit on a URL-backed screen", () => {
-  // The other producer: in-screen gestures and the agent-callable
-  // `apply-visual-edit` / `apply-shader-fill` / `apply-a11y-fix` actions hand
-  // it `file.content` straight from the row. Defense in depth, not a second
-  // repro — today every intent in the union targets an existing node and a URL
-  // has no elements, so each one bottoms out in "conflict" without mutating.
-  // That safety is accidental (it depends on target resolution failing) and
-  // reports the wrong cause; the first intent kind that appends without
-  // resolving a target would reopen the corruption silently.
   it("refuses an edit with a typed reason and no mutation", () => {
     const patch = applyVisualEdit(SCREEN_URL, {
       kind: "style",
@@ -151,9 +118,6 @@ describe("assertDesignHtmlEditIntegrity on a URL-backed screen", () => {
   });
 
   it("is the only rule that can see this corruption", () => {
-    // Pins WHY the guard has to exist rather than relying on the passes that
-    // were already here: the corrupted string is a balanced fragment, so with
-    // any non-URL base every other check in this module accepts it.
     expect(() =>
       assertDesignHtmlEditIntegrity({
         previousContent: "<p>fragment</p>",

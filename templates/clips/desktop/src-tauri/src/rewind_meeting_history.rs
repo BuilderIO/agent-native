@@ -1,8 +1,3 @@
-//! Explicit, local-only meeting transcript recovery from the rolling Rewind.
-//!
-//! The normal meeting workflow is still authoritative. This command only
-//! prepends locally indexed transcript rows when a person deliberately asks to
-//! include the scheduled portion they missed before pressing Start notes.
 
 use crate::capture_graph::{CaptureConsumer, CaptureSource};
 use crate::config::RewindCaptureMode;
@@ -98,9 +93,6 @@ pub async fn rewind_meeting_history_prepare(
 
     authorize_explicit_meeting_extension(&app, requested_start)?;
 
-    // Close the current logical fragment without stopping the one physical
-    // capture producer. Its transcript is queued locally by the normal segment
-    // finalization path; no raw media leaves the Mac.
     screen_memory::fence_active_for_clip(&app)
         .map_err(|error| format!("Could not include the earlier meeting: {error}"))?;
     let captured_until = Utc::now();
@@ -292,10 +284,6 @@ async fn availability(
     ))
 }
 
-/// Records that this longer-than-a-normal-Clip retrospective range was an
-/// explicit scheduled-meeting choice. The graph's dedicated meeting-start API
-/// intentionally permits this while ordinary Rewind extensions remain capped
-/// at five minutes.
 fn authorize_explicit_meeting_extension(
     app: &AppHandle,
     requested_start: DateTime<Utc>,

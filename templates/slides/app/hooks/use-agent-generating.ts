@@ -1,19 +1,66 @@
 import {
+  sendToAgentChatAndConfirm,
+  useAbortRun,
   useAgentChatGenerating,
   useAgentEngineConfigured,
+  useRunStuckDetection,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-// This is only a lost-signal recovery guard. A long deck legitimately takes
-// several minutes because each slide is written and fit-checked separately.
-const MAX_GENERATING_MS = 30 * 60 * 1000;
+export const GENERATION_NO_PROGRESS_TIMEOUT_MS = 5 * 60 * 1000;
 
-// Gateway continuations can briefly report a stopped chat between model/tool
-// chunks. Keep generation UI and presence steady across that transport gap.
 export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 const CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
+export const SLIDES_GENERATION_STARTED_EVENT = "slides:generation-started";
+const startedGenerationAttempts = new Map<string, string>();
+
+function generationAttemptKey(attemptId: string, outputId: string): string {
+  return `${attemptId}:${outputId}`;
+}
+
+export function hasStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+): boolean {
+  return startedGenerationAttempts.has(
+    generationAttemptKey(attemptId, outputId),
+  );
+}
+
+export function getStartedGenerationAttemptTabId(
+  attemptId: string,
+  outputId: string,
+): string | null {
+  return (
+    startedGenerationAttempts.get(generationAttemptKey(attemptId, outputId)) ??
+    null
+  );
+}
+
+export function clearStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+): void {
+  startedGenerationAttempts.delete(generationAttemptKey(attemptId, outputId));
+}
+
+function recordStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+  tabId: string,
+): void {
+  startedGenerationAttempts.set(
+    generationAttemptKey(attemptId, outputId),
+    tabId,
+  );
+  window.dispatchEvent(
+    new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+      detail: { generationAttemptId: attemptId, outputId, tabId },
+    }),
+  );
+}
 
 type AgentGeneratingSubmitOptions = Pick<
   AgentChatMessage,
@@ -25,28 +72,47 @@ type AgentGeneratingSubmitOptions = Pick<
   | "engine"
   | "effort"
   | "submitMessageId"
+  | "targetTabId"
 > & {
   reuseEmptyTab?: boolean;
   attachments?: ReadonlyArray<unknown>;
+  generationAttemptId?: string;
+  generationOutputId?: string;
 };
 
-/**
- * Tracks whether an agent chat submission is in progress.
- * Wraps @agent-native/core's useAgentChatGenerating hook, with a timeout
- * fallback so a run that never reports completion can't spin forever.
- */
-export function useAgentGenerating() {
-  const [generating, send, stopReason] = useAgentChatGenerating();
+export function useAgentGenerating(options?: {
+  tabId: string | null;
+  progressToken?: number;
+}) {
+  const hasTabScope = options !== undefined;
+  const scopedTabId = options?.tabId ?? null;
+  const progressToken = options?.progressToken;
+  const [generating, send, stopReason, observedRun] = useAgentChatGenerating(
+    hasTabScope ? { tabId: scopedTabId } : undefined,
+  );
   const engineConfigured = useAgentEngineConfigured();
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [runError, setRunError] = useState(false);
+  const serverRunState = useRunStuckDetection({
+    threadId: hasTabScope ? scopedTabId : null,
+    enabled: hasTabScope && timedOut,
+  });
+  const abortRun = useAbortRun();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSubmitRef = useRef<string | null>(null);
-  const activeTabRef = useRef<string | null>(null);
+  const activeGenerationAttemptRef = useRef<{
+    attemptId: string;
+    outputId: string;
+    submitMessageId: string;
+  } | null>(null);
+  const scopedTabIdRef = useRef<string | null>(scopedTabId);
+  scopedTabIdRef.current = scopedTabId;
+  const activeTabRef = useRef<string | null>(scopedTabId);
   const generationActiveRef = useRef(false);
   generationActiveRef.current = generating || recentlyGenerating;
+  const lastProgressTokenRef = useRef(progressToken);
 
   const clearWatchdog = useCallback(() => {
     if (timeoutRef.current !== null) {
@@ -62,7 +128,60 @@ export function useAgentGenerating() {
     }
   }, []);
 
+  const resetWatchdog = useCallback(() => {
+    clearWatchdog();
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      setTimedOut(true);
+    }, GENERATION_NO_PROGRESS_TIMEOUT_MS);
+  }, [clearWatchdog]);
+
   const providerMissing = engineConfigured.state === "missing";
+  const freshBackgroundWorker =
+    serverRunState.status === "running" &&
+    serverRunState.dispatchMode === "background-processing" &&
+    serverRunState.heartbeatSinceMs != null &&
+    serverRunState.heartbeatSinceMs >= 0 &&
+    serverRunState.heartbeatSinceMs < 30_000;
+  const serverConfirmedIdleAfterTimeout =
+    hasTabScope &&
+    timedOut &&
+    serverRunState.status === "idle" &&
+    serverRunState.runId === null;
+  const canContinueAfterStall = Boolean(
+    timedOut &&
+    serverRunState.isStuck &&
+    serverRunState.status === "running" &&
+    serverRunState.runId &&
+    serverRunState.hasInFlightWork === false &&
+    !freshBackgroundWorker,
+  );
+  const abortStalledRun = useCallback(async () => {
+    const runId = serverRunState.runId;
+    if (!canContinueAfterStall || !runId) return false;
+    return (await abortRun(runId, "user_stuck_retry")) === runId;
+  }, [abortRun, canContinueAfterStall, serverRunState.runId]);
+
+  useEffect(() => {
+    if (!serverConfirmedIdleAfterTimeout) return;
+    activeSubmitRef.current = null;
+    activeTabRef.current = null;
+    clearStopDebounce();
+    clearWatchdog();
+    setRecentlyGenerating(false);
+    setRunError(true);
+  }, [clearStopDebounce, clearWatchdog, serverConfirmedIdleAfterTimeout]);
+
+  useEffect(() => {
+    if (!hasTabScope) return;
+    activeTabRef.current = scopedTabId;
+    activeSubmitRef.current = null;
+    clearStopDebounce();
+    clearWatchdog();
+    setRecentlyGenerating(false);
+    setTimedOut(false);
+    setRunError(false);
+  }, [clearStopDebounce, clearWatchdog, hasTabScope, scopedTabId]);
 
   useEffect(() => {
     if (!providerMissing) return;
@@ -83,6 +202,17 @@ export function useAgentGenerating() {
         return;
       }
       activeTabRef.current = detail.tabId;
+      const generationAttempt = activeGenerationAttemptRef.current;
+      if (
+        generationAttempt &&
+        generationAttempt.submitMessageId === detail.submitMessageId
+      ) {
+        recordStartedGenerationAttempt(
+          generationAttempt.attemptId,
+          generationAttempt.outputId,
+          detail.tabId,
+        );
+      }
     };
     const errorHandler = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -120,6 +250,7 @@ export function useAgentGenerating() {
       ) {
         return;
       }
+      if (scopedTabIdRef.current) return;
       activeSubmitRef.current = null;
       activeTabRef.current = null;
     };
@@ -135,6 +266,36 @@ export function useAgentGenerating() {
   }, [clearStopDebounce, clearWatchdog]);
 
   useEffect(() => {
+    const handleProgress = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        !generationActiveRef.current ||
+        typeof detail?.tabId !== "string" ||
+        detail.tabId !== activeTabRef.current
+      ) {
+        return;
+      }
+      setTimedOut(false);
+      resetWatchdog();
+    };
+
+    window.addEventListener("agent-chat:stream-progress", handleProgress);
+    window.addEventListener("agent-chat:activity", handleProgress);
+    return () => {
+      window.removeEventListener("agent-chat:stream-progress", handleProgress);
+      window.removeEventListener("agent-chat:activity", handleProgress);
+    };
+  }, [resetWatchdog]);
+
+  useEffect(() => {
+    if (lastProgressTokenRef.current === progressToken) return;
+    lastProgressTokenRef.current = progressToken;
+    if (!generationActiveRef.current) return;
+    setTimedOut(false);
+    resetWatchdog();
+  }, [progressToken, resetWatchdog]);
+
+  useEffect(() => {
     if (runError) {
       clearStopDebounce();
       clearWatchdog();
@@ -148,6 +309,7 @@ export function useAgentGenerating() {
       return clearStopDebounce;
     }
     if (generating) {
+      if (hasTabScope && timeoutRef.current === null) resetWatchdog();
       clearStopDebounce();
       setRecentlyGenerating(true);
     } else if (recentlyGenerating) {
@@ -169,8 +331,10 @@ export function useAgentGenerating() {
     recentlyGenerating,
     stopReason,
     runError,
+    hasTabScope,
     clearStopDebounce,
     clearWatchdog,
+    resetWatchdog,
   ]);
 
   useEffect(
@@ -187,35 +351,136 @@ export function useAgentGenerating() {
       context: string,
       options?: AgentGeneratingSubmitOptions,
     ) => {
+      const {
+        generationAttemptId,
+        generationOutputId,
+        submitMessageId: requestedSubmitMessageId,
+        ...agentOptions
+      } = options ?? {};
       const submitMessageId =
-        options?.submitMessageId ??
+        requestedSubmitMessageId ??
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
-      clearWatchdog();
-      timeoutRef.current = setTimeout(
-        () => setTimedOut(true),
-        MAX_GENERATING_MS,
-      );
+      resetWatchdog();
       activeSubmitRef.current = submitMessageId;
-      activeTabRef.current = send({
+      activeGenerationAttemptRef.current =
+        generationAttemptId && generationOutputId
+          ? {
+              attemptId: generationAttemptId,
+              outputId: generationOutputId,
+              submitMessageId,
+            }
+          : null;
+      activeTabRef.current = null;
+      const returnedTabId = send({
         message,
         context,
         submit: true,
         submitMessageId,
-        ...options,
+        ...agentOptions,
       } as AgentChatMessage & { attachments?: ReadonlyArray<unknown> });
+      activeTabRef.current ??= returnedTabId;
+      if (
+        generationAttemptId &&
+        generationOutputId &&
+        activeTabRef.current &&
+        typeof window !== "undefined"
+      ) {
+        recordStartedGenerationAttempt(
+          generationAttemptId,
+          generationOutputId,
+          activeTabRef.current,
+        );
+      }
     },
-    [send, clearWatchdog],
+    [send, resetWatchdog],
+  );
+
+  const submitAndConfirm = useCallback(
+    (
+      message: string,
+      context: string,
+      options?: AgentGeneratingSubmitOptions,
+    ) => {
+      const {
+        generationAttemptId,
+        generationOutputId,
+        submitMessageId: requestedSubmitMessageId,
+        ...agentOptions
+      } = options ?? {};
+      const submitMessageId =
+        requestedSubmitMessageId ??
+        `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setTimedOut(false);
+      setRunError(false);
+      resetWatchdog();
+      activeSubmitRef.current = submitMessageId;
+      activeTabRef.current = null;
+      const submission = sendToAgentChatAndConfirm(
+        {
+          message,
+          context,
+          submit: true,
+          submitMessageId,
+          chatTarget: "local",
+          ...agentOptions,
+        } as AgentChatMessage & { attachments?: ReadonlyArray<unknown> },
+        { submitMessageId },
+      );
+      void submission.then(({ tabId, delivered }) => {
+        if (!delivered) {
+          if (activeSubmitRef.current === submitMessageId) {
+            activeSubmitRef.current = null;
+            activeTabRef.current = null;
+            clearWatchdog();
+            setRecentlyGenerating(false);
+            setTimedOut(false);
+            setRunError(false);
+          }
+          return;
+        }
+        const targetTabId = activeTabRef.current ?? tabId;
+        activeTabRef.current = targetTabId;
+        if (
+          generationAttemptId &&
+          generationOutputId &&
+          typeof window !== "undefined"
+        ) {
+          startedGenerationAttempts.set(
+            generationAttemptKey(generationAttemptId, generationOutputId),
+            targetTabId,
+          );
+          window.dispatchEvent(
+            new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+              detail: {
+                generationAttemptId,
+                outputId: generationOutputId,
+                tabId: targetTabId,
+              },
+            }),
+          );
+        }
+      });
+      return submission;
+    },
+    [clearWatchdog],
   );
 
   return {
     generating:
       !providerMissing &&
+      !serverConfirmedIdleAfterTimeout &&
       stopReason !== "stopped" &&
       (generating || recentlyGenerating) &&
-      !timedOut &&
       !runError,
+    runError,
+    stopReason,
+    observedRun,
+    timedOut,
+    canContinueAfterStall,
+    abortStalledRun,
     submit,
+    submitAndConfirm,
   };
 }

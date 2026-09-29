@@ -5,7 +5,7 @@ description: "使用 Netlify Nitro 预设将代理本机应用部署到 Netlify,
 
 # Netlify
 
-Nitro 的 `netlify` 预设效果很好,在实践中,对于与外部 Postgres(Neon)通信的模板,它带来的冷启动比 Cloudflare Pages 快得多(TTFB 约 200 毫秒,而后者约 9 秒)。对于生成脚手架之外的最小配置，请在 `vite.config.ts` 中这样设置预设：
+Nitro 的 `netlify` 预设效果很好,在实践中,对于与外部 Postgres(Neon)通信的模板,它带来很快的冷启动(TTFB 约 200 毫秒)。对于生成脚手架之外的最小配置，请在 `vite.config.ts` 中这样设置预设：
 
 ```ts filename="vite.config.ts"
 export default defineConfig({

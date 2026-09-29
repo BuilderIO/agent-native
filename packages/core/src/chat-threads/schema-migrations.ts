@@ -3,11 +3,6 @@ import type { MigrationEntry } from "../db/migrations.js";
 export const CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE =
   "_chat_thread_schema_migrations";
 
-/**
- * Authoritative release-time schema for the framework chat thread store.
- * Request functions skip the store's fallback DDL in production, so a chat
- * deployment must create this schema before it starts serving requests.
- */
 export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -65,16 +60,6 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
   {
     version: 3,
     name: "chat-threads-source-backfill",
-    // Retires a `thread_data NOT LIKE '%…%'` filter the local-only list used to
-    // carry for integration rows written before `source_platform` existed. That
-    // predicate forced Postgres to detoast the full message-history blob for
-    // every scanned row, so the sidebar list cost seconds regardless of LIMIT.
-    // Paying the scan once here keeps the read path off the blob forever.
-    //
-    // The matching `LOWER(...)` expression indexes deliberately do NOT live
-    // here: they are built CONCURRENTLY in the store's ensure path, and
-    // Postgres forbids that inside the transaction `runMigrations` wraps
-    // around these statements.
     sql: `
       UPDATE chat_threads
         SET source_platform = 'integration'

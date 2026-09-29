@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 
-import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../../action-ui.js";
+import {
+  ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+} from "../../action-ui.js";
 import { cn } from "../utils.js";
 import type { ToolRendererContext } from "./tool-render-registry.js";
 
@@ -13,7 +16,13 @@ export function ActionChatUiSurface({
   isBuiltinDataWidget: boolean;
   children: ReactNode;
 }) {
-  if (!context.chatUI || isBuiltinDataWidget) return <>{children}</>;
+  if (
+    !context.chatUI ||
+    isBuiltinDataWidget ||
+    context.chatUI.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER
+  ) {
+    return <>{children}</>;
+  }
 
   const containsPaddedIframe =
     context.chatUI.renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER;

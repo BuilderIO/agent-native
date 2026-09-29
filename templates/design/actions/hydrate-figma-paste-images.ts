@@ -33,7 +33,6 @@ import {
 import { resolveImageFillRefs } from "../server/lib/figma-node-import.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 
-// Re-exported for direct unit testing of the pure HTML helpers.
 export { collectImageRefHashes, hydrateImageRefsInHtml };
 
 export default defineAction({

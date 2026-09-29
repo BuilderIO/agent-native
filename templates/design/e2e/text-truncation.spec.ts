@@ -265,6 +265,9 @@ async function zoomAndPanTitleIntoCanvas(page: Page, nodeId: string) {
     const moveY = Math.max(-280, Math.min(280, deltaY));
     const startX = surfaceBox.x + surfaceBox.width / 2;
     const startY = surfaceBox.y + surfaceBox.height / 2;
+    await page.evaluate(() =>
+      (document.activeElement as HTMLElement | null)?.blur(),
+    );
     await page.keyboard.down("Space");
     await page.mouse.move(startX, startY);
     await page.mouse.down();
@@ -408,17 +411,24 @@ test(
       await expect
         .poll(() => readStyle(page, "class-title", "overflow"))
         .toBe("clip");
-      const disabledSource = await readSource(page, designId);
-      expect(
-        inlineValue(disabledSource, "class-title", "-webkit-line-clamp"),
-      ).toBe("none");
-      expect(
-        inlineValue(
-          disabledSource,
-          "class-title",
-          "--agent-native-truncate-original-display",
-        ),
-      ).toBe("initial");
+      await expect
+        .poll(async () =>
+          inlineValue(
+            await readSource(page, designId),
+            "class-title",
+            "-webkit-line-clamp",
+          ),
+        )
+        .toBe("none");
+      await expect
+        .poll(async () =>
+          inlineValue(
+            await readSource(page, designId),
+            "class-title",
+            "--agent-native-truncate-original-display",
+          ),
+        )
+        .toBe("initial");
 
       await page.getByRole("button", { name: "Move", exact: true }).click();
       await page.keyboard.press(`${MOD}+z`);

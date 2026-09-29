@@ -16,6 +16,14 @@ describe("shared framework prompt rules", () => {
     expect(buildFrameworkCoreCompact()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
   });
 
+  it("keeps action-card narration concise in full and compact prompts", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "When an action card already summarizes a result, add only context or next steps instead of repeating its fields.",
+      );
+    }
+  });
+
   it("teaches provider API fallback and corpus-first coverage generically", () => {
     const rule = sharedRule8({
       providerActions: ["github-search", "notion-search"],

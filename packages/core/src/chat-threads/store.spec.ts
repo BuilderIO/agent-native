@@ -31,7 +31,7 @@ import {
   setThreadArchived,
   threadScopeMismatch,
   setThreadPinned,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   updateThreadData,
 } from "./store.js";
 
@@ -108,7 +108,6 @@ describe("chat thread store", () => {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
-        // Legacy message_count backfill probe — no legacy rows in these tests.
         return { rows: [], rowsAffected: 0 };
       }
       if (/WHERE thread_data LIKE \?/i.test(sql)) {
@@ -160,7 +159,7 @@ describe("chat thread store", () => {
           thread_data: args[0],
           title: args[1],
           preview: args[2],
-          message_count: args[3],
+          message_count: args[3] === null ? row.message_count : args[3],
           updated_at: args[4],
         };
         return { rows: [], rowsAffected: 1 };
@@ -403,34 +402,58 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
-  it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
-    row!.thread_data = JSON.stringify({
-      queuedMessages: [{ id: "queued-1", text: "next" }],
-      messages: [{ message: userMessage, parentId: null }],
+  it("reapplies queued-message appends after a cross-process CAS conflict", async () => {
+    const first = { id: "queued-1", text: "First" };
+    const concurrent = { id: "queued-2", text: "Second" };
+    const appended = { id: "queued-3", text: "Third", threadId: "thread-1" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [first] });
+
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [first, concurrent] }),
+        updated_at: 2,
+      };
+    };
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: appended,
     });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      first,
+      concurrent,
+      appended,
+    ]);
+    expect(row!.preview).toBe("make this slide better");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("removes only the requested queue item after a concurrent append", async () => {
+    const removed = { id: "queued-1", text: "Remove this" };
+    const remaining = { id: "queued-2", text: "Keep this" };
+    const concurrent = { id: "queued-3", text: "Added in another tab" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [removed, remaining] });
 
     conflictOnce = () => {
       row = {
         ...row!,
         thread_data: JSON.stringify({
-          queuedMessages: [{ id: "queued-1", text: "next" }],
-          messages: [
-            { message: userMessage, parentId: null },
-            { message: assistantMessage, parentId: "user-1" },
-          ],
+          queuedMessages: [removed, remaining, concurrent],
         }),
-        message_count: 2,
         updated_at: 2,
       };
     };
 
-    await setThreadQueuedMessages("thread-1", []);
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: removed.id,
+    });
 
-    const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toEqual([]);
-    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
-      "user-1",
-      "assistant-1",
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      remaining,
+      concurrent,
     ]);
   });
 
@@ -500,8 +523,6 @@ describe("chat thread store", () => {
 
     await searchThreads("user@example.com", "100%_done");
 
-    // Match the search query specifically (its WHERE has the ESCAPE clause),
-    // not the legacy-count backfill probe that also reads from chat_threads.
     const searchCall = executeMock.mock.calls.find(([query]) => {
       const sql = typeof query === "string" ? query : query.sql;
       return (
@@ -556,9 +577,7 @@ describe("chat thread store", () => {
     });
     expect(listCall).toBeTruthy();
     const sql = (listCall![0] as { sql: string }).sql;
-    // The list SELECT must NOT pull the heavy thread_data blob...
     expect(sql).not.toContain("thread_data");
-    // ...and the "has messages" filter is the maintained column, no LIKE scan.
     expect(sql).toContain("message_count > 0");
     expect(sql).not.toMatch(/thread_data LIKE/i);
     expect(sql).toContain("chat_thread_shares");
@@ -670,11 +689,9 @@ describe("chat thread store", () => {
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
-    // Default: archived thread is hidden from listThreads.
     const defaultList = await listThreads("user@example.com", { limit: 10 });
     expect(defaultList.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it again.
     const listWithArchived = await listThreads("user@example.com", {
       limit: 10,
       includeArchived: true,
@@ -684,11 +701,9 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Default: archived thread is hidden from searchThreads.
     const defaultSearch = await searchThreads("user@example.com", "Thread");
     expect(defaultSearch.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it in search too.
     const searchWithArchived = await searchThreads(
       "user@example.com",
       "Thread",
@@ -700,7 +715,6 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Unarchiving restores the thread to the default list.
     const unarchived = await setThreadArchived("thread-archived", false);
     expect(unarchived).toBe(true);
     expect(archivedRow.archived_at).toBeNull();
@@ -714,8 +728,6 @@ describe("chat thread store", () => {
   });
 
   it("keeps the legacy message_count repair out of table bootstrap", async () => {
-    // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
     const updates: Array<{ count: number; id: string }> = [];
     let repairScans = 0;
@@ -725,7 +737,6 @@ describe("chat thread store", () => {
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      // The legacy backfill probe: a row that has messages but count = 0.
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
         repairScans++;
         return {
@@ -1072,7 +1083,6 @@ describe("chat thread store", () => {
       },
     });
 
-    // Fresh persisted data wins.
     expect(forked?.messageCount).toBe(2);
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
@@ -1160,7 +1170,6 @@ describe("adoptThreadScopeIfUnscoped", () => {
         return { rows: [], rowsAffected: 0 };
       }
       if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
-        // Honour the compare-and-set guard the real statement carries.
         if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
           return { rows: [], rowsAffected: 0 };
         }

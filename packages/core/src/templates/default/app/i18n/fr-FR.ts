@@ -232,6 +232,9 @@ const messages = {
       noErrorMessage: "(aucun message d’erreur)",
     },
   },
+  settingsShortcut: {
+    command: "Paramètres",
+  },
   agentPanel: {
     useBuilder: "Utiliser le générateur",
     openDesktopToEditCode: "Ouvrir le bureau pour modifier le code",
@@ -247,6 +250,7 @@ const messages = {
     newChat: "Nouveau chat",
     newTerminal: "Nouvelle borne",
     panelOptions: "Options du panneau d'agent",
+    integrations: "Intégrations",
     collapseSidebar: "Réduire la barre latérale",
     widenChat: "Élargir le chat",
     returnChatToLayout: "Remettre le chat dans la mise en page",
@@ -272,6 +276,8 @@ const messages = {
     sharedKeyInEffect: "Une clé partagée est utilisée.",
     useOrganizationKey: "Utiliser la clé de l’organisation",
     keyStatusUnavailable: "L’état de la clé est indisponible.",
+    saveScopeRoleUnavailable:
+      "Impossible de charger votre rôle dans l’organisation. Les clés ne peuvent pas encore être enregistrées.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -279,6 +285,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Fermer",
     shareOptions: "Options de partage",
+    people: "Personnes",
+    agents: "Agents",
     link: "Lien",
     invite: "Invite",
     embed: "Embed",
@@ -697,6 +705,7 @@ const messages = {
     reviewFeedback: "Avis",
     reviewOutput: "Revoir la réponse",
     reviewPreview: "Aperçu de la réponse",
+    reviewPreviewUnavailable: "Aperçu indisponible",
     closePreview: "Masquer l'aperçu",
     addFeedback: "Ajouter un commentaire",
     draftInstruction: "Brouillon d'instruction",
@@ -719,6 +728,7 @@ const messages = {
     saveUpdate: "Enregistrer le brouillon",
     draftSaved: "Brouillon enregistré",
     noReviews: "Aucune réponse d’agent à examiner pour le moment",
+    summarizeWithAgent: "Résumer avec l’agent",
   },
   error: {
     genericTitle: "Une erreur est survenue",

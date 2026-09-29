@@ -91,23 +91,11 @@ export function cloneCanvasFrameGeometry(
   );
 }
 
-/**
- * Freshness guard for geometry undo/redo. Returns the ids of frames that a
- * geometry history entry touched whose LIVE geometry no longer matches what the
- * entry expects (`expected` = the state this entry previously wrote). A
- * non-empty result means a concurrent peer/agent moved those frames since the
- * snapshot was captured, so replaying the entry's stored "before"/"after" would
- * clobber their change. Frames absent from live geometry (deleted) are treated
- * as changed. Only compares the frames the entry itself changed, so unrelated
- * concurrent edits to OTHER frames don't block this undo.
- */
 export function staleGeometryFrameIds(
   entry: GeometryHistoryEntry,
   live: CanvasFrameGeometryById,
   expected: CanvasFrameGeometryById,
 ): string[] {
-  // A frame is "touched" when ANY geometry field differs between before and
-  // after — moves (x/y), rotation, and z-order count, not just viewport size.
   const touched = new Set<string>(
     [...Object.keys(entry.before), ...Object.keys(entry.after)].filter(
       (frameId) =>
@@ -118,7 +106,7 @@ export function staleGeometryFrameIds(
   for (const frameId of touched) {
     const expectedGeo = expected[frameId];
     const liveGeo = live[frameId];
-    if (!expectedGeo) continue; // entry didn't establish this frame's geometry
+    if (!expectedGeo) continue;
     if (!liveGeo || JSON.stringify(liveGeo) !== JSON.stringify(expectedGeo)) {
       stale.push(frameId);
     }
@@ -126,14 +114,6 @@ export function staleGeometryFrameIds(
   return stale;
 }
 
-/**
- * Placement for a brand-new frame added alongside an existing canvas layout.
- * add-localhost-screens falls back to (0, 0) for a new file with no explicit
- * x/y, which lands it on top of whatever frame already occupies that spot —
- * callers that add a single frame on demand (rather than laying out a whole
- * canvas from empty) must supply an explicit position instead of relying on
- * that fallback.
- */
 export function nextLocalhostScreenPosition(
   framesById: CanvasFrameGeometryById,
 ): { x: number; y: number } {

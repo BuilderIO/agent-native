@@ -33,6 +33,70 @@ const messages = {
       newest: "Newest",
       priority: "Priority",
       priorityFailed: "Couldn’t rank this inbox.",
+      priorityScoreHelp:
+        "Higher scores mean Jev expects the message to be more important.",
+      priorityFeedbackSuggestion:
+        "Turn this feedback pattern into an importance or auto-archive rule.",
+      priorityFeedbackAskAgent: "Ask agent to suggest rules",
+      aiSetupTitle: "Set up your AI inbox",
+      aiSetupTagLabel: "Create an AI tag",
+      aiSetupImportanceLabel: "Important mail",
+      aiSetupSpamLabel: "Spam",
+      aiSetupArchiveLabel: "Skip inbox",
+      aiSetupSave: "Save setup",
+      aiSetupSkip: "Skip for now",
+      aiSetupSkipSetup: "Skip inbox setup",
+      aiSetupImportantHeadline: "What’s important",
+      aiSetupSkipInboxHeadline: "What can skip your inbox",
+      aiSetupTagsHeadline: "Pick your tabs",
+      aiSetupArchiveSpamHeadline: "Skip inbox and Spam",
+      aiSetupTagReceipts: "Receipts",
+      aiSetupTagUpdates: "Product updates",
+      aiSetupTagGitHub: "GitHub humans",
+      aiSetupPromptReceipts:
+        "Receipts and order confirmations from online shops",
+      aiSetupPromptUpdates:
+        "Product updates and release notes from tools I use",
+      aiSetupPromptGitHub: "GitHub notifications where a human left a comment",
+      aiSetupImportantPrompt:
+        "Messages that need a reply or have a deadline, including comments from people on GitHub. Skip bot comments.",
+      aiSetupArchiveSpamPrompt:
+        "Skip inbox: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
+      aiSetupCustomTag: "Custom",
+      aiSetupDone: "Done",
+      aiSetupRunAgain: "Run setup again",
+      aiSetupTagCalendar: "Calendar",
+      aiSetupPromptCalendar: "Calendar invitations and event updates I need",
+      aiSetupTagTravel: "Travel",
+      aiSetupPromptTravel: "Travel confirmations and reservations I need",
+      aiSetupTagFinance: "Finance",
+      aiSetupPromptFinance: "Bills and account statements I need",
+      aiSetupArchiveExample:
+        "Bot and CI notifications from GitHub, Vercel, and Dependabot",
+      aiSetupFilteredExample:
+        "Cold sales outreach and recruiters I haven't replied to",
+      aiSetupSortingHeadline: "Sorting your inbox",
+      aiSetupFindingRecentMail: "Finding recent mail…",
+      aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
+      aiSetupUndoing: "Undoing inbox changes…",
+      aiSetupSortingFailed:
+        "Could not sort your inbox. Your rules are saved; try again.",
+      aiSetupUndoComplete:
+        "Restored {{count}} messages to their previous state.",
+      aiSetupRuleCount: "{{count}} matched",
+      aiSetupNoMatches: "No messages in the last 14 days matched these rules.",
+      aiSetupChatTip: "You can refine or add rules anytime in chat.",
+      aiSetupChatPrompt: "Prioritize emails from my boss…",
+      aiSetupNoRules: "No rules were selected.",
+      aiSetupPartialFailure: "{{count}} messages could not be updated.",
+      aiSetupSortInbox: "Sort my inbox",
+      aiSetupImportantExample: "Anything from my manager, Priya…",
+      priorityFeedbackLabel: "Importance feedback",
+      priorityScoreHigh: "High importance",
+      priorityScoreMedium: "Medium importance",
+      priorityScoreLow: "Low importance",
+      priorityEditRules: "Edit importance rules",
+      aiSetupContinue: "Continue",
     },
     toolbar: {
       toggleMenu: "Toggle menu",
@@ -47,7 +111,7 @@ const messages = {
       unpinSidebar: "Unpin sidebar",
       closeSidebar: "Close sidebar",
       settings: "Settings",
-      aiSettings: "AI tags & spam",
+      aiSettings: "Manage tags and rules",
     },
     search: {
       label: "Search",
@@ -62,6 +126,7 @@ const messages = {
       filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
+      splitInbox: "Split inbox",
       views: "Views",
       categories: "Categories",
       rename: "Rename",
@@ -69,7 +134,8 @@ const messages = {
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
       allTab: "All tab",
-      help: "All includes every inbox thread. Checked labels split the inbox.",
+      help: "Combined inbox shows every account together; turn it off to split mail into tabs.",
+      aiSetup: "Set up AI tags and rules",
     },
     accounts: {
       remove: "Remove",
@@ -103,6 +169,7 @@ const messages = {
       deleteDraft: "Delete draft",
       deleteDrafts: "Delete drafts",
       reopenDraft: "Reopen",
+      openInMail: "Open in Mail",
       discardDraft: "Discard draft",
       enterLinkUrl: "Enter the URL for the link.",
       forward: "Forward",
@@ -380,6 +447,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connect your Google account",
+      connectionNotConfigured:
+        "Gmail connection isn't configured for this app. Ask your administrator to enable it, or skip this step for now.",
       heroDescription:
         "Send and receive real email. Connect your Gmail account to get started.",
       setupIntro:
@@ -433,6 +502,7 @@ const messages = {
       neverSpam: "Never spam",
       neverImportant: "Never important",
       important: "Important",
+      notImportant: "Not important",
       star: "Star",
       trash: "Trash",
       applyLabel: "Apply label",
@@ -492,6 +562,8 @@ const messages = {
         "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
       learningNote:
         "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      learningProgress:
+        "Confirmed {{count}} of {{required}} examples. Recent mail will be checked after {{required}} are confirmed.",
       rememberLabel: "Remember for future mail (optional)",
       correctLabel: "What should it learn? (optional)",
       rememberPlaceholder:
@@ -505,10 +577,43 @@ const messages = {
       keptToast: "Kept {{count}} conversation(s) in Inbox.",
       actionFailed: "Could not update the AI filter.",
       settingsFailed: "Could not save AI filter settings.",
+      automationRulesLoadFailed: "Couldn’t load triage rules.",
       instructionFailed: "Could not save AI filter instruction.",
+      autoArchiveMode: "Auto-archive",
+      skipInboxMode: "Skip inbox",
       spamMode: "Spam",
       tagMode: "Tag",
+      aiTagsTitle: "AI tags",
+      ruleHelpLabel: "Explain {{mode}} rules",
+      aiTagRuleHelp:
+        "Write a natural-language prompt. Jev adds this tag to matching mail.",
+      importantRuleHelp:
+        "Write a natural-language prompt. Jev marks matching mail as Important.",
+      skipInboxRuleHelp:
+        "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
+      spamRuleHelp:
+        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
+      filteredMode: "Filtered",
+      manageSettings: "Manage",
+      askJev: "Ask Jev",
+      askJevPrompt:
+        "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
+      composerPlaceholder: "Ask Jev to organize your inbox…",
+      chatSuggestionFilter: "Filter out messages like this",
+      chatSuggestionPriority: "Prioritize emails from…",
+      chatSuggestionArchive: "Auto-archive bot notifications",
+      ruleBackfillStarting: "Applying this rule to recent mail…",
+      ruleBackfillProgress:
+        "Applying to recent mail: {{processed}} of {{total}}",
+      ruleBackfillMatches: "{{count}} recent messages matched",
+      ruleBackfillNoMatches: "No recent messages matched this rule.",
+      ruleBackfillFailed: "Could not apply this rule to recent mail.",
+      ruleBackfillPartialFailure: "{{count}} messages could not be updated.",
+      ruleBackfillUndoing: "Restoring recent mail…",
+      ruleBackfillUndoComplete: "{{count}} messages restored",
+      ruleBackfillReview: "Review matches",
       importantMode: "Important",
+      notImportantMode: "Not important",
       importantLabel: "AI Important",
       reviewImportant: "View important",
       ruleAdded: "AI rule added.",
@@ -517,6 +622,8 @@ const messages = {
       spamLabelHint: "Matches are labeled and moved out of Inbox.",
       spamPlaceholder: "e.g. Messages that are clearly promotional or unwanted",
       tagPlaceholder: "e.g. Receipts and order confirmations from online shops",
+      archivePlaceholder:
+        "e.g. GitHub bot notifications that do not need my attention",
       importantPlaceholder:
         "e.g. Messages that need a reply or have a deadline",
       addShortcut: "Press ⌘ Enter to add",
@@ -540,6 +647,16 @@ const messages = {
       addRuleToPreview: "Add an AI rule to preview recent mail.",
       previewEmpty: "Run a preview to see likely matches here.",
       previewFailed: "Could not preview recent mail.",
+      promptRulesCleared: "Triage rules removed.",
+      tagTabsHelp: "Each tag becomes an inbox tab",
+      addTag: "Add tag",
+      triageTitle: "AI triage",
+      connectJev: "Connect Jev",
+      connectJevToRunTriage: "Connect Jev to run triage",
+      freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
+      jevAvailabilityFailed: "Could not check whether Jev is available.",
+      connectBuilder: "Connect Builder.io",
+      addJevApiKey: "Add API key",
     },
     draftQueue: {
       title: "Draft queue",
@@ -598,6 +715,9 @@ const messages = {
     suggestionSummarize: "Summarize my unread emails",
     suggestionReplies: "What needs my reply today?",
     suggestionWidget: "Build me a custom widget for my inbox",
+    ruleSuggestionFilter: "Filter out messages like this",
+    ruleSuggestionImportant: "Prioritize emails from my boss",
+    ruleSuggestionArchive: "Auto-archive bot notifications",
   },
   settings: {
     openAgentSettings: "Manage agent",
@@ -695,8 +815,6 @@ const messages = {
     slackPostEndpoint: "Slack POST endpoint",
     slackPostEndpointHelp:
       "Use in Slack Event Subscriptions. Browser GET may show Not Found.",
-    teamDescription:
-      "Set up a team to share email automations and settings with your colleagues.",
     title: "Settings",
     general: "General",
     generalDescription: "Language and account-level preferences for Mail.",
@@ -721,12 +839,19 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
-    aiFilter: "AI filter",
-    gmailFilters: "Gmail Filters",
+    rules: "Rules",
+    rulesModel: "Rules model",
+    rulesModelDescription: "Matches incoming mail against your rules.",
+    slackDraftRequests: "Draft requests",
+    slackDraftQueue: "Queue drafts from Slack",
+    slackDraftQueueDescription:
+      "Teammates mention the agent in Slack to request an email draft. Drafts wait in your draft queue for review.",
+    openDraftQueue: "Open draft queue",
+    aiFilter: "AI triage",
+    gmailFilters: "Gmail filters",
     aliases: "Aliases",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },
