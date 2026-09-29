@@ -154,6 +154,41 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+// The handler is measured with release-owned migrations, so every schema the
+// template's release script migrates has to exist before it loads; otherwise
+// plugin queries fail against missing tables and drop out of the count.
+async function loadCreativeContextMigrations(
+  template: string,
+): Promise<((nitroApp: null) => Promise<void> | void) | null> {
+  const releaseScript = path.resolve(
+    "templates",
+    template,
+    "scripts/migrate-production.ts",
+  );
+  let source: string;
+  try {
+    source = await readFile(releaseScript, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (!source.includes("creativeContextDbPlugin")) return null;
+  const templateRequire = createRequire(
+    path.resolve("templates", template, "package.json"),
+  );
+  const { creativeContextDbPlugin } = (await import(
+    pathToFileURL(
+      templateRequire.resolve("@agent-native/creative-context/server"),
+    ).href
+  )) as { creativeContextDbPlugin?: unknown };
+  if (typeof creativeContextDbPlugin !== "function") {
+    fail(
+      `${template}: @agent-native/creative-context/server did not export creativeContextDbPlugin`,
+    );
+  }
+  return creativeContextDbPlugin as (nitroApp: null) => Promise<void> | void;
+}
+
 async function provisionTemplateSchema(template: string): Promise<void> {
   // Provision disposable PGlite before the production-marked handler loads.
   await withSchemaProvisioningRuntime(async () => {
@@ -190,8 +225,11 @@ async function provisionTemplateSchema(template: string): Promise<void> {
     }
 
     const migrationExports = TEMPLATE_MIGRATION_EXPORTS[template] ?? [];
+    const creativeContextMigrations =
+      await loadCreativeContextMigrations(template);
     await withMigrationRuntime(async () => {
       await runFrameworkReleaseMigrations(null);
+      await creativeContextMigrations?.(null);
       if (template === "dispatch") {
         const dispatchMigrations = migrationModule.dispatchMigrations;
         if (!Array.isArray(dispatchMigrations)) {

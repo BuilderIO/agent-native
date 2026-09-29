@@ -257,6 +257,30 @@ export function validateReleaseMigrationLoadsEnv(
   return [`${file}: must load app and workspace environment before migrating`];
 }
 
+/**
+ * Release-owned apps skip request-time migrations, so a plugin that migrates
+ * its own tables at boot never migrates in production unless the release
+ * script runs the same migration list.
+ */
+export function validateReleaseMigrationCoversPlugins(
+  pluginSources: string[],
+  releaseSource: string,
+  file: string,
+): string[] {
+  const mountsCreativeContext = pluginSources.some((source) =>
+    executableSource(source).includes("setupCreativeContext("),
+  );
+  if (
+    !mountsCreativeContext ||
+    executableSource(releaseSource).includes("awaitcreativeContextDbPlugin(")
+  ) {
+    return [];
+  }
+  return [
+    `${file}: server plugins mount setupCreativeContext, so the release script must await creativeContextDbPlugin(null)`,
+  ];
+}
+
 export function validateManagedDrizzleMigrationOwnership(
   repoRoot = REPO_ROOT,
 ): string[] {
@@ -335,10 +359,31 @@ export function findNetlifyReleaseMigrationIssues(
   }
   for (const relativeFile of globSync(RELEASE_MIGRATION_SCRIPT_GLOBS, {
     cwd: repoRoot,
+    exclude: (file) => /^corpus(?:\.tmp-|$)/.test(path.basename(file)),
   })) {
+    const releaseSource = readFileSync(
+      path.join(repoRoot, relativeFile),
+      "utf8",
+    );
     issues.push(
-      ...validateReleaseMigrationLoadsEnv(
-        readFileSync(path.join(repoRoot, relativeFile), "utf8"),
+      ...validateReleaseMigrationLoadsEnv(releaseSource, relativeFile),
+    );
+    const pluginSources = globSync("server/plugins/*.ts", {
+      cwd: path.join(repoRoot, path.dirname(path.dirname(relativeFile))),
+    }).map((pluginFile) =>
+      readFileSync(
+        path.join(
+          repoRoot,
+          path.dirname(path.dirname(relativeFile)),
+          pluginFile,
+        ),
+        "utf8",
+      ),
+    );
+    issues.push(
+      ...validateReleaseMigrationCoversPlugins(
+        pluginSources,
+        releaseSource,
         relativeFile,
       ),
     );

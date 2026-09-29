@@ -12,6 +12,7 @@ import {
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
+  validateReleaseMigrationCoversPlugins,
   validateReleaseMigrationLoadsEnv,
 } from "./guard-netlify-release-migrations.ts";
 
@@ -206,6 +207,38 @@ try {
     assert.deepEqual(
       validateReleaseMigrationLoadsEnv("await migrate();", file),
       [`${file}: must load app and workspace environment before migrating`],
+    );
+  });
+
+  it("requires release entrypoints to migrate plugin-owned schemas", () => {
+    const file = "templates/example/scripts/migrate-production.ts";
+    const plugin =
+      'import { setupCreativeContext } from "@agent-native/creative-context/server";\nexport default setupCreativeContext({ appId: "example" });\n';
+    assert.deepEqual(
+      validateReleaseMigrationCoversPlugins(
+        [plugin],
+        "await runFrameworkReleaseMigrations(null);\nawait creativeContextDbPlugin(null);\n",
+        file,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      validateReleaseMigrationCoversPlugins(
+        [plugin],
+        "await runFrameworkReleaseMigrations(null);\n// await creativeContextDbPlugin(null);\n",
+        file,
+      ),
+      [
+        `${file}: server plugins mount setupCreativeContext, so the release script must await creativeContextDbPlugin(null)`,
+      ],
+    );
+    assert.deepEqual(
+      validateReleaseMigrationCoversPlugins(
+        ["export default defineNitroPlugin(() => {});\n"],
+        "await runFrameworkReleaseMigrations(null);\n",
+        file,
+      ),
+      [],
     );
   });
 
