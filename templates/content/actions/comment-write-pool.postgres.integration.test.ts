@@ -20,7 +20,7 @@ vi.mock("@agent-native/core/collab", async (importOriginal) => ({
 
 import { describe } from "vitest";
 
-import { connectionPoolRegressionSuite } from "./comment-write-pool.test-fixture.js";
+import { connectionPoolRegressionSuite } from "./_comment-write-pool.test-fixture.js";
 
 const postgresUrl =
   process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ??

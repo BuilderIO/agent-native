@@ -20,7 +20,7 @@ vi.mock("@agent-native/core/collab", async (importOriginal) => ({
 
 import { describe } from "vitest";
 
-import { connectionPoolRegressionSuite } from "./comment-write-pool.test-fixture.js";
+import { connectionPoolRegressionSuite } from "./_comment-write-pool.test-fixture.js";
 
 describe("Content transaction access uses the held PGlite connection", () => {
   connectionPoolRegressionSuite();
