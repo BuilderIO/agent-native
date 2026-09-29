@@ -1527,6 +1527,11 @@ export function DesignCanvas({
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
+  const readyRuntimeLayerDocumentIdRef = useRef<string | null>(null);
+  const runtimeLayerSnapshotReadinessRequestIdRef = useRef(0);
+  const expectedRuntimeLayerSnapshotReadinessRequestIdRef = useRef<
+    number | null
+  >(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const pendingRuntimeDeletePreviewRef = useRef<{
@@ -1622,13 +1627,23 @@ export function DesignCanvas({
     },
     [probeBridgeReadinessUntilDrained],
   );
-  const requestRuntimeLayerSnapshot = useCallback(() => {
-    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
-  }, [postOneShotBridgeMessage]);
+  const requestRuntimeLayerSnapshot = useCallback(
+    (readinessRequestId?: number) => {
+      postOneShotBridgeMessage({
+        type: "request-runtime-layer-snapshot",
+        ...(readinessRequestId !== undefined ? { readinessRequestId } : {}),
+      });
+    },
+    [postOneShotBridgeMessage],
+  );
   const refreshRuntimeLayerSnapshotAfterReady = useCallback(() => {
     if (!onRuntimeLayerSnapshotReadinessChange) return;
+    const readinessRequestId =
+      ++runtimeLayerSnapshotReadinessRequestIdRef.current;
+    expectedRuntimeLayerSnapshotReadinessRequestIdRef.current =
+      readinessRequestId;
     onRuntimeLayerSnapshotReadinessChange(false);
-    requestRuntimeLayerSnapshot();
+    requestRuntimeLayerSnapshot(readinessRequestId);
   }, [onRuntimeLayerSnapshotReadinessChange, requestRuntimeLayerSnapshot]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
   const requestSharedSnapshotAfterEdit = useCallback(() => {
@@ -3276,6 +3291,8 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
+    readyRuntimeLayerDocumentIdRef.current = null;
+    expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       bridgeReadyRef.current = false;
       editorChromeReadyRef.current = false;
@@ -3560,9 +3577,12 @@ export function DesignCanvas({
           e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
           editorChromeReadyRef.current &&
           onRuntimeLayerSnapshotReadinessChange &&
-          (!liveEditDocumentIdRef.current ||
-            documentId === liveEditDocumentIdRef.current)
+          documentId === readyRuntimeLayerDocumentIdRef.current &&
+          Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
+          e.data.payload.readinessRequestId ===
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
         ) {
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
           onRuntimeLayerSnapshotReadinessChange(true);
         }
         if (
@@ -3723,6 +3743,8 @@ export function DesignCanvas({
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
+          readyRuntimeLayerDocumentIdRef.current = null;
+          expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
           liveRoutePathRef.current = null;
           onBootStart?.();
           liveEditHealthProbeGenerationRef.current += 1;
@@ -3816,13 +3838,18 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
+          const documentId =
+            typeof payload.documentId === "string" ? payload.documentId : null;
+          if (
+            !documentId ||
+            documentId !== readyRuntimeLayerDocumentIdRef.current
+          ) {
+            return;
+          }
           const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
-            documentId:
-              typeof payload.documentId === "string"
-                ? payload.documentId
-                : undefined,
+            documentId,
           };
           const reservationToken =
             typeof payload.reservationToken === "string"
@@ -3831,13 +3858,19 @@ export function DesignCanvas({
           const requestId = Number.isSafeInteger(payload.requestId)
             ? (payload.requestId as number)
             : undefined;
+          const readinessRequestId = Number.isSafeInteger(
+            payload.readinessRequestId,
+          )
+            ? (payload.readinessRequestId as number)
+            : undefined;
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
           if (
             editorChromeReadyRef.current &&
             onRuntimeLayerSnapshotReadinessChange &&
-            (!liveEditDocumentIdRef.current ||
-              snapshot.documentId === liveEditDocumentIdRef.current)
+            readinessRequestId ===
+              expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
           ) {
+            expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
             onRuntimeLayerSnapshotReadinessChange(true);
           }
           if (
@@ -3878,6 +3911,10 @@ export function DesignCanvas({
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
+        readyRuntimeLayerDocumentIdRef.current =
+          typeof e.data.documentId === "string" && e.data.documentId
+            ? e.data.documentId
+            : null;
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();

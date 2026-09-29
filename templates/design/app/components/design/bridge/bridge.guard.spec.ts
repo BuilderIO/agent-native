@@ -9532,6 +9532,18 @@ it(
       );
       expect(staleReservationSnapshots).toHaveLength(0);
 
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "request-runtime-layer-snapshot",
+            readinessRequestId: 71,
+          },
+          "*",
+        );
+      });
+      await page.locator("h1").evaluate((element) => {
+        element.textContent = "Latest canvas";
+      });
       await page.evaluate((request) => {
         window.postMessage(
           {
@@ -9542,21 +9554,6 @@ it(
           "*",
         );
       }, firstRequest);
-      await page.waitForFunction(
-        (requestId) =>
-          ((window as any).__bridgeMessages ?? []).some(
-            (message: any) =>
-              message.type === "agent-native:runtime-layer-snapshot" &&
-              message.payload?.requestId === requestId &&
-              !message.payload?.reservationToken,
-          ),
-        firstRequest.requestId,
-        { timeout: 5_000 },
-      );
-      await page.locator("h1").evaluate((element) => {
-        element.textContent = "Latest canvas";
-      });
-      await page.waitForTimeout(350);
       await page.waitForFunction(
         () =>
           ((window as any).__bridgeMessages ?? []).filter(
@@ -9580,6 +9577,17 @@ it(
         firstRequest.requestId,
         firstRequest.requestId + 1,
       ]);
+      expect(
+        await page.evaluate(
+          (requestId) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "agent-native:runtime-layer-snapshot" &&
+                message.payload?.requestId === requestId,
+            ),
+          firstRequest.requestId,
+        ),
+      ).toBe(false);
 
       await page.evaluate(
         ({ requestId, documentId }) => {
@@ -9600,6 +9608,7 @@ it(
             (message: any) =>
               message.type === "agent-native:runtime-layer-snapshot" &&
               message.payload?.requestId === requestId &&
+              message.payload?.readinessRequestId === 71 &&
               !message.payload?.reservationToken &&
               message.payload?.html?.includes("Latest canvas"),
           ),
@@ -9665,6 +9674,7 @@ it(
           )
           .map((message: any) => ({
             requestId: message.payload.requestId,
+            readinessRequestId: message.payload.readinessRequestId,
             reservationToken: message.payload.reservationToken,
             html: message.payload.html,
           })),
@@ -9672,6 +9682,7 @@ it(
       expect(reservedSnapshots).toEqual([
         {
           requestId: requestIds[1],
+          readinessRequestId: undefined,
           reservationToken: "capture-two",
           html: expect.stringContaining("Latest canvas"),
         },
@@ -9682,7 +9693,64 @@ it(
             message.type === "agent-native:runtime-layer-snapshot",
         ),
       );
-      expect(snapshots).toHaveLength(3);
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0].payload.readinessRequestId).toBe(71);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "request-runtime-layer-snapshot",
+            readinessRequestId: 72,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          ).length === 3,
+        undefined,
+        { timeout: 5_000 },
+      );
+      const thirdRequest = await page.evaluate(
+        () =>
+          ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          )[2],
+      );
+      await page.evaluate(
+        ({ requestId, documentId }) => {
+          window.postMessage(
+            {
+              type: "grant-runtime-layer-snapshot-reservation",
+              requestId,
+              documentId,
+              reservationToken: "capture-two",
+            },
+            "*",
+          );
+        },
+        {
+          requestId: thirdRequest.requestId,
+          documentId: firstRequest.documentId,
+        },
+      );
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type ===
+                "agent-native:runtime-layer-snapshot-unchanged" &&
+              message.payload?.readinessRequestId === 72,
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
       expect(snapshots.at(-1)?.payload).toMatchObject({
         requestId: requestIds[1],
         reservationToken: "capture-two",
