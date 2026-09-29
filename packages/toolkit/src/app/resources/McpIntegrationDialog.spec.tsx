@@ -1127,10 +1127,8 @@ describe("McpIntegrationDialog", () => {
     const continueButton = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Connect my account",
     );
-    expect(continueButton).toBeTruthy();
-
-    act(() => continueButton?.click());
-    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+    expect(continueButton).toBeUndefined();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
   });
 
   it("keeps contextual provider setup in a focused modal", () => {
@@ -1163,7 +1161,7 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).not.toContain("Back to integrations");
     expect(document.body.textContent).not.toContain("Provider setup required");
     expect(document.body.textContent).toContain("Open setup guide");
-    expect(document.body.textContent).toContain("Connect my account");
+    expect(document.body.textContent).not.toContain("Connect my account");
   });
 
   it("opens provider setup guidance from the catalog", () => {

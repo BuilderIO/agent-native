@@ -19,6 +19,7 @@ import {
   AgentKitComposer,
   AgentKitChat,
   type AgentKitComposerProps,
+  AgentMessageActions,
   AgentMessagePartView,
   resolveAgentMessageRequestId,
   safeAgentHref,
@@ -68,6 +69,84 @@ describe("AgentMessageActions request IDs", () => {
         [event],
       ),
     ).toBe("run-1");
+  });
+});
+
+describe("AgentMessageActions layout", () => {
+  it.each(["user", "assistant"] as const)(
+    "identifies standalone %s footers without requiring a message wrapper",
+    (role) => {
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-1" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+        },
+      });
+      const html = renderToStaticMarkup(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentMessageActions
+            threadId="thread-1"
+            value={{
+              id: "message-1",
+              role,
+              parts: [{ type: "text", text: "Hello" }],
+            }}
+          />
+        </AgentKitProvider>,
+      );
+
+      expect(html).toContain(
+        `class="agentkit-message-actions" data-role="${role}"`,
+      );
+      expect(html).toContain('aria-label="Copy message"');
+    },
+  );
+
+  it("clusters user controls at the logical end without changing assistant grouping", () => {
+    const styles = readFileSync(
+      new URL("./styles.css", import.meta.url),
+      "utf8",
+    );
+    const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
+    const rule = (selector: string) =>
+      rules.find((match) => match[1].trim() === selector)?.[2];
+    const user = '.agentkit-message-actions[data-role="user"]';
+
+    expect(rule(".agentkit-message-actions")).toContain(
+      "justify-content: space-between;",
+    );
+    expect(rule(".agentkit-message-actions")).toContain("flex-wrap: wrap;");
+    expect(rule(".agentkit-message-actions-trailing")).toContain(
+      "margin-inline-start: auto;",
+    );
+    expect(rule(user)).toContain("justify-content: flex-end;");
+    expect(rule(`${user} .agentkit-message-actions-leading`)).toContain(
+      "flex-shrink: 0;",
+    );
+    expect(rule(`${user} .agentkit-message-actions-trailing`)).toContain(
+      "margin-inline-start: 0;",
+    );
+    expect(rule(`${user} .agentkit-message-actions-trailing`)).toContain(
+      "max-inline-size: 100%;",
+    );
+    expect(rule(`${user} time`)).toContain("min-inline-size: 0;");
+    expect(rule(`${user} time`)).toContain("overflow-wrap: anywhere;");
+    expect(rule(`${user} time`)).not.toContain("overflow: hidden;");
+    expect(rule(`${user} .agentkit-command-error`)).toContain(
+      "overflow-wrap: anywhere;",
+    );
+    expect(rule(`${user} .agentkit-command-error`)).toContain(
+      "flex-basis: 100%;",
+    );
+    expect(rule(`${user} .agentkit-command-error`)).toContain(
+      "text-align: end;",
+    );
+    expect(styles).toMatch(
+      /@media \(hover: none\) \{\s*\.agentkit-message-actions\[data-role="user"\],[^{]*\{\s*opacity: 1;/,
+    );
   });
 });
 
@@ -389,7 +468,7 @@ describe("AgentKitChat", () => {
     expect(source).toContain("control.removeQueued(item.id)");
     expect(source).toContain("await onBeforeSubmit()");
     expect(source).toContain(
-      "await onSubmitOverride(text, files, references, options)",
+      "await onSubmitOverride(text, files, references, submitOptions)",
     );
     expect(source).toContain("await control.removeQueued(item.id)");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
@@ -618,7 +697,8 @@ describe("AgentKitChat", () => {
     expect(html).toContain('data-activity-kind="mcp"');
     expect(html).toContain("tabler-icon-search");
     expect(html).toContain("tabler-icon-plug-connected");
-    expect(html).toContain("tabler-icon-activity");
+    expect(html).toContain("Worked");
+    expect(html).not.toContain("tabler-icon-activity");
   });
 
   it("keeps chat chrome conversation-aware and slots replaceable", async () => {
@@ -1138,6 +1218,7 @@ describe("AgentKitChat", () => {
         controller={client}
         threadId="thread-tool-result"
         slots={{ tool: ToolResult }}
+        registry={{ tools: { "connect-builder": ToolResult } }}
       >
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
@@ -1217,6 +1298,14 @@ describe("AgentKitChat", () => {
                   prompt: "Review the release",
                 },
               ],
+            },
+            {
+              id: "event-completed",
+              threadId: "thread-slots",
+              runId: "run-1",
+              sequence: 2,
+              occurredAt: "2026-08-29T00:00:00.000Z",
+              type: "run.completed",
             },
           ],
         };
@@ -1419,6 +1508,29 @@ describe("AgentKitChat", () => {
 
     expect(slotted).toContain('data-custom-reasoning="true"');
     expect(slotted).not.toContain("agentkit-reasoning-summary");
+    expect(slotted).not.toContain("Private chain of thought.");
+
+    const reasoningSlot = vi.fn(
+      (_props: { active?: boolean; resetKey?: string }) => <span />,
+    );
+    renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ reasoning: reasoningSlot }}
+      >
+        <AgentMessagePartView
+          active
+          resetKey="streaming-thought"
+          threadId="thread-1"
+          value={{ type: "reasoning", text: "Considering the request" }}
+        />
+      </AgentKitProvider>,
+    );
+    expect(reasoningSlot.mock.calls[0]?.[0]).toMatchObject({
+      active: true,
+      resetKey: "streaming-thought",
+    });
   });
 
   it("renders one run failure and passes its exact contract to a custom slot", async () => {

@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatSurface,
+  AgentPanelFullViewMenuItem,
   AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
@@ -44,6 +45,11 @@ import {
   focusAgentChat,
   preloadAgentChatSurface,
 } from "./AgentSidebar.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu.js";
 
 describe("AgentPanel compatibility exports", () => {
   it("preserves the legacy sidebar entry point", () => {
@@ -62,6 +68,83 @@ describe("AgentPanel compatibility exports", () => {
     expect(source).toContain(
       "<DropdownMenuItem asChild> <RouterSidebarLink to={fullViewAction.href}",
     );
+    const linkStart = source.indexOf(
+      "<RouterSidebarLink to={fullViewAction.href}",
+    );
+    const linkEnd = source.indexOf("</RouterSidebarLink>", linkStart);
+    expect(linkStart).toBeGreaterThan(-1);
+    expect(linkEnd).toBeGreaterThan(linkStart);
+    const fullViewLink = source.slice(linkStart, linkEnd);
+    expect(fullViewLink).toContain('t("agentPanel.openFullView")');
+    expect(fullViewLink).not.toMatch(/<Icon|<svg/);
+  });
+});
+
+describe("AgentPanel fullscreen menu", () => {
+  it("passes the current thread ID rather than the selection event and supports no-argument callbacks", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onFullViewRequest = vi.fn<(threadId?: string) => void>();
+    const legacyCallback = vi.fn<() => void>();
+    const render = (activeTabId: string, callback = onFullViewRequest) =>
+      root.render(
+        React.createElement(
+          DropdownMenu,
+          { open: true },
+          React.createElement(DropdownMenuTrigger, null, "Menu"),
+          React.createElement(
+            DropdownMenuContent,
+            null,
+            React.createElement(AgentPanelFullViewMenuItem, {
+              activeTabId,
+              onFullViewRequest: callback,
+              label: "Open full view",
+            }),
+          ),
+        ),
+      );
+    try {
+      await act(async () => render("thread-before"));
+      await act(async () => render("thread-current"));
+      const fullViewItem = document.querySelector<HTMLElement>(
+        '[role="menuitem"][aria-label="Open full view"]',
+      );
+      expect(fullViewItem).not.toBeNull();
+      expect(fullViewItem!.textContent).toBe("Open full view");
+      expect(fullViewItem!.querySelector("svg")).toBeNull();
+      await act(async () =>
+        document
+          .querySelector<HTMLElement>(
+            '[role="menuitem"][aria-label="Open full view"]',
+          )!
+          .click(),
+      );
+      expect(onFullViewRequest).toHaveBeenCalledExactlyOnceWith(
+        "thread-current",
+      );
+      await act(async () => render("thread-current", legacyCallback));
+      await act(async () =>
+        document
+          .querySelector<HTMLElement>(
+            '[role="menuitem"][aria-label="Open full view"]',
+          )!
+          .click(),
+      );
+      expect(legacyCallback).toHaveBeenCalledTimes(1);
+      await act(async () => render(""));
+      await act(async () =>
+        document
+          .querySelector<HTMLElement>(
+            '[role="menuitem"][aria-label="Open full view"]',
+          )!
+          .click(),
+      );
+      expect(onFullViewRequest).toHaveBeenLastCalledWith(undefined);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 });
 
@@ -474,6 +557,8 @@ describe("AgentPanel settings navigation", () => {
   });
 
   it("notifies mounted settings sections after browser navigation", async () => {
+    // Earlier hash navigation queues native events; drain them before observing this request.
+    await act(async () => {});
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root: Root = createRoot(container);
@@ -863,7 +948,9 @@ describe("AgentPanel header overflow actions", () => {
       overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
     ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
-    expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
+    expect(overflowMenu).toContain("<AgentPanelFullViewMenuItem");
+    expect(overflowMenu).toContain("activeTabId={activeTabId}");
+    expect(overflowMenu).toContain("onFullViewRequest={onFullViewRequest}");
     expect(sidebarSource).toContain("onFullViewRequest={onFullscreenRequest}");
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");

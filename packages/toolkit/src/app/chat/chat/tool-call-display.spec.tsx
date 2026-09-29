@@ -198,21 +198,46 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector("[data-action-card]")).toBeNull();
   });
 
-  it("renders the provider logo for catalog-backed MCP tools", async () => {
+  it.each(["slack", "gong", "sentry", "neon", "figma"])(
+    "keeps the %s badge visible while running and after completion",
+    async (provider) => {
+      for (const isRunning of [true, false]) {
+        await act(async () => {
+          root.render(
+            <ToolCallDisplay
+              toolName={`mcp__${provider}__search`}
+              args={{}}
+              result={isRunning ? undefined : "ok"}
+              isRunning={isRunning}
+            />,
+          );
+        });
+        const badge = container.querySelector(
+          `[data-integration-id="${provider}"]`,
+        );
+        expect(badge?.getAttribute("role")).toBe("img");
+        expect(badge?.getAttribute("aria-label")).toBeTruthy();
+        expect(badge?.querySelector("img")?.getAttribute("src")).toMatch(
+          /^data:image\//,
+        );
+      }
+    },
+  );
+
+  it("renders the provider API badge from its explicit provider", async () => {
     await act(async () => {
       root.render(
         <ToolCallDisplay
-          toolName="mcp__slack__search"
-          args={{}}
-          result="ok"
-          isRunning={false}
+          toolName="provider-api-request"
+          args={{ provider: "gong", path: "/v2/calls" }}
+          isRunning
         />,
       );
     });
-
-    const logo = container.querySelector("img");
-    expect(logo?.getAttribute("src")).toMatch(/^data:image\//);
-    expect(logo?.getAttribute("title")).toBe("Slack");
+    expect(
+      container.querySelector('[data-integration-id="gong"]'),
+    ).not.toBeNull();
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
   });
 
   it("passes the current staged chat context to the Builder handoff card", () => {
@@ -689,6 +714,52 @@ describe("ToolCallDisplay native renderers", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows integration badges for running delegated-agent tools", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "tool",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "tool-slack",
+                  name: "mcp__slack__search",
+                  status: "running",
+                },
+                {
+                  id: "tool-gong",
+                  name: "provider-api-request",
+                  input: JSON.stringify({
+                    provider: "gong",
+                    path: "/v2/calls",
+                  }),
+                  status: "running",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+    expect(
+      container.querySelector('[data-integration-id="slack"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-integration-id="gong"]'),
+    ).not.toBeNull();
   });
 
   it("keeps the full final agent result visible over a bounded activity preview", () => {

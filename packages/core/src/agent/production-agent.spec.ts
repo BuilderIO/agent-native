@@ -2263,12 +2263,16 @@ describe("createProductionAgentHandler", () => {
     }
 
     await vi.waitFor(() => {
-      expect(seenTools).toEqual([["allowed"]]);
+      expect(seenTools).toEqual([
+        ["suggest-follow-ups", "allowed"],
+        ["suggest-follow-ups"],
+      ]);
     });
     expect(seenScopes).toEqual([
       { kind: "content-comment-ai", requestId: "request-1" },
+      { kind: "content-comment-ai", requestId: "request-1" },
     ]);
-    expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
+    expect(lifecycle).toEqual(["prepare", "surface", "stream", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
   });
 
@@ -2325,7 +2329,10 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools).toEqual([["list-calendar-events"]]);
+    expect(seenTools).toEqual([
+      ["suggest-follow-ups", "list-calendar-events"],
+      ["suggest-follow-ups"],
+    ]);
   });
 
   it("passes normalized requested turn and queued message ids to the action-surface resolver", async () => {
@@ -2487,7 +2494,11 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+    expect(seenTools[0]).toEqual([
+      "suggest-follow-ups",
+      "common",
+      "tool-search",
+    ]);
   });
 
   it("filters an unscoped resolved allowlist through initialToolNames", async () => {
@@ -2540,7 +2551,11 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+    expect(seenTools[0]).toEqual([
+      "suggest-follow-ups",
+      "common",
+      "tool-search",
+    ]);
   });
 
   it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
@@ -2616,9 +2631,13 @@ describe("createProductionAgentHandler", () => {
       runThread("thread-beta", "beta@example.com"),
     ]);
 
-    expect(seenTools).toHaveLength(2);
-    expect(seenTools).toContainEqual(["alpha", "tool-search"]);
-    expect(seenTools).toContainEqual([]);
+    expect(seenTools).toHaveLength(4);
+    expect(seenTools).toContainEqual([
+      "suggest-follow-ups",
+      "alpha",
+      "tool-search",
+    ]);
+    expect(seenTools).toContainEqual(["suggest-follow-ups"]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
   });
@@ -2727,7 +2746,12 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    await vi.waitFor(() => expect(seenTools).toEqual([["allowed"]]));
+    await vi.waitFor(() =>
+      expect(seenTools).toEqual([
+        ["suggest-follow-ups", "allowed"],
+        ["suggest-follow-ups"],
+      ]),
+    );
     expect(resolver).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "real-org" }),
     );
@@ -2780,6 +2804,7 @@ describe("createProductionAgentHandler", () => {
       expect.objectContaining({
         message: "Run the queued prompt",
         queuedMessageId: "queued-1",
+        turnId: expect.any(String),
       }),
     );
   });
