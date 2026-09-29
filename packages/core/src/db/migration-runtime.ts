@@ -16,6 +16,7 @@ type MigrationRuntimeGlobal = typeof globalThis & {
 function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
   return (
     env.NODE_ENV === "test" ||
+    env.NODE_ENV === "development" ||
     env.NETLIFY_LOCAL === "true" ||
     env.VERCEL_ENV === "development"
   );
@@ -35,6 +36,7 @@ export function isProductionServerlessFunctionRuntime(
   if (isLocalFunctionRuntime(env)) return false;
 
   return Boolean(
+    hasCloudflareRuntime() ||
     env.NETLIFY_FUNCTION_NAME ||
     env.AWS_LAMBDA_FUNCTION_NAME ||
     env.AWS_LAMBDA_FUNCTION_VERSION ||
@@ -50,8 +52,15 @@ export function isProductionServerlessFunctionRuntime(
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (
+    env.NODE_ENV === "development" ||
+    env.NETLIFY_LOCAL === "true" ||
+    env.VERCEL_ENV === "development"
+  ) {
+    return false;
+  }
   if (hasCloudflareRuntime()) return true;
-  if (isLocalFunctionRuntime(env)) return false;
+  if (env.NODE_ENV === "test") return false;
 
   return Boolean(
     env.NETLIFY_FUNCTION_NAME ||

@@ -330,6 +330,22 @@ describe("db/client Postgres URL handling", () => {
     expect(isProductionServerlessFunctionRuntime(vercelDevEnv)).toBe(false);
   });
 
+  it("recognizes production Cloudflare Workers but excludes Wrangler dev", async () => {
+    vi.stubGlobal("__env__", {});
+    vi.stubEnv("NODE_ENV", "");
+    const {
+      isHostedFunctionInvocationRuntime,
+      isProductionServerlessFunctionRuntime,
+    } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
   it("rejects request-time schema mutations but permits release migrations", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "analytics");

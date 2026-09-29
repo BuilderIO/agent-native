@@ -20,45 +20,56 @@ const client = { execute: state.execute } as any;
 describe("cold production function database initialization", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
     vi.resetModules();
   });
 
-  it("issues no catalog or migration-table queries when NODE_ENV is unset", async () => {
-    vi.stubEnv("NODE_ENV", "");
-    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
-    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+  it.each(["Netlify", "Cloudflare"])(
+    "issues no catalog or migration-table queries on a cold %s function when NODE_ENV is unset",
+    async (provider) => {
+      vi.stubEnv("NODE_ENV", "");
+      if (provider === "Netlify") {
+        vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+      } else {
+        vi.stubGlobal("__env__", {});
+      }
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
 
-    const [ddl, additive, widen, migrations] = await Promise.all([
-      import("./ddl-guard.js"),
-      import("./ensure-additive-columns.js"),
-      import("./widen-columns.js"),
-      import("./migrations.js"),
-    ]);
+      const [ddl, additive, widen, migrations] = await Promise.all([
+        import("./ddl-guard.js"),
+        import("./ensure-additive-columns.js"),
+        import("./widen-columns.js"),
+        import("./migrations.js"),
+      ]);
 
-    await ddl.ensureTableExists(
-      "cold_start_probe",
-      "CREATE TABLE cold_start_probe (id TEXT)",
-      { injectedClient: client },
-    );
-    await ddl.ensureIndexExists(
-      "cold_start_probe_idx",
-      "CREATE INDEX cold_start_probe_idx ON cold_start_probe (id)",
-      { injectedClient: client },
-    );
-    await ddl.ensureIndexExistsConcurrently(
-      "cold_start_probe_concurrent_idx",
-      "CREATE INDEX CONCURRENTLY cold_start_probe_concurrent_idx ON cold_start_probe (id)",
-      { injectedClient: client },
-    );
-    await additive.ensureAdditiveColumns({ db: client, tables: [probeTable] });
-    await widen.widenIntColumnsToBigInt("cold_start_probe", ["id"], client);
-    await migrations.runMigrations(
-      [{ version: 1, name: "cold-start", sql: "SELECT 1" }],
-      { table: "_context_xray_migrations" },
-    )(null);
+      await ddl.ensureTableExists(
+        "cold_start_probe",
+        "CREATE TABLE cold_start_probe (id TEXT)",
+        { injectedClient: client },
+      );
+      await ddl.ensureIndexExists(
+        "cold_start_probe_idx",
+        "CREATE INDEX cold_start_probe_idx ON cold_start_probe (id)",
+        { injectedClient: client },
+      );
+      await ddl.ensureIndexExistsConcurrently(
+        "cold_start_probe_concurrent_idx",
+        "CREATE INDEX CONCURRENTLY cold_start_probe_concurrent_idx ON cold_start_probe (id)",
+        { injectedClient: client },
+      );
+      await additive.ensureAdditiveColumns({
+        db: client,
+        tables: [probeTable],
+      });
+      await widen.widenIntColumnsToBigInt("cold_start_probe", ["id"], client);
+      await migrations.runMigrations(
+        [{ version: 1, name: "cold-start", sql: "SELECT 1" }],
+        { table: "_context_xray_migrations" },
+      )(null);
 
-    expect(state.execute).not.toHaveBeenCalled();
-    expect(state.getDbExec).not.toHaveBeenCalled();
-  });
+      expect(state.execute).not.toHaveBeenCalled();
+      expect(state.getDbExec).not.toHaveBeenCalled();
+    },
+  );
 });
