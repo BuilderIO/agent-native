@@ -116,12 +116,23 @@ test("runs guards for a docs-app cache-header change", () => {
 
 test("runs cold-request query budgets for framework and template changes", () => {
   const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const creativeContext = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.ts",
+  ]);
   const template = classifyChangedPaths([
     "templates/forms/actions/list-forms.ts",
   ]);
   const docs = classifyChangedPaths(["docs/guide.md"]);
 
   assert.equal(core.checks.neon_query_budget, true);
+  assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.deepEqual(creativeContext.queryBudgetApps, [
+    "analytics",
+    "assets",
+    "content",
+    "design",
+    "slides",
+  ]);
   assert.equal(template.checks.neon_query_budget, true);
   assert.equal(docs.checks.neon_query_budget, false);
 });

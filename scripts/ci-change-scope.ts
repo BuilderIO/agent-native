@@ -113,6 +113,14 @@ export const QUERY_BUDGET_APPS = [
   "tasks",
 ] as const;
 
+const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = new Set([
+  "analytics",
+  "assets",
+  "content",
+  "design",
+  "slides",
+]);
+
 // Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
@@ -351,7 +359,12 @@ function measuresEveryQueryBudgetApp(paths: readonly string[]): boolean {
 }
 
 function changedQueryBudgetApps(paths: readonly string[]): string[] {
-  return QUERY_BUDGET_APPS.filter((app) => hasPath(paths, `templates/${app}/`));
+  const creativeContextChanged = hasPath(paths, "packages/creative-context/");
+  return QUERY_BUDGET_APPS.filter(
+    (app) =>
+      hasPath(paths, `templates/${app}/`) ||
+      (creativeContextChanged && CREATIVE_CONTEXT_QUERY_BUDGET_APPS.has(app)),
+  );
 }
 
 function queryBudgetAppsFor(
