@@ -118,7 +118,14 @@ describe("resolveAuthSecret", () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
     const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
     try {
-      expect(getAuthSecret()).toBeTruthy();
+      // Opting in must not throw like production does: it mints a random
+      // 32-byte secret, persists it under the app root, and keeps returning
+      // that same value.
+      const secret = getAuthSecret();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
+      expect(getAuthSecret()).toBe(secret);
     } finally {
       cwd.mockRestore();
       fs.rmSync(appRoot, { recursive: true, force: true });

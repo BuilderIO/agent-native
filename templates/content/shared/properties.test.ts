@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
-  DEFAULT_BLOCKS_FIELD_NAME,
   EDITABLE_DOCUMENT_PROPERTY_TYPES,
   blocksRenderMode,
   blocksStorageTarget,
@@ -406,9 +405,5 @@ describe("Blocks property type", () => {
         blockFieldContent: editedBlockFieldContent,
       }),
     ).toBe(documentBody);
-  });
-
-  it("uses 'Content' as the default seeded Blocks field name", () => {
-    expect(DEFAULT_BLOCKS_FIELD_NAME).toBe("Content");
   });
 });

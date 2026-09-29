@@ -1,7 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { APP_STATUS, DEFAULT_APP_STATUS } from "./app-status.js";
-import { AUTH_MARKETING_PRESENTATION } from "./auth-marketing-presentation.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   agentNativeSocialImageCacheBusterFor,
@@ -9,17 +7,61 @@ import {
 } from "./social-meta.js";
 
 describe("social image cache buster", () => {
-  it("is derived from the sign-in copy and status badges the image renders", () => {
-    expect(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER).toBe(
-      agentNativeSocialImageCacheBusterFor([
-        AUTH_MARKETING_PRESENTATION,
-        DEFAULT_APP_STATUS,
-        APP_STATUS,
-      ]),
-    );
+  afterEach(() => {
+    vi.doUnmock("./app-status.js");
+    vi.doUnmock("./auth-marketing-presentation.js");
+    vi.resetModules();
+  });
+
+  // Loads a fresh copy of social-meta.ts, optionally with edited versions of
+  // the modules whose content the social image renders.
+  async function loadCacheBuster(edit?: {
+    status?: "app" | "default";
+    copy?: true;
+  }) {
+    // Each load starts clean so one edit can't leak into the next comparison.
+    vi.resetModules();
+    vi.doUnmock("./app-status.js");
+    vi.doUnmock("./auth-marketing-presentation.js");
+    if (edit?.status) {
+      vi.doMock("./app-status.js", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("./app-status.js")>();
+        return edit.status === "app"
+          ? { ...actual, APP_STATUS: { ...actual.APP_STATUS, mail: "beta" } }
+          : { ...actual, DEFAULT_APP_STATUS: "beta" };
+      });
+    }
+    if (edit?.copy) {
+      vi.doMock("./auth-marketing-presentation.js", async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import("./auth-marketing-presentation.js")
+          >();
+        return {
+          ...actual,
+          AUTH_MARKETING_PRESENTATION: {
+            ...actual.AUTH_MARKETING_PRESENTATION,
+            mail: { headline: "Edited headline", description: "Edited copy" },
+          },
+        };
+      });
+    }
+    const module = await import("./social-meta.js");
+    return module.AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER;
+  }
+
+  it("is derived from the sign-in copy and status badges the image renders", async () => {
     expect(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER).toMatch(
       /^signin-brand-v2-[0-9a-z]+$/,
     );
+
+    // The constant must track each thing the image renders: editing any one of
+    // them has to give shared links a new image URL.
+    const unchanged = await loadCacheBuster();
+    expect(unchanged).toBe(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER);
+    expect(await loadCacheBuster({ status: "app" })).not.toBe(unchanged);
+    expect(await loadCacheBuster({ status: "default" })).not.toBe(unchanged);
+    expect(await loadCacheBuster({ copy: true })).not.toBe(unchanged);
   });
 
   it("changes the image URL when app copy or status changes", () => {
