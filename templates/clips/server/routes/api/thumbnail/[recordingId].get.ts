@@ -10,6 +10,7 @@ import {
   signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
@@ -53,6 +54,7 @@ type ThumbnailRecording = {
   editsJson?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  baseImageUrl?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
   password?: string | null;
@@ -159,6 +161,18 @@ function imageResponse(
   return new Response(body, { status, headers });
 }
 
+function defaultSocialImageResponse(): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+      "Cache-Control": "private, max-age=0, no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 async function fetchThumbnail(sourceUrl: string): Promise<Response> {
   let currentUrl = sourceUrl;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
@@ -222,6 +236,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
         editsJson: schema.recordings.editsJson,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+        baseImageUrl: schema.recordings.baseImageUrl,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
@@ -292,7 +307,22 @@ export default defineEventHandler(async (event: H3Event) => {
         password?: unknown;
         t?: unknown;
         animated?: unknown;
+        base?: unknown;
       };
+
+      // The base image is editing material: the screenshot without its
+      // movable marks. Only people who can edit the recording get it, and it
+      // is never what a share link serves.
+      const wantsBase = query.base === "1";
+      if (wantsBase) {
+        const role = loaded.role;
+        const canEdit =
+          role === "owner" || role === "admin" || role === "editor";
+        if (!canEdit || !recording.baseImageUrl) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+      }
       if (recording.password && loaded.role !== "owner") {
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
@@ -321,24 +351,18 @@ export default defineEventHandler(async (event: H3Event) => {
         );
       }
 
-      const sourceUrl =
-        query.animated === "1"
+      const sourceUrl = wantsBase
+        ? recording.baseImageUrl
+        : query.animated === "1"
           ? recording.animatedThumbnailUrl || recording.thumbnailUrl
           : recording.thumbnailUrl || recording.animatedThumbnailUrl;
-      if (!sourceUrl) {
-        setResponseStatus(event, 404);
-        return { error: "Thumbnail not found" };
-      }
+      if (!sourceUrl) return defaultSocialImageResponse();
 
       if (sourceUrl.startsWith("data:")) {
-        return (
-          dataUrlResponse(sourceUrl) ??
-          imageResponse(null, "text/plain; charset=utf-8", 415)
-        );
+        return dataUrlResponse(sourceUrl) ?? defaultSocialImageResponse();
       }
       if (isRecursiveThumbnailUrl(sourceUrl, recordingId)) {
-        setResponseStatus(event, 404);
-        return { error: "Thumbnail not found" };
+        return defaultSocialImageResponse();
       }
 
       let resolvedSourceUrl = sourceUrl;
@@ -360,17 +384,23 @@ export default defineEventHandler(async (event: H3Event) => {
               extra: { recordingId },
             },
           );
-          setResponseStatus(event, 502);
-          return { error: "The recording thumbnail could not be loaded." };
         }
-        return response;
+        const contentType = response.headers
+          .get("content-type")
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase();
+        return response.ok &&
+          contentType &&
+          SAFE_RASTER_IMAGE_TYPES.has(contentType)
+          ? response
+          : defaultSocialImageResponse();
       } catch (error) {
         captureRouteError(error, {
           route: "api/thumbnail",
           extra: { recordingId },
         });
-        setResponseStatus(event, 502);
-        return { error: "The recording thumbnail could not be loaded." };
+        return defaultSocialImageResponse();
       }
     },
   );

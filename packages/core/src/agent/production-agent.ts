@@ -3805,8 +3805,9 @@ function rateLimitRecoveryHint(message: string): string {
 
 /**
  * Tool errors the model has no way to clear: the missing thing lives outside
- * the turn (a credential, a role grant, a connected account, a runtime, the
- * user's own approval). Every retry costs a full round-trip carrying the whole
+ * the turn (a credential, a connected account, a runtime, the user's own
+ * approval). Role errors can depend on the arguments, so their text is not a
+ * permanent precondition. Every retry costs a full round-trip carrying the whole
  * transcript and lands on the identical error, so these stop on the FIRST
  * occurrence rather than after `MAX_SAME_ERROR_ACROSS_ARGUMENTS` of them.
  *
@@ -3824,14 +3825,10 @@ export function permanentPreconditionRemedy(message: string): string | null {
   for (const pattern of PERMANENT_PRECONDITION_PATTERNS) {
     if (pattern.test(trimmed)) return trimmed;
   }
-  for (const pattern of PERMANENT_PRECONDITION_LINE_PATTERNS) {
-    if (pattern.test(unfenced)) return trimmed;
-  }
   return null;
 }
 
 const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
-  /\brequires? (?:an? |the )?[\w-]+ role\b/i,
   /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
   /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
   /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
@@ -3843,11 +3840,6 @@ const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   // narrowing the range, so it stopped turns that were one argument away from
   // succeeding. The count-based breaker still ends a genuine runtime gate
   // after six.
-];
-
-const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
-  /^code:\s*permanent_precondition\s*$/m,
-  /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
 ];
 
 const PERMANENT_PRECONDITION_REASON_MAX_CHARS = 240;
@@ -4716,6 +4708,7 @@ export async function runAgentLoop(opts: {
   const repeatedToolErrors = new Map<string, number>();
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
   const repeatedToolCalls = new Map<string, number>();
+  const blockedA2ATargets = new Map<string, string>();
   const journaledCallCountByKey = new Map<string, number>();
   for (const prior of journaledPriorToolCalls) {
     const key = toolCallCacheKey(prior.name, prior.input);
@@ -6274,6 +6267,7 @@ export async function runAgentLoop(opts: {
             networkPeer: opts.networkPeer,
             delegationDepth: opts.delegationDepth,
             visitedApps: opts.visitedApps,
+            blockedA2ATargets,
             attachments: opts.attachments,
             signal,
             actionName: toolCall.name,
@@ -6472,6 +6466,13 @@ export async function runAgentLoop(opts: {
                 ...(err.errorCode ? { errorCode: err.errorCode } : {}),
               };
             }
+          } else if (
+            isActionContractError(err) &&
+            err.errorCode === "permanent_precondition"
+          ) {
+            const message = sanitizeToolErrorValue(err.message);
+            directStop = { message, explicit: true };
+            result = `Error running ${toolCall.name}: ${message}`;
           } else {
             const message = sanitizeToolErrorValue(err);
             const errorCode =
@@ -6621,13 +6622,12 @@ export async function runAgentLoop(opts: {
       toolResultParts.push(...(await Promise.all(batch.map(runToolCall))));
     };
 
-    const skipToolCallAfterYield = (
+    const skipToolCallAfterStop = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
-        `(an action that ends the turn, or one waiting on the user's approval). ` +
-        `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
+        `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
+        "Continue with the results already collected.";
       send({
         type: "tool_start",
         id: toolCall.id,
@@ -6657,20 +6657,27 @@ export async function runAgentLoop(opts: {
     };
 
     for (const toolCall of toolCallParts) {
-      if (turnYieldedToUser) {
-        await flushParallelBatch();
-        toolResultParts.push(skipToolCallAfterYield(toolCall));
+      if (turnYieldedToUser || requestedActionStop) {
+        toolResultParts.push(skipToolCallAfterStop(toolCall));
         continue;
       }
       const batchKind = getParallelBatchKind(toolCall);
       if (batchKind) {
         if (parallelBatchKind && parallelBatchKind !== batchKind) {
           await flushParallelBatch();
+          if (turnYieldedToUser || requestedActionStop) {
+            toolResultParts.push(skipToolCallAfterStop(toolCall));
+            continue;
+          }
         }
         parallelBatchKind = batchKind;
         parallelBatch.push(toolCall);
       } else {
         await flushParallelBatch();
+        if (turnYieldedToUser || requestedActionStop) {
+          toolResultParts.push(skipToolCallAfterStop(toolCall));
+          continue;
+        }
         toolResultParts.push(await runToolCall(toolCall));
       }
     }
@@ -8161,6 +8168,7 @@ export function createProductionAgentHandler(
       scope,
       harness: requestHarness,
       trackInRunsTray,
+      skipPendingSelectionContext,
     } = body;
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
@@ -8804,6 +8812,7 @@ export function createProductionAgentHandler(
     const SELECTION_TTL_MS = 5 * 60 * 1000;
     const selectionContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
+        if (skipPendingSelectionContext === true) return "";
         try {
           const sel = (await readAppState("pending-selection-context")) as {
             text?: string;

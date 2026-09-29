@@ -1770,7 +1770,7 @@ export async function fetchProviderApiDocs(
   const responseBody =
     response.text ??
     (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
-  const content = processWebContent({
+  const content = await processWebContent({
     url: url.href,
     body: responseBody,
     contentType: response.contentType,

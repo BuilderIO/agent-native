@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,9 +19,26 @@ const { resolveLanding, searchParams, useLastLocationTitleHint } = vi.hoisted(
     ),
   }),
 );
+const landingOptions = vi.hoisted(() => ({
+  current: undefined as
+    | undefined
+    | {
+        skipActionQueryInvalidation?: boolean;
+        onSuccess?: (result: {
+          resolution: string;
+          welcomeCreated?: true;
+        }) => void;
+      },
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionMutation: () => resolveLanding,
+  useActionMutation: (
+    _name: string,
+    options: typeof landingOptions.current,
+  ) => {
+    landingOptions.current = options;
+    return resolveLanding;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -50,9 +68,15 @@ import {
 
 import HomeRoute from "./_app.home";
 
+const queryClient = new QueryClient();
+
 function renderHome(root: Root) {
   act(() => {
-    root.render(<HomeRoute />);
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <HomeRoute />
+      </QueryClientProvider>,
+    );
   });
 }
 
@@ -76,6 +100,55 @@ describe("home landing route optimistic title", () => {
     act(() => root.unmount());
     container.remove();
     resolveLanding.reset.mockClear();
+  });
+
+  it("refreshes the Files root and recents only when the landing created Welcome", () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    resolveLanding.mutateAsync.mockResolvedValue({
+      documentId: "doc-1",
+      resolution: "restored",
+    });
+    renderHome(root);
+
+    expect(landingOptions.current?.skipActionQueryInvalidation).toBe(true);
+    landingOptions.current?.onSuccess?.({ resolution: "restored" });
+    landingOptions.current?.onSuccess?.({ resolution: "welcome-reused" });
+    expect(invalidate).not.toHaveBeenCalled();
+
+    landingOptions.current?.onSuccess?.({
+      resolution: "fallback",
+      welcomeCreated: true,
+    });
+    const refreshed = invalidate.mock.calls.map(([filters]) => filters);
+    expect(refreshed.map((filters) => filters?.queryKey)).toEqual([
+      ["action", "query-content-database-items"],
+      ["action", "get-content-recent"],
+      ["action", "list-documents", undefined],
+    ]);
+    expect(refreshed).not.toContainEqual({ queryKey: ["action"] });
+    const [navigation] = refreshed;
+    const predicate = navigation?.predicate as (query: {
+      queryKey: readonly unknown[];
+    }) => boolean;
+    expect(
+      predicate({
+        queryKey: [
+          "action",
+          "query-content-database-items",
+          { databaseId: "files", navigation: { parentId: null } },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      predicate({
+        queryKey: [
+          "action",
+          "query-content-database-items",
+          { databaseId: "files", navigation: { parentId: "page" } },
+        ],
+      }),
+    ).toBe(false);
+    invalidate.mockRestore();
   });
 
   it("keeps the plain skeleton when nothing knows the title", async () => {

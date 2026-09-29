@@ -822,6 +822,7 @@ const messages = {
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
       networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      unsupportedFileType: "不支援此檔案類型。請選擇支援的檔案。",
       uploadLimitExceeded:
         "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
@@ -860,6 +861,7 @@ const messages = {
       figma: "Figma 畫框",
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
+      websiteReadFailed: "無法自動讀取此網站。請改為複製並貼上相關文字。",
       figmaReadFailed:
         "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
@@ -1009,6 +1011,11 @@ const messages = {
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
     emptyDescription: "使用 AI 產生精美簡報。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
   },
 };
 

@@ -2,6 +2,10 @@ export function isSlidesEditorRoute(pathname: string): boolean {
   return /^\/deck\/[^/]+\/?$/.test(pathname);
 }
 
+export function isSlidesHomeRoute(pathname: string): boolean {
+  return pathname.toLowerCase().replace(/\/+$/, "") === "/home";
+}
+
 export function shouldShowSlidesAppSidebar(pathname: string): boolean {
   return !isSlidesEditorRoute(pathname);
 }

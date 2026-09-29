@@ -72,8 +72,9 @@ function SyncProbe({
 }
 
 let screenKeyValue = 0;
-function ScreenKeyProbe() {
+function ScreenKeyProbe({ enabled = true }: { enabled?: boolean }) {
   const k = useScreenRefreshKey({
+    enabled,
     sseUrl: false,
     interval: 50,
     pauseWhenHidden: false,
@@ -1217,6 +1218,32 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the screen refresh transport only when enabled", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<ScreenKeyProbe enabled={false} />);
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(<ScreenKeyProbe enabled />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

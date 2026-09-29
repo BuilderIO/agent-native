@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   failReads: false,
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: async (key: string) => {
     if (mocks.failReads) throw new Error("settings store unavailable");
     return mocks.settings.get(key) ?? null;

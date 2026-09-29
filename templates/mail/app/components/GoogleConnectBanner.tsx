@@ -107,7 +107,7 @@ function newDesktopOAuthVerifier(): string | null {
 }
 
 interface GoogleConnectBannerProps {
-  variant?: "banner" | "hero";
+  variant?: "banner" | "button" | "hero";
 }
 
 interface DesktopAuthIssue {
@@ -704,6 +704,48 @@ export function GoogleConnectBanner({
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (variant === "button") {
+    return (
+      <div className="space-y-2">
+        {googleStatus.isError ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 rounded-lg px-4 text-xs"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
+          <Button
+            type="button"
+            className="h-9 rounded-lg px-4 text-xs"
+            onClick={() => {
+              setAuthError(null);
+              handleConnect();
+            }}
+            disabled={authUrl.isLoading || authUrl.isFetching}
+          >
+            {authUrl.isFetching
+              ? t("mail.accounts.connecting")
+              : t("mail.accounts.connectGoogle")}
+          </Button>
+        ) : null}
+        {authError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {authError}
+          </p>
+        ) : null}
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+        />
       </div>
     );
   }

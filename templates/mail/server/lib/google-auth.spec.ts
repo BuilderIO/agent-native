@@ -22,6 +22,7 @@ import {
   gmailListMessages as gmailListMessagesApi,
   gmailListHistory,
   gmailListThreads,
+  gmailWatch,
   googleFetch,
 } from "./google-api.js";
 import {
@@ -39,6 +40,7 @@ import {
   isConnected,
   listGmailMessages,
   markAllUnreadReadForAccount,
+  startWatch,
 } from "./google-auth.js";
 import { getMailProviderApiRuntime } from "./provider-api.js";
 
@@ -2089,5 +2091,32 @@ describe("Google OAuth URL construction", () => {
       }),
       "owner@example.com",
     );
+  });
+});
+
+describe("Gmail watch cancellation", () => {
+  it("passes the sweep signal through and preserves provider aborts", async () => {
+    const previousTopic = process.env.GMAIL_WATCH_TOPIC;
+    process.env.GMAIL_WATCH_TOPIC = "projects/example/topics/mail";
+    const controller = new AbortController();
+    const abortError = new DOMException(
+      "The operation was aborted.",
+      "AbortError",
+    );
+    vi.mocked(gmailWatch).mockRejectedValueOnce(abortError);
+
+    try {
+      await expect(startWatch("access-token", controller.signal)).rejects.toBe(
+        abortError,
+      );
+      expect(gmailWatch).toHaveBeenCalledWith(
+        "access-token",
+        "projects/example/topics/mail",
+        expect.objectContaining({ signal: controller.signal }),
+      );
+    } finally {
+      if (previousTopic === undefined) delete process.env.GMAIL_WATCH_TOPIC;
+      else process.env.GMAIL_WATCH_TOPIC = previousTopic;
+    }
   });
 });

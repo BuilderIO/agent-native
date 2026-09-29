@@ -80,7 +80,8 @@ vi.mock("../triggers/event-queue.js", () => ({
   runAutomationTriggerEventMigrations:
     mocks.runAutomationTriggerEventMigrations,
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   mutateSetting: mocks.mutateSetting,
 }));
 vi.mock("../jobs/scheduler-health.js", () => ({

@@ -23,7 +23,8 @@ vi.mock("../agent/engine/registry.js", () => ({
     isAgentEngineSettingConfiguredMock(...args),
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: unknown[]) => getSettingMock(...args),
 }));
 

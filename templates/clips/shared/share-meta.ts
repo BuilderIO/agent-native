@@ -10,9 +10,6 @@ import {
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 
-import { buildAgentApiUrls } from "./agent-context";
-import { isLoomEmbedBackedRecording } from "./loom";
-
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
 export type ClipsShareMetaRecording = {
@@ -31,8 +28,6 @@ export type ClipsShareMetaRecording = {
   updatedAt?: string | null;
   isLoomEmbedBacked?: boolean;
 };
-
-const SOCIAL_FRAME_AT_MS = 350;
 
 export type PreferredThumbnailVariant = "still" | "animated";
 
@@ -146,31 +141,11 @@ export function resolveClipsSocialImageUrl(options: {
   }
 
   if (!canUseSocialImage(recording)) return undefined;
-  if (
-    !origin ||
-    recording.isLoomEmbedBacked === true ||
-    isLoomEmbedBackedRecording(recording)
-  ) {
-    console.warn("clips.thumbnail.publish_fallback", {
-      recordingId: recording.id,
-      fallback: "default-image",
-    });
-    return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
-  }
-
   console.warn("clips.thumbnail.publish_fallback", {
     recordingId: recording.id,
-    fallback: "live-frame",
+    fallback: "default-image",
   });
-  const frameUrl = new URL(
-    buildAgentApiUrls(recording.id, {
-      origin,
-      basePath,
-    }).frameUrl(SOCIAL_FRAME_AT_MS),
-  );
-  const version = recording.updatedAt?.trim();
-  if (version) frameUrl.searchParams.set("v", version);
-  return frameUrl.toString();
+  return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
 }
 
 export function buildClipsShareMeta(options: {

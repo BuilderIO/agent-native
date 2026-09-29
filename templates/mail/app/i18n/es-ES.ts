@@ -45,10 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
-      aiSetupSkipSetup: "Omitir configuración de la bandeja",
-      aiSetupImportantHeadline: "Qué es importante",
-      aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
-      aiSetupTagsHeadline: "Elige tus pestañas",
+      aiSetupImportantHeadline: "¿Qué es importante para ti?",
+      aiSetupSkipInboxHeadline: "¿Qué puede saltarse tu bandeja de entrada?",
+      aiSetupTagsHeadline: "Ordena el correo en pestañas",
       aiSetupArchiveSpamHeadline: "Omitir bandeja de entrada y spam",
       aiSetupTagReceipts: "Recibos",
       aiSetupTagUpdates: "Actualizaciones de productos",
@@ -65,6 +64,16 @@ const messages = {
         "Omitir bandeja de entrada: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Listo",
+      aiSetupConnectGmailHeadline:
+        "Conecta Gmail para organizar tu bandeja de entrada",
+      aiSetupConnectGmailDescription:
+        "Conecta Google para aplicar tus reglas a los correos recientes.",
+      aiSetupConnectJevHeadline:
+        "Conecta Jev para organizar tu bandeja de entrada",
+      aiSetupConnectJevDescription:
+        "Conecta Jev para aplicar tus reglas a los correos recientes.",
+      aiSetupCustomTabName: "Nombre de pestaña",
+      aiSetupCustomTabExample: "p. ej., facturas de proveedores",
       aiSetupRunAgain: "Volver a configurar",
       aiSetupTagCalendar: "Calendario",
       aiSetupPromptCalendar:
@@ -78,13 +87,25 @@ const messages = {
       aiSetupFilteredExample:
         "Mensajes de ventas no solicitados y reclutadores a quienes no he respondido",
       aiSetupSortingHeadline: "Organizando tu bandeja de entrada",
+      aiSetupSortingDescription:
+        "Esto es lo que tus reglas encontraron en el correo reciente.",
       aiSetupFindingRecentMail: "Buscando mensajes recientes…",
+      aiSetupRetry: "Reintentar",
+      aiSetupGmailStatusFailed: "No se pudo comprobar la conexión con Gmail",
+      aiSetupAutomationSettingsFailed:
+        "No se pudo comprobar la configuración del modelo de IA",
       aiSetupSortingProgress:
         "Ordenando correo reciente: {{processed}} de {{total}}",
       aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupUndoBeforeRetry:
+        "Deshaz los cambios parciales antes de volver a intentarlo.",
       aiSetupSortingFailed:
         "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
       aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupUndoFailed:
+        "No se pudieron deshacer estos cambios en la bandeja de entrada. Inténtalo de nuevo.",
+      aiSetupUndoStatusFailed:
+        "Se solicitó deshacer, pero no se pudieron cargar los resultados más recientes.",
       aiSetupRuleCount: "{{count}} coincidencias",
       aiSetupNoMatches:
         "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
@@ -94,7 +115,28 @@ const messages = {
       aiSetupNoRules: "No seleccionaste ninguna regla.",
       aiSetupPartialFailure: "No se pudieron actualizar {{count}} mensajes.",
       aiSetupSortInbox: "Ordenar mi bandeja",
-      aiSetupImportantExample: "Todo lo de mi gerente, Priya…",
+      aiSetupImportantExample: "Todo lo de mi jefe, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "La IA etiqueta los mensajes que coinciden y crea una pestaña para cada etiqueta junto a Recibidos.",
+      aiSetupImportantDescription:
+        "La IA añade la etiqueta Importante a los mensajes que coinciden para mostrarlos en la pestaña Importantes.",
+      aiSetupSkipInboxDescription:
+        "La IA archiva los mensajes que coinciden para que no lleguen a Recibidos. Siguen disponibles en Todo el correo y en las búsquedas.",
+      aiSetupAddTab: "Añadir pestaña",
+      aiSetupAdjustRules: "Ajustar reglas",
+      aiSetupImportantBoss: "Mensajes de mi jefe, ",
+      aiSetupImportantBossChip: "Mensajes de mi jefe",
+      aiSetupImportantReply: "Necesita respuesta",
+      aiSetupImportantDeadlines: "Plazos",
+      aiSetupImportantCustomers: "Clientes",
+      aiSetupImportantGitHub: "Personas en GitHub",
+      aiSetupImportantCalendar: "Invitaciones",
+      aiSetupSkipNewsletters: "Boletines",
+      aiSetupSkipPromotions: "Promociones",
+      aiSetupSkipBots: "Alertas de bots y CI",
+      aiSetupSkipColdSales: "Ventas no solicitadas",
+      aiSetupSkipRecruiters: "Reclutadores",
+      aiSetupSkipSocial: "Alertas sociales",
       priorityFeedbackLabel: "Comentarios sobre importancia",
       priorityScoreHigh: "Importancia alta",
       priorityScoreMedium: "Importancia media",
@@ -295,6 +337,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
+      deliveryUnknownWarning:
+        "Se desconoce el estado de entrega; revisa la vista Enviados de Mail antes de resolverlo.",
+      markSentAfterChecking: "Revisé Enviados; marcar como enviado",
+      sendNewCopy: "Enviar una copia nueva",
+      sendingStatus:
+        "El envío programado se está procesando. Las acciones no están disponibles temporalmente.",
+      confirmSendNewCopyTitle: "¿Enviar otra copia?",
+      confirmSendNewCopyDescription:
+        "Es posible que el mensaje original ya se haya entregado. Revisa primero la vista Enviados de Mail. Enviar otra copia podría crear un duplicado.",
       dateInput: "Fecha y hora",
       noDateMatch: "No hay una hora futura coincidente",
       inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",
@@ -405,6 +456,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
       scheduledSendFailed: "No se pudo enviar el email programado",
+      uncertainScheduledMarkedSent: "Email programado marcado como enviado.",
+      uncertainScheduledResolveFailed:
+        "No se pudo resolver el email programado.",
+      uncertainScheduledRetryStarted: "Se está enviando una copia nueva.",
+      uncertainScheduledRetryFailed: "No se pudo enviar una copia nueva.",
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
