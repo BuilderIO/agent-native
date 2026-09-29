@@ -349,6 +349,7 @@ async function drainReadyTriggerQueue(
         },
         DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
       );
+      if (context.signal?.aborted) return null;
 
       if (ready.length === 0) {
         if (!scanWrapped && cycleStart !== null) {
@@ -667,6 +668,10 @@ async function drainTriggerQueue(
   queueQueryTimeoutMs?: number,
 ): Promise<boolean> {
   let processedEvents = 0;
+  const queueQueryOptions =
+    queueQueryTimeoutMs === undefined
+      ? undefined
+      : { timeoutMs: queueQueryTimeoutMs };
   while (processedEvents < maxEvents) {
     if (
       deadline !== undefined &&
@@ -685,9 +690,7 @@ async function drainTriggerQueue(
     const queued = await claimNextAutomationTriggerEvent(
       triggerId,
       deps.appId,
-      queueQueryTimeoutMs === undefined
-        ? undefined
-        : { timeoutMs: queueQueryTimeoutMs },
+      queueQueryOptions,
     );
     if (!queued) return processedEvents > 0;
     processedEvents += 1;
@@ -704,9 +707,7 @@ async function drainTriggerQueue(
         queued.claimedAt,
         queued.attempts,
         "Expired because the mail event was older than 60 minutes.",
-        queueQueryTimeoutMs === undefined
-          ? undefined
-          : { timeoutMs: queueQueryTimeoutMs },
+        queueQueryOptions,
       );
       onStaleEventExpired?.();
       continue;
@@ -721,6 +722,7 @@ async function drainTriggerQueue(
         new Error(
           "Automation event exceeded its retry limit after worker crashes.",
         ),
+        queueQueryOptions,
       );
       onEventOutcome?.("failed");
       return true;
@@ -746,7 +748,7 @@ async function drainTriggerQueue(
           queued.attempts,
           queued.failureAttempts,
           "Automation trigger is busy; the event remains queued.",
-          { delayMs: 5_000, countFailure: false },
+          { delayMs: 5_000, countFailure: false, ...queueQueryOptions },
         );
         onEventOutcome?.("retried");
         return true;
@@ -755,6 +757,7 @@ async function drainTriggerQueue(
         queued.id,
         queued.claimedAt,
         queued.attempts,
+        queueQueryOptions,
       );
       onEventOutcome?.("completed");
     } catch (error) {
@@ -765,6 +768,7 @@ async function drainTriggerQueue(
           queued.attempts,
           queued.failureAttempts,
           error,
+          queueQueryOptions,
         );
         onEventOutcome?.("failed");
         console.error(
@@ -779,6 +783,7 @@ async function drainTriggerQueue(
           queued.attempts,
           queued.failureAttempts,
           error,
+          queueQueryOptions,
         );
         onEventOutcome?.("retried");
         console.error(

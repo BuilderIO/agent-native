@@ -456,6 +456,7 @@ export async function completeAutomationTriggerEvent(
   id: string,
   claimedAt: number,
   attempts: number,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   await getDbExec().execute({
@@ -465,6 +466,9 @@ export async function completeAutomationTriggerEvent(
           WHERE id = ? AND status = 'processing'
             AND claimed_at = ? AND attempts = ?`,
     args: [COMPLETED_PAYLOAD, Date.now(), id, claimedAt, attempts],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
@@ -545,7 +549,10 @@ export async function retryAutomationTriggerEvent(
   attempts: number,
   failureAttempts: number,
   error: unknown,
-  options: { delayMs?: number; countFailure?: boolean } = {},
+  options: AutomationTriggerQueueQueryOptions & {
+    delayMs?: number;
+    countFailure?: boolean;
+  } = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const message =
@@ -573,6 +580,9 @@ export async function retryAutomationTriggerEvent(
       attempts,
       failureAttempts,
     ],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
@@ -582,6 +592,7 @@ export async function failAutomationTriggerEvent(
   attempts: number,
   failureAttempts: number,
   error: unknown,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const message =
@@ -604,6 +615,9 @@ export async function failAutomationTriggerEvent(
       attempts,
       failureAttempts,
     ],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 

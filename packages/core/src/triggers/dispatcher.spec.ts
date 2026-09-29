@@ -140,16 +140,23 @@ const triggerQueueMocks = vi.hoisted(() => {
       row.claimedAt = Date.now();
       return { ...row };
     }),
-    complete: vi.fn(async (id: string, claimedAt: number, attempts: number) => {
-      const row = rows.find((candidate) => candidate.id === id);
-      if (
-        row?.status === "processing" &&
-        row.claimedAt === claimedAt &&
-        row.attempts === attempts
-      ) {
-        row.status = "completed";
-      }
-    }),
+    complete: vi.fn(
+      async (
+        id: string,
+        claimedAt: number,
+        attempts: number,
+        _options: { timeoutMs?: number } = {},
+      ) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        if (
+          row?.status === "processing" &&
+          row.claimedAt === claimedAt &&
+          row.attempts === attempts
+        ) {
+          row.status = "completed";
+        }
+      },
+    ),
     retry: vi.fn(
       async (
         id: string,
@@ -157,7 +164,7 @@ const triggerQueueMocks = vi.hoisted(() => {
         attempts: number,
         failureAttempts: number,
         error: unknown,
-        options: { countFailure?: boolean } = {},
+        options: { countFailure?: boolean; timeoutMs?: number } = {},
       ) => {
         const row = rows.find((candidate) => candidate.id === id);
         if (
@@ -180,6 +187,7 @@ const triggerQueueMocks = vi.hoisted(() => {
         attempts: number,
         failureAttempts: number,
         error: unknown,
+        _options: { timeoutMs?: number } = {},
       ) => {
         const row = rows.find((candidate) => candidate.id === id);
         if (
@@ -518,6 +526,12 @@ Respond to the event.`,
       expect(
         triggerQueueMocks.rows.every((row) => row.status === "completed"),
       ).toBe(true);
+      expect(triggerQueueMocks.complete).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Number),
+        expect.any(Number),
+        { timeoutMs: 5_000 },
+      );
       expect(runAgentLoopMock).toHaveBeenCalledTimes(6);
       expect(runSpy).toHaveBeenCalledTimes(6);
       for (const [options] of runSpy.mock.calls) {
@@ -557,6 +571,118 @@ Respond to the event.`,
     });
 
     expect(triggerQueueMocks.getSweepCursor).not.toHaveBeenCalled();
+  });
+
+  it("bounds retry and terminal-failure writes in durable drains", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.bounded-queue-write";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    expect(eventHandler).toBeTypeOf("function");
+    expect(sweep).toBeTypeOf("function");
+
+    await eventHandler?.(
+      { messageId: "retry-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "retry-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    const runError = new Error("resource read failed");
+    resourceGetByPathMock.mockRejectedValueOnce(runError);
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.retry).toHaveBeenCalledWith(
+      "queue-1",
+      expect.any(Number),
+      1,
+      0,
+      runError,
+      { timeoutMs: 5_000 },
+    );
+
+    await triggerQueueMocks.enqueue({
+      appId: "mail",
+      triggerId: "z-terminal-trigger",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName,
+      eventId: "terminal-event",
+      payload: { messageId: "terminal-message" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date().toISOString(),
+    });
+    triggerQueueMocks.rows.at(-1)!.failureAttempts =
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES;
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.fail).toHaveBeenCalledWith(
+      "queue-2",
+      expect.any(Number),
+      1,
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
+      expect.any(Error),
+      { timeoutMs: 5_000 },
+    );
+  });
+
+  it("does not write the durable cursor when aborted during the ready scan", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    let resolveReady: ((triggerIds: string[]) => void) | undefined;
+    triggerQueueMocks.ready.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReady = resolve;
+        }),
+    );
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as
+      | ((context: {
+          deadlineAt: number;
+          signal?: AbortSignal;
+        }) => Promise<void>)
+      | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    const controller = new AbortController();
+    const sweepPromise = sweep?.({
+      deadlineAt: Date.now() + 90_000,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() =>
+      expect(triggerQueueMocks.ready).toHaveBeenCalledOnce(),
+    );
+    controller.abort();
+    resolveReady?.(["trigger-1"]);
+    await sweepPromise;
+
+    expect(triggerQueueMocks.setSweepCursor).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.claim).not.toHaveBeenCalled();
   });
 
   it("keeps five rolling workers busy fairly across five FIFO trigger queues", async () => {
