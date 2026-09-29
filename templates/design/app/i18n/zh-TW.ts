@@ -1523,11 +1523,6 @@ export default {
       permissionPromptNoPrompt: "沒有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
         "點擊網址列左側的網站控制圖示，開啟網站設定，然後允許存取裝置上的 App。",
-      permissionCloseTitle: "要關閉設定嗎？",
-      permissionCloseDescription:
-        "在 Chrome 中允許存取前，即時編輯將無法使用。",
-      permissionCloseStay: "保持設定開啟",
-      permissionCloseAnyway: "仍要關閉",
       permissionPromptRetry: "重試連線",
     },
   },

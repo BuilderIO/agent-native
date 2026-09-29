@@ -1467,11 +1467,6 @@ export default {
       permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर अपने डिवाइस पर ऐप्स को ऐक्सेस करने की अनुमति दें।",
-      permissionCloseTitle: "सेटअप बंद करें?",
-      permissionCloseDescription:
-        "Chrome में एक्सेस की अनुमति देने तक लाइव एडिटिंग काम नहीं करेगी।",
-      permissionCloseStay: "सेटअप खुला रखें",
-      permissionCloseAnyway: "फिर भी बंद करें",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
     },
   },
