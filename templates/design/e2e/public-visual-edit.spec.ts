@@ -403,7 +403,7 @@ test.describe.serial("public visual edit", () => {
       const preparing = page.getByText(/prepar.*live editor/i);
       await expect(preparing).toBeHidden();
       const settledSource = await frame.getAttribute("src");
-      await page.waitForTimeout(2_500);
+      await page.waitForTimeout(2_500); // e2e-harness-ignore: negative stability window catches the reported spinner loop reappearing.
 
       expect(registrationAttempts).toBeGreaterThan(0);
       await expect(preparing).toBeHidden();
