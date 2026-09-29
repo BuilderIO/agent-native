@@ -1435,15 +1435,38 @@ function runPgliteTransaction<T>(
   });
 }
 
-export function pgliteDrizzleClient(url: string, client: any): any {
+// Drizzle calls the PGlite client directly, so without this its queries skip
+// the telemetry and timeout that raw executes and hosted drivers go through.
+function instrumentPgliteDrizzleQueries(client: any): any {
   return new Proxy(client, {
     get(target, prop) {
-      if (prop === "transaction") {
-        return (fn: (tx: any) => Promise<unknown>) =>
-          runPgliteTransaction(url, target, (tx) => fn(tx));
+      if (prop === "query") {
+        return (sql: string, params?: unknown[], options?: unknown) =>
+          withDbTimeout(
+            "query",
+            () => target.query(sql, params, options),
+            dbOpTimeoutMs(),
+            undefined,
+            { sql },
+          );
       }
       const v = Reflect.get(target, prop, target);
       return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+}
+
+export function pgliteDrizzleClient(url: string, client: any): any {
+  const instrumented = instrumentPgliteDrizzleQueries(client);
+  return new Proxy(instrumented, {
+    get(target, prop) {
+      if (prop === "transaction") {
+        return (fn: (tx: any) => Promise<unknown>) =>
+          runPgliteTransaction(url, client, (tx) =>
+            fn(instrumentPgliteDrizzleQueries(tx)),
+          );
+      }
+      return Reflect.get(target, prop, target);
     },
   });
 }

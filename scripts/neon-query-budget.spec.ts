@@ -6,6 +6,7 @@ import {
   createDatabaseRequestTelemetry,
 } from "../packages/core/src/db/request-telemetry.ts";
 import {
+  addQueryBudgetMetrics,
   compareQueryBudget,
   parseCacheablePageMetrics,
   parsePrivateRequestMetrics,
@@ -25,6 +26,33 @@ describe("Neon cold-request query budgets", () => {
         catalogQueries: 3,
         migrationTableQueries: 5,
         poolAcquisitions: 2,
+      },
+    );
+  });
+
+  it("adds background work that ran outside any response to the cold page", () => {
+    const ambient = createDatabaseRequestTelemetry();
+    ambient.queryCount = 3;
+    ambient.rowsReturned = 2;
+    ambient.catalogQueryCount = 1;
+    ambient.connectCount = 1;
+    assert.deepEqual(
+      addQueryBudgetMetrics(
+        {
+          queries: 1,
+          rowsReturned: 4,
+          catalogQueries: 0,
+          migrationTableQueries: 1,
+          poolAcquisitions: 0,
+        },
+        ambient,
+      ),
+      {
+        queries: 4,
+        rowsReturned: 6,
+        catalogQueries: 1,
+        migrationTableQueries: 1,
+        poolAcquisitions: 1,
       },
     );
   });

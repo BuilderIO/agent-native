@@ -74,4 +74,25 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
     );
     expect(rows[0]?.count).toBe(0);
   });
+
+  it("counts Drizzle queries in request telemetry, including inside transactions", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+
+    const { sql } = await import("drizzle-orm");
+    const { createGetDb } = await import("./create-get-db.js");
+    const { createDatabaseRequestTelemetry, runWithDatabaseRequestTelemetry } =
+      await import("./request-telemetry.js");
+    const db = await createGetDb({})();
+    const telemetry = createDatabaseRequestTelemetry();
+
+    await runWithDatabaseRequestTelemetry(telemetry, async () => {
+      await db.execute(sql`SELECT 1 AS one UNION ALL SELECT 2`);
+      await db.transaction(async (tx: any) => {
+        await tx.execute(sql`SELECT 3`);
+      });
+    });
+
+    expect(telemetry.queryCount).toBeGreaterThanOrEqual(2);
+    expect(telemetry.rowsReturned).toBeGreaterThanOrEqual(3);
+  });
 });

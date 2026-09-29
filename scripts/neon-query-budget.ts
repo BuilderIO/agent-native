@@ -7,7 +7,9 @@ import { pathToFileURL } from "node:url";
 
 import {
   createDatabaseRequestTelemetry,
+  enterDatabaseRequestTelemetry,
   runWithDatabaseRequestTelemetry,
+  type DatabaseRequestTelemetry,
 } from "../packages/core/src/db/request-telemetry.ts";
 
 const BUDGET_PATH = "scripts/neon-query-budgets.json";
@@ -25,6 +27,8 @@ const BUDGETED_METRICS = [
   "poolAcquisitions",
 ] as const;
 const PGLITE_DATABASE_URL = "pglite:memory";
+const AMBIENT_SETTLE_QUIET_MS = 2_000;
+const AMBIENT_SETTLE_TIMEOUT_MS = 15_000;
 const SERVERLESS_ENV_KEYS = [
   "NETLIFY",
   "NETLIFY_FUNCTION_NAME",
@@ -326,6 +330,47 @@ export function parseCacheablePageMetrics(
   };
 }
 
+export function addQueryBudgetMetrics(
+  measured: QueryBudgetMetrics,
+  ambient: DatabaseRequestTelemetry,
+): QueryBudgetMetrics {
+  return {
+    queries: measured.queries + ambient.queryCount,
+    rowsReturned: measured.rowsReturned + ambient.rowsReturned,
+    catalogQueries: measured.catalogQueries + ambient.catalogQueryCount,
+    migrationTableQueries:
+      measured.migrationTableQueries + ambient.migrationTableQueryCount,
+    poolAcquisitions: measured.poolAcquisitions + ambient.connectCount,
+  };
+}
+
+// Plugins start fire-and-forget work at boot. Once the first request claims
+// the startup counters, those queries belong to no response header, so the
+// cold page waits for them here instead of reporting them as free.
+async function settleAmbientDatabaseWork(
+  ambient: DatabaseRequestTelemetry,
+  template: string,
+): Promise<void> {
+  const deadline = Date.now() + AMBIENT_SETTLE_TIMEOUT_MS;
+  let lastOperationCount = -1;
+  let quietSince = Date.now();
+  while (Date.now() < deadline) {
+    if (
+      ambient.activeOperationCount === 0 &&
+      ambient.operationCount === lastOperationCount
+    ) {
+      if (Date.now() - quietSince >= AMBIENT_SETTLE_QUIET_MS) return;
+    } else {
+      lastOperationCount = ambient.operationCount;
+      quietSince = Date.now();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  fail(
+    `${template} background database work did not settle within ${AMBIENT_SETTLE_TIMEOUT_MS}ms of the cold page (${ambient.queryCount} queries so far)`,
+  );
+}
+
 function responseFromNetlifyResult(value: unknown, label: string): Response {
   if (value instanceof Response) return value;
   if (!value || typeof value !== "object") {
@@ -393,6 +438,9 @@ export async function measureTemplate(
 
   await provisionTemplateSchema(template);
 
+  const ambient = createDatabaseRequestTelemetry();
+  enterDatabaseRequestTelemetry(ambient);
+
   const handlerPath = path.resolve("templates", template, GENERATED_HANDLER);
   const imported = (await import(pathToFileURL(handlerPath).href)) as Record<
     string,
@@ -414,10 +462,12 @@ export async function measureTemplate(
     "/",
     `${template} main page`,
   );
-  const page = parseCacheablePageMetrics(
+  const pageHeaderMetrics = parseCacheablePageMetrics(
     pageResponse.headers.get("server-timing"),
   );
   await pageResponse.body?.cancel();
+  await settleAmbientDatabaseWork(ambient, template);
+  const page = addQueryBudgetMetrics(pageHeaderMetrics, ambient);
 
   let listAction: QueryBudgetMetrics | null = null;
   let listActionStatus: number | null = null;
