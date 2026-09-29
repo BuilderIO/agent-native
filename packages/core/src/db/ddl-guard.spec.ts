@@ -217,15 +217,21 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("keeps skipping probes in a function even if migration duty is set", async () => {
+    it("allows release-owned schema setup inside the authorized migration", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "");
-      vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      vi.stubEnv("NETLIFY", "true");
       vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
       delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { assertSchemaMutationAllowed } = await import("./client.js");
       const { ensureTableExists } = await import("./ddl-guard.js");
       const { withMigrationRuntime } = await import("./migrations.js");
-      const { client, calls } = introspectingClient({});
+      const { client, calls } = recordingClient((sql) => {
+        if (/^\s*(?:CREATE|ALTER|DROP)\b/i.test(sql)) {
+          assertSchemaMutationAllowed(sql);
+        }
+        return undefined;
+      });
 
       await expect(
         withMigrationRuntime(() =>
@@ -233,8 +239,8 @@ describe("ddl-guard", () => {
             injectedClient: client,
           }),
         ),
-      ).resolves.toBe(false);
-      expect(calls).toEqual([]);
+      ).resolves.toBe(true);
+      expect(calls.some((sql) => /CREATE TABLE settings/.test(sql))).toBe(true);
     });
 
     it("allows schema probes and DDL only inside a runtime-owned migration", async () => {

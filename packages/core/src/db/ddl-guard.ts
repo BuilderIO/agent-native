@@ -24,7 +24,8 @@ import {
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function schemaEnsureDisabled(): boolean {
-  if (isMigrationExecutingRuntime()) return false;
+  if (isMigrationExecutingRuntime() || isMigrationAuthorizedRuntime())
+    return false;
   if (
     appMigratesAtRelease() &&
     (isHostedFunctionInvocationRuntime() ||
@@ -32,7 +33,6 @@ function schemaEnsureDisabled(): boolean {
   ) {
     return true;
   }
-  if (isMigrationAuthorizedRuntime()) return false;
   const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
   return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
 }
