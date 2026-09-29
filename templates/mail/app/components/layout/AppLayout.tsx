@@ -71,6 +71,7 @@ import {
   DialogClose,
   DialogContent,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Popover,
@@ -1383,20 +1384,20 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             {/* Hamburger menu */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  onClick={() => {
-                    if (isPinnedSidebarVisible) {
-                      setSidebarPinned(false);
-                      setSidebarOpen(false);
-                      return;
-                    }
-                    setSidebarOpen((open) => !open);
-                  }}
-                  className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
-                  aria-label={t("mail.toolbar.toggleMenu")}
-                >
-                  <IconMenu2 className="h-4 w-4" />
-                </button>
+                <DialogTrigger asChild>
+                  <button
+                    onClick={() => {
+                      if (isPinnedSidebarVisible) {
+                        setSidebarPinned(false);
+                        setSidebarOpen(false);
+                      }
+                    }}
+                    className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
+                    aria-label={t("mail.toolbar.toggleMenu")}
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                </DialogTrigger>
               </TooltipTrigger>
               <TooltipContent>{t("mail.toolbar.menu")}</TooltipContent>
             </Tooltip>
