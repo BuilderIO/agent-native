@@ -172,6 +172,45 @@ flowchart TD
    `getDbExec()` returned the raw, unguarded client once initialized. The same
    `CREATE TABLE` threw or silently ran depending on query order.
 
+#### How it got here
+
+```mermaid
+timeline
+  title The runtime schema path, 2026
+  Mar to Jul : Backfills and ALTER TYPE added inside ensure bodies : oauth-tokens, extensions, staged datasets, corpus jobs, a2a
+  Aug 7 : PR 2707 adds an opt-in skip flag and the batched catalog snapshot : PR 2737 makes the short-circuit automatic on production serverless
+  Aug 7 to 19 : settings, application_state, app_secrets and resources are never created on hosted deploys
+  Aug 19 : PR 3148 adds the hand-kept release-schema.ts list and its guard
+  Aug 22 : PR 3416 drops INVALID indexes before rebuilding them
+  Sep 10 : Review suggestions add raw CREATE INDEX, outside the short-circuit
+```
+
+#### What `schemaEnsureDisabled()` did protect, and what it did not
+
+It is fair to say the short-circuit removed real cost. On Netlify, Vercel and
+Lambda every probe made through the ddl-guard helpers answered without a
+query, which is most of the difference between ~220 and ~50 statements in the
+table above. It did not protect:
+
+- **Anything outside ddl-guard.** Most leftover statements predate the
+  short-circuit (March through July) and it never covered them. The review
+  suggestions indexes were added a month after it, which shows the model's
+  weakness: every new raw statement goes straight back onto the hot path.
+- **Hosts the environment sniff does not recognize.** Cloudflare, `netlify
+  dev`, and self-hosted or long-lived Node paid the full probe cost.
+- **Correctness.** Answering "present" without looking is what left four core
+  tables uncreated on hosted deploys between PR 2737 and PR 3148.
+
+| Hosted cold start                                 | Before (short-circuit on)     | After (ledger)        |
+| ------------------------------------------------- | ----------------------------- | --------------------- |
+| Touches only stores built entirely on ddl-guard   | 0 queries                     | 1 query               |
+| Touches every framework store                     | ~50 statements, some locking  | 1 query               |
+| Deploy whose schema was never migrated            | undetected until a query fails | `SchemaNotMigratedError` |
+
+The first row is the one case where the old path was cheaper. The single
+ledger read is the price of detecting a missing migration instead of assuming
+it ran.
+
 ---
 
 ## Goals
@@ -531,6 +570,78 @@ sequenceDiagram
 
 ---
 
+## Upgrade paths: framework users on old databases
+
+This is a framework, so most databases were not created by the current version.
+An app is scaffolded once and then upgrades `@agent-native/core` on its own
+schedule, sometimes skipping many releases (see the `upgrade-agent-native`
+skill). The code already carries the scars: `widen-columns.ts` exists because
+long-lived databases kept `INTEGER` timestamp columns, `extensions/store.ts`
+copies rows out of a misnamed table from an earlier version, and several
+stores add columns that older databases never had.
+
+The release step has to bring any of these starting points to the same place:
+
+```mermaid
+flowchart LR
+  F["Fresh database<br/>new app"] --> R
+  O["Pre-ledger database<br/>created by any older core version"] --> R
+  B["Ledger database<br/>a few releases behind"] --> R
+  R["Release step<br/>runs every migration not in the ledger, in order"] --> S["Same tables, columns, indexes<br/>same ledger rows"]
+  classDef start fill:#f4f4f4,stroke:#888
+  classDef done fill:#e9f7ef,stroke:#2a7
+  class F,O,B start
+  class S done
+```
+
+That puts three rules on every store migration:
+
+1. **A baseline converges, it does not just create.** A pre-ledger database
+   has no ledger rows, so every store's `baseline` runs against whatever shape
+   the table already has. That is why baselines are the old ensure bodies:
+   `CREATE TABLE IF NOT EXISTS`, then `ADD COLUMN IF NOT EXISTS` for every
+   column ever added, then widening. Squashing a baseline into one clean
+   `CREATE TABLE` with today's columns would silently skip every column an old
+   database is missing.
+2. **Append-only.** A database several releases behind runs exactly the
+   migrations it has not recorded, in order. Editing an applied migration never
+   reaches it.
+3. **Idempotent and additive.** Two release steps can race on a first run, and
+   old functions keep serving while the release runs.
+
+### Measured: an Aug 19 database upgraded to this change
+
+I built a database with the release step from PR 3148 (Aug 19, the first
+commit with release-time schema creation), ran this change's release step on
+it, then compared it with a freshly created database:
+
+| Check                                           | Result                                          |
+| ----------------------------------------------- | ----------------------------------------------- |
+| Tables, old → upgraded → fresh                  | 139 → 181 → 181                                 |
+| Added by the upgrade                            | 42 tables, 389 columns, 124 indexes             |
+| Ledger rows, upgraded vs fresh                  | 96 vs 96                                        |
+| Second release on the upgraded database         | 0 migrations applied, ledger unchanged          |
+| Indexes missing from the upgraded database      | none                                            |
+
+The comparison also found drift that exists independently of this change,
+because the old ensure bodies had the same gaps:
+
+- **`tool_shares.notified_at` and `data_program_shares.notified_at`** exist on
+  fresh databases but are never added to older ones. Sharing code writes
+  `notified_at` and logs a warning when it cannot. Each needs an appended
+  `ADD COLUMN IF NOT EXISTS` migration in its store.
+- **`context_directives.created_at`, `updated_at`, `active`** are `INTEGER` on
+  fresh databases (`CONTEXT_XRAY_MIGRATIONS`) but `BIGINT` on the older one.
+  `created_at` stores `Date.now()`, which overflows a 32-bit integer, so
+  fresh databases are the broken side here.
+- **Migration bookkeeping `version` columns** differ between `INTEGER` and
+  `BIGINT`. Harmless.
+
+Nothing checks for drift like this today. Open question 9 proposes a
+permanent upgrade test.
+
+---
+
 ## Risks
 
 | Risk                                                                                | Mitigation                                                                                                                                                                                                                                                                          |
@@ -551,7 +662,7 @@ The questions map onto a phased roadmap. Phase 1 is this change.
 flowchart LR
   P1["Phase 1, this change<br/>defineStore, registry, ledger,<br/>63 stores converted, client guard fix"]
   P2["Phase 2<br/>remove the 664 ensure call sites<br/>store.db() handle (Q2)"]
-  P3["Phase 3<br/>declarative baselines, checksums,<br/>delete schemaEnsureDisabled (Q3, Q4)"]
+  P3["Phase 3<br/>declarative baselines, checksums,<br/>upgrade test in CI, delete schemaEnsureDisabled (Q3, Q4, Q9)"]
   P4["Phase 4<br/>one ledger for versioned lists,<br/>templates on defineStore (Q6, Q7)"]
   P1 --> P2 --> P3 --> P4
   classDef done fill:#e9f7ef,stroke:#2a7
@@ -589,6 +700,159 @@ flowchart LR
 8. **Verify eagerly or lazily?** The ledger is read on first store use. Reading it
    during server boot would surface a missing release earlier, at the cost of a
    query on cold starts that never touch the database.
+9. **Upgrade convergence in CI.** Check in a schema dump produced by an old
+   release (for example the oldest core version we still support), run the
+   current release step on it in PGlite, and fail when its tables, columns,
+   types, or indexes differ from a fresh database. The one-off version of this
+   test found the drift listed under [Upgrade paths](#upgrade-paths-framework-users-on-old-databases).
+   It also constrains question 3: a declarative baseline must still converge
+   an old table, not only create a new one.
+
+---
+
+## Future work (out of scope for this proposal)
+
+The registry and ledger make four longer-running problems solvable. None of
+them is part of this change. They are listed so the working group can judge the
+design against where it needs to go.
+
+```mermaid
+flowchart LR
+  L["Store registry + ledger<br/>(this proposal)"] --> N["1. Namespaced<br/>framework tables"]
+  L --> S["2. Squashed snapshot<br/>for fresh installs"]
+  L --> F["3. Feature-scoped<br/>stores"]
+  L --> R["4. Retiring stores<br/>and orphan detection"]
+  Q9["Upgrade convergence test (Q9)"] --> S
+  Q9 --> N
+  classDef done fill:#e9f7ef,stroke:#2a7
+  classDef next fill:#f4f4f4,stroke:#888,stroke-dasharray: 5 5
+  class L done
+  class N,S,F,R,Q9 next
+```
+
+### 1. A naming convention for framework tables
+
+**Problem.** Framework tables share the `public` schema with app tables and use
+generic names: `settings`, `resources`, `notifications`, `progress`, `usage`,
+`tools`, plus Better Auth's `user`, `session`, `account`. A fresh database has
+about 180 tables, and nothing tells a user or a template author which ones the
+app owns. An app that defines its own `notifications` table collides with the
+framework today, and nothing warns about it until something breaks.
+
+Two ways to fix it:
+
+| | Postgres schema (`agent_native.settings`) | Name prefix (`an_settings`) |
+| --- | --- | --- |
+| Separation | Real: `\dt public.*` shows only app tables | Visual only: all tables still in `public`, sorted together |
+| Collisions | None, different namespace | Unlikely, still one namespace |
+| App tooling | Drizzle `schemaFilter: ["public"]` keeps app migrations off framework tables; `pg_dump -n` per owner | Needs a `tablesFilter` glob |
+| Uninstall / reset | `DROP SCHEMA agent_native CASCADE` is one reviewed step | Table-by-table |
+| Raw SQL (hundreds of statements) | Must qualify names, or rely on `search_path` | Must rename every reference |
+| `search_path` | Not safe to rely on: transaction-mode poolers (Neon, PgBouncer) do not keep session settings, so qualify explicitly | Not involved |
+| Catalog probes | 21 core modules name the `public` schema (catalog probes such as `table_schema = 'public'`, plus `public.`-qualified queries) and need a schema parameter | Unchanged |
+| Drizzle | `pgSchema("agent_native").table(...)` | Rename the table string |
+| Moving existing tables | `ALTER TABLE ... SET SCHEMA` is metadata-only but briefly takes `ACCESS EXCLUSIVE` | `ALTER TABLE ... RENAME`, same lock |
+| Better Auth tables | Needs verification that its adapter can target a non-`public` schema | Renamable through its `modelName` option |
+
+**Recommendation to debate: a Postgres schema, with explicitly qualified names.**
+It is the only option that actually removes framework tables from the app's
+view and from app tooling. The cost is mostly mechanical, and the registry
+gives it one home: `defineStore` gains a `schema` (default `agent_native` for
+framework stores) and hands out qualified table names, so raw SQL builds names
+through the store instead of string literals. A guard can then fail on an
+unqualified framework table name in new code.
+
+**Moving tables without breaking rolling deploys.** Either approach renames
+tables that old functions are still querying during a deploy, and it conflicts
+with the "additive only" rule in AGENTS.md. It needs an explicit exception, and
+a two-release plan with compatibility views:
+
+```mermaid
+sequenceDiagram
+  participant Rel1 as Release N
+  participant DB as Postgres
+  participant Old as Functions N-1
+  participant Rel2 as Release N+k (after support floor)
+  Rel1->>DB: CREATE SCHEMA agent_native
+  Rel1->>DB: ALTER TABLE public.settings SET SCHEMA agent_native
+  Rel1->>DB: CREATE VIEW public.settings AS SELECT * FROM agent_native.settings
+  Old->>DB: unqualified queries still work through the view
+  Note over DB: simple views are updatable, so old INSERT/UPDATE/DELETE keep working
+  Rel2->>DB: drop the compatibility views (destructive step, reviewed separately)
+```
+
+A cheaper first step: new stores go into `agent_native` from day one, existing
+stores move later. The drawback is that for a while there are two conventions.
+
+### 2. Fresh installs replay the whole history
+
+**Problem.** A new app today runs 96 store migrations plus every versioned
+list, including backfills that do nothing on empty tables. It costs seconds,
+once per deploy, so it is not a performance problem. The problem is that the
+list only grows, and every historical step stays load-bearing forever.
+
+**Proposal.** A squashed snapshot per release line, as in Rails `schema.rb`,
+Django `squashmigrations`, and Prisma baselining:
+
+```mermaid
+flowchart TD
+  A["Release step"] --> B{"Ledger and framework<br/>tables exist?"}
+  B -->|"no: fresh database"| C["Load snapshot for this release line<br/>mark every migration up to it as applied"]
+  B -->|yes| D["Run pending migrations step by step"]
+  C --> E["Run migrations added after the snapshot"]
+  D --> F["Converged schema"]
+  E --> F
+```
+
+Once snapshots exist, a supported-version floor lets migrations older than the
+oldest supported release be deleted. Apps older than the floor upgrade one
+release line at a time. The upgrade convergence test (Q9) is a prerequisite: it
+is what proves a snapshot matches the step-by-step path.
+
+### 3. Every app gets every framework table
+
+**Problem.** An app that never uses extensions, A2A, remote devices, usage
+budgets, or review suggestions still gets their tables.
+
+**Proposal.** `defineStore` declares the feature it belongs to, and the release
+step migrates only stores for features the app config enables. Turning a
+feature on later is a config change and a redeploy, and that release creates
+its tables. A disabled feature's store fails with `SchemaNotMigratedError` if
+code touches it, rather than with a missing relation. Core stores (auth,
+settings, application state, resources, sync) are always on.
+
+### 4. Retiring stores and finding orphans
+
+**Problem.** Additive-only is right for rolling deploys, but there is no way
+to retire a table after a refactor. The old `extensions` table lived on after
+the rename to `tools`, and every future refactor will leave something behind.
+
+**Proposal.**
+
+```mermaid
+stateDiagram-v2
+  [*] --> Active: defineStore
+  Active --> Retired: marked retired in code
+  Retired --> Orphaned: removed from the registry
+  Orphaned --> Dropped: owner runs prune (opt-in)
+  note right of Retired
+    Fresh installs no longer create it.
+    Existing databases keep it.
+  end note
+  note right of Orphaned
+    Ledger has the store id,
+    registry does not.
+  end note
+```
+
+- A retired store stays in the registry with a `retired` marker. Snapshots
+  (item 2) stop creating it and nothing new reads it.
+- The ledger makes orphans visible: a store id in `_an_store_migrations` with
+  no registered store. `agent-native db prune --dry-run` lists them with row
+  counts, and only an explicit, reviewed command drops anything. The framework
+  never drops tables on its own.
+- A rename is a new store, a copy migration, and then retiring the old store.
+  This is what the `extensions` → `tools` rename did by hand.
 
 ---
 
@@ -602,6 +866,10 @@ flowchart LR
 - `server/release-schema.cold-start.spec.ts`: after a real release pass on
   PGlite, a simulated hosted cold start readies all 64 stores with exactly one
   statement, the ledger read.
+- One-off upgrade check: a database built by the Aug 19 release step upgrades
+  to the same tables, indexes, and ledger as a fresh one, and a second release
+  applies nothing. Results and the drift it found are under
+  [Upgrade paths](#upgrade-paths-framework-users-on-old-databases).
 - Full `packages/core` suite: 1,223 files and 18,100 tests pass. The 2 failing
   files (`review/suggestions/pglite-transaction.integration.spec.ts`,
   `server/agent-chat-plugin.lifecycle.spec.ts`) fail the same way on the
