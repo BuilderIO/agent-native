@@ -79,9 +79,10 @@ Inspect repository rulesets as well as branch protection. List them with
 `gh api repos/BuilderIO/agent-native/rulesets`, then inspect each matching
 `/rulesets/<id>` definition's `conditions.ref_name` and
 all applicable rules for the PR base branch, including required status checks,
-deployments, and other non-status conditions. `gh pr checks --required` can
-omit ruleset requirements; never infer that no merge requirements exist from
-that command alone.
+deployments, and other non-status conditions. Only rulesets with
+`enforcement: active` impose requirements; disabled and evaluate-only rulesets
+do not. `gh pr checks --required` can omit ruleset requirements; never infer
+that no merge requirements exist from that command alone.
 
 Use the GitHub organization membership API to verify that the author and any
 reviewer whose approval you rely on are current members of `BuilderIO`. Do not
