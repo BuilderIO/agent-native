@@ -3944,7 +3944,7 @@ export function TiptapComposer({
       // Snapshot exactly what flushComposerDraft just persisted so a
       // same-scope draft written by a later, unrelated composer instance
       // (see clearComposerDraft) is never mistaken for this submission's.
-      const submittingDraftSnapshot = submittingDraftKey
+      let submittingDraftSnapshot = submittingDraftKey
         ? (() => {
             try {
               return localStorage.getItem(submittingDraftKey);
@@ -3957,9 +3957,10 @@ export function TiptapComposer({
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
-      const { text: draftText, references } = syncComposerState();
-      const text = textOverride ?? draftText;
-      const attachments = composerRuntime.getState().attachments;
+      let { text: draftText, references } = syncComposerState();
+      let text = textOverride ?? draftText;
+      let attachments = composerRuntime.getState().attachments;
+      let submittedEditorDocument = ed.state.doc;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return false;
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
@@ -3985,32 +3986,48 @@ export function TiptapComposer({
       };
 
       // Intercept slash commands typed directly (e.g. "/clear" + Enter)
-      const trimmed = text.trim();
-      if (trimmed.startsWith("/") && references.length === 0) {
-        const cmdName = normalizeSlashCommandName(trimmed);
-        const matched = allSlashCommands.find((c) => c.name === cmdName);
-        if (matched) {
+      let trimmed = text.trim();
+      const handleLocalSubmission = () => {
+        if (trimmed.startsWith("/") && references.length === 0) {
+          const cmdName = normalizeSlashCommandName(trimmed);
+          const matched = allSlashCommands.find((c) => c.name === cmdName);
+          if (matched) {
+            clearEditorAfterSubmit();
+            announceSlashCommand(matched);
+            return true;
+          }
+        }
+
+        // Builder iframe delegation: when this app is mounted inside the
+        // Builder.io webview and the user typed a "build me an app/agent"
+        // prompt, hand it up to the parent Builder chat instead of sending
+        // it to this app's domain agent. Builder is the code-writing agent;
+        // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+        // apps from inside its own iframe.
+        if (
+          !composerMode &&
+          interceptBuildRequestsForBuilder &&
+          adapters.builder!.tryDelegateBuildRequest!(trimmed)
+        ) {
+          cancelActiveVoice();
           clearEditorAfterSubmit();
-          announceSlashCommand(matched);
           return true;
         }
-      }
+        return false;
+      };
 
-      // Builder iframe delegation: when this app is mounted inside the
-      // Builder.io webview and the user typed a "build me an app/agent"
-      // prompt, hand it up to the parent Builder chat instead of sending
-      // it to this app's domain agent. Builder is the code-writing agent;
-      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
-      // apps from inside its own iframe.
-      if (
-        !composerMode &&
-        interceptBuildRequestsForBuilder &&
-        adapters.builder!.tryDelegateBuildRequest!(trimmed)
-      ) {
-        cancelActiveVoice();
-        clearEditorAfterSubmit();
+      const clearSubmittedDraft = () => {
+        if (
+          isComposerEditorUsable(ed) &&
+          !ed.state.doc.eq(submittedEditorDocument)
+        ) {
+          return false;
+        }
+        clearEditorAfterSubmit(submittingDraftSnapshot);
         return true;
-      }
+      };
+
+      if (handleLocalSubmission()) return true;
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
@@ -4023,6 +4040,46 @@ export function TiptapComposer({
       }
       if (!isComposerEditorUsable(ed)) return false;
       if (!isCurrentDraftScope()) return false;
+
+      if (onBeforeSubmit) {
+        const current = syncComposerState();
+        if (textOverride === undefined) {
+          text = current.text;
+          submittedEditorDocument = ed.state.doc;
+        }
+        references = current.references;
+        attachments = composerRuntime.getState().attachments;
+        trimmed = text.trim();
+        if (
+          !text.trim() &&
+          references.length === 0 &&
+          attachments.length === 0
+        ) {
+          return false;
+        }
+        const currentOversizedDocumentError =
+          getOversizedDocumentAttachmentError(attachments, {
+            maxBytes: maxDocumentAttachmentBytes,
+            label: documentAttachmentLimitLabel,
+            translate: t,
+          });
+        if (currentOversizedDocumentError) {
+          onAttachmentErrorRef.current?.(currentOversizedDocumentError);
+          return false;
+        }
+        flushComposerDraft();
+        submittingDraftSnapshot = submittingDraftKey
+          ? (() => {
+              try {
+                return localStorage.getItem(submittingDraftKey);
+              } catch {
+                // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
+                return null;
+              }
+            })()
+          : null;
+        if (textOverride === undefined && handleLocalSubmission()) return true;
+      }
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -4072,14 +4129,10 @@ export function TiptapComposer({
           });
         }
         cancelActiveVoice();
-        if (isComposerEditorUsable(ed)) ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        setComposerMode(null);
-        composerModeRef.current = null;
-        cancelScheduledDraftPersist();
-        clearComposerDraft(draftKey);
-        closePopover();
+        if (clearSubmittedDraft()) {
+          setComposerMode(null);
+          composerModeRef.current = null;
+        }
         return true;
       }
 
@@ -4110,26 +4163,24 @@ export function TiptapComposer({
           clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
           return true;
         }
-        // Clear any pending attachments now that the host has them.
-        void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
+          // Clear any pending attachments now that the host has them.
+          void composerRuntime.clearAttachments().catch(() => {});
           closePopover();
           return true;
         }
         cancelActiveVoice();
-        clearEditorAfterSubmit(submittingDraftSnapshot);
+        if (clearSubmittedDraft()) {
+          // Clear any pending attachments now that the host has them.
+          void composerRuntime.clearAttachments().catch(() => {});
+        }
         return true;
       } else {
         if (textOverride !== undefined) composerRuntime.setText(text);
         composerRuntime.send();
       }
       cancelActiveVoice();
-      if (isComposerEditorUsable(ed)) ed.commands.clearContent();
-      setEditorHasText(false);
-      setSlotReferences([]);
-      cancelScheduledDraftPersist();
-      clearComposerDraft(draftKey);
-      closePopover();
+      clearSubmittedDraft();
       return true;
     },
     [

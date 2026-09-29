@@ -586,6 +586,49 @@ describe("controlled composer context", () => {
     ).toBe(true);
   });
 
+  it("submits edits made while an async readiness check is pending", async () => {
+    let resolveReadiness!: (ready: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveReadiness = resolve;
+    });
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => readiness);
+    const { composerRef, onSubmit } = await mount({ onBeforeSubmit });
+    onSubmit.mockReturnValue(submission);
+    const editor = container.querySelector<HTMLElement>(
+      '[contenteditable="true"]',
+    )!;
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+    });
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+
+    await act(async () =>
+      composerRef.current!.setText("Updated while checking readiness"),
+    );
+    await act(async () => {
+      resolveReadiness(true);
+      await readiness;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][0]).toBe("Updated while checking readiness");
+    await act(async () => composerRef.current!.setText("Next draft"));
+    await act(async () => {
+      resolveSubmit();
+      await submission;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(editor.textContent).toBe("Next draft");
+  });
+
   it.each(["click", "enter"])(
     "allows %s steering past a nonremovable failed persisted source",
     async (method) => {
