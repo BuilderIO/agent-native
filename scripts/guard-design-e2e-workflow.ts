@@ -19,6 +19,10 @@ const workflow = parse(
   jobs?: { e2e?: { "timeout-minutes"?: unknown } };
 };
 
+assert.deepEqual(Object.keys(workflow.on ?? {}).sort(), [
+  "schedule",
+  "workflow_dispatch",
+]);
 assert.deepEqual(workflow.on?.schedule, [{ cron: "37 9 * * *" }]);
 assert.ok(Object.hasOwn(workflow.on ?? {}, "workflow_dispatch"));
 assert.equal(workflow.on?.push, undefined);
