@@ -1712,7 +1712,13 @@ function refuseRenderArtifactWrite(
   if (import.meta.env.DEV) throw error;
 }
 
-export function DeckProvider({ children }: { children: ReactNode }) {
+export function DeckProvider({
+  children,
+  realtimeEnabled = false,
+}: {
+  children: ReactNode;
+  realtimeEnabled?: boolean;
+}) {
   const { data: org, isLoading: orgLoading } = useOrg();
   const t = useT();
   const tRef = useRef(t);
@@ -2773,11 +2779,58 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
-    if (isEmbedAuthActive()) return;
+    if (!realtimeEnabled || isEmbedAuthActive()) return;
     let stopped = false;
     let hasConnectedOnce = false;
+    const sideEffectTabs = new Set<string>();
+
+    const onToolDone = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          completedSideEffect?: unknown;
+          tabId?: unknown;
+        }>
+      ).detail;
+      if (detail?.completedSideEffect !== true) return;
+      sideEffectTabs.add(
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__",
+      );
+    };
+    const onChatRunning = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          isRunning?: unknown;
+          tabId?: unknown;
+        }>
+      ).detail;
+      const tabId =
+        typeof detail?.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      if (detail?.isRunning === true) {
+        sideEffectTabs.delete(tabId);
+        return;
+      }
+      if (detail?.isRunning !== false) return;
+      if (!sideEffectTabs.delete(tabId)) return;
+      const openId = currentOpenDeckIdFromWindow();
+      if (openId) {
+        void refetchOpenDeckIfChanged(openId).catch((error) => {
+          console.error(
+            `Failed to refresh deck ${openId} after agent run:`,
+            error,
+          );
+        });
+      }
+    };
+
+    window.addEventListener("agent-native:tool-done", onToolDone);
+    window.addEventListener("agentNative.chatRunning", onChatRunning);
 
     const unsubscribe = subscribeSyncEvents({
+      pauseWhenHidden: true,
       onEvents: (events) => {
         const changedDeckIds = new Map<string, string | undefined>();
         for (const data of events) {
@@ -2840,11 +2893,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     return () => {
       stopped = true;
+      window.removeEventListener("agent-native:tool-done", onToolDone);
+      window.removeEventListener("agentNative.chatRunning", onChatRunning);
       liveChannelConnectedRef.current = false;
       sseStreamConnectedRef.current = false;
       unsubscribe();
     };
-  }, [refetchOpenDeckIfChanged, resyncDeckState, runHomeGridListRefresh]);
+  }, [
+    realtimeEnabled,
+    refetchOpenDeckIfChanged,
+    resyncDeckState,
+    runHomeGridListRefresh,
+  ]);
 
   useEffect(() => {
     const onHidden = () => {

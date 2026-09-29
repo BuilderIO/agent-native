@@ -1416,6 +1416,13 @@ const PATTERNS = [
     re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
   },
   {
+    key: "unnecessary-realtime-sync",
+    label: "Had to stop broad or unnecessary background sync",
+    fixedBy:
+      "guard:realtime-opt-in + .agents/skills/real-time-sync (2026-09-28)",
+    re: /\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b[^.!?]{0,100}\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b|\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b[^.!?]{0,100}\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b/i,
+  },
+  {
     key: "stopped-early",
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",

@@ -62,7 +62,9 @@ function SyncProbe({
   useDbSync({
     queryClient,
     sseUrl: false,
+    realtime: { reason: "test remote sync behavior" },
     interval: 50,
+    fallbackInterval: 50,
     pauseWhenHidden: false,
     actionInvalidatePredicate,
     suppressActionInvalidationFor,
@@ -145,6 +147,91 @@ describe("useDbSync", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     _resetSyncTransportRegistryForTests();
+  });
+
+  it("does not create a background transport without an explicit opt-in", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function DefaultProbe() {
+      useDbSync({ queryClient, sseUrl: false });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<DefaultProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses chat run events to invalidate local side effects without polling", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    const observedEvents: Array<{ source?: string; key?: string }> = [];
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        onEvent: (event) => observedEvents.push(event),
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "update-document",
+            completedSideEffect: true,
+            tabId: "tab-a",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+    expect(invalidatedQueryKeys(queryClient.calls)).toEqual([["action"]]);
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({ source: "action", key: "update-document" }),
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "tab-a" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+    expect(invalidatedQueryKeys(queryClient.calls)).toEqual([
+      ["action"],
+      ["action"],
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("invalidates only action-backed queries by default for action events", async () => {
@@ -695,7 +782,7 @@ describe("useDbSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     await act(async () => {
-      vi.advanceTimersByTime(60);
+      vi.advanceTimersByTime(100);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -711,7 +798,12 @@ describe("useDbSync", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     function AdaptiveProbe() {
-      useDbSync({ queryClient, sseUrl: false, pauseWhenHidden: false });
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test remote sync behavior" },
+        pauseWhenHidden: false,
+      });
       return null;
     }
 
@@ -798,7 +890,9 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test remote sync behavior" },
         interval: 50,
+        fallbackInterval: 50,
         pauseWhenHidden: false,
       });
       return null;
@@ -838,7 +932,12 @@ describe("useDbSync", () => {
       .mockImplementation(() => visibilityState);
 
     function BackgroundProbe() {
-      useDbSync({ queryClient, sseUrl: false });
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        realtime: { reason: "test hidden-tab sync behavior" },
+        pauseWhenHidden: false,
+      });
       return null;
     }
 
@@ -907,6 +1006,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test hidden-tab sync behavior" },
         interval: 50,
         pauseWhenHidden: true,
       });
@@ -965,6 +1065,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test forced refresh behavior" },
         interval: 50_000,
         pauseWhenHidden: false,
       });
@@ -1021,6 +1122,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test forced refresh behavior" },
         interval: 50_000,
         pauseWhenHidden: true,
       });
@@ -1195,6 +1297,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test transport sharing" },
         interval: 50,
         pauseWhenHidden: false,
       });
@@ -1269,6 +1372,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: { reason: "test transport sharing" },
         interval: 50,
         pauseWhenHidden: false,
       });

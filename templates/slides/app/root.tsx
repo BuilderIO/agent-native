@@ -191,6 +191,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
+  const location = useLocation();
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
@@ -202,13 +203,16 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
+    realtime: isDeckEditorPath(location.pathname)
+      ? { reason: "other collaborators can edit this deck while it is open" }
+      : undefined,
+    pauseWhenHidden: true,
   });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  const location = useLocation();
   const handleCommandMenuShortcut = useCallback(() => {
     setCmdkOpen(true);
   }, []);
@@ -236,7 +240,7 @@ function AppContent() {
   const isBare = isBareContentPath(location.pathname);
 
   const content = isBare ? (
-    <DeckProvider key={DECK_KEY}>
+    <DeckProvider key={DECK_KEY} realtimeEnabled={false}>
       <Outlet />
     </DeckProvider>
   ) : (
@@ -319,7 +323,7 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <DeckProvider key={DECK_KEY}>
+      <DeckProvider key={DECK_KEY} realtimeEnabled={isDeckEditor}>
         <AppLayout>
           <Outlet />
         </AppLayout>

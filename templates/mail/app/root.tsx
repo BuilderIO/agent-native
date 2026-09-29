@@ -32,6 +32,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -413,6 +414,7 @@ export function createMailSyncEventHandler(qc: QueryClient) {
 
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   const onEvent = useMemo(() => createMailSyncEventHandler(qc), [qc]);
 
   useDbSync({
@@ -421,6 +423,11 @@ function DbSyncSetup() {
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     ignoreSource: TAB_ID,
     onEvent,
+    realtime:
+      location.pathname === "/inbox"
+        ? { reason: "new mail arrives while the inbox is open" }
+        : undefined,
+    pauseWhenHidden: true,
   });
   return null;
 }

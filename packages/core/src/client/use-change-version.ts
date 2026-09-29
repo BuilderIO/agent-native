@@ -5,6 +5,7 @@ const ZERO_SNAPSHOT = () => 0;
 
 class ChangeVersionStore {
   private versions = new Map<string, number>();
+  private localGenerations = new Map<string, number>();
   private listeners = new Map<string, Set<() => void>>();
   private activeSources = new Map<string, number>();
 
@@ -20,8 +21,22 @@ class ChangeVersionStore {
     return false;
   }
 
+  bumpLocal(source: string): boolean {
+    if (!source) return false;
+    this.localGenerations.set(
+      source,
+      (this.localGenerations.get(source) ?? 0) + 1,
+    );
+    this.evictUnobservedSources();
+    for (const listener of this.listeners.get(source) ?? []) listener();
+    return true;
+  }
+
   get(source: string): number {
-    return this.versions.get(source) ?? 0;
+    return (
+      (this.versions.get(source) ?? 0) +
+      (this.localGenerations.get(source) ?? 0)
+    );
   }
 
   subscribe(sources: readonly string[], listener: () => void): () => void {
@@ -50,6 +65,7 @@ class ChangeVersionStore {
 
   reset(): void {
     this.versions.clear();
+    this.localGenerations.clear();
     this.listeners.clear();
     this.activeSources.clear();
   }
@@ -60,6 +76,7 @@ class ChangeVersionStore {
       for (const source of this.versions.keys()) {
         if (this.activeSources.has(source)) continue;
         this.versions.delete(source);
+        this.localGenerations.delete(source);
         evicted = true;
         break;
       }
@@ -72,6 +89,10 @@ const store = new ChangeVersionStore();
 
 export function bumpChangeVersion(source: string, version: number): boolean {
   return store.bump(source, version);
+}
+
+export function bumpLocalChangeVersion(source: string): boolean {
+  return store.bumpLocal(source);
 }
 
 export function getChangeVersion(source: string): number {

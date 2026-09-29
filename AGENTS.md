@@ -260,7 +260,8 @@ argument rots into exactly the patchwork it warns about.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
-- Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Chat-run tools refresh UI data; opt in to `useDbSync({ realtime: { reason } })`
+  only when external changes matter. Read `real-time-sync`.
 - Server configuration is one zod schema. Add a field under
   `packages/core/src/app-config/` and read it with `getAppConfig()`; an
   environment variable is a declared `.meta({ env })` alias into that field, not

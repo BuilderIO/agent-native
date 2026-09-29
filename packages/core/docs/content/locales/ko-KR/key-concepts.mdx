@@ -357,23 +357,26 @@ graph LR
 
 ## 라이브 동기화 {#polling-sync}
 
-에이전트가 데이터를 변경하면, UI는 수동 새로고침 없이 이를 반영해야 합니다. `useDbSync()`가 이를 자동으로 처리합니다. 장기 실행 호스트에서는 동일 프로세스 쓰기가 `/_agent-native/events`를 통해 스트리밍되며, `/_agent-native/poll`은 크로스 프로세스 폴백으로 남아 있습니다. 에이전트가 데이터베이스(애플리케이션 상태, 설정, 또는 도메인 데이터)에 쓰면, 버전 카운터가 증가하고 클라이언트는 관련된 React Query 캐시를 무효화합니다.
+채팅 실행 스트림은 부작용이 있는 각 도구가 끝난 뒤와 실행 종료 시 관련 action query와 source counter를 무효화합니다. 따라서 단일 사용자의 에이전트 변경에는 백그라운드 폴링이 필요하지 않습니다. `useDbSync()`는 다른 사람이 공유 레코드를 바꾸거나 새 메일이 오는 것처럼 현재 사용자 동작 없이 발생하는 변경에 opt-in합니다. 장기 실행 호스트에서는 `/_agent-native/events`로 전달되고 `/_agent-native/poll`이 대체 경로입니다.
 
-SSE를 WebSockets 대신 일반적인 경우에 사용하는 이유는, 동일 프로세스 쓰기가 평범한 HTTP만으로 브라우저까지 즉시 도달하는 경로를 제공하는 동시에, 모든 배포 환경에서 작동하는 폴백으로 버전 카운터 폴링이 남아 있기 때문입니다. 프로덕션 서버리스 호스트(Netlify, Lambda, Vercel)에서는 앱 자체의 `/_agent-native/events`가 느린 경로가 아니라 아예 꺼져 있습니다. 그 스트림을 열어 두면 한 번에 하나의 요청만 처리하는 함수 인스턴스(어차피 다른 invocation의 쓰기를 볼 수도 없습니다)를, 플랫폼이 강제 종료하고 컨테이너를 재활용할 때까지 점유하게 됩니다. 대신 서버는 즉시 204로 응답하고, `/_agent-native/poll`이 동일한 주기로 모든 동기화를 담당하지만, 앱이 [호스팅형 실시간 동기화 게이트웨이](/docs/real-time-collaboration#hosted-gateway)를 사용하도록 설정한 경우에는 대신 자체의 장기 실행 프로세스에서 스트리밍됩니다.
+`useDbSync()`를 opt-in하는 페이지는 짧은 이유를 포함해야 합니다. 전송 하나를 탭에서 공유하며, 보이는 opt-in 탭은 유휴 시 1분, 2분, 5분 간격으로 폴링합니다. 사용자 활동이나 로컬 변경 후 간격이 초기화되고 숨겨진 탭은 중지됩니다. 공개/SSR 페이지, Docs, 설정, 양식, 변경이 드문 목록은 끄고 포커스나 탐색 시 다시 가져오세요. Yjs는 자체 채널을 유지합니다.
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-앱의 루트 근처에서 이를 한 번 호출하세요. 이는 앱 전체를 변경 이벤트에 구독시키므로, `useActionQuery`나 소스 버전이 지정된 `useQuery`를 사용하는 모든 컴포넌트는 자신이 읽는 데이터가 바뀌면 자동으로 다시 가져옵니다.
+현재 사용자의 동작 없이 데이터가 바뀔 수 있고 새로고침 전에 업데이트를 보여 줘야 하는 비공개 경로에서만 호출하세요. 백그라운드 구독 하나는 열린 탭과 간격마다 폴링 하나를 추가합니다.
 
-흐름은 다음과 같습니다:
+원격 변경 흐름:
 
-1. 에이전트가 데이터베이스에 쓰는 액션을 실행합니다
+1. 다른 사용자나 백그라운드 작업이 공유 레코드를 변경합니다
 2. 서버가 `"action"` 또는 `"settings"`와 같은 소스를 가진 변경 이벤트를 내보냅니다
-3. `useDbSync`가 SSE 또는 폴링 폴백을 통해 이를 수신합니다
+3. opt-in한 `useDbSync` 페이지가 SSE 또는 폴링으로 받습니다. 현재 사용자 에이전트 실행은 채팅 스트림을 사용합니다
 4. `useActionQuery` 훅과 소스 버전이 지정된 `useQuery` 훅이 다시 가져옵니다
 5. 컴포넌트가 페이지 새로고침 없이 새 데이터를 렌더링합니다
 
