@@ -243,14 +243,16 @@ describe("speak route", () => {
     ]);
   });
 
-  it("refuses an anonymous caller instead of spending the deploy key", async () => {
+  it("reports no provider for an anonymous caller instead of spending the deploy key", async () => {
     const fetchMock = mockFetch();
     state.sessionEmail = null;
 
     const body = await post();
 
-    expect(state.status).toBe(401);
-    expect(body.reason).toBe("not-allowed");
+    // `no-provider` is what starts browser narration on the client; a 401
+    // would leave a no-login reader with silence.
+    expect(state.status).toBe(400);
+    expect(body.reason).toBe("no-provider");
     expect(state.requestContexts).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
   });

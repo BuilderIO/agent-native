@@ -276,9 +276,15 @@ export function createSpeakHandler() {
     // Synthesis spends the resolved provider key, so an identity is required
     // before one is read: an anonymous caller would otherwise bill the deploy
     // key, and a caller-less resolve searches the wrong organization anyway.
+    // Reported as `no-provider` rather than 401 because that is the one reason
+    // the client falls back to browser speech — a no-login reader who gets
+    // "not-allowed" hears nothing at all instead of the local voice.
     if (!session?.email) {
-      setResponseStatus(event, 401);
-      return { error: "Authentication required", reason: "not-allowed" };
+      setResponseStatus(event, 400);
+      return {
+        error: "Narration needs a signed-in session to resolve a provider key",
+        reason: "no-provider",
+      };
     }
 
     let orgId: string | undefined;
