@@ -675,11 +675,11 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
   String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
 ].join("|");
 const PR_REVIEW_MERGE_GATE_RE =
-  /\b(?:approvals?|approve(?:s|d)?|decision|checks?|ci|green|deployments?|deploy|(?:test\s+suites?|tests?|builds?)|reviewers?|security(?:[-\s]team(?:['’]s)?)?|(?:it|they)\s+(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
+  /\b(?:approvals?|approve(?:s|d)?|decision|checks?|ci|green|deployments?|deploy|(?:test\s+suites?|tests?|builds?)|reviewers?|review\s+threads?|comments?|requested\s+changes?|feedback|security(?:[-\s]team(?:['’]s)?)?|(?:it|they)\s+(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
 const PR_REVIEW_MERGE_OBJECT = String.raw`(?:\s+(?:(?:(?:the|a|an|this|that|these|those|my|our)\s+)?(?:PR|pull\s+request|fix|code|change|changes|commit|branch|update)|it|this|that))?`;
 const PR_REVIEW_WITH_MERGE_PREFIX = String.raw`(?:merge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?|only(?:\s+merge${PR_REVIEW_MERGE_OBJECT})?)`;
 const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
-  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|subject\s+to|contingent\s+upon|provided\s+that|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
+  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|as\s+long\s+as|subject\s+to|contingent\s+upon|provided\s+that|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
   "i",
 );
 const PR_REVIEW_GATE_WAIT_FOR_RE =
@@ -703,9 +703,14 @@ const PR_REVIEW_GATE_CONDITION_AFTER_RE = new RegExp(
 );
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
   /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
+const PR_REVIEW_GATE_SEPARATE_PRIOR_MERGE_RE = new RegExp(
+  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}\b[^.!?;]{0,60}[;,][^.!?;]*$`,
+  "i",
+);
 const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
-const PR_REVIEW_MERGE_PROHIBITION_RE = /\b(?:don't|do\s+not|never)\s+merge\b/i;
+const PR_REVIEW_MERGE_PROHIBITION_RE =
+  /\b(?:don['’]t|do\s+not|never|must\s+not|mustn['’]t|should\s+not|shouldn['’]t|can\s+not|can['’]t|cannot)\s+merge\b/i;
 const PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE = new RegExp(
   String.raw`\b${PR_REVIEW_WITH_MERGE_PREFIX}\s+with\s+(?:the\s+)?(?:CI\s+green|green\s+CI)(?:\s+checks?)?\b(?!\s+(?:badge|banner|label|indicator|update|workflow|notes?|dashboard)\b)`,
   "i",
@@ -763,7 +768,8 @@ function hasActivePrReviewMergeGate(sentence) {
       (match[0].toLowerCase().startsWith("approval") &&
         PR_REVIEW_GATE_APPROVAL_HEAD_RE.test(after) &&
         PR_REVIEW_GATE_WITH_APPROVAL_RE.test(before)) ||
-      PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after)
+      (PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after) &&
+        !PR_REVIEW_GATE_SEPARATE_PRIOR_MERGE_RE.test(before))
     ) {
       return true;
     }
@@ -872,6 +878,18 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, merge with all checks passing."],
   [false, "If no changes are needed, merge requires security approval."],
   [false, "If no changes are needed, merge needs security approval."],
+  [false, "If no changes are needed, merge as long as all CI checks pass."],
+  [
+    false,
+    "If no changes are needed, merge only after all review threads are resolved.",
+  ],
+  [false, "If no changes are needed, you must not merge."],
+  [false, "If no changes are needed, we shouldn't merge."],
+  [false, "If no changes are needed, I can't merge."],
+  [
+    true,
+    "If no changes are needed, merge this PR; require Steve's decision before merging any major product changes.",
+  ],
   [
     true,
     "If no changes are needed, merge if the approval banner is not required.",

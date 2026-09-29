@@ -293,6 +293,11 @@ actionable bot findings, credible safety concerns, or a material code issue
 mean **Needs updates** or **Cannot assess**. Report skipped, unknown, and
 non-required checks accurately; never describe them as passing.
 
+Independent-review requirements above govern approval actions and reuse of
+existing approvals; they do not create a second human-approval gate for
+merging. If no eligible current-head approval supplies the existing code
+assessment, inspect the complete diff and decide readiness from that evidence.
+
 A ready disposition is an instruction to merge, not a recommendation to hand
 off. Keep this review sweep in the foreground for a 10-minute merge gate. Once
 all the conditions hold, record the live `headRefOid`; they must remain true
