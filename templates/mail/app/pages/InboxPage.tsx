@@ -1091,7 +1091,6 @@ export function InboxPage() {
             onNavigateThread={handleOptimisticThreadNavigation}
             isLoading={emailListLoading}
             isFetching={isFetching}
-            isSyncing={isInboxView && inboxMetadata?.syncing === true}
             emailsError={emailsError}
             accountErrors={accountErrors}
             labels={

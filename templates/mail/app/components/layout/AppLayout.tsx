@@ -663,7 +663,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
     : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
   const inboxIsFetching = inboxThreads.isFetching;
-  const inboxSyncing = inboxMetadata?.syncing === true;
+  const inboxSyncing =
+    inboxMetadata?.syncing === true ||
+    inboxMetadata?.accounts.some(
+      (account) =>
+        account.state === "ready" && account.backfillPending === true,
+    );
   const needsReauthAccount = inboxMetadata?.accounts.find(
     (account) => account.state === "needs_reauth",
   );
@@ -1782,9 +1787,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </>
 
           {inboxSyncing && (
-            <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
-              <IconRefresh className="h-3 w-3 animate-spin" />
-              {t("mail.inbox.syncing")}
+            <span
+              className="flex shrink-0 items-center text-muted-foreground"
+              role="status"
+              aria-label={t("mail.inbox.syncing")}
+              title={t("mail.inbox.syncing")}
+            >
+              <IconRefresh
+                aria-hidden="true"
+                className="h-3 w-3 animate-spin"
+              />
             </span>
           )}
 

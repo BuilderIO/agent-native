@@ -542,14 +542,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("data: labelsData");
   });
 
-  it("shows a compact inline indicator only while the inbox is syncing", () => {
+  it("shows an accessible spinner only while the inbox is syncing", () => {
     const source = appLayoutSource();
 
+    expect(source).toContain("const inboxSyncing =");
+    expect(source).toContain("inboxMetadata?.syncing === true");
     expect(source).toContain(
-      "const inboxSyncing = inboxMetadata?.syncing === true;",
+      'account.state === "ready" && account.backfillPending === true',
     );
     expect(source).toContain("{inboxSyncing && (");
-    expect(source).toContain('{t("mail.inbox.syncing")}');
+    expect(source).toContain('aria-label={t("mail.inbox.syncing")}');
+    expect(source).toContain('title={t("mail.inbox.syncing")}');
+    expect(source).toMatch(/<IconRefresh\s+aria-hidden="true"/);
+    expect(source).not.toContain('>{t("mail.inbox.syncing")}</span>');
   });
 
   it("reuses the existing Google reconnect UI for a needs_reauth account", () => {
