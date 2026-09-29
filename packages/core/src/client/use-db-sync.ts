@@ -1619,21 +1619,23 @@ export function useDbSync(
         return;
       }
       processedEvents.add(event);
-      for (const source of new Set(
-        events.map((syncEvent) => syncEvent.source),
-      )) {
-        if (source) bumpLocalChangeVersion(source);
+      const sources = events
+        .map((syncEvent) => syncEvent.source)
+        .filter((source): source is string => typeof source === "string");
+      for (const source of new Set(sources)) {
+        bumpLocalChangeVersion(source);
       }
       if (
         events.some((syncEvent) => syncEvent.source === "action") &&
-        events.every((syncEvent) =>
-          ["action", "app-state", "screen-refresh"].includes(syncEvent.source),
+        events.every(
+          (syncEvent) =>
+            syncEvent.source === "action" ||
+            syncEvent.source === "app-state" ||
+            syncEvent.source === "screen-refresh",
         )
       ) {
         // Tool completion has no domain scope, so wake mounted raw-query counters too.
-        bumpActiveLocalChangeVersions(
-          events.map((syncEvent) => syncEvent.source),
-        );
+        bumpActiveLocalChangeVersions(sources);
       }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
@@ -1691,7 +1693,7 @@ export function useDbSync(
       sideEffectToolsByTab.delete(tabId);
       applyRunEvents(
         event,
-        [...tools].flatMap((tool) => eventsForTool(tool, true)),
+        [...tools].flatMap((tool) => eventsForTool(tool, true, false)),
         processedRunEndEvents,
       );
     };
