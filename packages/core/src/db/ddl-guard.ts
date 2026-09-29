@@ -8,12 +8,15 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
-import { getDbExec, type DbExec } from "./client.js";
+import {
+  getDbExec,
+  isProductionServerlessFunctionRuntime,
+  type DbExec,
+} from "./client.js";
 import {
   isHostedFunctionInvocationRuntime,
   isMigrationExecutingRuntime,
   isMigrationAuthorizedRuntime,
-  isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
