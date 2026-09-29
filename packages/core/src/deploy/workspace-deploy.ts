@@ -267,16 +267,16 @@ export async function runWorkspaceDeploy(
   );
   const timings: AppBuildTiming[] = [];
   if (concurrency > 1) {
-    const builds = apps.map((app) =>
-      prepareAppBuild(appsDir, app, preset, workspaceApps, workspaceAuthMode),
-    );
-    timings.push(
-      ...(await runAppBuildsConcurrently(
-        workspaceRoot,
-        builds,
-        concurrency,
-        opts.runAppBuild ?? runAppBuildProcess,
-      )),
+    await runAppBuildsConcurrently(
+      workspaceRoot,
+      apps,
+      // Preparing cleans the app's previous outputs, so it must wait until the
+      // build starts: an app skipped after a failure keeps its last artifacts.
+      (app) =>
+        prepareAppBuild(appsDir, app, preset, workspaceApps, workspaceAuthMode),
+      concurrency,
+      opts.runAppBuild ?? runAppBuildProcess,
+      timings,
     );
   }
   for (const app of apps) {
@@ -446,35 +446,38 @@ function logAppBuildStart(build: PreparedAppBuild): void {
 
 async function runAppBuildsConcurrently(
   workspaceRoot: string,
-  builds: PreparedAppBuild[],
+  apps: string[],
+  prepare: (app: string) => PreparedAppBuild,
   concurrency: number,
   runAppBuild: RunAppBuild,
-): Promise<AppBuildTiming[]> {
+  timings: AppBuildTiming[],
+): Promise<void> {
   console.log(
     `[workspace-deploy] Running up to ${concurrency} app builds at once`,
   );
-  const timings: AppBuildTiming[] = [];
   const failures: { app: string; error: unknown }[] = [];
   let next = 0;
   const worker = async () => {
     // Stop taking new builds after a failure, but let in-flight builds finish
     // so their output and errors are not cut off mid-stream.
-    while (next < builds.length && failures.length === 0) {
-      const build = builds[next++];
-      logAppBuildStart(build);
+    while (next < apps.length && failures.length === 0) {
+      const app = apps[next++];
       const started = Date.now();
       try {
+        const build = prepare(app);
+        logAppBuildStart(build);
         await runAppBuild(build, workspaceRoot);
-        timings.push({ app: build.app, ms: Date.now() - started });
+        timings.push({ app, ms: Date.now() - started });
       } catch (error) {
-        failures.push({ app: build.app, error });
+        failures.push({ app, error });
       }
     }
   };
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, builds.length) }, worker),
+    Array.from({ length: Math.min(concurrency, apps.length) }, worker),
   );
   if (failures.length > 0) {
+    logAppBuildTimings(timings, concurrency);
     const details = failures
       .map(
         ({ app, error }) =>
@@ -485,7 +488,6 @@ async function runAppBuildsConcurrently(
       `${failures.length} app build(s) failed (${details}). Builds not yet started were skipped.`,
     );
   }
-  return timings;
 }
 
 function logAppBuildTimings(
@@ -498,6 +500,9 @@ function logAppBuildTimings(
   console.log(
     `[workspace-deploy] Built ${timings.length} app(s): ${formatSeconds(total)} of build time at concurrency ${concurrency}; slowest ${slowest.app} (${formatSeconds(slowest.ms)})`,
   );
+  for (const { app, ms } of [...timings].sort((a, b) => b.ms - a.ms)) {
+    console.log(`[workspace-deploy]   ${app}: ${formatSeconds(ms)}`);
+  }
 }
 
 function formatSeconds(ms: number): string {

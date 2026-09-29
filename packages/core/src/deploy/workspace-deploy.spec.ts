@@ -1902,6 +1902,13 @@ describe("workspace deploy build concurrency", () => {
       expect(log.mock.calls.flat().join("\n")).toMatch(
         /Built 2 app\(s\): [\d.]+s of build time at concurrency 2; slowest (dispatch|starter)/,
       );
+      for (const app of ["dispatch", "starter"]) {
+        expect(log).toHaveBeenCalledWith(
+          expect.stringMatching(
+            new RegExp(`^\\[workspace-deploy\\] {3}${app}: [\\d.]+s$`),
+          ),
+        );
+      }
     } finally {
       log.mockRestore();
     }
@@ -1926,6 +1933,35 @@ describe("workspace deploy build concurrency", () => {
     );
     expect(builds.started).toHaveLength(2);
     expect(builds.started).not.toContain("plan");
+  });
+
+  it("keeps a skipped app's previous outputs and logs completed build times after a failure", async () => {
+    for (const app of ["dispatch", "mail", "plan"]) {
+      makeWorkspaceApp(tmpDir, app);
+    }
+    const previousOutput = path.join(tmpDir, "apps", "plan", "dist");
+    fs.mkdirSync(previousOutput, { recursive: true });
+    fs.writeFileSync(path.join(previousOutput, "index.html"), "previous");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          args: ["--preset=vercel", "--build-only"],
+          concurrency: 2,
+          execFile: execFile as typeof execFileSync,
+          runAppBuild: trackedBuilds({ failApp: "dispatch" }).runAppBuild,
+        }),
+      ).rejects.toThrow(/1 app build\(s\) failed/);
+      expect(
+        fs.readFileSync(path.join(previousOutput, "index.html"), "utf8"),
+      ).toBe("previous");
+      expect(log.mock.calls.flat().join("\n")).toMatch(
+        /Built 1 app\(s\)[^\n]*\n\[workspace-deploy\] {3}mail: [\d.]+s/,
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("sizes auto concurrency by cores, memory, and container limits", async () => {
