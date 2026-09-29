@@ -1977,7 +1977,136 @@ describe("workspace deploy build concurrency", () => {
       }),
     ).rejects.toThrow('--concurrency must be a positive integer or "auto"');
   });
+
+  it("rejects --concurrency without a value instead of falling back to config", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      "export default { deployment: { workspace: { buildConcurrency: 3 } } };\n",
+    );
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only", "--concurrency"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow('--concurrency must be a positive integer or "auto"');
+  });
 });
+
+describe.skipIf(process.platform === "win32")(
+  "workspace deploy concurrent build subprocesses",
+  () => {
+    let previousPath: string | undefined;
+
+    beforeEach(() => {
+      previousPath = process.env.PATH;
+    });
+
+    afterEach(() => {
+      restoreEnv("PATH", previousPath);
+    });
+
+    function installFakePnpm(script: string): void {
+      const binDir = path.join(tmpDir, "fake-bin");
+      fs.mkdirSync(binDir, { recursive: true });
+      const pnpm = path.join(binDir, "pnpm");
+      fs.writeFileSync(pnpm, `#!/bin/sh\n${script}\n`);
+      fs.chmodSync(pnpm, 0o755);
+      process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    }
+
+    it("runs pnpm per app and prefixes its output with the app name", async () => {
+      // The deploy clears stale app output before building, so the fake pnpm
+      // restores a prepared output the way a real build would emit one.
+      for (const app of ["dispatch", "starter"]) {
+        makeWorkspaceApp(tmpDir, app);
+        writeVercelAppBuildOutput(tmpDir, app);
+        fs.mkdirSync(path.join(tmpDir, "prebuilt"), { recursive: true });
+        fs.renameSync(
+          path.join(tmpDir, "apps", app, ".vercel"),
+          path.join(tmpDir, "prebuilt", app),
+        );
+      }
+      installFakePnpm(
+        [
+          'cp -R "prebuilt/$2" "apps/$2/.vercel"',
+          'echo "built $2 via $1 $3"',
+          'echo "warn $2" >&2',
+        ].join("\n"),
+      );
+      const stdout = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const stderr = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      try {
+        await runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          args: ["--preset=vercel", "--build-only", "--concurrency=2"],
+        });
+        const out = stdout.mock.calls.map(([chunk]) => String(chunk));
+        const err = stderr.mock.calls.map(([chunk]) => String(chunk));
+        expect(out).toContain("[dispatch] built dispatch via --filter build\n");
+        expect(out).toContain("[starter] built starter via --filter build\n");
+        expect(err).toContain("[dispatch] warn dispatch\n");
+        expect(err).toContain("[starter] warn starter\n");
+      } finally {
+        stdout.mockRestore();
+        stderr.mockRestore();
+      }
+    });
+
+    it("reports nonzero exits, signals, and likely out-of-memory kills", async () => {
+      for (const app of ["exits", "oom", "killed"]) {
+        makeWorkspaceApp(tmpDir, app);
+      }
+      installFakePnpm(
+        [
+          'case "$2" in',
+          "  exits) exit 3 ;;",
+          "  oom) exit 137 ;;",
+          "  killed) kill -9 $$ ;;",
+          "esac",
+        ].join("\n"),
+      );
+
+      const result = runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only", "--concurrency=3"],
+      });
+      await expect(result).rejects.toThrow(/^3 app build\(s\) failed/);
+      await expect(result).rejects.toThrow(
+        "exits: pnpm --filter exits build exited with code 3",
+      );
+      await expect(result).rejects.toThrow(
+        "oom: pnpm --filter oom build exited with code 137 (likely out of memory: lower --concurrency)",
+      );
+      await expect(result).rejects.toThrow(
+        "killed: pnpm --filter killed build was killed by SIGKILL (likely out of memory: lower --concurrency)",
+      );
+    });
+
+    it("reports a pnpm that cannot be started", async () => {
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "starter");
+      const emptyBin = path.join(tmpDir, "empty-bin");
+      fs.mkdirSync(emptyBin);
+      process.env.PATH = emptyBin;
+
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          args: ["--preset=vercel", "--build-only", "--concurrency=2"],
+        }),
+      ).rejects.toThrow(
+        /dispatch: could not start pnpm --filter dispatch build: spawn pnpm ENOENT/,
+      );
+    });
+  },
+);
 
 function makeWorkspaceApp(
   workspaceRoot: string,

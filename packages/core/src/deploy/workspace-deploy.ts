@@ -509,14 +509,23 @@ function runAppBuildProcess(
   workspaceRoot: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    // Windows exposes pnpm as a .cmd shim, which Node only launches through a
+    // shell: spawning "pnpm.cmd" directly throws EINVAL since CVE-2024-27980.
     const child = spawn("pnpm", ["--filter", build.app, "build"], {
       cwd: workspaceRoot,
       env: build.env,
       stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
     });
     prefixLines(child.stdout, process.stdout, build.app);
     prefixLines(child.stderr, process.stderr, build.app);
-    child.on("error", reject);
+    child.on("error", (error) =>
+      reject(
+        new Error(
+          `could not start pnpm --filter ${build.app} build: ${error.message}`,
+        ),
+      ),
+    );
     child.on("close", (code, signal) => {
       if (code === 0) {
         resolve();
@@ -1981,8 +1990,8 @@ function parsePresetArg(args: string[]): WorkspaceDeployPreset | null {
 function parseConcurrencyArg(args: string[]): string | null {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--concurrency" && args[i + 1]) {
-      return args[i + 1];
+    if (arg === "--concurrency") {
+      return args[i + 1] ?? "";
     }
     if (arg.startsWith("--concurrency=")) {
       return arg.slice("--concurrency=".length);
