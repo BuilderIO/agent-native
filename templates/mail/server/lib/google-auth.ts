@@ -2179,7 +2179,8 @@ function getArchiveLabelIds(
       label.id === removeLabel ||
       label.name?.toLowerCase() === removeLabel.toLowerCase(),
   );
-  if (match?.id && !ids.includes(match.id)) ids.push(match.id);
+  if (!match?.id) throw new Error(`Gmail label "${removeLabel}" was not found`);
+  if (!ids.includes(match.id)) ids.push(match.id);
   return ids;
 }
 

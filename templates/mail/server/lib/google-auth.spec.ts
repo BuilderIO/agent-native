@@ -2205,6 +2205,22 @@ describe("gmailBatchArchiveByAccount", () => {
     expect(gmailModifyThread).not.toHaveBeenCalled();
   });
 
+  it("fails targets when the requested archive label no longer exists", async () => {
+    const result = await gmailBatchArchiveByAccount(
+      OWNER,
+      [{ id: "message-1", threadId: "thread-1", accountEmail: ACCOUNT }],
+      "Removed label",
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([
+      { id: "message-1", error: 'Gmail label "Removed label" was not found' },
+    ]);
+    expect(result.remaining).toEqual([]);
+    expect(googleFetch).not.toHaveBeenCalled();
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
   it("returns selected targets when resolving removeLabel hits a quota cooldown", async () => {
     const targets = [
       {
