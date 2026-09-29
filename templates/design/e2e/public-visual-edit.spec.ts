@@ -357,8 +357,32 @@ test.describe.serial("public visual edit", () => {
     const created = await createOwnedVisualEditDesign(browser);
     let registrationAttempts = 0;
     await page.route("**/live-edit-bridge", async (route) => {
+      const request = route.request();
+      const requestHeaders = request.headers();
+      const origin = requestHeaders.origin ?? "*";
+      if (request.method() === "OPTIONS") {
+        await route.fulfill({
+          status: 204,
+          headers: {
+            "access-control-allow-origin": origin,
+            "access-control-allow-methods":
+              requestHeaders["access-control-request-method"] ?? "POST",
+            "access-control-allow-headers":
+              requestHeaders["access-control-request-headers"] ?? "",
+          },
+        });
+        return;
+      }
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
       registrationAttempts += 1;
-      await route.fulfill({ status: 409, body: "Bridge is not ready" });
+      await route.fulfill({
+        status: 409,
+        headers: { "access-control-allow-origin": origin },
+        body: "Bridge is not ready",
+      });
     });
 
     try {
