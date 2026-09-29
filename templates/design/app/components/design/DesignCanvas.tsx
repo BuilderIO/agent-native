@@ -2917,6 +2917,7 @@ export function DesignCanvas({
     usesLiveEditEditorBridge,
     liveEditBridgeRegistered,
     externalPreviewUrl,
+    readyIframeDocumentIdentity,
     handleSuspectedBridgeRestart,
   ]);
 
