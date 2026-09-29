@@ -238,6 +238,47 @@ describe("MCP OAuth callback flow validation", () => {
     });
   });
 
+  it("rejects anonymous OAuth starts before org lookup or MCP work", async () => {
+    const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+    callbackMocks.getH3App.mockReturnValue({
+      use: (_base: string, handler: (event: H3Event) => unknown) => {
+        routes.push({ handler });
+      },
+    });
+    callbackMocks.getSession.mockResolvedValue({
+      email: "anon-visitor@agent-native.com",
+    });
+    const reconfigure = vi.fn();
+    mountMcpOAuthRoutes({}, { reconfigure });
+
+    const event = mockEvent(
+      new Request(
+        "https://app.example.com/start?name=linear&url=https%3A%2F%2Fmcp.example.com%2Fmcp",
+      ),
+    );
+    await routes[0]!.handler(event);
+
+    expect(event.res.status).toBe(401);
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
+    expect(reconfigure).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous OAuth callbacks before resolving or persisting credentials", async () => {
+    callbackMocks.getSession.mockResolvedValue({
+      email: "anon-visitor@agent-native.com",
+    });
+    const reconfigure = vi.fn(async () => true);
+    const { event } = await invokeCallback(baseFlow, {}, reconfigure);
+
+    expect(event.res.status).toBe(401);
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(callbackMocks.finishMcpOAuthAuthorization).not.toHaveBeenCalled();
+    expect(callbackMocks.addOAuthRemoteServer).not.toHaveBeenCalled();
+    expect(callbackMocks.replaceOAuthRemoteServer).not.toHaveBeenCalled();
+    expect(reconfigure).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

@@ -81,8 +81,8 @@ export function isProductionServerlessFunctionRuntime(
     env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
     env.VERCEL_FUNCTION_ID ||
     env.VERCEL_REGION ||
-    env.NETLIFY === "true" ||
-    env.VERCEL === "1",
+    (env.NODE_ENV !== "development" &&
+      (env.NETLIFY === "true" || env.VERCEL === "1")),
   );
 }
 
