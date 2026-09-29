@@ -128,9 +128,8 @@ describe("Slides settings observability tab", () => {
       const tab = container.querySelector<HTMLAnchorElement>(
         '[data-testid="settings-tab-observability"]',
       );
-      expect(tab?.getAttribute("href")).toBe(
-        "/settings/observability/overview",
-      );
+      // A Settings page, not a link out of Settings.
+      expect(tab?.hasAttribute("href")).toBe(false);
       expect(tab?.getAttribute("data-group")).toBe("agent");
       expect(
         container

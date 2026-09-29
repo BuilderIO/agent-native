@@ -51,6 +51,8 @@ export default function SettingsRoute() {
       : [],
   });
   const observabilityBasePath = buildSettingsRoute("observability");
+  // Observability is a Slides page at its Settings path, so its nav item must
+  // not carry `href`: that renders it as a link out of Settings.
   const observabilityTabs =
     !orgLoading &&
     !orgError &&
@@ -62,7 +64,6 @@ export default function SettingsRoute() {
             label: t("settings.agentObservability"),
             icon: IconActivity,
             group: "agent",
-            href: `${observabilityBasePath}/overview`,
             content: (
               <ObservabilityDashboard
                 routeBasePath={observabilityBasePath}
