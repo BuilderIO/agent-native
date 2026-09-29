@@ -12962,10 +12962,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function radiusLinearTransform(el) {
-    return radiusLinearTransformForStyle(window.getComputedStyle(el));
-  }
-
   function radiusRotationMatrix(rotate) {
     var value = String(rotate || "").trim();
     if (!value || value === "none") {
