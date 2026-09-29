@@ -20,6 +20,11 @@ const mocks = vi.hoisted(() => ({
   markJobCancelled: vi.fn(),
   markJobDone: vi.fn(),
   markJobProcessing: vi.fn(),
+  markJobSendStarted: vi.fn(),
+  markJobUncertain: vi.fn(),
+  markExpiredScheduledSendsUncertain: vi.fn(),
+  releaseJobProcessing: vi.fn(),
+  resetJobProcessingForRetry: vi.fn(),
   resurfaceEmail: vi.fn(),
   sendScheduledEmail: vi.fn(),
   shouldResurfaceSnoozedThread: vi.fn(),
@@ -76,7 +81,12 @@ vi.mock("../lib/jobs.js", () => ({
   markJobCancelled: mocks.markJobCancelled,
   markJobDone: mocks.markJobDone,
   markJobProcessing: mocks.markJobProcessing,
+  markJobSendStarted: mocks.markJobSendStarted,
+  markJobUncertain: mocks.markJobUncertain,
+  markExpiredScheduledSendsUncertain: mocks.markExpiredScheduledSendsUncertain,
   resurfaceEmail: mocks.resurfaceEmail,
+  releaseJobProcessing: mocks.releaseJobProcessing,
+  resetJobProcessingForRetry: mocks.resetJobProcessingForRetry,
   sendScheduledEmail: mocks.sendScheduledEmail,
   shouldResurfaceSnoozedThread: mocks.shouldResurfaceSnoozedThread,
 }));
@@ -120,6 +130,13 @@ describe("Mail background job scheduling", () => {
     );
     mocks.processAutomationsForAccount.mockResolvedValue({ errors: 0 });
     mocks.getDuePendingJobs.mockResolvedValue([]);
+    mocks.markJobProcessing.mockResolvedValue(null);
+    mocks.markJobDone.mockResolvedValue(true);
+    mocks.markJobSendStarted.mockResolvedValue(true);
+    mocks.markJobUncertain.mockResolvedValue(true);
+    mocks.markExpiredScheduledSendsUncertain.mockResolvedValue(0);
+    mocks.releaseJobProcessing.mockResolvedValue(true);
+    mocks.resetJobProcessingForRetry.mockResolvedValue(true);
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("RUN_BACKGROUND_JOBS", "1");
     vi.stubEnv("GMAIL_WATCH_TOPIC", "projects/example/topics/mail");
@@ -208,6 +225,9 @@ describe("Mail background job scheduling", () => {
     ).toHaveBeenCalledOnce();
     expect(mocks.purgeExpiredMailAiFilterBackfills).toHaveBeenCalledOnce();
     expect(mocks.getDuePendingJobs).toHaveBeenCalledOnce();
+    expect(mocks.markExpiredScheduledSendsUncertain).toHaveBeenCalledWith(
+      expect.any(Number),
+    );
     expect(mocks.getDuePendingJobs).toHaveBeenCalledWith(
       expect.any(Number),
       20,
@@ -309,6 +329,180 @@ describe("Mail background job scheduling", () => {
 
     expect(mocks.startWatch).toHaveBeenCalledOnce();
     expect(state.lastRenewedAt).toBeTypeOf("number");
+  });
+
+  it("aborts an in-flight Gmail watch renewal and releases its claim", async () => {
+    const controller = new AbortController();
+    const state: { claimId: string | null; claimedAt: number | null } = {
+      claimId: null,
+      claimedAt: null,
+    };
+    const account = {
+      sync_account_id: "account-row",
+      owner_email: "alice@example.com",
+      account_id: "account-1",
+      oauth_owner: "alice@example.com",
+    };
+    mocks.oauthCandidateQuery.mockImplementation(
+      async ({ sql }: { sql: string }) => ({
+        rows: sql.includes("last_watch_attempted_at") ? [account] : [],
+      }),
+    );
+    mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
+    mocks.startWatch.mockImplementation(async (_token, signal) => {
+      expect(signal).toBe(controller.signal);
+      controller.abort();
+      throw new DOMException("The operation was aborted.", "AbortError");
+    });
+    mocks.getDb.mockImplementation(
+      () =>
+        ({
+          update: () => ({
+            set: (changes: Record<string, unknown>) => ({
+              where: () => {
+                if (changes.watchRenewClaimId === null) {
+                  state.claimId = null;
+                  state.claimedAt = null;
+                }
+                return {
+                  returning: async () => {
+                    if (typeof changes.lastWatchAttemptedAt === "number") {
+                      return [{ id: "account-row" }];
+                    }
+                    if (typeof changes.watchRenewClaimId === "string") {
+                      state.claimId = changes.watchRenewClaimId;
+                      state.claimedAt = changes.watchRenewClaimedAt as number;
+                      return [{ id: "account-row" }];
+                    }
+                    return [];
+                  },
+                };
+              },
+            }),
+          }),
+        }) as any,
+    );
+
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+    const handler = sweepHandlers.get("mail-background-jobs");
+    const error = await handler!({
+      deadlineAt: Date.now() + 60_000,
+      signal: controller.signal,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe("AggregateError");
+    expect((error as Error & { errors: unknown[] }).errors).toContainEqual(
+      expect.objectContaining({ name: "AbortError" }),
+    );
+    expect(mocks.startWatch).toHaveBeenCalledWith(
+      "fake-token",
+      controller.signal,
+    );
+    expect(state).toEqual({ claimId: null, claimedAt: null });
+  });
+
+  it("reclaims a scheduled job after its processing lease expires", async () => {
+    vi.stubEnv("GMAIL_WATCH_TOPIC", "");
+    const expiredJob = {
+      id: "expired-snooze",
+      type: "snooze",
+      ownerEmail: "alice@example.com",
+      emailId: "message-1",
+      threadId: "thread-1",
+      accountEmail: "mailbox@example.com",
+      payload: "{}",
+      runAt: Date.now() - 1,
+      status: "processing",
+      processingClaimId: "terminated-invocation",
+      processingLeaseUntil: Date.now() - 1,
+      sendStartedAt: null,
+      createdAt: Date.now() - 60_000,
+    };
+    mocks.getDuePendingJobs.mockResolvedValue([expiredJob]);
+    mocks.markJobProcessing.mockResolvedValue("replacement-claim");
+    mocks.shouldResurfaceSnoozedThread.mockResolvedValue(true);
+    mocks.getSnoozeThreadId.mockReturnValue("thread-1");
+
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+    const handler = sweepHandlers.get("mail-background-jobs");
+    const deadlineAt = Date.now() + 60_000;
+
+    await handler!({ deadlineAt });
+
+    expect(mocks.getDuePendingJobs).toHaveBeenCalledOnce();
+    expect(mocks.markJobProcessing).toHaveBeenCalledWith(
+      "expired-snooze",
+      expect.any(Number),
+      deadlineAt + 30_000,
+    );
+    expect(mocks.resurfaceEmail).toHaveBeenCalledWith(
+      "alice@example.com",
+      "message-1",
+      "thread-1",
+      "mailbox@example.com",
+      undefined,
+    );
+    expect(mocks.markJobDone).toHaveBeenCalledWith(
+      "expired-snooze",
+      "replacement-claim",
+    );
+  });
+
+  it("does not release or retry a scheduled send after an ambiguous abort", async () => {
+    vi.stubEnv("GMAIL_WATCH_TOPIC", "");
+    const controller = new AbortController();
+    mocks.getDuePendingJobs.mockResolvedValue([
+      {
+        id: "scheduled-send",
+        type: "send_later",
+        ownerEmail: "alice@example.com",
+        accountEmail: "mailbox@example.com",
+        payload: JSON.stringify({ to: "recipient@example.com" }),
+        runAt: Date.now() - 1,
+        status: "pending",
+        createdAt: Date.now() - 60_000,
+      },
+    ]);
+    mocks.markJobProcessing.mockResolvedValue("send-claim");
+    mocks.sendScheduledEmail.mockImplementation(
+      async (_payload, _account, _owner, options) => {
+        await options.onDispatchStart();
+        controller.abort();
+        throw new DOMException("The operation was aborted.", "AbortError");
+      },
+    );
+
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+    const handler = sweepHandlers.get("mail-background-jobs");
+    const error = await handler!({
+      deadlineAt: Date.now() + 60_000,
+      signal: controller.signal,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe("AggregateError");
+    expect(mocks.markJobSendStarted).toHaveBeenCalledWith(
+      "scheduled-send",
+      "send-claim",
+    );
+    expect(mocks.releaseJobProcessing).not.toHaveBeenCalled();
+    expect(mocks.resetJobProcessingForRetry).not.toHaveBeenCalled();
+    expect(mocks.markJobCancelled).not.toHaveBeenCalled();
+    expect(mocks.markJobDone).not.toHaveBeenCalled();
+    expect(mocks.markJobUncertain).toHaveBeenCalledWith(
+      "scheduled-send",
+      "send-claim",
+    );
   });
 
   it("includes selected OAuth accounts that do not have a sync row yet", async () => {

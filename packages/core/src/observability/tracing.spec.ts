@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type AgentSpan,
@@ -68,6 +68,7 @@ function createTestTracer() {
 
 afterEach(() => {
   __resetAgentTracerCache();
+  vi.doUnmock("@opentelemetry/api");
 });
 
 describe("tracing helper — no provider registered", () => {
@@ -81,6 +82,34 @@ describe("tracing helper — no provider registered", () => {
     expect(() =>
       endAgentSpan(null, { status: "error", errorMessage: "boom" }),
     ).not.toThrow();
+  });
+
+  it("treats an absent optional OpenTelemetry peer as no provider", async () => {
+    vi.doMock("@opentelemetry/api", () => {
+      throw Object.assign(
+        new Error("Cannot find package '@opentelemetry/api'"),
+        { code: "ERR_MODULE_NOT_FOUND" },
+      );
+    });
+
+    await expect(startAgentSpan("agent.run")).resolves.toBeNull();
+  });
+
+  it("disables tracing and warns once when OpenTelemetry fails to load", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.doMock("@opentelemetry/api", () => ({
+      trace: {
+        getTracer() {
+          throw new Error("OpenTelemetry module failed to initialize");
+        },
+      },
+    }));
+
+    await expect(startAgentSpan("agent.run")).resolves.toBeNull();
+    await expect(startAgentSpan("agent.run")).resolves.toBeNull();
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning.mock.calls[0]?.[0]).toContain("tracing disabled");
+    warning.mockRestore();
   });
 });
 

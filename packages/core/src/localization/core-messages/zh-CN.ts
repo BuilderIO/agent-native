@@ -79,6 +79,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未捕获",
   "observability.openFullConversation": "打开完整对话",
   "observability.learnAboutTab": "了解此选项卡",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainLabel": "晋升后的评估回复必须包含的文本",
+  "observability.promoteMustContainOptional": "回复必须包含（可选）",
+  "observability.promoteNeedsContains":
+    "此运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.summarizeWithAgent": "让智能体总结",
   "observability.regenerateSummary": "重新生成摘要",
   "observability.summarizeWithAgentHelp":
@@ -605,6 +610,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推荐",
   "integrations.subtitle": "连接您的智能体可以使用的工具。",
   "mcpIntegrations.menuLabel": "集成",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 应用需要 {{packageName}}。请使用 {{installCommand}} 安装。",
   "mcpIntegrations.menuDescription": "将工具和服务连接到智能体",
   "mcpIntegrations.title": "连接集成",
   "mcpIntegrations.description":

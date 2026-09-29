@@ -1,12 +1,7 @@
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
-import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { IconAlertCircle, IconHelpCircle } from "@tabler/icons-react";
-import {
-  forwardRef,
-  type ComponentPropsWithoutRef,
-  type ReactNode,
-} from "react";
+import type { ReactNode } from "react";
 
 import {
   Tooltip,
@@ -15,24 +10,9 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { cn } from "../utils.js";
+import { PrimitiveButton as Button } from "../ui/PrimitiveButton.js";
 
-export const Button = forwardRef<
-  HTMLButtonElement,
-  ComponentPropsWithoutRef<typeof ToolkitButton>
->(({ className, ...props }, ref) => (
-  <ToolkitButton
-    ref={ref}
-    variant="ghost"
-    className={cn(
-      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
-      props.emphasis === "solid" ? null : "hover:text-inherit",
-      className,
-    )}
-    {...props}
-  />
-));
-Button.displayName = "TeamPrimitiveButton";
+export { Button };
 
 // Radix tooltips throw without a provider, and the exported sections can mount
 // outside TeamPage's. Matches TeamPage's delay so nesting inside it is a no-op.

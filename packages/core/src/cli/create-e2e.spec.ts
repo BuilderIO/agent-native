@@ -311,6 +311,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(workspaceYaml).toContain("node-pty@*:");
     expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
     expect(workspaceYaml).toContain("tesseract.js: true");
+    expect(workspaceYaml).toContain("ffmpeg-static: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });
 
@@ -1034,6 +1035,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         })
         .replaceAll("\\", "/");
       expect(workspaceYaml).toContain("minimumReleaseAge: 1440");
+      expect(workspaceYaml).toContain('- "@agent-native/*"');
       expect(workspaceYaml).toContain('- "@modelcontextprotocol/client"');
       expect(workspaceYaml).toContain('"@sentry/bundler-plugins": "10.73.0"');
       expect(workspaceYaml).toContain("overrides:");

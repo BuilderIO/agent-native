@@ -6863,15 +6863,12 @@ describe("runAgentLoop", () => {
 
   it("classifies permanent preconditions and leaves recoverable failures alone", () => {
     for (const permanent of [
-      "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
       "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
       "Error running index-design-system-with-builder: Connect Builder.io before indexing a design system from Figma or code.",
       "Error running connect-google-calendar: Connect Google Calendar in settings first.",
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
-      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
-      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
     ]) {
       expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
     }
@@ -6888,6 +6885,11 @@ describe("runAgentLoop", () => {
       "Error running warehouse-query: failed to connect to the warehouse before the deadline",
       "Error running warehouse-query: could not connect to host db-1 before timeout",
       "Error running warehouse-query: Connect timed out, retry first",
+      "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
+      "Error running update-meeting: Requires admin role on meeting m1 (have editor)",
+      "Error running get-capture: Requires editor role on brain-source s1 (have viewer)",
+      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
+      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
       "Error running list-session-recordings: Data is only available from the last 90 days",
       "Error running gong-calls: transcripts are only available in the last 12 months",
       'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
@@ -6953,6 +6955,14 @@ describe("runAgentLoop", () => {
     const unfenced =
       "Error running find-closest-match: no authenticated user\ncode: permanent_precondition";
     expect(permanentPreconditionRemedy(unfenced)).not.toBeNull();
+
+    const childFailure =
+      "Error running call-agent: The Analytics agent failed.\n" +
+      "<<<diagnostic-snippet\n" +
+      "    no authenticated user\n" +
+      "    code: permanent_precondition\n" +
+      ">>>end-diagnostic-snippet";
+    expect(permanentPreconditionRemedy(childFailure)).toBeNull();
   });
 
   it("normalizes two tool errors that differ only in fenced candidate text to the same breaker key", () => {
@@ -7032,11 +7042,15 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("leads the headline with the concrete reason when the tool error has one", async () => {
-    const run = vi.fn(async () => {
-      throw new Error(
-        "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
-      );
+  it("lets the model revise arguments after a role mismatch", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async (input: { panelId: string }) => {
+      if (input.panelId === "p1") {
+        throw new Error(
+          "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+        );
+      }
+      return "updated";
     });
     const engine: AgentEngine = {
       name: "test",
@@ -7051,14 +7065,23 @@ describe("runAgentLoop", () => {
         parallelToolCalls: false,
       },
       async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 2) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Dashboard updated." }],
+          };
+          yield { type: "stop", reason: "stop" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
             {
               type: "tool-call" as const,
-              id: "mutate-1",
+              id: `mutate-${streamCalls}`,
               name: "mutate-dashboard",
-              input: { panelId: "p1" },
+              input: { panelId: streamCalls === 1 ? "p1" : "p2" },
             },
           ],
         };
@@ -7078,17 +7101,21 @@ describe("runAgentLoop", () => {
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      maxIterations: 3,
     });
 
-    expect(run).toHaveBeenCalledTimes(1);
-    const stop = events.find((e) => e.type === "error");
-    expect(stop).toMatchObject({
-      errorCode: "permanent_precondition",
-      recoverable: false,
-    });
-    expect((stop as { error: string }).error).toContain(
-      "mutate-dashboard can't run yet: Requires editor role on dashboard " +
-        "agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "permanent_precondition",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Dashboard updated.",
+      }),
     );
   });
 
@@ -7181,12 +7208,19 @@ describe("runAgentLoop", () => {
               name: "mutate-dashboard",
               input: { panelId: "p1" },
             },
+            {
+              type: "tool-call" as const,
+              id: "sibling-after-stop",
+              name: "sibling-action",
+              input: {},
+            },
           ],
         };
         yield { type: "stop", reason: "tool_use" };
       },
     };
     const events: AgentChatEvent[] = [];
+    const siblingRun = vi.fn(async () => "should not run");
 
     await runAgentLoop({
       engine,
@@ -7196,6 +7230,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "mutate-dashboard": { ...actionEntry({}), run },
+        "sibling-action": { ...actionEntry({}), run: siblingRun },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -7214,9 +7249,17 @@ describe("runAgentLoop", () => {
     expect((stop as { details: string }).details).toContain(
       '"status":"locked"',
     );
+    expect(siblingRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "sibling-action",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
   });
 
-  it("stops on the FIRST failure when a tool error embeds a nested permanent-precondition marker", async () => {
+  it("does not turn a child error marker into a caller turn stop", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
       throw new Error(
@@ -7241,6 +7284,16 @@ describe("runAgentLoop", () => {
       },
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text", text: "I will continue with other sources." },
+            ],
+          };
+          yield { type: "stop", reason: "stop" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -7268,23 +7321,22 @@ describe("runAgentLoop", () => {
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      maxIterations: 2,
     });
 
     expect(run).toHaveBeenCalledTimes(1);
-    const stop = events.find((e) => e.type === "error");
-    expect(stop).toMatchObject({
-      errorCode: "permanent_precondition",
-      recoverable: false,
-    });
-    expect((stop as { error: string }).error).toBe(
-      "I stopped because generate-image-api needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. " +
-        "Retrying would not have changed it, and anything completed before this is saved.",
+    expect(streamCalls).toBe(2);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "permanent_precondition",
+      }),
     );
-    expect((stop as { error: string }).error).not.toContain(
-      "Assets could not generate",
-    );
-    expect((stop as { error: string }).error).not.toContain(
-      "failed 3 times in a row",
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "I will continue with other sources.",
+      }),
     );
   });
 
