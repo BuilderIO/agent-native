@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "संदर्भ लोड नहीं हो सका।",
   "composer.contextLinkRequired": "लिंक दर्ज करें।",
   "composer.submitFailed": "भेजा नहीं जा सका। फिर से प्रयास करें।",
+  "composer.attachmentsRemainAfterSubmit":
+    "संदेश भेज दिया गया, लेकिन कुछ अटैचमेंट अभी भी मौजूद हैं। दोबारा भेजने से पहले उन्हें हटाएँ।",
   "composer.addContext": "संदर्भ जोड़ें",
   "composer.contextActionFailed": "संदर्भ नहीं जोड़ा जा सका।",
   "composer.contextBack": "वापस",

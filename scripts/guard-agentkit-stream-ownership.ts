@@ -35,8 +35,28 @@ const LEGACY_ASSISTANT_UI_BINDINGS = new Set([
 const SHARED_COMPOSER_ROOT = "packages/toolkit/src/composer/";
 const LEGACY_CHAT_COMPONENT_EXPORT =
   /\bexport\s+(?:const|function)\s+AssistantChat\b/;
-const LEGACY_CHAT_ADAPTER =
-  /\b(?:createAgentChatAdapter|createCodeAgentChatAdapter|createAgentChatRuntimeAdapter|codeAgentTranscriptEventsToContent|codeAgentTranscriptHasPendingApproval)\b/;
+const CORE_CHAT_MODULE =
+  /^@agent-native\/core\/client(?:\/chat|\/agent-chat)?$/;
+const REMOVED_CHAT_API_BINDINGS = new Set([
+  "createAgentChatAdapter",
+  "CreateAgentChatAdapterOptions",
+  "createCodeAgentChatAdapter",
+  "CodeAgentChatController",
+  "CodeAgentChatControlResult",
+  "CodeAgentChatFollowUpMode",
+  "CodeAgentChatTranscriptEvent",
+  "CreateCodeAgentChatAdapterOptions",
+  "createAgentChatRuntimeAdapter",
+  "CreateAgentChatRuntimeAdapterOptions",
+  "codeAgentTranscriptEventsToContent",
+  "codeAgentTranscriptHasPendingApproval",
+  "AssistantMessageActionBar",
+  "AssistantMessageActionBarProps",
+  "FormattedMessageTimestamp",
+]);
+const REMOVED_CHAT_ADAPTER_PROP = /<AssistantChat\b[^>]*\bcreateAdapter\s*=/s;
+const CHAT_MIGRATION_GUIDE =
+  "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
 
 export function parseImports(source: string): ParsedImport[] {
   const imports: ParsedImport[] = [];
@@ -138,12 +158,6 @@ export function findLegacyChatOwnerViolations(
 ): StreamOwnershipViolation[] {
   const imports = parseImports(content);
   const lineAt = (index: number) => content.slice(0, index).split("\n").length;
-  const legacyImport = imports.find(
-    (entry) =>
-      entry.valueBindings.includes("AssistantChat") ||
-      (/(?:^|\/)AssistantChat(?:\.js)?$/.test(entry.specifier) &&
-        (entry.valueBindings.length > 0 || entry.sideEffectOnly)),
-  );
   const legacyAssistantUi = imports.find(
     (entry) =>
       entry.specifier === "@assistant-ui/react" &&
@@ -152,15 +166,20 @@ export function findLegacyChatOwnerViolations(
       ) &&
       !file.replaceAll("\\", "/").startsWith(SHARED_COMPOSER_ROOT),
   );
-  const legacyAdapter = LEGACY_CHAT_ADAPTER.exec(content);
-  const legacyMount = /<AssistantChat(?:\s|\/?>)/.exec(content);
+  const removedChatImport = imports.find(
+    (entry) =>
+      CORE_CHAT_MODULE.test(entry.specifier) &&
+      entry.valueBindings.some((binding) =>
+        REMOVED_CHAT_API_BINDINGS.has(binding),
+      ),
+  );
   const legacyDefinition = LEGACY_CHAT_COMPONENT_EXPORT.exec(content);
+  const removedAdapterProp = REMOVED_CHAT_ADAPTER_PROP.exec(content);
   const hit =
-    legacyImport ??
     legacyAssistantUi ??
-    (legacyAdapter ? { index: legacyAdapter.index } : undefined) ??
-    (legacyMount
-      ? { index: legacyMount.index }
+    (removedChatImport ? { index: removedChatImport.index } : undefined) ??
+    (removedAdapterProp
+      ? { index: removedAdapterProp.index }
       : legacyDefinition
         ? { index: legacyDefinition.index }
         : undefined);
@@ -170,8 +189,7 @@ export function findLegacyChatOwnerViolations(
     {
       file,
       line: lineAt(hit.index),
-      reason:
-        "still owns legacy AssistantChat/controller UI or an assistant-ui chat adapter; keep AgentPanel, AgentSidebar, and MultiTabAssistantChat as shells, and use AgentKit as the only conversation owner",
+      reason: `uses a removed chat controller API or assistant-ui transcript owner. See ${CHAT_MIGRATION_GUIDE} for the supported AssistantChat alias and migration steps; keep AgentPanel, AgentSidebar, and MultiTabAssistantChat as shells around one AgentKit conversation owner.`,
     },
   ];
 }

@@ -225,6 +225,7 @@ export default {
     },
   },
   common: {
+    loading: "Loading...",
     genericError: "Something went wrong",
   },
   editPanel: {
@@ -322,6 +323,8 @@ export default {
       bottomLeft: "BL",
       bottomRight: "BR",
       blend: "Blend",
+      blendMode: "Blend mode",
+      removeBlendMode: "Remove blend mode",
       border: "Border",
       outline: "Outline",
       inside: "Inside",

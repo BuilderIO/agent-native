@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "تعذّر تحميل السياق.",
   "composer.contextLinkRequired": "أدخل رابطًا.",
   "composer.submitFailed": "تعذّر الإرسال. حاول مجددًا.",
+  "composer.attachmentsRemainAfterSubmit":
+    "تم إرسال الرسالة، لكن ما زالت هناك مرفقات. أزِلها قبل الإرسال مرة أخرى.",
   "composer.addContext": "إضافة سياق",
   "composer.contextActionFailed": "تعذّرت إضافة السياق.",
   "composer.contextBack": "رجوع",

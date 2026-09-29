@@ -529,6 +529,45 @@ jobs:
       - name: Run Plan action E2E tests
         run: pnpm test:plan-e2e
 
+  slides-chat-e2e:
+    name: Slides chat caret in Chromium
+    needs: change-scope
+    if: >-
+      needs.change-scope.outputs.full == 'true' ||
+      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check selection direction and chat typing while slide text editing remains active
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+      - name: Check IME Escape preserves inline slide text editing
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check typing fidelity across Slides text surfaces
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
   brain-evals:
     name: Brain evals
     needs: change-scope
