@@ -27,8 +27,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   needs explicit current authorization for that exact PR; links and inherited
   ship authority don't count. It permits a normal fast-forward push, not a
   merge. Merge with separate current authorization; otherwise use
-  `ship_mode=ready-only` and leave the PR open. Before every push, verify the
-  live author, head repository, branch, head OID, and base; recheck the head.
+  `ship_mode=ready-only` and leave the PR open. Before every push, resolve the
+  active GitHub login with `gh api user --jq .login`, include `author` in the
+  live PR query, and compare `author.login` with that login. Verify the head
+  repository, branch, head OID, and base; recheck the head.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored

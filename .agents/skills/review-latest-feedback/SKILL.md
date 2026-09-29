@@ -532,7 +532,9 @@ Use this worktree's branch. Batch fixes with one
 branches. Behind/pending never justify syncing.
 
 Shipping authorizes new PRs and merge-authorized handling for PRs authored by
-the current user. Pushing to an external PR requires explicit current-request
+the current GitHub user. Resolve that login with `gh api user --jq .login`,
+include `author` in the live PR query, and compare `author.login` before
+publishing. Pushing to an external PR requires explicit current-request
 authorization for that exact PR. Push-only authorization means
 `ship_mode=ready-only`; leave it open. Use `ship_mode=merge-authorized` only
 when this request separately authorizes merging that PR; follow `/ship`'s

@@ -23,6 +23,11 @@ separate authorization in the current request. Before an authorized push,
 verify the live PR author, head repository, branch, head OID, and base; recheck
 the head before every normal fast-forward push.
 
+Before each push, resolve the active GitHub login with `gh api user --jq .login`,
+include `author` in the live PR query, and compare `author.login` with that
+login. If they differ, require the current-request authorization for that exact
+PR.
+
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
 to the shared checkout or require that an agent publish from the root checkout.
@@ -85,10 +90,12 @@ invokes `/ship-now`.
 
 ## Setup
 
-At the start and on every resumed tick, query the PR:
+At the start and on every resumed tick, resolve the active GitHub login and
+query the PR, including its author:
 
 ```bash
-gh pr view <number> --json state,mergedAt,closedAt,headRepository,headRepositoryOwner,headRefName,headRefOid,mergeCommit
+gh api user --jq .login
+gh pr view <number> --json state,mergedAt,closedAt,author,headRepository,headRepositoryOwner,headRefName,headRefOid,baseRefName,mergeCommit
 ```
 
 If the query fails or is ambiguous, stay foreground-only until its state is
@@ -154,8 +161,9 @@ if ! git fetch origin --quiet; then
 fi
 ```
 
-Immediately query the live PR state with
-`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRepository,headRepositoryOwner,headRefName,headRefOid,mergeCommit`.
+Immediately resolve the active GitHub login with `gh api user --jq .login`,
+then query the live PR state with
+`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,author,headRepository,headRepositoryOwner,headRefName,headRefOid,baseRefName,mergeCommit`.
 If the query fails, do not run branch, review, or CI checks; retry on the next
 foreground tick. A closed but unmerged PR ends babysitting and is reported as
 unsuccessful. A merged PR is a
