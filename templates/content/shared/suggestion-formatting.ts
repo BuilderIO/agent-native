@@ -117,11 +117,13 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
     content: doc.content.map(withMarkers),
   });
   let delta = 0;
+  const markers: string[] = [];
   const restored = withPlaceholders.replace(
     new RegExp(`${markerPrefix}(\\d+)\`*x`, "g"),
     (token, rawIndex: string, position: number) => {
       const index = Number(rawIndex);
       const run = runs[index]!;
+      markers[index] = token;
       if (run.verbatim && !resolveVerbatimRun(run, withPlaceholders, position))
         unmappable = true;
       run.sourceFrom = position + delta;
@@ -130,13 +132,93 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
       return run.serialized;
     },
   );
+  if (unmappable || runs.some((run) => run.sourceFrom < 0)) return null;
   if (
-    unmappable ||
-    restored !== source ||
-    runs.some((run) => run.sourceFrom < 0)
+    restored !== source &&
+    !mapStoredSourceRuns(source, runs, markers, withPlaceholders)
   )
     return null;
   return { runs };
+}
+
+function mapStoredSourceRuns(
+  source: string,
+  runs: TextRun[],
+  markers: string[],
+  withPlaceholders: string,
+): boolean {
+  // Repeated partial matches must not turn a forward scan into quadratic work.
+  let remainingWork = source.length * 16;
+  const matches = (token: string, position: number) => {
+    remainingWork -= Math.max(1, token.length);
+    return remainingWork >= 0 && source.startsWith(token, position);
+  };
+  let cursor = 0;
+  const pieces: string[] = [];
+  for (let index = 0; index < runs.length; index += 1) {
+    const run = runs[index]!;
+    const prefix = run.serialized.slice(0, run.textOffsets[0]);
+    const suffix = run.serialized.slice(run.textOffsets[run.text.length]);
+    const tokens = run.text
+      .split("")
+      .map((_character, characterIndex) =>
+        run.serialized.slice(
+          run.textOffsets[characterIndex],
+          run.textOffsets[characterIndex + 1],
+        ),
+      );
+    let found = false;
+    for (let start = cursor; start < source.length; start += 1) {
+      if (remainingWork < 0) return false;
+      if (!matches(prefix, start)) continue;
+      let position = start + prefix.length;
+      const textOffsets = [prefix.length];
+      let valid = true;
+      for (
+        let characterIndex = 0;
+        characterIndex < tokens.length;
+        characterIndex += 1
+      ) {
+        const token = tokens[characterIndex]!;
+        const character = run.text[characterIndex]!;
+        if (matches(token, position)) position += token.length;
+        else if (token === `\\${character}` && matches(character, position))
+          position += 1;
+        else if (character === "\n" && token.startsWith("\n")) {
+          const indent = token.slice(1);
+          if (matches(`\r\n${indent}`, position)) position += 2 + indent.length;
+          else if (matches(`\r${indent}`, position))
+            position += 1 + indent.length;
+          else valid = false;
+        } else if (
+          character === "\n" &&
+          token === "<br>" &&
+          matches("<br/>", position)
+        )
+          position += 5;
+        else valid = false;
+        if (!valid) break;
+        textOffsets.push(position - start);
+      }
+      if (!valid || !matches(suffix, position)) continue;
+      position += suffix.length;
+      pieces.push(source.slice(cursor, start), markers[index]!);
+      cursor = position;
+      run.sourceFrom = start;
+      run.sourceTo = position;
+      run.textOffsets = textOffsets;
+      found = true;
+      break;
+    }
+    if (!found) return false;
+  }
+  pieces.push(source.slice(cursor));
+  // Unique markers prove the run order and boundaries in the original syntax,
+  // including structural gaps that the serializer rewrites (such as pipe tables).
+  return (
+    JSON.stringify(nfmToDoc(pieces.join(""))) ===
+    JSON.stringify(nfmToDoc(withPlaceholders))
+  );
 }
 
 function resolveVerbatimRun(
