@@ -59,10 +59,7 @@ export const BUILDER_CREDIT_USAGE_REPORTING_FLAG = defineFeatureFlag({
   description: "Use Builder-reported credit usage and account limits in Usage.",
 });
 
-/**
- * Presentation-only rollout of the redesigned Settings shell. Server actions
- * never read it; hiding a page is not the permission check.
- */
+/** @deprecated The redesigned Settings is always on; nothing reads this flag. Kept one release so apps generated from older templates still build. */
 export const SETTINGS_REDESIGN_FLAG = defineFeatureFlag({
   key: "settings-redesign",
   displayName: "Settings redesign",

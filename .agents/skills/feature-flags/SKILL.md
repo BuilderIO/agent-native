@@ -103,8 +103,8 @@ return enabled ? <FullAppOption /> : null;
 The client hook intentionally returns false while loading or for an unknown
 flag. Never replace that fail-closed behavior with app-local bucketing or a
 compile-time fallback. When the flag-off UI must not flash before the answer
-arrives (a whole page swaps on the flag, as Settings does with
-`settings-redesign`), use `useFeatureFlagState(key)`: it returns
+arrives (a whole page swaps on the flag), use `useFeatureFlagState(key)`: it
+returns
 `{ status: "loading" | "ready" | "unavailable", enabled }`, so the surface can
 hold a layout-matching skeleton while `status` is `"loading"`. Never evaluate personalized flags in the public SSR
 shell; it is shared and cached for every visitor.

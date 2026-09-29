@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export interface CrmSettingsPanelProps {
   /**
    * Drop the panel's own title and description where the surface already
-   * names it, like its tab on the redesigned CRM › General page.
+   * names it, like its tab on CRM › General.
    */
   embedded?: boolean;
 }

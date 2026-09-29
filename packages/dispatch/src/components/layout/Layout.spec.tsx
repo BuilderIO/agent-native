@@ -11,7 +11,7 @@ import {
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
   formatThreadAge,
   isElectronEmbeddedSearch,
-  isRedesignedSettingsPath,
+  isSettingsShellPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -72,7 +72,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
-  useFeatureFlagState: () => ({ status: "ready", enabled: false }),
 }));
 
 vi.mock("next-themes", () => ({
@@ -184,27 +183,16 @@ describe("Dispatch workspace app sidebar", () => {
   );
 });
 
-describe("Dispatch redesigned Settings frame", () => {
-  const on = { status: "ready", enabled: true } as const;
-  const off = { status: "ready", enabled: false } as const;
-  const loading = { status: "loading", enabled: false } as const;
-
-  it("drops the Dispatch chrome on Settings while the flag is on or loading", () => {
-    expect(isRedesignedSettingsPath("/settings", on)).toBe(true);
-    expect(isRedesignedSettingsPath("/settings/members", on)).toBe(true);
-    expect(isRedesignedSettingsPath("/settings/app", loading)).toBe(true);
+describe("Dispatch Settings frame", () => {
+  it("drops the Dispatch chrome on Settings", () => {
+    expect(isSettingsShellPath("/settings")).toBe(true);
+    expect(isSettingsShellPath("/settings/members")).toBe(true);
+    expect(isSettingsShellPath("/settings/app")).toBe(true);
   });
 
-  it("keeps the Dispatch chrome with the flag off and off Settings", () => {
-    expect(isRedesignedSettingsPath("/settings/members", off)).toBe(false);
-    expect(
-      isRedesignedSettingsPath("/settings", {
-        status: "unavailable",
-        enabled: false,
-      }),
-    ).toBe(false);
-    expect(isRedesignedSettingsPath("/admin", on)).toBe(false);
-    expect(isRedesignedSettingsPath("/apps/mail/settings", on)).toBe(false);
+  it("keeps the Dispatch chrome off Settings", () => {
+    expect(isSettingsShellPath("/admin")).toBe(false);
+    expect(isSettingsShellPath("/apps/mail/settings")).toBe(false);
   });
 });
 

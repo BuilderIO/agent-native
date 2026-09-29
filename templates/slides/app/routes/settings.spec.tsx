@@ -12,7 +12,6 @@ vi.mock("@agent-native/core/client/changelog", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  LanguagePicker: () => null,
   useT: () => (key: string) => key,
 }));
 
@@ -43,10 +42,6 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 vi.mock("@agent-native/core/client/settings", () => ({
   AccountSettingsCard: () => null,
-  SettingsGroup: ({ children }: { children: ReactNode }) => (
-    <section>{children}</section>
-  ),
-  SettingsRow: () => null,
   SettingsTabsPage: ({
     extraTabs = [],
   }: {
@@ -84,7 +79,6 @@ vi.mock("@agent-native/creative-context", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextSettingsLink: () => null,
   createCreativeContextAgentTab: vi.fn(),
   useCreativeContextLab: () => false,
 }));
@@ -96,11 +90,7 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 vi.mock("@shared/labs", () => ({ SLIDES_LABS: [] }));
 vi.mock("@/components/settings/notification-settings", () => ({
   COMMENT_EMAILS_ROW_ID: "comments-and-replies",
-  LegacyEmailNotificationsRow: () => null,
   NotificationSettings: () => null,
-}));
-vi.mock("@/hooks/use-settings-redesign", () => ({
-  useSettingsRedesign: () => ({ status: "ready", enabled: false }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 

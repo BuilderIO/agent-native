@@ -37,7 +37,7 @@ describe("useFeatureFlagState", () => {
   async function probe(): Promise<FeatureFlagState[]> {
     const states: FeatureFlagState[] = [];
     function Probe() {
-      states.push(useFeatureFlagState("settings-redesign"));
+      states.push(useFeatureFlagState("example-flag"));
       return null;
     }
     const container = document.createElement("div");
@@ -72,7 +72,7 @@ describe("useFeatureFlagState", () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ "settings-redesign": true })),
+      vi.fn().mockResolvedValue(jsonResponse({ "example-flag": true })),
     );
     const states = await probe();
     expect(states[0]).toEqual({ status: "loading", enabled: false });
@@ -83,7 +83,7 @@ describe("useFeatureFlagState", () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ "settings-redesign": false })),
+      vi.fn().mockResolvedValue(jsonResponse({ "example-flag": false })),
     );
     const states = await probe();
     expect(states.at(-1)).toEqual({ status: "ready", enabled: false });
