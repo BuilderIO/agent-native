@@ -476,6 +476,28 @@ import type {
 let container: HTMLDivElement;
 let root: Root;
 
+class TestErrorBoundary extends React.Component<
+  {
+    children: React.ReactNode;
+    onError: (error: Error) => void;
+  },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  override render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 async function mount(props: AgentKitAssistantChatProps) {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -595,6 +617,29 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("gives JS callers a migration error for the removed createAdapter prop", async () => {
+    const errors: Error[] = [];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const props = {
+      ...baseProps(),
+      createAdapter: vi.fn(),
+    } as unknown as AgentKitAssistantChatProps;
+
+    await act(async () => {
+      root.render(
+        <TestErrorBoundary onError={(error) => errors.push(error)}>
+          <AgentKitAssistantChat {...props} />
+        </TestErrorBoundary>,
+      );
+    });
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain("createAdapter prop was removed");
+    expect(errors[0]?.message).toContain("agentkit-chat.md");
+  });
+
   it("loads the model catalog only when the visible picker has no host catalog", async () => {
     await mount(baseProps());
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(true);

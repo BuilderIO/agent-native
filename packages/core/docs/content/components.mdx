@@ -199,22 +199,22 @@ Toolkit styles include the shared geometry. `@agent-native/toolkit/app-shell/pro
 
 ## Agent And Chat UI {#agent-chat-ui}
 
-| API                                  | Import path                                   | Use when                                                                                         |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client` or `/client/chat` | You want the complete sidebar around your app.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` or `/client/chat` | You render your own header button for the sidebar.                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client` or `/client/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` or `/client/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client` or `/client/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` or `/client/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` or `/client/chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` or `/client/chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` or `/client/chat` | You have an AG-UI event stream and want it normalized into the chat UI.                          |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` or `/client/chat` | You have a Claude Agent SDK stream and want it normalized into the chat UI.                      |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` or `/client/chat` | You have a Vercel AI SDK stream and want it normalized into the chat UI.                         |
-| `useChatThreads()`                   | `@agent-native/core/client` or `/client/chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` or `/client/chat` | A product action should hand work to the agent chat.                                             |
+| API                                  | Import path                            | Use when                                                                                         |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | You want the complete sidebar around your app.                                                   |
+| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | You render your own header button for the sidebar.                                               |
+| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
+| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
+| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | You have an AG-UI event stream and want it normalized into the chat UI.                          |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | You have a Claude Agent SDK stream and want it normalized into the chat UI.                      |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | You have a Vercel AI SDK stream and want it normalized into the chat UI.                         |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | You need a custom thread list, history picker, or scoped chat UI.                                |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | A product action should hand work to the agent chat.                                             |
 
 `AgentChatRuntime` is the BYO-agent contract for the standard chat shell. Pass
 `runtime` to `<AssistantChat>` when an external agent should power the
@@ -228,7 +228,7 @@ full app shapes, see [Agent Surfaces](/docs/agent-surfaces).
 The shortest custom route is still a pre-wired surface:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -238,7 +238,10 @@ export default function ChatRoute() {
 For custom chrome around the standard runtime:
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import {
+  AssistantChat,
+  useChatThreads,
+} from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -465,7 +468,7 @@ component yourself — an action builds its result with a server-safe helper
 `@agent-native/core/data-widgets`, and the runtime picks the matching built-in
 React renderer automatically. `DataTableWidget`, `DataChartWidget`, and
 `DataWidgetResult` are the **result-shape types** — exported from
-`@agent-native/core/client/chat` and the root client entry for typing action
+`@agent-native/core/client/widgets` and the root client entry for typing action
 results, not renderable components. See
 [Native Chat UI](/docs/native-chat-ui#action-declared-widgets) for the full action result
 contract and a worked example.

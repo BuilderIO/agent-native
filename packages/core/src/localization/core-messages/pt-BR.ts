@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "Não foi possível carregar o contexto.",
   "composer.contextLinkRequired": "Insira um link.",
   "composer.submitFailed": "Não foi possível enviar. Tente novamente.",
+  "composer.attachmentsRemainAfterSubmit":
+    "A mensagem foi enviada, mas ainda há anexos. Remova-os antes de enviar novamente.",
   "composer.addContext": "Adicionar contexto",
   "composer.contextActionFailed": "Não foi possível adicionar o contexto.",
   "composer.contextBack": "Voltar",

@@ -20,6 +20,9 @@ const messages = {
     slidePosition: "スライド {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ja-JP"],
+  common: {
+    loading: "読み込み中...",
+  },
   root: {
     commandPresentations: "プレゼンテーション",
     searchDecks: "デッキを検索",

@@ -14,6 +14,7 @@ import {
   getHtml2CanvasPlaceholderStyle,
   mirrorPreviewWebFonts,
 } from "./export-font-mirror";
+import { composeIndividualTransforms } from "./export-individual-transforms";
 import { isScreenRootElementInfo } from "./selection-state";
 
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
@@ -330,6 +331,18 @@ function sanitizeHtml2CanvasClone(
       clonedElements[index]!.setAttribute("src", bakedSource);
       clonedElements[index]!.removeAttribute("srcset");
       clonedStyle.setProperty("filter", "none", "important");
+    }
+    const composedTransform = composeIndividualTransforms({
+      transform: computed.getPropertyValue("transform"),
+      translate: computed.getPropertyValue("translate"),
+      rotate: computed.getPropertyValue("rotate"),
+      scale: computed.getPropertyValue("scale"),
+    });
+    if (composedTransform) {
+      clonedStyle.setProperty("transform", composedTransform, "important");
+      clonedStyle.setProperty("translate", "none", "important");
+      clonedStyle.setProperty("rotate", "none", "important");
+      clonedStyle.setProperty("scale", "none", "important");
     }
     for (const property of HTML2CANVAS_COLOR_PROPERTIES) {
       const value = computed.getPropertyValue(property);

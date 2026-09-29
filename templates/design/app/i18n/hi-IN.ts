@@ -223,6 +223,7 @@ export default {
     },
   },
   common: {
+    loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
   },
   editPanel: {
@@ -320,6 +321,8 @@ export default {
       bottomLeft: "नीचे बायां",
       bottomRight: "नीचे दायां",
       blend: "मिश्रण",
+      blendMode: "ब्लेंड मोड",
+      removeBlendMode: "ब्लेंड मोड हटाएं",
       border: "बॉर्डर",
       outline: "आउटलाइन",
       inside: "अंदर",

@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "Impossible de charger le contexte.",
   "composer.contextLinkRequired": "Saisissez un lien.",
   "composer.submitFailed": "Envoi impossible. Réessayez.",
+  "composer.attachmentsRemainAfterSubmit":
+    "Le message a été envoyé, mais certaines pièces jointes restent. Supprimez-les avant de renvoyer.",
   "composer.addContext": "Ajouter du contexte",
   "composer.contextActionFailed": "Impossible d’ajouter le contexte.",
   "composer.contextBack": "Retour",

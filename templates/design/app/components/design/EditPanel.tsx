@@ -97,6 +97,7 @@ import {
   elementHasComponentAnnotation,
   elementIsComponentSelection,
   inspectorObjectTitle,
+  isBoxlessText,
   isContainerElement,
   isTextElement,
   commitElementMinMax,
@@ -2384,6 +2385,9 @@ export const EditPanel = memo(function EditPanel({
   const selectionIsTextOnly =
     effectiveSelectedElements.length > 0 &&
     effectiveSelectedElements.every((element) => isTextElement(element));
+  const selectionIsBoxlessText =
+    effectiveSelectedElements.length > 0 &&
+    effectiveSelectedElements.every((element) => isBoxlessText(element));
   const selectionIsGroup =
     selectedCount === 1 && inspectorElement?.isGroup === true;
   const selectionHasContainerElement = effectiveSelectedElements.some(
@@ -2983,6 +2987,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                     vectorPointRadius={vectorPointRadius}
                     vectorPointSelected={vectorPointSelected}
+                    cornerRadiusDisabled={selectionIsBoxlessText}
                     onVectorPointRadiusChange={onVectorPointRadiusChange}
                   />
                   {selectionHasTextElement ? (

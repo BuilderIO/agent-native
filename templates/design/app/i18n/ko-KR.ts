@@ -224,6 +224,7 @@ export default {
     },
   },
   common: {
+    loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
   },
   editPanel: {
@@ -321,6 +322,8 @@ export default {
       bottomLeft: "왼쪽 아래",
       bottomRight: "오른쪽 아래",
       blend: "혼합",
+      blendMode: "혼합 모드",
+      removeBlendMode: "혼합 모드 제거",
       border: "테두리",
       outline: "윤곽선",
       inside: "안쪽",

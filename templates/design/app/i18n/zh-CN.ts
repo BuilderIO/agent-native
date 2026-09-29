@@ -216,6 +216,7 @@ export default {
     },
   },
   common: {
+    loading: "正在加载...",
     genericError: "出了点问题",
   },
   editPanel: {
@@ -313,6 +314,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "边框",
       outline: "轮廓",
       inside: "内侧",

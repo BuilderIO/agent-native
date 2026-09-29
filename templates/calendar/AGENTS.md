@@ -28,9 +28,9 @@ Detailed event, availability, booking, storage, and UI rules live in
   Google Calendar connection, and sharing. Do not bypass app access checks.
 - `get-settings`/`update-settings` hold `timezone` (Calendar's own, not the
   account timezone), `weekStart` (`sunday` or
-  `monday`), `defaultEventDuration`, and the fallback booking page copy. The
-  redesigned Settings shows them on page `app`, with tabs `calendars` (Google
-  Calendar, Zoom), `booking`, and `rules` (invitation rules).
+  `monday`), `defaultEventDuration`, and the fallback booking page copy. Settings
+  shows them on page `app`, with tabs `calendars` (Google Calendar, Zoom),
+  `booking`, and `rules` (invitation rules).
 - `update-settings` also saves owner-private Jev invitation prompts in
   `eventRules.accept`, `eventRules.decline`, and `eventRules.hide`. Automatic
   evaluation runs for invitations in each connected account's primary Google

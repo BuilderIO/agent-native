@@ -36,7 +36,13 @@ export interface MigrationDependency {
 export interface MigrationManifest {
   sinceVersion: string;
   moves: Record<string, MigrationMove>;
+  removedExports?: Record<string, RemovedExportManifest>;
   dependencies?: MigrationDependency[];
+}
+
+export interface RemovedExportManifest {
+  symbols: string[];
+  migrationGuide: string;
 }
 
 const MIGRATION_DEPENDENCY_CONDITIONS = new Set<MigrationDependencyCondition>([
@@ -65,6 +71,87 @@ function isMigrationDependency(value: unknown): value is MigrationDependency {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isMigrationMoveStatus(value: unknown): value is MigrationMoveStatus {
+  return value === "active" || value === "planned";
+}
+
+function isMigrationSymbolMove(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  return (
+    isRecord(value) &&
+    typeof value.to === "string" &&
+    value.to.trim().length > 0 &&
+    (value.name === undefined || typeof value.name === "string") &&
+    (value.status === undefined || isMigrationMoveStatus(value.status))
+  );
+}
+
+function isMigrationMove(value: unknown): value is MigrationMove {
+  if (
+    !isRecord(value) ||
+    typeof value.to !== "string" ||
+    value.to.trim().length === 0 ||
+    (value.status !== undefined && !isMigrationMoveStatus(value.status))
+  ) {
+    return false;
+  }
+  return (
+    value.symbols === undefined ||
+    (isRecord(value.symbols) &&
+      Object.values(value.symbols).every(isMigrationSymbolMove))
+  );
+}
+
+function isRemovedExportManifest(
+  value: unknown,
+): value is RemovedExportManifest {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.symbols) &&
+    value.symbols.length > 0 &&
+    value.symbols.every((symbol) => typeof symbol === "string") &&
+    typeof value.migrationGuide === "string" &&
+    /^https:\/\//.test(value.migrationGuide)
+  );
+}
+
+function migrationManifestProblem(value: unknown): string | null {
+  if (!isRecord(value)) return "the root must be an object";
+  if (typeof value.sinceVersion !== "string" || !value.sinceVersion.trim()) {
+    return "sinceVersion must be a non-empty string";
+  }
+  if (
+    !isRecord(value.moves) ||
+    Object.entries(value.moves).some(
+      ([specifier, move]) => !specifier.trim() || !isMigrationMove(move),
+    )
+  ) {
+    return "moves must map specifiers to valid migration move records";
+  }
+  if (
+    value.removedExports !== undefined &&
+    (!isRecord(value.removedExports) ||
+      Object.entries(value.removedExports).some(
+        ([specifier, removed]) =>
+          !specifier.trim() || !isRemovedExportManifest(removed),
+      ))
+  ) {
+    return "removedExports must map specifiers to symbol lists and HTTPS migrationGuide URLs";
+  }
+  if (
+    value.dependencies !== undefined &&
+    (!Array.isArray(value.dependencies) ||
+      !value.dependencies.every(isMigrationDependency))
+  ) {
+    return "dependencies must be an array of supported dependency records";
+  }
+  return null;
+}
+
 export interface ResolvedMigrationSymbolMove {
   to: string;
   name: string;
@@ -80,24 +167,30 @@ export function migrationMoveStatus(
 export function readMigrationManifest(
   manifestPath: string,
 ): MigrationManifest | null {
+  let source: string;
   try {
-    const parsed = JSON.parse(
-      fs.readFileSync(manifestPath, "utf-8"),
-    ) as Partial<MigrationManifest>;
-    if (
-      typeof parsed.sinceVersion !== "string" ||
-      !parsed.moves ||
-      typeof parsed.moves !== "object" ||
-      (parsed.dependencies !== undefined &&
-        (!Array.isArray(parsed.dependencies) ||
-          !parsed.dependencies.every(isMigrationDependency)))
-    ) {
-      return null;
-    }
-    return parsed as MigrationManifest;
-  } catch {
-    return null;
+    source = fs.readFileSync(manifestPath, "utf-8");
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return null;
+    throw new Error(
+      `Could not read migration manifest at ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(
+      `Could not parse migration manifest at ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const problem = migrationManifestProblem(parsed);
+  if (problem) {
+    throw new Error(
+      `Invalid migration manifest at ${manifestPath}: ${problem}.`,
+    );
+  }
+  return parsed as MigrationManifest;
 }
 
 export function bundledCoreMigrationManifestPath(): string {
