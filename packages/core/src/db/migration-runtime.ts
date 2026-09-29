@@ -16,7 +16,6 @@ type MigrationRuntimeGlobal = typeof globalThis & {
 function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
   return (
     env.NODE_ENV === "test" ||
-    env.NODE_ENV === "development" ||
     env.NETLIFY_LOCAL === "true" ||
     env.VERCEL_ENV === "development"
   );
