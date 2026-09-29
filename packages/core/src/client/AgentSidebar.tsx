@@ -1055,8 +1055,7 @@ export function AgentSidebar({
       maxWidth: "85vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_OVERLAY_Z_INDEX,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "hsl(var(--sidebar-background))",
       background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1075,8 +1074,7 @@ export function AgentSidebar({
       maxWidth: "100vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_DRAWER_Z_INDEX,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "hsl(var(--sidebar-background))",
       background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1090,8 +1088,7 @@ export function AgentSidebar({
       ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
       "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
-      "--agent-sidebar-background":
-        "var(--agent-native-raised-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "hsl(var(--sidebar-background))",
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
