@@ -199,6 +199,17 @@ const resourcesById = new Map([
         "---\nname: company-voice\ndescription: Personal voice override.\n---\n\n# Company Voice",
     },
   ],
+  [
+    "lab_required_skill",
+    {
+      id: "lab_required_skill",
+      path: "skills/lab-required/SKILL.md",
+      owner: "__shared__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: lab-required\ndescription: Requires an enabled Lab.\nrequires-lab: reports.preview\n---\n\n# Lab Required",
+    },
+  ],
 ]);
 
 function meta(id: string) {
@@ -383,6 +394,49 @@ describe("agent chat resource route organization scopes", () => {
     );
     expect(enabled.skills.map((skill) => skill.name)).toContain(
       "creative-context",
+    );
+  });
+
+  it("fails closed when Lab state for a resource skill cannot be read", async () => {
+    const h3App = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({
+      email: "disabled@example.test",
+    } as any);
+    mocks.resourceList.mockResolvedValue([meta("lab_required_skill")]);
+    mocks.resourceListAccessible.mockResolvedValue([
+      meta("lab_required_skill"),
+    ]);
+
+    const disabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+    const disabled = (await disabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+    expect(disabled.skills.map((skill) => skill.name)).not.toContain(
+      "lab-required",
+    );
+
+    mocks.getEnabledSkillLabsForUser.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
+    const unavailableResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+
+    expect(unavailableResponse.status).toBe(500);
+    expect(await unavailableResponse.text()).not.toContain("Lab Required");
+    expect(mocks.resourceGet).toHaveBeenCalledWith("lab_required_skill", {
+      userEmail: "disabled@example.test",
+      orgId: undefined,
+    });
+    expect(mocks.getEnabledSkillLabsForUser).toHaveBeenCalledWith(
+      ["reports.preview"],
+      "disabled@example.test",
     );
   });
 

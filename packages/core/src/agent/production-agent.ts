@@ -6705,9 +6705,15 @@ export async function runAgentLoop(opts: {
       const batch = parallelBatch;
       parallelBatch = [];
       parallelBatchKind = null;
-      toolResultParts.push(
-        ...(await Promise.all(batch.map(runTrackedToolCall))),
-      );
+      const calls: Array<Promise<EngineContentPart> | EngineContentPart> = [];
+      for (const toolCall of batch) {
+        calls.push(
+          turnYieldedToUser || requestedActionStop
+            ? skipToolCallAfterStop(toolCall)
+            : runTrackedToolCall(toolCall),
+        );
+      }
+      toolResultParts.push(...(await Promise.all(calls)));
     };
 
     const skipToolCallAfterStop = (

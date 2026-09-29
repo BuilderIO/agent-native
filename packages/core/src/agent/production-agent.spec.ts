@@ -6945,6 +6945,93 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("does not dispatch parallel identical writes after the repeat threshold", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "write completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "The writes completed." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: Array.from(
+            { length: MAX_IDENTICAL_TOOL_CALLS + 2 },
+            (_, i) => ({
+              type: "tool-call" as const,
+              id: `parallel-write-${i + 1}`,
+              name: "repeat-parallel-write",
+              input: { id: "same" },
+            }),
+          ),
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "repeat-parallel-write": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const completedCalls = events.filter((event) => event.type === "tool_done");
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(completedCalls).toHaveLength(MAX_IDENTICAL_TOOL_CALLS + 2);
+    expect(
+      completedCalls.find(
+        (event) => event.id === `parallel-write-${MAX_IDENTICAL_TOOL_CALLS}`,
+      ),
+    ).toMatchObject({ result: "write completed", completedSideEffect: true });
+    expect(
+      completedCalls.filter((event) =>
+        event.result.startsWith("Not executed:"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      completedCalls
+        .filter((event) => event.result.startsWith("Not executed:"))
+        .map((event) => event.id),
+    ).toEqual([
+      `parallel-write-${MAX_IDENTICAL_TOOL_CALLS + 1}`,
+      `parallel-write-${MAX_IDENTICAL_TOOL_CALLS + 2}`,
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
   it("keeps pending parallel-call counts after another write resets repeats", async () => {
     let streamCalls = 0;
     let releaseSecondWrite: (() => void) | undefined;

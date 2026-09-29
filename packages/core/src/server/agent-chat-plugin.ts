@@ -5506,9 +5506,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             event,
             options?.resolveOrgId,
           );
+          let resourceSkills: Awaited<
+            ReturnType<typeof resourceListAccessible>
+          > = [];
           try {
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
-            const resourceSkills = skillsOwner
+            resourceSkills = skillsOwner
               ? await resourceListAccessible(skillsOwner, "skills/", {
                   userEmail: skillsOwner,
                   orgId: skillsOrgId,
@@ -5521,68 +5524,60 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     orgId: skillsOrgId,
                   })),
                 ];
-            resourceSkills.sort((a, b) => {
-              const ownerOrder =
-                (a.owner === skillsOwner
-                  ? 0
-                  : a.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(a.owner)
-                      ? 2
-                      : 3) -
-                (b.owner === skillsOwner
-                  ? 0
-                  : b.owner === SHARED_OWNER
-                    ? 1
-                    : isWorkspaceResourceOwner(b.owner)
-                      ? 2
-                      : 3);
-              if (ownerOrder !== 0) return ownerOrder;
-              const pathOrder =
-                (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-                (b.path.endsWith("/SKILL.md") ? 0 : 1);
-              if (pathOrder !== 0) return pathOrder;
-              return a.path.localeCompare(b.path);
-            });
-            for (const r of resourceSkills) {
-              // Try to get content to parse frontmatter
-              let skillName = getSkillNameFromPath(r.path);
-              let description: string | undefined;
-              let userInvocable: boolean | undefined;
-              try {
-                const full = await resourceGet(r.id, {
-                  userEmail: skillsOwner,
-                  orgId: skillsOrgId,
-                });
-                if (full) {
-                  const fm = parseSkillFrontmatter(full.content);
-                  if (!isRuntimeVisibleScope(fm.scope)) continue;
-                  if (
-                    fm.requiresLab &&
-                    !(await isSkillLabEnabled(fm.requiresLab))
-                  ) {
-                    continue;
-                  }
-                  if (fm.name) skillName = fm.name;
-                  description = fm.description;
-                  userInvocable = fm.userInvocable;
-                }
-              } catch {
-                // Could not read resource content — use path-based name
-              }
-              if (userInvocable === false) continue;
-              if (!seenNames.has(skillName)) {
-                seenNames.add(skillName);
-                skills.push({
-                  name: skillName,
-                  description,
-                  path: r.path,
-                  source: "resource",
-                });
-              }
-            }
           } catch {
             // Resources not available — skip
+          }
+
+          resourceSkills.sort((a, b) => {
+            const ownerOrder =
+              (a.owner === skillsOwner
+                ? 0
+                : a.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(a.owner)
+                    ? 2
+                    : 3) -
+              (b.owner === skillsOwner
+                ? 0
+                : b.owner === SHARED_OWNER
+                  ? 1
+                  : isWorkspaceResourceOwner(b.owner)
+                    ? 2
+                    : 3);
+            if (ownerOrder !== 0) return ownerOrder;
+            const pathOrder =
+              (a.path.endsWith("/SKILL.md") ? 0 : 1) -
+              (b.path.endsWith("/SKILL.md") ? 0 : 1);
+            if (pathOrder !== 0) return pathOrder;
+            return a.path.localeCompare(b.path);
+          });
+          for (const r of resourceSkills) {
+            let full;
+            try {
+              full = await resourceGet(r.id, {
+                userEmail: skillsOwner,
+                orgId: skillsOrgId,
+              });
+            } catch {
+              // Unreadable skill metadata cannot establish runtime access.
+              continue;
+            }
+            if (!full) continue;
+            const fm = parseSkillFrontmatter(full.content);
+            if (!isRuntimeVisibleScope(fm.scope)) continue;
+            if (fm.requiresLab && !(await isSkillLabEnabled(fm.requiresLab))) {
+              continue;
+            }
+            const skillName = fm.name || getSkillNameFromPath(r.path);
+            if (fm.userInvocable === false || seenNames.has(skillName))
+              continue;
+            seenNames.add(skillName);
+            skills.push({
+              name: skillName,
+              description: fm.description,
+              path: r.path,
+              source: "resource",
+            });
           }
 
           const result: {
