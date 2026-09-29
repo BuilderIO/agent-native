@@ -607,11 +607,16 @@ function TraceDetailView({
             value={mustContain}
             onChange={(event) => setMustContain(event.target.value)}
             disabled={promote.isPending || !data}
-            placeholder={t("observability.promoteMustContain", {
-              defaultValue: needsNeedle
-                ? "Reply must contain…"
-                : "Reply must contain (optional)",
-            })}
+            placeholder={t(
+              needsNeedle
+                ? "observability.promoteMustContain"
+                : "observability.promoteMustContainOptional",
+              {
+                defaultValue: needsNeedle
+                  ? "Reply must contain…"
+                  : "Reply must contain (optional)",
+              },
+            )}
             aria-label={t("observability.promoteMustContainLabel", {
               defaultValue: "Text the promoted eval reply must contain",
             })}
