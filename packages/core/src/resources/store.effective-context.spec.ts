@@ -1686,4 +1686,27 @@ describe("resourceEffectiveContext", () => {
       await resourceDeleteByPath(SHARED_OWNER, path);
     }
   });
+
+  it("bounds resource listing after path-prefix filtering", async () => {
+    const { resourceDeleteByPath, resourceListAccessible, resourcePut } =
+      await import("./store.js");
+    const owner = "resource-list-limit@example.test";
+    const prefix = `context/list-limit-${Date.now()}-${Math.random()}/`;
+    const paths = ["a.md", "b.md", "c.md"].map((name) => `${prefix}${name}`);
+
+    try {
+      await Promise.all(paths.map((path) => resourcePut(owner, path, path)));
+      const resources = await resourceListAccessible(owner, prefix, {
+        orgId: null,
+        limit: 2,
+      });
+
+      expect(resources).toHaveLength(2);
+      expect(
+        resources.every((resource) => resource.path.startsWith(prefix)),
+      ).toBe(true);
+    } finally {
+      await Promise.all(paths.map((path) => resourceDeleteByPath(owner, path)));
+    }
+  });
 });

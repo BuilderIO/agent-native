@@ -8,6 +8,13 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("localizes unreadable screenshot edit errors", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain('"CLIPS_SCREENSHOT_EDITS_UNREADABLE"');
+    expect(route).toContain('t("screenshot.editsUnreadable")');
+  });
+
   it("fences manual finalize retries to the loaded upload identity", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
@@ -395,8 +402,19 @@ describe("direct recording route shell cue", () => {
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
     );
     expect(normalizedEffect).toContain(
-      'setPanel( recording && !recording.enableComments ? "transcript" : "comments", )',
+      'setPanel( recording && !recording.enableComments ? defaultPanel : "comments", )',
     );
+
+    // `defaultPanel` is where the panel lands when the requested tab does not
+    // apply. It is transcript for a video and comments for a screenshot,
+    // which has no transcript tab at all — or settings when comments are off,
+    // but only for someone who can see settings. Offering a viewer settings
+    // made the guard bounce them between two tabs it rejects.
+    const route2 = readRoute("_app.r.$recordingId.tsx").replace(/\s+/g, " ");
+    expect(route2).toContain(
+      'const defaultPanel: SidePanel = !isImage ? "transcript" : recording && !recording.enableComments && canEdit ? "settings" : "comments";',
+    );
+    expect(route2).not.toContain('!recording?.enableComments ? "settings"');
   });
 
   it("keeps the mobile comments tab scrollable inside its fixed-height rail", () => {

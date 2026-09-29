@@ -2820,41 +2820,35 @@ export function getNodeBuiltinNames(): string[] {
   return NODE_BUILTINS;
 }
 
-function findEsbuild(): string {
+export type EsbuildCommand = {
+  executable: string;
+  args: string[];
+};
+
+export function resolveEsbuildCommand(
+  platform: NodeJS.Platform = process.platform,
+  resolveModule: (specifier: string) => string = (specifier) =>
+    createRequire(import.meta.url).resolve(specifier),
+): EsbuildCommand {
+  let packageJson: string;
   try {
-    const _require = createRequire(cwd + "/");
-    const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
-    const bin = path.join(esbuildPkg, "bin", "esbuild");
-    if (fs.existsSync(bin)) return bin;
-  } catch {}
-
-  const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
-  if (fs.existsSync(localBin)) return localBin;
-
-  const workspaceRoot = findWorkspaceRoot(cwd);
-  if (workspaceRoot) {
-    const workspaceBin = path.resolve(
-      workspaceRoot,
-      "node_modules/.bin/esbuild",
+    packageJson = resolveModule("esbuild/package.json");
+  } catch {
+    throw new Error(
+      "[deploy] Could not resolve the esbuild dependency from @agent-native/core. Reinstall dependencies and try the build again.",
     );
-    if (fs.existsSync(workspaceBin)) return workspaceBin;
   }
 
-  return "esbuild";
-}
-
-function findWorkspaceRoot(dir: string): string | null {
-  let current = dir;
-  while (current !== path.dirname(current)) {
-    if (
-      fs.existsSync(path.join(current, "pnpm-workspace.yaml")) ||
-      fs.existsSync(path.join(current, "pnpm-lock.yaml"))
-    ) {
-      return current;
-    }
-    current = path.dirname(current);
+  const bin = path.join(path.dirname(packageJson), "bin", "esbuild");
+  if (!fs.existsSync(bin)) {
+    throw new Error(
+      `[deploy] The esbuild launcher is missing at ${bin}. Reinstall dependencies and try the build again.`,
+    );
   }
-  return null;
+
+  return platform === "win32"
+    ? { executable: process.execPath, args: [bin] }
+    : { executable: bin, args: [] };
 }
 
 function getDirSize(dir: string): number {
@@ -4213,9 +4207,11 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   const bundledYjsPath = path.join(serverDir, "_libs", "yjs-runtime.mjs");
   fs.mkdirSync(path.dirname(bundledYjsPath), { recursive: true });
+  const esbuild = resolveEsbuildCommand();
   execFileSync(
-    findEsbuild(),
+    esbuild.executable,
     [
+      ...esbuild.args,
       resolveNitroBundledYjsEntry(),
       "--bundle",
       "--format=esm",
@@ -5530,15 +5526,7 @@ export default bundle;
   if (preset.startsWith("cloudflare") || preset.startsWith("deno")) {
     const { execFileSync } = await import("child_process");
     const { createRequire } = await import("module");
-    const esbuildBin = (() => {
-      try {
-        const _req = createRequire(cwd + "/");
-        const pkg = path.dirname(_req.resolve("esbuild/package.json"));
-        const bin = path.join(pkg, "bin", "esbuild");
-        if (fs.existsSync(bin)) return bin;
-      } catch {}
-      return "esbuild";
-    })();
+    const esbuild = resolveEsbuildCommand();
 
     const outputDir =
       nitro.options.output.serverDir || path.join(cwd, "dist", "_worker.js");
@@ -5690,8 +5678,9 @@ export default bundle;
               : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
 
           execFileSync(
-            esbuildBin,
+            esbuild.executable,
             [
+              ...esbuild.args,
               "--bundle",
               `--outfile=${outFile}`,
               "--format=esm",
