@@ -19,7 +19,8 @@ import {
   validateContentProductDocs,
 } from "./validate-content-product-docs.ts";
 
-const PRODUCT_ROOT = "templates/content/docs/product";
+const CONTENT_ROOT = "templates/content";
+const PRODUCT_ROOT = `${CONTENT_ROOT}/docs/product`;
 const CONTENT_PRODUCT_SKILL_ROOT =
   "templates/content/.agents/skills/content-product-development";
 const CHECKER_ROOT = path.resolve(
@@ -270,7 +271,7 @@ const CONTENT_ROOT_EXCLUSIONS = new Set([
 // evidence. E2E, parity, and conformance suites always stay evidence.
 function isContentUnitTest(normalized: string): boolean {
   if (!normalized.startsWith("templates/content/")) return false;
-  if (/^templates\/content\/(?:e2e|parity)\//.test(normalized)) return false;
+  if (/\/(?:e2e|parity)\/|\.e2e\./.test(normalized)) return false;
   if (/parity|conformance/i.test(normalized)) return false;
   return (
     /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
@@ -292,7 +293,16 @@ export function citedEvidencePaths(catalog: ProductCatalog): Set<string> {
     );
     for (const entry of evidence) {
       if (typeof entry !== "string") continue;
-      cited.add(path.posix.normalize(path.posix.join(recordDirectory, entry)));
+      // Records cite proof relative to the record, the Content root, or the
+      // repository root. Keep every reading so a cited test is never dropped.
+      if (entry.startsWith("./") || entry.startsWith("../")) {
+        cited.add(
+          path.posix.normalize(path.posix.join(recordDirectory, entry)),
+        );
+      } else {
+        cited.add(path.posix.normalize(path.posix.join(CONTENT_ROOT, entry)));
+        cited.add(path.posix.normalize(entry));
+      }
     }
   }
   return cited;

@@ -184,6 +184,8 @@ describe("Content impact applicability", () => {
     }
     for (const file of [
       "templates/content/e2e/editor.spec.ts",
+      "templates/content/app/e2e/editor.spec.ts",
+      "templates/content/app/editor.e2e.spec.ts",
       "templates/content/parity/contract.test.ts",
       "templates/content/app/lib/renderer-conformance.test.ts",
       "templates/content/app/lib/document-tree.ts",
@@ -258,7 +260,7 @@ describe("Content impact analysis", () => {
       capability,
       readFileSync(capability, "utf8").replace(
         "evidence: []",
-        'evidence:\n  - "../../../app/lib/cited.test.ts"',
+        'evidence:\n  - "../../../app/lib/cited.test.ts"\n  - "actions/root-cited.db.test.ts"',
       ),
     );
     const { catalog } = validateContentProductDocs(citedRoot, {
@@ -274,6 +276,10 @@ describe("Content impact analysis", () => {
       }).applicable;
 
     assert.equal(applicable("templates/content/app/lib/cited.test.ts"), true);
+    assert.equal(
+      applicable("templates/content/actions/root-cited.db.test.ts"),
+      true,
+    );
     assert.equal(
       applicable("templates/content/app/lib/uncited.test.ts"),
       false,
