@@ -662,6 +662,29 @@ describe("startMailAiFilterBackfill", () => {
     expect(recovered.failedKeys).toEqual([]);
   });
 
+  it("reports terminal candidate failures alongside partial coverage", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    mocks.emails = [localEmail()];
+    const row = runningRow([activeRule]);
+    const state: any = JSON.parse(row.stateJson);
+    state.incompleteCoverage = true;
+    state.error = "unavailable@example.test: refresh failed.";
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.writeLocalEmails.mockRejectedValueOnce(
+      new Error("Mail write failed permanently."),
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(saved.error).toContain("Mail write failed permanently.");
+    expect(saved.error).toContain(state.error);
+    expect(saved.failedKeys).toEqual(["local:thread-a"]);
+  });
+
   it("applies a rule to available Gmail accounts and reports incomplete coverage", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
@@ -878,24 +901,31 @@ describe("startMailAiFilterBackfill", () => {
     const state: any = backfillState([activeRule]);
     const template = state.candidates[0];
     state.candidates = [
-      "unavailable@example.test",
-      "available@example.test",
-    ].map((accountEmail) => ({
-      key: `${accountEmail}:thread-shared`,
-      accountEmail,
-      threadId: "thread-shared",
-      email: {
-        ...template.email,
-        id: "thread-shared",
+      {
+        accountEmail: "unavailable@example.test",
         threadId: "thread-shared",
-        accountEmail,
       },
-      messageIds: ["message-shared"],
+      {
+        accountEmail: "unavailable@example.test",
+        threadId: "thread-no-match",
+      },
+      {
+        accountEmail: "available@example.test",
+        threadId: "thread-shared",
+      },
+    ].map(({ accountEmail, threadId }) => ({
+      key: `${accountEmail}:${threadId}`,
+      accountEmail,
+      threadId,
+      email: { ...template.email, id: threadId, threadId, accountEmail },
+      messageIds: [`message-${threadId}`],
     }));
     state.evaluations = Object.fromEntries(
       state.candidates.map((candidate: Record<string, any>) => [
         candidate.key,
-        [{ ruleId: activeRule.id, confidence: 0.95 }],
+        candidate.threadId === "thread-no-match"
+          ? []
+          : [{ ruleId: activeRule.id, confidence: 0.95 }],
       ]),
     );
     const row = runningRow([activeRule]);
@@ -921,8 +951,8 @@ describe("startMailAiFilterBackfill", () => {
 
     const saved = JSON.parse(row.stateJson);
     expect(row.status).toBe("failed");
-    expect(saved.candidateIndex).toBe(2);
-    expect(saved.processedThreads).toBe(2);
+    expect(saved.candidateIndex).toBe(3);
+    expect(saved.processedThreads).toBe(3);
     expect(saved.failedKeys).toEqual([
       "unavailable@example.test:thread-shared",
     ]);

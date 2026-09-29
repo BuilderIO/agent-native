@@ -1741,7 +1741,7 @@ async function processRunningBatch(
       state.error ??= sanitizeBackfillError(
         new Error(`Gmail account ${candidate.accountEmail} is unavailable.`),
       );
-      if (!state.failedKeys.includes(candidate.key))
+      if (candidateMatched && !state.failedKeys.includes(candidate.key))
         state.failedKeys.push(candidate.key);
     }
     let candidateFailed = false;
@@ -1831,7 +1831,17 @@ async function processRunningBatch(
         const message = sanitizeBackfillError(error);
         if (!state.failedKeys.includes(candidate.key))
           state.failedKeys.push(candidate.key);
-        if (!state.incompleteCoverage || !state.error) state.error = message;
+        const retryable = aiFilterBackfillRetryDelay(error) !== null;
+        if (!state.incompleteCoverage) state.error = message;
+        else if (
+          !retryable ||
+          (state.retryCount ?? 0) >= MAX_BACKFILL_RETRIES
+        ) {
+          state.error =
+            state.error && !state.error.includes(message)
+              ? `${message}; ${state.error}`.slice(0, 500)
+              : message;
+        }
         throw error;
       }
       state.snapshots[candidate.key] = applied.snapshot;
