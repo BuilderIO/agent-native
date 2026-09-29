@@ -49,11 +49,13 @@ export function parseSkillFrontmatter(
   description?: string;
   userInvocable?: boolean;
   scope?: SkillScope;
+  requiresLab?: string;
 } {
   const frontmatter = parseFrontmatter(content);
   const userInvocable = getFrontmatterValue(frontmatter, "user-invocable");
   const rawScope = getFrontmatterValue(frontmatter, "scope");
   const name = getFrontmatterValue(frontmatter, "name");
+  const requiresLab = getFrontmatterValue(frontmatter, "requires-lab")?.trim();
   return {
     name,
     description: getFrontmatterValue(frontmatter, "description"),
@@ -64,5 +66,6 @@ export function parseSkillFrontmatter(
       userInvocable === undefined
         ? undefined
         : userInvocable.toLowerCase() === "true",
+    requiresLab: requiresLab || undefined,
   };
 }
