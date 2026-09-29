@@ -578,12 +578,19 @@ export function suggestionPresentations(
 
 export function replaceAcceptedSuggestionPresentations(
   presentations: VisualEditorSuggestion[],
-  accepted: VisualEditorSuggestion | null,
+  accepted: VisualEditorSuggestion | VisualEditorSuggestion[] | null,
 ): VisualEditorSuggestion[] {
   if (!accepted) return presentations;
+  const acceptedPresentations = Array.isArray(accepted) ? accepted : [accepted];
+  if (acceptedPresentations.length === 0) return presentations;
+  const acceptedIds = new Set(
+    acceptedPresentations.map((presentation) => presentation.id),
+  );
   return [
-    ...presentations.filter((presentation) => presentation.id !== accepted.id),
-    accepted,
+    ...presentations.filter(
+      (presentation) => !acceptedIds.has(presentation.id),
+    ),
+    ...acceptedPresentations,
   ];
 }
 
@@ -5356,7 +5363,7 @@ function PageEditorSessionBody({
         presentation: "draft" as const,
       });
     }
-    let acceptedPresentation: VisualEditorSuggestion | null = null;
+    let acceptedPresentations: VisualEditorSuggestion[] = [];
     if (
       pendingSuggestionDecision?.decision === "accepted" &&
       pendingSuggestionDecision.optimistic
@@ -5364,25 +5371,21 @@ function PageEditorSessionBody({
       const operation = pendingSuggestionDecision.suggestion.operations[0];
       const before = operation?.before as { markdown?: unknown } | undefined;
       if (typeof before?.markdown === "string") {
-        const presentation = suggestionPresentation(
+        acceptedPresentations = suggestionPresentations(
           { ...pendingSuggestionDecision.suggestion, status: "pending" },
           before.markdown,
-        );
-        if (presentation) {
-          acceptedPresentation = {
-            ...presentation,
-            presentation: canProjectAcceptedSuggestion(presentation)
-              ? "settling"
-              : "canonical",
-            settlementReadbackContent:
-              pendingSuggestionDecision.readbackContent,
-          };
-        }
+        ).map((presentation) => ({
+          ...presentation,
+          presentation: canProjectAcceptedSuggestion(presentation)
+            ? "settling"
+            : "canonical",
+          settlementReadbackContent: pendingSuggestionDecision.readbackContent,
+        }));
       }
     }
     const presentations = replaceAcceptedSuggestionPresentations(
       [...byId.values()],
-      acceptedPresentation,
+      acceptedPresentations,
     );
     return pendingProposalDecision?.accepted &&
       !pendingProposalDecision.continueSuggesting

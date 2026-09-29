@@ -646,7 +646,10 @@ describe("document editor layout", () => {
       { id: "other", status: "pending", operations: [operation] },
       before,
     );
-    const overlay = { ...acceptedSpans[0]!, presentation: "settling" as const };
+    const overlays = acceptedSpans.map((span) => ({
+      ...span,
+      presentation: "settling" as const,
+    }));
     const ordinary = [
       acceptedSpans[0]!,
       otherSpans[0]!,
@@ -656,14 +659,61 @@ describe("document editor layout", () => {
 
     expect(acceptedSpans).toHaveLength(2);
     expect(otherSpans).toHaveLength(2);
-    expect(replaceAcceptedSuggestionPresentations(ordinary, overlay)).toEqual([
+    expect(replaceAcceptedSuggestionPresentations(ordinary, overlays)).toEqual([
       otherSpans[0],
       otherSpans[1],
-      overlay,
+      ...overlays,
     ]);
     expect(replaceAcceptedSuggestionPresentations(ordinary, null)).toEqual(
       ordinary,
     );
+  });
+
+  it("keeps an unrelated suggestion visible between accepted replacement spans", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const acceptedOperation = markdownSuggestionOperation(
+      before,
+      "We shipped quickly and the results were excellent.",
+    )!;
+    const unrelatedOperation = markdownSuggestionOperation(
+      before,
+      before.replace("results", "findings"),
+    )!;
+    const accepted = {
+      id: "accepted",
+      status: "pending" as const,
+      operations: [acceptedOperation],
+    };
+    const unrelated = {
+      id: "unrelated",
+      status: "pending" as const,
+      operations: [unrelatedOperation],
+    };
+    const acceptedSpans = suggestionPresentations(accepted, before);
+    const unrelatedSpan = suggestionPresentations(unrelated, before)[0]!;
+    const overlays = suggestionPresentations(accepted, before).map((span) => ({
+      ...span,
+      presentation: "settling" as const,
+    }));
+
+    const presented = replaceAcceptedSuggestionPresentations(
+      [...acceptedSpans, unrelatedSpan],
+      overlays,
+    );
+
+    expect(acceptedSpans).toHaveLength(2);
+    expect(presented).toEqual([unrelatedSpan, ...overlays]);
+    const unrelatedBefore = unrelatedSpan.beforePresentation!;
+    const unrelatedFrom = unrelatedBefore.from!;
+    const unrelatedTo = unrelatedBefore.to!;
+    for (const overlay of overlays) {
+      const overlayBefore = overlay.beforePresentation!;
+      const overlayFrom = overlayBefore.from!;
+      const overlayTo = overlayBefore.to!;
+      expect(overlayTo <= unrelatedFrom || unrelatedTo <= overlayFrom).toBe(
+        true,
+      );
+    }
   });
 
   it("replaces a single accepted span without changing unrelated presentations", () => {

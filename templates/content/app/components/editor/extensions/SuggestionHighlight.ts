@@ -236,8 +236,16 @@ function buildDecorations(
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
+  const canonicalContent = new Map<string, string>();
+  const canonicalizeContent = (content: string) => {
+    const canonical = canonicalContent.get(content);
+    if (canonical !== undefined) return canonical;
+    const normalized = canonicalizeNfm(content);
+    canonicalContent.set(content, normalized);
+    return normalized;
+  };
   const settledContent = specs.some((spec) => spec.settling)
-    ? docToNfm(doc.toJSON())
+    ? canonicalizeContent(docToNfm(doc.toJSON()))
     : null;
 
   for (const spec of specs) {
@@ -245,13 +253,12 @@ function buildDecorations(
       spec.settling &&
       settledContent !== null &&
       ((spec.insertedPresentation !== undefined &&
-        canonicalizeNfm(settledContent) ===
-          canonicalizeNfm(spec.insertedPresentation.source)) ||
+        settledContent ===
+          canonicalizeContent(spec.insertedPresentation.source)) ||
         settledAtOperation(doc, spec) ||
         (spec.settlingReadbackContent !== null &&
           spec.settlingReadbackContent !== undefined &&
-          canonicalizeNfm(settledContent) ===
-            canonicalizeNfm(spec.settlingReadbackContent)))
+          settledContent === canonicalizeContent(spec.settlingReadbackContent)))
     )
       continue;
     const active = activeId === spec.suggestionId;
@@ -282,7 +289,19 @@ function buildDecorations(
           Decoration.widget(
             clampPosition(range ? range.to : spec.from, size),
             insertionWidget(spec, false),
-            { key: `${spec.suggestionId}:settling`, marks: [], side: 1 },
+            {
+              key: JSON.stringify([
+                spec.suggestionId,
+                "settling",
+                range?.from ?? spec.from,
+                range?.to ?? spec.from,
+                spec.insertedText,
+                spec.insertedPresentation?.from,
+                spec.insertedPresentation?.to,
+              ]),
+              marks: [],
+              side: 1,
+            },
           ),
         );
       }

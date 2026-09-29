@@ -6,7 +6,22 @@ import { resolve } from "node:path";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const canonicalizeNfmCalls = vi.hoisted(() => ({
+  record: vi.fn<(content: string) => void>(),
+}));
+
+vi.mock("@shared/nfm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@shared/nfm")>();
+  return {
+    ...actual,
+    canonicalizeNfm: (content: string) => {
+      canonicalizeNfmCalls.record(content);
+      return actual.canonicalizeNfm(content);
+    },
+  };
+});
 
 import {
   createSuggestionHighlightPlugin,
@@ -320,6 +335,98 @@ describe("SuggestionHighlight", () => {
         )!
         .decorations.find(),
     ).toHaveLength(0);
+  });
+
+  it("canonicalizes each unique settling comparison once per decoration build", () => {
+    canonicalizeNfmCalls.record.mockClear();
+    const makeSpec = (
+      suggestionId: string,
+      insertedSource: string,
+    ): SuggestionHighlightSpec => ({
+      suggestionId,
+      kind: "insert",
+      from: 0,
+      to: 0,
+      insertedText: "not present",
+      insertedPresentation: {
+        source: insertedSource,
+        from: 0,
+        to: insertedSource.length,
+      },
+      settlingReadbackContent: "shared readback",
+      settling: true,
+    });
+
+    setSpecs(state("current document"), [
+      makeSpec("first", "shared proposal"),
+      makeSpec("second", "shared proposal"),
+      makeSpec("third", "another proposal"),
+      makeSpec("fourth", "current document"),
+    ]);
+
+    const normalizedInputs = canonicalizeNfmCalls.record.mock.calls.map(
+      ([content]) => content,
+    );
+    expect(normalizedInputs).toHaveLength(4);
+    expect(
+      normalizedInputs.filter((content) => content === "shared proposal"),
+    ).toHaveLength(1);
+    expect(
+      normalizedInputs.filter((content) => content === "another proposal"),
+    ).toHaveLength(1);
+    expect(
+      normalizedInputs.filter((content) => content === "shared readback"),
+    ).toHaveLength(1);
+    expect(
+      normalizedInputs.filter((content) => content === "current document"),
+    ).toHaveLength(1);
+  });
+
+  it("renders same-id settling spans independently after a document transaction", () => {
+    const makeSpec = (
+      from: number,
+      to: number,
+      deletedText: string,
+      insertedText: string,
+    ): SuggestionHighlightSpec => ({
+      suggestionId: "multi-span",
+      kind: "replace",
+      from,
+      to,
+      insertedText,
+      deletedText,
+      settling: true,
+      settlingBeforePresentation: {
+        source: deletedText,
+        from: 0,
+        to: deletedText.length,
+      },
+      insertedPresentation: {
+        source: insertedText,
+        from: 0,
+        to: insertedText.length,
+      },
+    });
+    const view = new EditorView(document.createElement("div"), {
+      state: setSpecs(state("abcdef"), [
+        makeSpec(1, 3, "bc", "first proposal"),
+        makeSpec(4, 6, "de", "second proposal"),
+      ]),
+    });
+
+    try {
+      view.dispatch(view.state.tr.insertText("!", 7));
+
+      expect(view.state.doc.textContent).toBe("abcdef!");
+      expect(
+        Array.from(
+          view.dom.querySelectorAll<HTMLElement>(".suggestion-settling-text"),
+          (widget) => widget.textContent,
+        ),
+      ).toEqual(["first proposal", "second proposal"]);
+    } finally {
+      view.destroy();
+    }
   });
 
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {

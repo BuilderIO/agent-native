@@ -110,7 +110,6 @@ const TooltipProviderWithoutChildren =
 import {
   replaceAcceptedProposalPresentations,
   replaceAcceptedSuggestionPresentations,
-  suggestionPresentation,
   suggestionPresentations,
 } from "./DocumentEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -1156,7 +1155,7 @@ describe("live suggestion presentation", () => {
       container.remove();
     }
   });
-  it("renders one settling owner after replacing a multi-span saved suggestion", () => {
+  it("keeps a gap suggestion visible while a multi-span replacement settles", () => {
     const before = "We shipped quickly, and the results were good.";
     const after = "We shipped quickly and the results were excellent.";
     const accepted = {
@@ -1167,17 +1166,29 @@ describe("live suggestion presentation", () => {
     const unrelated = {
       id: "unrelated",
       status: "pending" as const,
-      operations: [markdownSuggestionOperation(before, `${before} Next.`)!],
+      operations: [
+        markdownSuggestionOperation(
+          before,
+          before.replace("results", "findings"),
+        )!,
+      ],
     };
     const acceptedSpans = suggestionPresentations(accepted, before);
     const unrelatedSpans = suggestionPresentations(unrelated, before);
-    const overlay = suggestionPresentation(accepted, before)!;
+    const overlays = acceptedSpans.map((span) => ({
+      ...span,
+      presentation: "settling" as const,
+    }));
     const editor = createSuggestionEditor(before);
     try {
       expect(acceptedSpans).toHaveLength(2);
+      expect(acceptedSpans.map((span) => span.kind)).toEqual([
+        "delete_text",
+        "replace_text",
+      ]);
       const presentations = replaceAcceptedSuggestionPresentations(
         [...acceptedSpans, ...unrelatedSpans],
-        { ...overlay, presentation: "settling" },
+        overlays,
       );
       const specs = presentations.map((presentation) =>
         suggestionHighlightSpec(editor.state.doc, presentation),
@@ -1194,9 +1205,22 @@ describe("live suggestion presentation", () => {
         editor.view.dom.querySelectorAll(".suggestion-settling-text"),
       ).toHaveLength(1);
       expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-original"),
+      ).toHaveLength(2);
+      expect(
         editor.view.dom.querySelectorAll('[data-suggestion-id="unrelated"]')
           .length,
       ).toBeGreaterThanOrEqual(unrelatedSpans.length);
+      expect(
+        editor.view.dom.querySelector(
+          '[data-suggestion-id="unrelated"][data-suggestion-widget="true"]',
+        )?.textContent,
+      ).toBe("finding");
+      expect(
+        Array.from(
+          editor.view.dom.querySelectorAll(".suggestion-settling-original"),
+        ).every((node) => !node.textContent?.includes("results")),
+      ).toBe(true);
       expect(docToNfm(editor.getJSON() as any)).toBe(before);
     } finally {
       editor.destroy();
