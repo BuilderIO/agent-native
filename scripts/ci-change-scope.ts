@@ -59,6 +59,7 @@ const CHECK_NAMES = [
   "drizzle",
   "qa_static",
   "agentkit_acceptance",
+  "neon_query_budget",
 ] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
@@ -184,6 +185,11 @@ function buildChecks(
     changedPaths,
     "packages/creative-context/",
   );
+  const neonQueryBudgetChanged =
+    coreChanged ||
+    templateChanged ||
+    hasPath(changedPaths, "scripts/neon-query-budget") ||
+    hasPath(changedPaths, "scripts/neon-query-budgets");
 
   return {
     lint: workspaceChanged,
@@ -230,6 +236,7 @@ function buildChecks(
       agentkitChanged ||
       sharedAppConfigChanged ||
       chatChanged,
+    neon_query_budget: neonQueryBudgetChanged,
   };
 }
 

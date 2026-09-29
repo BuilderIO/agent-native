@@ -2,7 +2,7 @@ import path from "node:path";
 
 import {
   assertHostedRuntimeDatabase,
-  getRuntimeDatabaseUrl,
+  getLocalDatabaseUrl,
   toPostgresParams,
 } from "../../db/client.js";
 import {
@@ -115,7 +115,7 @@ export async function runDbQuery(
   if (!options.databaseUrl) assertHostedRuntimeDatabase();
 
   const url =
-    options.databaseUrl ?? getRuntimeDatabaseUrl("pglite:./data/pglite");
+    options.databaseUrl ?? getLocalDatabaseUrl("pglite:./data/pglite");
   const client = await createPostgresScriptClient(url);
   try {
     let rows: Record<string, unknown>[] = [];
