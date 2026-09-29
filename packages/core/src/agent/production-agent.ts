@@ -3056,7 +3056,9 @@ function seedReadOnlyToolResultsFromHistory(
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
-          readOnly: entry?.readOnly === true,
+          readOnly: entry
+            ? actionCallIsReadOnly(entry, part.input, false)
+            : false,
           dedupe: entry?.dedupe !== false,
         });
       }
@@ -3126,7 +3128,9 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
-          readOnly: entry?.readOnly === true,
+          readOnly: entry
+            ? actionCallIsReadOnly(entry, part.input, false)
+            : false,
           dedupe: entry?.dedupe !== false,
         });
       }
@@ -3272,7 +3276,7 @@ function seedWriteToolInterruptionsFromHistory(
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
         const entry = actions[part.name];
-        if (entry?.readOnly === true) continue;
+        if (entry && actionCallIsReadOnly(entry, part.input, false)) continue;
         pendingToolCalls.set(part.id, { name: part.name, input: part.input });
       }
       continue;
@@ -4834,7 +4838,7 @@ export async function runAgentLoop(opts: {
       );
       break;
     }
-    if (++iterations > maxIterations) {
+    if (++iterations > maxIterations + (loopBreakerCloseout ? 1 : 0)) {
       send({ type: "loop_limit", maxIterations });
       endedAtLoopLimit = true;
       break;
@@ -6330,7 +6334,7 @@ export async function runAgentLoop(opts: {
           // the result to the durable ledger keyed by (threadId, toolKey) so the
           // next continuation chunk can recover it instead of re-executing the
           // side effect.
-          if (opts.threadId && !actionEntry.readOnly) {
+          if (opts.threadId && !actionIsReadOnly) {
             const ledgerThreadId = opts.threadId;
             const ledgerToolKey = toolCallCacheKey(
               toolCall.name,
@@ -6513,7 +6517,7 @@ export async function runAgentLoop(opts: {
           isError = true;
         }
         if (
-          !actionEntry.readOnly &&
+          !actionIsReadOnly &&
           isError &&
           typeof result === "string" &&
           isToolCallTimeoutResult(result)

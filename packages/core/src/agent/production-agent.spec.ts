@@ -5195,6 +5195,140 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("refreshes a read after a dynamically classified write in continuation history", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "read-after-write",
+                name: "manage-resource",
+                input: { action: "get", id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "fresh state" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async ({ action }: { action: string }) =>
+      action === "click" ? "updated" : "fresh resource state",
+    );
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "update resource" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "old-read",
+              name: "manage-resource",
+              input: { action: "get", id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-read",
+              toolName: "manage-resource",
+              toolInput: '{"action":"get","id":"doc-1"}',
+              content: "cached old state",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "old-click",
+              name: "manage-resource",
+              input: { action: "click", id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-click",
+              toolName: "manage-resource",
+              toolInput: '{"action":"click","id":"doc-1"}',
+              content: "updated",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "manage-resource": {
+          ...actionEntry({
+            readOnly: true,
+            planMode: {
+              effect: (input) =>
+                (input as { action?: string }).action === "click"
+                  ? "write"
+                  : "read",
+            },
+          }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      { action: "get", id: "doc-1" },
+      expect.any(Object),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "manage-resource",
+        result: "fresh resource state",
+      }),
+    );
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+  });
+
   it("stops the run after 3 duplicate repeats of a visible read-only result", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -6582,6 +6716,7 @@ describe("runAgentLoop", () => {
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
     });
 
     expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
@@ -6604,6 +6739,9 @@ describe("runAgentLoop", () => {
     );
     expect(events).toContainEqual(
       expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "loop_limit" }),
     );
   });
 
@@ -6748,6 +6886,75 @@ describe("runAgentLoop", () => {
     );
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("does not retry a timed-out call classified as a write by its arguments", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => new Promise<never>(() => {}));
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: `click-${streamCalls}`,
+              name: "mcp-command",
+              input: { action: "click" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "click" }] }],
+      actions: {
+        "mcp-command": {
+          ...actionEntry({
+            readOnly: true,
+            timeoutMs: 50,
+            planMode: {
+              effect: (input) =>
+                (input as { action?: string }).action === "click"
+                  ? "write"
+                  : "read",
+            },
+          }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: 3,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+      }),
     );
   });
 

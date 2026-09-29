@@ -138,11 +138,16 @@ describe("tool-call result ledger", () => {
     currentTurnEventsMock.mockResolvedValue([]);
   });
 
-  it("writes a ledger entry when a zombie write-tool call completes", async () => {
+  it("writes a ledger entry for a dynamically classified write", async () => {
     // Simulate the zombie path: the action promise resolves normally (no race),
     // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
     // must be called with the thread + tool key.
     const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { payload?: string }).payload === "x" ? "write" : "read",
+    };
     const actionResult = {
       draft: {
         subject: "Launch notes",
@@ -886,12 +891,17 @@ describe("tool-call result ledger", () => {
     );
   });
 
-  it("recovers a timed out write from its late zombie ledger result", async () => {
+  it("recovers a timed out dynamically classified write from its ledger", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
 
     const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { content?: string }).content === "slow" ? "write" : "read",
+    };
     const events: any[] = [];
 
     await runAgentLoop({
