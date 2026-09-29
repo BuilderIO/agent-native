@@ -104,6 +104,7 @@ import {
   desktopRecoveryCopy,
   desktopRecordingFailureCopy,
 } from "./i18n/en-US";
+import { createAudioCue } from "./lib/audio-cue";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
@@ -3403,6 +3404,8 @@ export function App({
       micOn,
     });
 
+    const audioCue = createAudioCue();
+    let audioCueTransferred = false;
     const attempt = new RecordingStartAttempt();
     const startAttemptId = crypto.randomUUID();
     recoverySessionId.current = startAttemptId;
@@ -3440,28 +3443,33 @@ export function App({
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
-      const recordingPromise = startRecording({
-        serverUrl,
-        mode,
-        source,
-        cameraId,
-        micId: selectedMicId || undefined,
-        micLabel: selectedMicLabel || micLabel || undefined,
-        authToken: loadDesktopAuthToken(serverUrl),
-        cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-        cameraOn,
-        micOn,
-        systemAudioOn,
-        voiceCleanupEnabled,
-        localRecordingMode,
-        preAcquiredCameraStream,
-        preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
-        preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
-        preAcquiredCaptureSuspension: attempt.captureSuspension,
-        pendingTranscriptionTeardown:
-          options?.resumeCapture?.transcriptionTornDown ?? null,
-        signal: attempt.signal,
-      });
+      const recordingPromise = startRecording(
+        {
+          serverUrl,
+          mode,
+          source,
+          cameraId,
+          micId: selectedMicId || undefined,
+          micLabel: selectedMicLabel || micLabel || undefined,
+          authToken: loadDesktopAuthToken(serverUrl),
+          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
+          cameraOn,
+          micOn,
+          systemAudioOn,
+          voiceCleanupEnabled,
+          localRecordingMode,
+          preAcquiredCameraStream,
+          preAcquiredDisplayStream:
+            options?.resumeCapture?.displayStream ?? null,
+          preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+          preAcquiredCaptureSuspension: attempt.captureSuspension,
+          pendingTranscriptionTeardown:
+            options?.resumeCapture?.transcriptionTornDown ?? null,
+          signal: attempt.signal,
+        },
+        audioCue,
+      );
+      audioCueTransferred = true;
       if (isMacPlatform() && !nativeCaptureRecordingActive) {
         parkPopoverTimer = window.setTimeout(() => {
           if (
@@ -3496,6 +3504,7 @@ export function App({
         });
       }
     } finally {
+      if (!audioCueTransferred) audioCue.cleanup();
       if (parkPopoverTimer !== null) {
         window.clearTimeout(parkPopoverTimer);
         parkPopoverTimer = null;

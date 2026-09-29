@@ -125,7 +125,6 @@ export function RecordingCard({
     value: number,
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
-  const [hovered, setHovered] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
@@ -221,15 +220,11 @@ export function RecordingCard({
   const displayOwnerName = recording.ownerName?.trim() || recording.ownerEmail;
   const visibilityLabel = t(`shareUi.visibility.${recording.visibility}.label`);
 
-  const displayThumbnail = useMemo(() => {
-    if (hovered && recording.animatedThumbnailUrl)
-      return recording.animatedThumbnailUrl;
-    return recording.thumbnailUrl;
-  }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
+  const displayThumbnail = recording.thumbnailUrl;
 
   useEffect(() => {
     setThumbnailFailed(false);
-  }, [displayThumbnail]);
+  }, [recording.thumbnailUrl]);
 
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
@@ -291,8 +286,6 @@ export function RecordingCard({
       <ContextMenuTrigger asChild>
         <div
           role="article"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
           className={cn(
             "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
             "border-border/80 hover:border-primary/40",

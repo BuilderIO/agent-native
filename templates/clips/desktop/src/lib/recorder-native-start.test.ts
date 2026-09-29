@@ -142,6 +142,89 @@ afterEach(() => {
 });
 
 describe("native recording startup", () => {
+  it("starts the full countdown only after a slow overlay has presented", async () => {
+    const overlay = deferred<number>();
+    nativeCommands.set("show_countdown", async () => {
+      const generation = await overlay.promise;
+      setTimeout(() => {
+        void mocks.emit("clips:countdown-done", { cause: "timer" });
+      }, 3_600);
+      return generation;
+    });
+
+    const pending = startRecording(params);
+    await flush();
+    expect(calls("show_countdown")).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(4_500);
+    overlay.resolve(1);
+    await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
+
+    const handle = await pending;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("waits for the start cue before beginning native capture", async () => {
+    const cue = deferred<void>();
+    const playBeforeCapture = vi.fn(async () => cue.promise);
+    const audioCue = { playBeforeCapture, cleanup: vi.fn() };
+
+    const pending = startRecording(params, audioCue);
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(playBeforeCapture).toHaveBeenCalledOnce();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+
+    cue.resolve();
+    const handle = await pending;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("fails cleanly when native countdown presentation stalls", async () => {
+    const overlay = deferred<number>();
+    nativeCommands.set("show_countdown", () => overlay.promise);
+
+    const pending = startRecording(params);
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    await flush();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await failed;
+
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_cancel").length).toBeGreaterThan(
+      0,
+    );
+
+    overlay.resolve(1);
+    await flush();
+    expect(calls("finish_countdown_shortcuts")).toContainEqual([
+      "finish_countdown_shortcuts",
+      { generation: 1 },
+    ]);
+  });
+
+  it("fails startup when the visible countdown never completes", async () => {
+    nativeCommands.set("show_countdown", async () => 1);
+
+    const pending = startRecording(params);
+    const failed = expect(pending).rejects.toThrow(
+      "timeout waiting for clips:countdown-done",
+    );
+    await flush();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await failed;
+
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_cancel").length).toBeGreaterThan(
+      0,
+    );
+  });
+
   it("creates and warms with the selected native mic while hidden WebKit cannot acquire audio", async () => {
     const pending = startRecording(params);
     await flush();
@@ -223,14 +306,18 @@ describe("native recording startup", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("does not begin or transcribe while a warm invoke outlives the old 2.5s timeout", async () => {
+  it("waits to show the countdown until the native warm invoke completes", async () => {
     const warm = deferred<void>();
     nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
     const pending = startRecording(params);
     await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls("show_countdown")).toHaveLength(0);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     expect(mocks.transcribe).not.toHaveBeenCalled();
     warm.resolve();
+    await flush();
+    expect(calls("show_countdown")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3_600);
     const handle = await pending;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
     await handle.cancel();
@@ -256,8 +343,12 @@ describe("native recording startup", () => {
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const pending = startRecording(params);
     await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls("show_countdown")).toHaveLength(0);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     transcription.resolve(transcript);
+    await flush();
+    expect(calls("show_countdown")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3_600);
     const handle = await pending;
     expect(transcript.cancel).not.toHaveBeenCalled();
     expect(transcript.resetTimeline).toHaveBeenCalledOnce();
@@ -265,15 +356,17 @@ describe("native recording startup", () => {
     expect(transcript.cancel).toHaveBeenCalledOnce();
   });
 
-  it("does not start transcription or begin after countdown cancellation during warm", async () => {
+  it("does not start transcription or begin after cancellation during warm", async () => {
     const warm = deferred<void>();
     nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
-    const pending = startRecording(params);
+    const controller = new AbortController();
+    const pending = startRecording({ ...params, signal: controller.signal });
     const failed = expect(pending).rejects.toMatchObject({
       name: "AbortError",
     });
     await flush();
-    await mocks.emit("clips:countdown-cancel", { cause: "escape" });
+    expect(calls("show_countdown")).toHaveLength(0);
+    controller.abort();
     await flush();
     warm.resolve();
     await failed;

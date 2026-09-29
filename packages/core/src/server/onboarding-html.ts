@@ -2060,6 +2060,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 `;
   const authPageLayoutStyles = `
   .auth-root { width: 100%; }
+  .auth-fallback {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    gap: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+  }
+  .auth-fallback p { opacity: 0.65; font-size: 0.8125rem; }
   .auth-centered {
     display: flex;
     justify-content: center;
