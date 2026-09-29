@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Analytics date filters support custom date ranges
 - Settings pages now share the account layout, with dated updates that load in batches.
 
 ## 2026-09-28
