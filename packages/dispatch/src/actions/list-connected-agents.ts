@@ -12,6 +12,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   discoverAgents,
   getBuiltinAgents,
+  isBuiltinAgentCatalogId,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
@@ -59,7 +60,9 @@ export default defineAction({
       if (!manifest) continue;
       if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
       const manifestId = normalizeAgentId(manifest.id);
-      if (builtinIds.has(manifestId)) continue;
+      // Built-in ids stay under the workspace's built-in settings even when a
+      // seeded manifest for them exists in resources.
+      if (isBuiltinAgentCatalogId(manifestId)) continue;
       customById.set(manifestId, {
         resourceId: resource.id,
         path: resource.path,

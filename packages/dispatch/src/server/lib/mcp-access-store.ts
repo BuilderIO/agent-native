@@ -21,17 +21,17 @@ export interface DispatchMcpAppAccessSettings {
   updatedBy?: string;
 }
 
-class McpAppAccessError extends Error {
+class OrgAdminSettingError extends Error {
   statusCode: number;
 
   constructor(message: string, statusCode: number) {
     super(message);
-    this.name = "McpAppAccessError";
+    this.name = "OrgAdminSettingError";
     this.statusCode = statusCode;
   }
 }
 
-interface AccessScope {
+export interface AdminSettingScope {
   kind: "org" | "user";
   id: string;
   actor: string;
@@ -67,7 +67,8 @@ export function normalizeMcpAppAccessSettings(
   };
 }
 
-function currentAccessScope(): AccessScope {
+/** Org-scoped when the request has an org, otherwise scoped to the user. */
+export function currentAdminSettingScope(): AdminSettingScope {
   const actor = getRequestUserEmail();
   if (!actor) throw new Error("no authenticated user");
   const orgId = getRequestOrgId();
@@ -75,8 +76,10 @@ function currentAccessScope(): AccessScope {
   return { kind: "user", id: actor, actor };
 }
 
-async function assertCanManageMcpAppAccess(scope: AccessScope): Promise<void> {
-  if (scope.kind === "user") return;
+export async function canManageAdminSetting(
+  scope: AdminSettingScope,
+): Promise<boolean> {
+  if (scope.kind === "user") return true;
 
   let role: unknown = null;
   try {
@@ -91,17 +94,20 @@ async function assertCanManageMcpAppAccess(scope: AccessScope): Promise<void> {
   } catch {
     // Fail closed when org membership cannot be verified.
   }
+  return role === "owner" || role === "admin";
+}
 
-  if (role !== "owner" && role !== "admin") {
-    throw new McpAppAccessError(
-      "Only organization owners and admins can change Dispatch MCP app access.",
-      403,
-    );
+export async function assertCanManageAdminSetting(
+  scope: AdminSettingScope,
+  message: string,
+): Promise<void> {
+  if (!(await canManageAdminSetting(scope))) {
+    throw new OrgAdminSettingError(message, 403);
   }
 }
 
 export async function getDispatchMcpAppAccessSettings(): Promise<DispatchMcpAppAccessSettings> {
-  const scope = currentAccessScope();
+  const scope = currentAdminSettingScope();
   const raw =
     scope.kind === "org"
       ? await getOrgSetting(scope.id, MCP_APP_ACCESS_SETTINGS_KEY)
@@ -113,8 +119,11 @@ export async function setDispatchMcpAppAccessSettings(input: {
   mode: DispatchMcpAppAccessMode;
   selectedAppIds?: string[];
 }): Promise<DispatchMcpAppAccessSettings> {
-  const scope = currentAccessScope();
-  await assertCanManageMcpAppAccess(scope);
+  const scope = currentAdminSettingScope();
+  await assertCanManageAdminSetting(
+    scope,
+    "Only organization owners and admins can change Dispatch MCP app access.",
+  );
   const next: DispatchMcpAppAccessSettings = {
     mode: input.mode,
     selectedAppIds: uniqueAppIds(input.selectedAppIds),

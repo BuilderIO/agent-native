@@ -41,6 +41,18 @@ export interface WorkspaceAppSummary {
   agentSkillsCount?: number | null;
   archived?: boolean;
   workspaceSso?: boolean;
+  source?: WorkspaceAppSource;
+}
+
+export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
+
+/** Maps list-connected-agents' `source` onto the sidebar grouping. */
+export function workspaceAppSourceFromConnected(
+  source: string | undefined,
+): WorkspaceAppSource {
+  if (source === "builtin") return "builtin";
+  if (source === "custom") return "connected";
+  return "workspace";
 }
 
 interface WorkspaceAppHrefSource {
@@ -411,20 +423,35 @@ export function navigateToWorkspaceApp(href: string): boolean {
   }
 }
 
+/**
+ * Mounted workspace apps plus the chat-first default built-ins that are part
+ * of this workspace. `enabledBuiltinAppIds` must come from the server
+ * (list-connected-agents entries with source "builtin"), which already applies
+ * the builder's `agent-native.builtinAgents` config and the org admin setting;
+ * while it is unknown no default is added.
+ */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  enabledBuiltinAppIds: readonly string[] | undefined,
 ): WorkspaceAppSummary[] {
+  const enabledBuiltins = new Set(
+    (enabledBuiltinAppIds ?? []).map((id) => id.trim().toLowerCase()),
+  );
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    if (!enabledBuiltins.has(id)) continue;
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
+      source: "builtin",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    merged.set(app.id, { ...app, source: app.source ?? "workspace" });
+  }
 
   return [...merged.values()];
 }

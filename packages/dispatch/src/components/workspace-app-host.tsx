@@ -568,9 +568,40 @@ export function WorkspaceAppHost({
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
   );
+  const mountedWorkspaceApp = useMemo(
+    () =>
+      workspaceAppsQuery.data?.find(
+        (item) =>
+          !item.archived &&
+          item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
+    [appId, workspaceAppsQuery.data],
+  );
+  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
+    "list_apps",
+    {},
+    {
+      enabled: !workspaceAppsQuery.isLoading && !mountedWorkspaceApp,
+    },
+  );
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+    {
+      enabled: !workspaceAppsQuery.isLoading && !mountedWorkspaceApp,
+    },
+  );
+  const enabledBuiltinAppIds = useMemo(
+    () =>
+      connectedAppsQuery.data
+        ?.filter((app) => app.source === "builtin")
+        .map((app) => app.id),
+    [connectedAppsQuery.data],
+  );
   const workspaceApps = useMemo(
-    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
-    [workspaceAppsQuery.data],
+    () =>
+      mergeChatFirstWorkspaceApps(workspaceAppsQuery.data, enabledBuiltinAppIds),
+    [enabledBuiltinAppIds, workspaceAppsQuery.data],
   );
   const visibleWorkspaceApps = useMemo(
     () => workspaceApps.filter((item) => !item.archived),
@@ -579,27 +610,6 @@ export function WorkspaceAppHost({
   const workspaceAppIds = useMemo(
     () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
     [workspaceApps],
-  );
-  const workspaceApp = useMemo(
-    () =>
-      visibleWorkspaceApps.find(
-        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
-      ) ?? null,
-    [appId, visibleWorkspaceApps],
-  );
-  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
-    "list_apps",
-    {},
-    {
-      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
-    },
-  );
-  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
-    "list-connected-agents",
-    {},
-    {
-      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
-    },
   );
   const apps = useMemo(() => {
     const merged = new Map<string, WorkspaceAppSummary>();

@@ -408,9 +408,13 @@ export type ChatFirstBrowserResolution =
     }
   | { status: "unresolved"; reason: "empty-detail" | "invalid-url" };
 
+export type ChatFirstAppSource = "workspace" | "builtin" | "connected";
+
 export interface ChatFirstAppRegistration {
   id: string;
   name?: string;
+  /** Mounted workspace app, first-party built-in, or connected remote agent. */
+  source?: ChatFirstAppSource;
   enabled?: boolean;
   url?: string | null;
   devUrl?: string | null;

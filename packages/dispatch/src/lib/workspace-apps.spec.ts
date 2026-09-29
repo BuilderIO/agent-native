@@ -9,6 +9,7 @@ import {
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
+  workspaceAppSourceFromConnected,
   workspaceAppIdFromRoute,
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
@@ -187,8 +188,19 @@ describe("workspace app routes", () => {
     expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "mail" })).toBe(true);
   });
 
+  const ALL_CHAT_FIRST_DEFAULTS = [
+    "content",
+    "design",
+    "mail",
+    "calendar",
+    "clips",
+  ];
+
   it("maps default first-party apps to their canonical hosted origins", () => {
-    const apps = mergeChatFirstWorkspaceApps(undefined);
+    const apps = mergeChatFirstWorkspaceApps(
+      undefined,
+      ALL_CHAT_FIRST_DEFAULTS,
+    );
     expect(apps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -228,7 +240,7 @@ describe("workspace app routes", () => {
     });
 
     try {
-      const apps = mergeChatFirstWorkspaceApps(undefined);
+      const apps = mergeChatFirstWorkspaceApps(undefined, ["mail"]);
       expect(apps.find((app) => app.id === "mail")?.url).toBe(
         "https://beta.mail.agent-native.com/",
       );
@@ -241,19 +253,50 @@ describe("workspace app routes", () => {
   });
 
   it("lets a mounted workspace app override a default row", () => {
-    const apps = mergeChatFirstWorkspaceApps([
-      {
-        id: "mail",
-        name: "Internal Mail",
-        path: "/internal-mail",
-        url: null,
-        status: "ready",
-      },
-    ]);
+    const apps = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "mail",
+          name: "Internal Mail",
+          path: "/internal-mail",
+          url: null,
+          status: "ready",
+        },
+      ],
+      ALL_CHAT_FIRST_DEFAULTS,
+    );
     expect(apps.find((app) => app.id === "mail")).toMatchObject({
       name: "Internal Mail",
       path: "/internal-mail",
       url: null,
+      source: "workspace",
     });
+  });
+
+  it("adds only the defaults in the server-resolved built-in list", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "crm", name: "CRM", path: "/crm" }],
+      ["Mail", "slides"],
+    );
+    expect(apps.map((app) => [app.id, app.source])).toEqual([
+      ["mail", "builtin"],
+      ["crm", "workspace"],
+    ]);
+  });
+
+  it("adds no defaults when built-ins are off or not yet resolved", () => {
+    const workspace = [{ id: "crm", name: "CRM", path: "/crm" }];
+    expect(
+      mergeChatFirstWorkspaceApps(workspace, []).map((app) => app.id),
+    ).toEqual(["crm"]);
+    expect(
+      mergeChatFirstWorkspaceApps(workspace, undefined).map((app) => app.id),
+    ).toEqual(["crm"]);
+  });
+
+  it("maps list-connected-agents sources onto sidebar groups", () => {
+    expect(workspaceAppSourceFromConnected("builtin")).toBe("builtin");
+    expect(workspaceAppSourceFromConnected("custom")).toBe("connected");
+    expect(workspaceAppSourceFromConnected("workspace")).toBe("workspace");
   });
 });
