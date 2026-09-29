@@ -232,7 +232,7 @@ export interface StartParams {
   preAcquiredAudioStream?: MediaStream | null;
   preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
-  onCaptureStarted?: (recordingId: string | null) => void;
+  onCaptureStartRequested?: (recordingId: string | null) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -1602,6 +1602,17 @@ async function createServerRecording(
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   const recordingId = options?.id ?? crypto.randomUUID();
+  let cancellationRequested = false;
+  const abortCreatedRecording = (reason: string, failureCode: string) => {
+    void abortRecordingUpload(serverUrl, recordingId, reason, failureCode);
+  };
+  const cancelCreatedRecording = () => {
+    cancellationRequested = true;
+    abortCreatedRecording(
+      "Recording cancelled during startup",
+      "user_cancelled",
+    );
+  };
   throwIfRecordingStartAborted(options?.signal);
   console.log("[clips-recorder] POST", url, {
     hasCamera,
@@ -1610,63 +1621,71 @@ async function createServerRecording(
     requestStreaming: options?.requestStreaming ?? false,
   });
   const createPromise = (async () => {
-    let res: Response;
     try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: buildCreateRecordingRequestHeaders(options?.authToken),
-        credentials: "include",
-        body: JSON.stringify(
-          buildCreateRecordingRequestBody(hasCamera, hasAudio, titleContext, {
-            ...options,
-            id: recordingId,
-          }),
-        ),
-      });
-    } catch (err) {
-      console.error("[clips-recorder] fetch failed:", url, err);
-      throw new Error(RECORDING_SERVER_UNAVAILABLE);
-    }
-    if (!res.ok) {
-      const body = await res.text();
-      console.error("[clips-recorder] bad response:", url, res.status, body);
-      if (res.status === 401 || res.status === 403) {
-        throw new Error(RECORDING_SESSION_EXPIRED);
-      }
-      if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
-        throw new Error(body.slice(0, 200));
-      }
-      if (res.status >= 500) {
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: buildCreateRecordingRequestHeaders(options?.authToken),
+          credentials: "include",
+          body: JSON.stringify(
+            buildCreateRecordingRequestBody(hasCamera, hasAudio, titleContext, {
+              ...options,
+              id: recordingId,
+            }),
+          ),
+        });
+      } catch (err) {
+        console.error("[clips-recorder] fetch failed:", url, err);
         throw new Error(RECORDING_SERVER_UNAVAILABLE);
       }
-      throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
+      if (!res.ok) {
+        const body = await res.text();
+        console.error("[clips-recorder] bad response:", url, res.status, body);
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(RECORDING_SESSION_EXPIRED);
+        }
+        if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
+          throw new Error(body.slice(0, 200));
+        }
+        if (res.status >= 500) {
+          throw new Error(RECORDING_SERVER_UNAVAILABLE);
+        }
+        throw new Error(
+          `create-recording ${res.status}: ${body.slice(0, 200)}`,
+        );
+      }
+      const data = (await res.json()) as {
+        result?: { id: string; uploadMode?: string };
+        id?: string;
+        uploadMode?: string;
+      };
+      const result = data.result ?? data;
+      if (!result.id) {
+        throw new Error("create-recording did not return an id");
+      }
+      const uploadMode: UploadMode =
+        result.uploadMode === "streaming" ? "streaming" : "buffered";
+      return { id: result.id, uploadMode };
+    } catch (err) {
+      if (!cancellationRequested) {
+        abortCreatedRecording(
+          "Recording creation failed before the server returned its ID",
+          "upload_failed",
+        );
+      }
+      throw err;
     }
-    const data = (await res.json()) as {
-      result?: { id: string; uploadMode?: string };
-      id?: string;
-      uploadMode?: string;
-    };
-    const result = data.result ?? data;
-    if (!result.id) {
-      throw new Error("create-recording did not return an id");
-    }
-    const uploadMode: UploadMode =
-      result.uploadMode === "streaming" ? "streaming" : "buffered";
-    return { id: result.id, uploadMode };
   })();
-  const abortCreatedRecording = () => {
-    void abortRecordingUpload(
-      serverUrl,
-      recordingId,
-      "Recording cancelled during startup",
-      "user_cancelled",
-    );
-  };
   return guardRecordingStart(createPromise, {
     signal: options?.signal,
     timeoutMs: null,
-    onCancel: abortCreatedRecording,
-    onLateResolve: abortCreatedRecording,
+    onCancel: cancelCreatedRecording,
+    onLateResolve: () =>
+      abortCreatedRecording(
+        "Recording cancelled during startup",
+        "user_cancelled",
+      ),
   });
 }
 
@@ -2826,7 +2845,7 @@ async function tryStartRewindFullscreenRecording(
           invoke<RewindClipBackendStatus>("rewind_clip_start"),
           { signal: params.signal },
         );
-        params.onCaptureStarted?.(preparedRecording.id || null);
+        params.onCaptureStartRequested?.(preparedRecording.id || null);
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -3385,17 +3404,15 @@ async function startNativeFullscreenRecording(
     await audioCue.playBeforeCapture();
     assertStartupActive();
     const beginStartedAt = Date.now();
-    await guardRecordingStart(
-      invoke("native_fullscreen_recording_begin", {
-        recordingId: id,
-        ...captureAudioParams,
-        localOnly,
-        hasCamera: wantsCamera,
-      }),
-      { signal: params.signal },
-    );
+    const beginPromise = invoke("native_fullscreen_recording_begin", {
+      recordingId: id,
+      ...captureAudioParams,
+      localOnly,
+      hasCamera: wantsCamera,
+    });
+    params.onCaptureStartRequested?.(localOnly ? null : id || null);
+    await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
-    params.onCaptureStarted?.(localOnly ? null : id || null);
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
@@ -4660,7 +4677,7 @@ async function startRecordingInner(
         throwIfRecordingStartAborted(params.signal);
         if (stopped) throw new RecordingStartCancelledError();
         localExport.start(2_000);
-        params.onCaptureStarted?.(null);
+        params.onCaptureStartRequested?.(null);
       } catch (err) {
         if (!stopped) {
           stopped = true;
@@ -4999,7 +5016,7 @@ async function startRecordingInner(
         throw new RecordingStartCancelledError();
       }
       recorder.start(LIVE_UPLOAD_CHUNK_MS);
-      params.onCaptureStarted?.(id);
+      params.onCaptureStartRequested?.(id);
     } catch (err) {
       stateUnlistens.forEach((unlisten) => unlisten());
       stateUnlistens = [];

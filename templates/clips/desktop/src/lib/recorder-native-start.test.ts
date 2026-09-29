@@ -499,6 +499,43 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("aborts the known recording ID when the create response is lost", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("network unavailable"));
+    const pending = startRecording(params);
+    const failed = expect(pending).rejects.toThrow("SERVER_UNAVAILABLE");
+
+    await flush();
+    await failed;
+
+    const id = createdRecordingId();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/uploads/${id}/abort`),
+      expect.objectContaining({
+        body: expect.stringContaining('"failureCode":"upload_failed"'),
+      }),
+    );
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+  });
+
+  it("marks native begin as requested before its IPC response arrives", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({ ...params, onCaptureStartRequested });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
+
+    begin.resolve();
+    const handle = await pending;
+    await handle.cancel();
+  });
+
   it("keeps system-default mic selection unpinned", async () => {
     const pending = startRecording({
       ...params,

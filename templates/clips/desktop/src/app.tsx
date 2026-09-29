@@ -3485,7 +3485,7 @@ export function App({
     let handle: RecorderHandle | null = null;
     let stoppedDuringStart = false;
     let stopRequestedDuringStart = false;
-    let captureStartedDuringStart = false;
+    let captureStartRequestedDuringStart = false;
     let unlistenStartupStop: (() => void) | null = null;
     let startError: unknown = null;
     let parkPopoverTimer: number | null = null;
@@ -3493,7 +3493,7 @@ export function App({
       sessionRecordingIdRef.current = null;
       unlistenStartupStop = await listen("clips:recorder-stop", () => {
         stopRequestedDuringStart = true;
-        if (!captureStartedDuringStart) {
+        if (!captureStartRequestedDuringStart) {
           attempt.cancel();
           emit("clips:countdown-cancel").catch(() => {});
         }
@@ -3548,8 +3548,8 @@ export function App({
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
-          onCaptureStarted: (recordingId) => {
-            captureStartedDuringStart = true;
+          onCaptureStartRequested: (recordingId) => {
+            captureStartRequestedDuringStart = true;
             sessionRecordingIdRef.current = recordingId;
           },
         },
@@ -3573,7 +3573,7 @@ export function App({
         attempt.ensureActive();
       }
       attempt.captureSuspension = null;
-      if (stopRequestedDuringStart && captureStartedDuringStart) {
+      if (stopRequestedDuringStart && captureStartRequestedDuringStart) {
         stoppedDuringStart = true;
         await finishRecordingStopRef.current(
           started,
