@@ -51,6 +51,7 @@ import {
   _resetMcpManagerRegistryForTests,
   getMcpManagerForCurrentRequest,
   getMcpManagerForPrincipal,
+  refreshMcpManagerForPrincipal,
   resolveBackgroundMcpToolSelection,
 } from "./mcp-glue.js";
 
@@ -120,6 +121,36 @@ describe("principal-scoped MCP managers", () => {
         orgId: "acme",
       }),
     ).not.toBe(bob);
+  });
+
+  it("refreshes only managers for the changed principal scope", async () => {
+    const alice = await getMcpManagerForPrincipal({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    const bob = await getMcpManagerForPrincipal({
+      userEmail: "bob@example.com",
+      orgId: "acme",
+    });
+    const otherOrg = await getMcpManagerForPrincipal({
+      userEmail: "bob@example.com",
+      orgId: "other",
+    });
+
+    await expect(
+      refreshMcpManagerForPrincipal({
+        userEmail: "alice@example.com",
+        orgId: "acme",
+      }),
+    ).resolves.toBe(true);
+
+    expect(alice.stop).toHaveBeenCalledOnce();
+    expect(bob.stop).toHaveBeenCalledOnce();
+    expect(otherOrg.stop).not.toHaveBeenCalled();
+    expect(mockedMcp.buildMergedConfig).toHaveBeenLastCalledWith({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
   });
 
   it("requires an authenticated non-anonymous principal", async () => {

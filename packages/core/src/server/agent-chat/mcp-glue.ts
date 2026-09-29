@@ -123,6 +123,24 @@ export async function getMcpManagerForPrincipal(
   return entry.manager;
 }
 
+export async function refreshMcpManagerForPrincipal(
+  rawPrincipal: McpPrincipal,
+): Promise<boolean> {
+  const principal = normalizeMcpPrincipal(rawPrincipal);
+  if (!principal) throw new Error("Authenticated MCP principal required");
+  await invalidateMcpManagersForScope(
+    principal.orgId ? "org" : "user",
+    principal.orgId ?? principal.userEmail,
+  );
+  try {
+    await getMcpManagerForPrincipal(principal, true);
+    return true;
+  } catch (error) {
+    if (error instanceof McpConfigUnreadableError) return false;
+    throw error;
+  }
+}
+
 export async function getMcpManagerForCurrentRequest(
   forceRefresh = false,
 ): Promise<McpClientManager> {
