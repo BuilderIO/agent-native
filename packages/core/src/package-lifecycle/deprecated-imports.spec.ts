@@ -584,6 +584,94 @@ describe("scanDeprecatedImports", () => {
     ]);
   });
 
+  it("reports promise-chained function callbacks with commented imports", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-import-function-callback-"),
+    );
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.ts");
+    fs.writeFileSync(
+      file,
+      [
+        `import(/* webpackChunkName: "agent-chat" */ "${moduleName}").then(function (chat) { chat.createAgentChatAdapter(); });`,
+        `import(/* chunk */ "${moduleName}").then(function ({ createAgentChatAdapter }) { createAgentChatAdapter(); });`,
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual(
+      [1, 2].map((line) =>
+        expect.objectContaining({
+          file,
+          line,
+          from: moduleName,
+          symbols: ["createAgentChatAdapter"],
+          status: "removed",
+        }),
+      ),
+    );
+  });
+
+  it("reports JSDoc import types in checked JavaScript without matching examples", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-jsdoc-type-"),
+    );
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.js");
+    fs.writeFileSync(
+      file,
+      [
+        `/** @type {import("${moduleName}").CreateAgentChatAdapterOptions} */`,
+        "let options;",
+        `/** Example: import("${moduleName}").CreateAgentChatAdapterOptions */`,
+        `const example = '/** @type {import("${moduleName}").CreateAgentChatAdapterOptions} */';`,
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["CreateAgentChatAdapterOptions"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        file,
+        line: 1,
+        from: moduleName,
+        symbols: ["CreateAgentChatAdapterOptions"],
+        status: "removed",
+      }),
+    ]);
+  });
+
   it("ignores removed namespace members shadowed by local bindings", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-shadowed-"));
     roots.push(root);
@@ -597,10 +685,13 @@ describe("scanDeprecatedImports", () => {
         "function localShadow() { const chat = {}; chat.createAgentChatAdapter(); }",
         "function blockShadow() { { let chat = {}; chat.createAgentChatAdapter(); } }",
         "function loopShadow() { for (const chat of []) { chat.createAgentChatAdapter(); } }",
+        "for (const chat of []) chat.createAgentChatAdapter();",
         "function propertyChain() { other.chat.createAgentChatAdapter(); }",
         "values.map((chat: unknown) => chat.createAgentChatAdapter());",
         "const arrowShadow = (chat: unknown) => { chat.createAgentChatAdapter(); };",
         "values.map(chat => chat.createAgentChatAdapter());",
+        "function functionShadow() { function chat() {} chat.createAgentChatAdapter(); }",
+        "function classShadow() { class chat {} chat.createAgentChatAdapter(); }",
         "chat.createAgentChatAdapter();",
       ].join("\n"),
     );
@@ -624,7 +715,7 @@ describe("scanDeprecatedImports", () => {
     ).toEqual([
       expect.objectContaining({
         file,
-        line: 10,
+        line: 13,
         from: moduleName,
         symbols: ["createAgentChatAdapter"],
         status: "removed",
