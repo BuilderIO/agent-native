@@ -25,10 +25,13 @@ describe("cold production function database initialization", () => {
     vi.resetModules();
   });
 
-  it.each(["Netlify", "Cloudflare"])(
-    "issues no catalog or migration-table queries on a cold %s function when NODE_ENV is unset",
-    async (provider) => {
-      vi.stubEnv("NODE_ENV", "");
+  it.each([
+    ["Netlify", ""],
+    ["Cloudflare", "production"],
+  ])(
+    "issues no catalog or migration-table queries on a cold %s production function",
+    async (provider, nodeEnv) => {
+      vi.stubEnv("NODE_ENV", nodeEnv);
       if (provider === "Netlify") {
         vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
       } else {

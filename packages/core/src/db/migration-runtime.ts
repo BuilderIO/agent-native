@@ -22,6 +22,10 @@ function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
   );
 }
 
+function isCloudflareProductionRuntime(env: NodeJS.ProcessEnv): boolean {
+  return env.NODE_ENV === "production" && hasCloudflareRuntime();
+}
+
 export function hasCloudflareRuntime(): boolean {
   const runtime = globalThis as typeof globalThis & {
     __cf_env?: unknown;
@@ -36,7 +40,7 @@ export function isProductionServerlessFunctionRuntime(
   if (isLocalFunctionRuntime(env)) return false;
 
   return Boolean(
-    hasCloudflareRuntime() ||
+    isCloudflareProductionRuntime(env) ||
     env.NETLIFY_FUNCTION_NAME ||
     env.AWS_LAMBDA_FUNCTION_NAME ||
     env.AWS_LAMBDA_FUNCTION_VERSION ||
@@ -52,17 +56,10 @@ export function isProductionServerlessFunctionRuntime(
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (
-    env.NODE_ENV === "development" ||
-    env.NETLIFY_LOCAL === "true" ||
-    env.VERCEL_ENV === "development"
-  ) {
-    return false;
-  }
-  if (hasCloudflareRuntime()) return true;
-  if (env.NODE_ENV === "test") return false;
+  if (isLocalFunctionRuntime(env)) return false;
 
   return Boolean(
+    isCloudflareProductionRuntime(env) ||
     env.NETLIFY_FUNCTION_NAME ||
     env.AWS_LAMBDA_FUNCTION_NAME ||
     env.LAMBDA_TASK_ROOT ||

@@ -309,6 +309,7 @@ describe("db/client Postgres URL handling", () => {
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NETLIFY_LOCAL", "true");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
   });
 
@@ -330,14 +331,20 @@ describe("db/client Postgres URL handling", () => {
     expect(isProductionServerlessFunctionRuntime(vercelDevEnv)).toBe(false);
   });
 
-  it("recognizes production Cloudflare Workers but excludes Wrangler dev", async () => {
+  it("recognizes production Cloudflare Workers but excludes unmarked Wrangler dev", async () => {
     vi.stubGlobal("__env__", {});
     vi.stubEnv("NODE_ENV", "");
     const {
+      isServerlessRuntime,
       isHostedFunctionInvocationRuntime,
       isProductionServerlessFunctionRuntime,
     } = await import("./client.js");
 
+    expect(isServerlessRuntime()).toBe(true);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "production");
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
 

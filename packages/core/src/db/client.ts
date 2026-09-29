@@ -998,7 +998,7 @@ export class HostedRuntimeLocalDatabaseError extends Error {
 export function assertHostedRuntimeDatabase(): void {
   if (isMigrationAuthorizedRuntime()) return;
   if (!isLocalDatabase()) return;
-  if (isHostedFunctionInvocationRuntime()) {
+  if (isHostedFunctionInvocationRuntime() || hasCloudflareRuntime()) {
     throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
   if (isEmbeddedRuntimeAuthorized()) return;
