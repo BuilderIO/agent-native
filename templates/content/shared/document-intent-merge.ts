@@ -102,6 +102,27 @@ function textHunks(before: string, after: string): TextHunk[] {
   return grouped;
 }
 
+const EMPTY_BLOCK = "<empty-block/>";
+
+// Collaboration delivers each editor's changes to the others, so a body
+// authored against an older revision can already hold every change another
+// body made since then. The holder is then the merge, with nothing lost. Its
+// edits must stay clear of the other body's changes, except for text typed
+// into or right after text the other body added. Typing into an empty
+// paragraph replaces its marker, so markers are left out of the comparison.
+function holdsChanges(base: string, holder: string, other: string): boolean {
+  const text = (body: string) => body.split(EMPTY_BLOCK).join("");
+  const changes = textHunks(text(other), text(base));
+  return textHunks(text(other), text(holder)).every((edit) =>
+    changes.every(
+      (change) =>
+        edit.from > change.to ||
+        edit.to < change.from ||
+        (edit.from === edit.to && change.from < edit.from),
+    ),
+  );
+}
+
 function textHunksOverlap(left: TextHunk, right: TextHunk): boolean {
   if (left.from === left.to && right.from === right.to)
     return left.from === right.from;
@@ -202,12 +223,45 @@ export function mergeDocumentBodyIntents(args: {
   if (!base || !candidate || !current) {
     return { status: "preservation-required", reason: "structure" };
   }
-  if (base.length !== candidate.length || base.length !== current.length) {
-    return { status: "preservation-required", reason: "structure" };
-  }
   const baseKeys = base.map(stableBlock);
   const candidateKeys = candidate.map(stableBlock);
   const currentKeys = current.map(stableBlock);
+  if (
+    holdsChanges(
+      args.authoredBaseContent,
+      args.authoredCandidateContent,
+      args.currentContent,
+    )
+  ) {
+    return {
+      status: "resolved",
+      content: args.authoredCandidateContent,
+      changedBlockIndexes:
+        candidateKeys.length === currentKeys.length
+          ? candidateKeys.flatMap((block, index) =>
+              block !== currentKeys[index] ? [index] : [],
+            )
+          : [],
+      displaced: false,
+    };
+  }
+  if (
+    holdsChanges(
+      args.authoredBaseContent,
+      args.currentContent,
+      args.authoredCandidateContent,
+    )
+  ) {
+    return {
+      status: "resolved",
+      content: args.currentContent,
+      changedBlockIndexes: [],
+      displaced: false,
+    };
+  }
+  if (base.length !== candidate.length || base.length !== current.length) {
+    return { status: "preservation-required", reason: "structure" };
+  }
   const changed = baseKeys.flatMap((block, index) =>
     block !== candidateKeys[index] || block !== currentKeys[index]
       ? [index]
