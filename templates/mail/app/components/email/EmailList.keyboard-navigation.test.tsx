@@ -224,6 +224,7 @@ function Harness({
   onCompose,
   accountErrors,
   emailsError,
+  isLoading,
   isFetching,
   refetchEmails,
   hasNextPage,
@@ -238,6 +239,7 @@ function Harness({
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
   emailsError?: React.ComponentProps<typeof EmailList>["emailsError"];
+  isLoading?: boolean;
   isFetching?: boolean;
   refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
@@ -256,7 +258,7 @@ function Harness({
       <output aria-label="Focused id">{focusedId}</output>
       <EmailList
         emails={emails}
-        isLoading={false}
+        isLoading={isLoading ?? false}
         isFetching={isFetching}
         emailsError={emailsError}
         focusedId={focusedId}
@@ -388,6 +390,33 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(refetchEmails).not.toHaveBeenCalled();
     expect(retryButton.disabled).toBe(false);
     fireEvent.click(retryButton);
+    expect(refetchEmails).toHaveBeenCalledOnce();
+  });
+
+  it("shows a retry state for a gateway timeout even while the list is loading", () => {
+    mocks.view = "inbox";
+    const refetchEmails = vi.fn();
+    const error = Object.assign(new Error("Gateway timeout"), { status: 504 });
+
+    render(
+      <Harness
+        emails={[]}
+        isLoading
+        emailsError={error}
+        refetchEmails={refetchEmails}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.loadTitle")).toBeTruthy();
+    expect(screen.getByText("Gateway timeout")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeTruthy();
+    expect(document.querySelector(".animate-pulse")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
     expect(refetchEmails).toHaveBeenCalledOnce();
   });
 
