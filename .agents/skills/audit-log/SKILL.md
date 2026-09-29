@@ -142,8 +142,8 @@ in SQL to the caller — they never leak another tenant's rows:
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.
 
-Settings › Organization › Audit log (`/settings/audit`, owners and admins, with
-the `settings-redesign` flag on) is that trail's page, in
+Settings › Organization › Audit log (`/settings/audit`, owners and admins) is
+that trail's page, in
 `packages/core/src/client/settings/shell/pages/audit.tsx`. Its range and app
 filters are `sinceMs` and `app`; "Show N more" is the next `offset` page; a
 row opens `get-audit-event`. When a user asks what changed in the org, call
