@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { loadEnv } from "@agent-native/core/scripts";
 import {
-  resolveBuilderRequestAuthorization,
+  resolveBuilderLegacyRequestAuthorization,
   runWithRequestContext,
 } from "@agent-native/core/server";
 
@@ -145,12 +145,12 @@ async function main(): Promise<void> {
     { userEmail: ownerEmail, orgId: credentialOrgId ?? orgId ?? undefined },
     async () => {
       const db = getDbExec();
-      const authorization = await resolveBuilderRequestAuthorization({
-        legacyCredentialKeys: ["BUILDER_PRIVATE_KEY"],
-      });
+      const authorization = await resolveBuilderLegacyRequestAuthorization([
+        "BUILDER_PRIVATE_KEY",
+      ]);
       if (!authorization)
         throw new Error(
-          "No Builder credential is connected for this owner and workspace",
+          "No Builder Space private key is connected for this owner and workspace",
         );
       const ownership = new Map<
         string,
