@@ -33,6 +33,26 @@ can import AgentKit without installing React, Toolkit, or markdown code.
 | `@agent-native/toolkit/app/agentkit/react/{root,chat,components,context,headless,streaming-text}` | Focused React entries                                                                                                            | Yes         |
 | `@agent-native/toolkit/app/agentkit/react/styles.css`                                             | AgentKit React stylesheet                                                                                                        | No          |
 
+### Upgrade from AgentKit 0.x React subpaths
+
+AgentKit 1.0 removes its old React exports. Install Toolkit and update these
+imports:
+
+| Previous import                               | Toolkit import                                            |
+| --------------------------------------------- | --------------------------------------------------------- |
+| `@agent-native/agentkit/react`                | `@agent-native/toolkit/app/agentkit/react`                |
+| `@agent-native/agentkit/react/root`           | `@agent-native/toolkit/app/agentkit/react/root`           |
+| `@agent-native/agentkit/react/chat`           | `@agent-native/toolkit/app/agentkit/react/chat`           |
+| `@agent-native/agentkit/react/components`     | `@agent-native/toolkit/app/agentkit/react/components`     |
+| `@agent-native/agentkit/react/context`        | `@agent-native/toolkit/app/agentkit/react/context`        |
+| `@agent-native/agentkit/react/headless`       | `@agent-native/toolkit/app/agentkit/react/headless`       |
+| `@agent-native/agentkit/react/streaming-text` | `@agent-native/toolkit/app/agentkit/react/streaming-text` |
+| `@agent-native/agentkit/react/styles.css`     | `@agent-native/toolkit/app/agentkit/react/styles.css`     |
+
+For Core-managed apps, run `npx @agent-native/core@latest upgrade --codemods`
+to rewrite imports. Standalone AgentKit consumers should make these updates
+manually.
+
 AgentKit previously published six packages. Replace the old specifiers with
 these subpaths: `agentkit-protocol` becomes `agentkit/protocol`,
 `agentkit-adapters` becomes `agentkit/http`, `agentkit-conformance` becomes

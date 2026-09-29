@@ -77,6 +77,22 @@ export function SupportChat({ transport }: { transport: AgentTransport }) {
    message-action flows. Keep existing actions, data, auth, access checks, and
    application-state keys where the app contract still applies.
 
+## Move AgentKit React imports to Toolkit
+
+AgentKit 1.0 removes its old React entrypoints. Install Toolkit and replace
+`@agent-native/agentkit/react` and its focused subpaths with the matching
+`@agent-native/toolkit/app/agentkit/react` imports. Move the stylesheet import
+to `@agent-native/toolkit/app/agentkit/react/styles.css`.
+
+For Core-managed apps, run `npx @agent-native/core@latest upgrade --codemods`.
+The codemod rewrites those module and stylesheet imports. Standalone AgentKit
+consumers should use the old-to-new import table in the AgentKit README and
+make the changes manually.
+
+Core's `styles/agent-conversation.css` and `styles/chat-history-list.css`
+exports also moved to the corresponding `@agent-native/toolkit/app/styles/*`
+paths. The Core migration codemod rewrites those imports.
+
 TypeScript reports a normal missing-export error for removed named exports.
 The package cannot customize that compiler diagnostic. Run the migration
 doctor for the API name and direct link to this guide. The removed `createAdapter`

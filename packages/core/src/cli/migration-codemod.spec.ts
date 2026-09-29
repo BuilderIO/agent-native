@@ -5,7 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  bundledCorePackageVersion,
+  bundledCoreMigrationManifestPath,
+  readMigrationManifest,
   type MigrationManifest,
 } from "../package-lifecycle/migration-manifest.js";
 import {
@@ -15,7 +16,7 @@ import {
 } from "./migration-codemod.js";
 
 const roots: string[] = [];
-const toolkitRange = `>=${bundledCorePackageVersion()}`;
+const toolkitRange = ">=0.23.0";
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -23,8 +24,29 @@ afterEach(() => {
   }
 });
 
+describe("readMigrationManifest", () => {
+  it("rejects empty dependency version ranges", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-manifest-"));
+    roots.push(root);
+    const file = path.join(root, "migration-manifest.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        sinceVersion: "0.110.0",
+        moves: {},
+        dependencyVersions: { "@agent-native/toolkit": " " },
+      }),
+    );
+
+    expect(() => readMigrationManifest(file)).toThrow(
+      "dependencyVersions must map package names to non-empty version ranges",
+    );
+  });
+});
+
 const manifest: MigrationManifest = {
   sinceVersion: "0.110.0",
+  dependencyVersions: { "@agent-native/toolkit": toolkitRange },
   moves: {
     "@agent-native/core/client": {
       to: "@agent-native/core/client/hooks",
@@ -83,6 +105,7 @@ describe("runMigrationCodemods", () => {
     );
     const cssManifest: MigrationManifest = {
       sinceVersion: "0.110.0",
+      dependencyVersions: { "@agent-native/toolkit": toolkitRange },
       moves: {
         "@agent-native/core/styles/agent-native.css": {
           to: "@agent-native/toolkit/styles.css",
@@ -103,6 +126,35 @@ describe("runMigrationCodemods", () => {
     expect(
       JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
     ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
+    expect(result.changes.map((change) => change.file)).toContain(stylesheet);
+  });
+
+  it("moves app stylesheet imports to their Toolkit exports", () => {
+    const { root, packageFile } = fixture();
+    const stylesheet = path.join(root, "app", "global.css");
+    fs.mkdirSync(path.dirname(stylesheet), { recursive: true });
+    fs.writeFileSync(
+      stylesheet,
+      '@import "@agent-native/agentkit/react/styles.css";\n@import "@agent-native/core/styles/agent-conversation.css";\n@import "@agent-native/core/styles/chat-history-list.css";\n',
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
+      '@import "@agent-native/toolkit/app/agentkit/react/styles.css";\n@import "@agent-native/toolkit/app/styles/agent-conversation.css";\n@import "@agent-native/toolkit/app/styles/chat-history-list.css";\n',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": ">=0.23.0" });
     expect(result.changes.map((change) => change.file)).toContain(stylesheet);
   });
 
@@ -188,6 +240,7 @@ describe("runMigrationCodemods", () => {
       manifests: [
         {
           sinceVersion: "0.110.0",
+          dependencyVersions: { "@agent-native/toolkit": toolkitRange },
           moves: {
             "@agent-native/core/client": {
               to: "@agent-native/core/client/hooks",
@@ -253,6 +306,7 @@ describe("runMigrationCodemods", () => {
       manifests: [
         {
           sinceVersion: "0.110.0",
+          dependencyVersions: { "@agent-native/toolkit": toolkitRange },
           moves: {
             "@agent-native/core/client/editor": {
               to: "@agent-native/toolkit/editor",

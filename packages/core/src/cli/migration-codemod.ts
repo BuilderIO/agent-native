@@ -543,10 +543,10 @@ function readPackageJson(packageFile: string): Record<string, unknown> | null {
 
 function addDependencies(
   pending: PendingDependency[],
+  dependencyVersions: Record<string, string>,
   apply: boolean,
 ): MigrationCodemodFileChange[] {
   const changes: MigrationCodemodFileChange[] = [];
-  const coreVersion = bundledCorePackageVersion();
   const byFile = new Map<string, Set<string>>();
   for (const entry of pending) {
     const packages = byFile.get(entry.packageFile) ?? new Set<string>();
@@ -580,10 +580,7 @@ function addDependencies(
         ? (packageJson.dependencies as Record<string, string>)
         : {};
     for (const packageName of missing.sort()) {
-      dependencies[packageName] =
-        packageName === "@agent-native/toolkit" && coreVersion
-          ? `>=${coreVersion}`
-          : "latest";
+      dependencies[packageName] = dependencyVersions[packageName] ?? "latest";
     }
     packageJson.dependencies = Object.fromEntries(
       Object.entries(dependencies).sort(([left], [right]) =>
@@ -603,6 +600,10 @@ export function runMigrationCodemods(
   const root = path.resolve(options.root);
   const manifests = options.manifests ?? loadMigrationManifests(root);
   const moves = mergeManifestMoves(manifests);
+  const dependencyVersions: Record<string, string> = Object.assign(
+    {},
+    ...manifests.map((manifest) => manifest.dependencyVersions ?? {}),
+  );
   const targetExists =
     options.targetExists ?? createFreshMigrationTargetResolver(root);
   const project = new Project({
@@ -659,6 +660,7 @@ export function runMigrationCodemods(
 
   const dependencyChanges = addDependencies(
     pendingDependencies,
+    dependencyVersions,
     Boolean(options.apply),
   );
   return {

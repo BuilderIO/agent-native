@@ -36,6 +36,7 @@ export interface MigrationDependency {
 export interface MigrationManifest {
   sinceVersion: string;
   moves: Record<string, MigrationMove>;
+  dependencyVersions?: Record<string, string>;
   removedExports?: Record<string, RemovedExportManifest>;
   dependencies?: MigrationDependency[];
 }
@@ -141,6 +142,16 @@ function migrationManifestProblem(value: unknown): string | null {
     )
   ) {
     return "moves must map specifiers to valid migration move records";
+  }
+  if (
+    value.dependencyVersions !== undefined &&
+    (!isRecord(value.dependencyVersions) ||
+      Object.entries(value.dependencyVersions).some(
+        ([name, version]) =>
+          !name.trim() || typeof version !== "string" || !version.trim(),
+      ))
+  ) {
+    return "dependencyVersions must map package names to non-empty version ranges";
   }
   if (
     value.removedExports !== undefined &&
