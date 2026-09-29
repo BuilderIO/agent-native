@@ -169,6 +169,9 @@ describe("ObservabilityDashboard promote control", () => {
       (button) => button.textContent === "Promote to eval",
     );
     expect(promote).toBeTruthy();
+    expect(
+      container.querySelector<HTMLInputElement>("input")?.placeholder,
+    ).toBe("Reply must contain (optional)");
     act(() => promote!.click());
 
     await vi.waitFor(() => {
