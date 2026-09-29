@@ -263,6 +263,66 @@ describe("scanDeprecatedImports", () => {
     ]);
   });
 
+  it("ignores removed import examples in test strings and comments", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-fixtures-"));
+    roots.push(root);
+    const file = path.join(root, "scanner.spec.ts");
+    const moduleName = "@agent-native/core/client/agent-chat";
+    fs.writeFileSync(
+      file,
+      [
+        `const namedSnippet = 'import { createAgentChatAdapter } from "${moduleName}";';`,
+        `const templateSnippet = \`import { createAgentChatAdapter } from "${moduleName}";\`;`,
+        'const runtimeSnippet = `${require("@agent-native/core/client/agent-chat").createAgentChatAdapter}`;',
+        'const namespaceSnippet = "chat.createAgentChatAdapter?.()";',
+        `// import { createAgentChatAdapter } from "${moduleName}";`,
+        `import * as chat from "${moduleName}";`,
+        "chat.createAgentChatAdapter?.();",
+        `import { createAgentChatAdapter } from "${moduleName}";`,
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        file,
+        line: 7,
+        from: moduleName,
+        symbols: ["createAgentChatAdapter"],
+        status: "removed",
+      }),
+      expect.objectContaining({
+        file,
+        line: 8,
+        from: moduleName,
+        symbols: ["createAgentChatAdapter"],
+        status: "removed",
+      }),
+      expect.objectContaining({
+        file,
+        line: 3,
+        from: moduleName,
+        symbols: ["createAgentChatAdapter"],
+        status: "removed",
+      }),
+    ]);
+  });
+
   it("reports removed chat exports through namespace and CommonJS imports", () => {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "an-doctor-import-forms-"),

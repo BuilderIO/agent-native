@@ -130,6 +130,7 @@ function appendRemovedNamespaceFindings(
   findings: DeprecatedImportFinding[],
   file: string,
   text: string,
+  codeMask: Uint8Array,
   from: string,
   namespace: string,
   removedExport: RemovedExportManifest | undefined,
@@ -145,6 +146,7 @@ function appendRemovedNamespaceFindings(
       "g",
     );
     for (const match of text.matchAll(memberAccess)) {
+      if (!codeMask[match.index ?? 0]) continue;
       findings.push({
         file,
         line: lineAt(text, match.index ?? 0),
@@ -160,6 +162,102 @@ function appendRemovedNamespaceFindings(
 
 function lineAt(text: string, index: number): number {
   return text.slice(0, index).split("\n").length;
+}
+
+function codePositionMask(text: string): Uint8Array {
+  const mask = new Uint8Array(text.length);
+  const templateExpressionDepths: number[] = [];
+  let mode: "code" | "single" | "double" | "template" | "line" | "block" =
+    "code";
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index] ?? "";
+    const next = text[index + 1];
+
+    if (mode === "line") {
+      if (character === "\n" || character === "\r") {
+        mode = "code";
+        mask[index] = 1;
+      }
+      continue;
+    }
+    if (mode === "block") {
+      if (character === "*" && next === "/") {
+        index += 1;
+        mode = "code";
+      }
+      continue;
+    }
+    if (mode === "single" || mode === "double") {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (
+        (mode === "single" && character === "'") ||
+        (mode === "double" && character === '"')
+      ) {
+        mode = "code";
+      }
+      continue;
+    }
+    if (mode === "template") {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === "`") {
+        templateExpressionDepths.pop();
+        mode = "code";
+      } else if (character === "$" && next === "{") {
+        templateExpressionDepths[templateExpressionDepths.length - 1] = 1;
+        index += 1;
+        mode = "code";
+      }
+      continue;
+    }
+
+    if (character === "/" && next === "/") {
+      index += 1;
+      mode = "line";
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      index += 1;
+      mode = "block";
+      continue;
+    }
+    if (character === "'") {
+      mode = "single";
+      continue;
+    }
+    if (character === '"') {
+      mode = "double";
+      continue;
+    }
+    if (character === "`") {
+      templateExpressionDepths.push(0);
+      mode = "template";
+      continue;
+    }
+
+    mask[index] = 1;
+    const templateDepthIndex = templateExpressionDepths.length - 1;
+    const templateDepth = templateExpressionDepths[templateDepthIndex];
+    if (templateDepth === undefined || templateDepth === 0) continue;
+    if (character === "{") {
+      templateExpressionDepths[templateDepthIndex] = templateDepth + 1;
+    } else if (character === "}") {
+      if (templateDepth === 1) {
+        templateExpressionDepths[templateDepthIndex] = 0;
+        mode = "template";
+      } else {
+        templateExpressionDepths[templateDepthIndex] = templateDepth - 1;
+      }
+    }
+  }
+  return mask;
 }
 
 function matchingMoveTargets(
@@ -249,7 +347,9 @@ export function scanDeprecatedImports(
 
   for (const file of sourceFiles(root)) {
     const text = fs.readFileSync(file, "utf-8");
+    const codeMask = codePositionMask(text);
     for (const match of text.matchAll(fromDeclaration)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[3];
       const move = moves[from];
       const removedExport = removedExports[from];
@@ -283,6 +383,7 @@ export function scanDeprecatedImports(
           findings,
           file,
           text,
+          codeMask,
           from,
           namespace,
           removedExport,
@@ -290,6 +391,7 @@ export function scanDeprecatedImports(
       }
     }
     for (const match of text.matchAll(sideEffectImport)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       const move = moves[from];
       if (!move || move.symbols) continue;
@@ -303,6 +405,7 @@ export function scanDeprecatedImports(
       });
     }
     for (const match of text.matchAll(commonJsDestructure)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[2];
       appendRemovedImportFinding(
         findings,
@@ -315,6 +418,7 @@ export function scanDeprecatedImports(
       );
     }
     for (const match of text.matchAll(dynamicImportDestructure)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[2];
       appendRemovedImportFinding(
         findings,
@@ -327,6 +431,7 @@ export function scanDeprecatedImports(
       );
     }
     for (const match of text.matchAll(dynamicImportThenDestructure)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       appendRemovedImportFinding(
         findings,
@@ -339,47 +444,56 @@ export function scanDeprecatedImports(
       );
     }
     for (const match of text.matchAll(commonJsNamespace)) {
+      if (!codeMask[match.index ?? 0]) continue;
       appendRemovedNamespaceFindings(
         findings,
         file,
         text,
+        codeMask,
         match[2],
         match[1],
         removedExports[match[2]],
       );
     }
     for (const match of text.matchAll(dynamicImportNamespace)) {
+      if (!codeMask[match.index ?? 0]) continue;
       appendRemovedNamespaceFindings(
         findings,
         file,
         text,
+        codeMask,
         match[2],
         match[1],
         removedExports[match[2]],
       );
     }
     for (const match of text.matchAll(dynamicImportThenNamespace)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       appendRemovedNamespaceFindings(
         findings,
         file,
         text,
+        codeMask,
         from,
         match[2] ?? match[3],
         removedExports[from],
       );
     }
     for (const match of text.matchAll(importEquals)) {
+      if (!codeMask[match.index ?? 0]) continue;
       appendRemovedNamespaceFindings(
         findings,
         file,
         text,
+        codeMask,
         match[2],
         match[1],
         removedExports[match[2]],
       );
     }
     for (const match of text.matchAll(commonJsMember)) {
+      if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
       const symbol = match[2] ?? match[3];
       appendRemovedImportFinding(
