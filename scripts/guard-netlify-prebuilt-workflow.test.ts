@@ -1227,6 +1227,104 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("publishes every beta site when the published-source lookup fails", async () => {
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    const discover = (beta.jobs as Workflow)["discover-sites"] as Workflow;
+    const script = String(
+      (
+        (discover.steps as Array<Workflow>).find((step) => step.id === "bases")
+          ?.with as Workflow
+      )?.script,
+    );
+    const runnerTemp = mkdtempSync(join(tmpdir(), "beta-site-bases-"));
+    const run = async (
+      getContent: () => Promise<unknown>,
+      fetchSite: (url: string) => Promise<unknown>,
+    ) => {
+      const warnings: string[] = [];
+      const outputs: Record<string, string> = {};
+      await new Function(
+        "require",
+        "github",
+        "context",
+        "core",
+        "process",
+        "fetch",
+        `return (async () => {\n${script}\n})();`,
+      )(
+        (id: string) =>
+          id === "node:fs"
+            ? { writeFileSync }
+            : { join: (...parts: string[]) => join(...parts) },
+        { rest: { repos: { getContent } } },
+        { repo: { owner: "BuilderIO", repo: "agent-native" } },
+        {
+          warning: (message: string) => warnings.push(message),
+          setOutput: (name: string, value: string) => {
+            outputs[name] = value;
+          },
+        },
+        {
+          env: {
+            NETLIFY_AUTH_TOKEN: "fake-token",
+            SOURCE_SHA: "a".repeat(40),
+            RUNNER_TEMP: runnerTemp,
+          },
+        },
+        fetchSite,
+      );
+      return { warnings, outputs };
+    };
+    const encoded = (value: string) => ({
+      data: { content: Buffer.from(value).toString("base64") },
+    });
+    try {
+      for (const getContent of [
+        async () => {
+          throw new Error("HTTP 502");
+        },
+        async () => encoded("not json"),
+        async () => encoded('{"id":"docs"}'),
+      ]) {
+        const { warnings, outputs } = await run(getContent, async () => {
+          throw new Error("unexpected Netlify lookup");
+        });
+        assert.equal(outputs.bases_file, undefined);
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0], /publishing every beta site/);
+      }
+
+      const { warnings, outputs } = await run(
+        async () =>
+          encoded(
+            JSON.stringify([
+              { id: "docs", siteId: "docs-site" },
+              { id: "mail", siteId: "mail-site" },
+            ]),
+          ),
+        async (url: string) => {
+          if (url.endsWith("/mail-site")) throw new Error("timeout");
+          return {
+            ok: true,
+            json: async () => ({
+              published_deploy: { title: `beta ${"B".repeat(40)}` },
+            }),
+          };
+        },
+      );
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], /beta mail: timeout/);
+      assert.deepEqual(JSON.parse(readFileSync(outputs.bases_file, "utf8")), {
+        docs: "b".repeat(40),
+        mail: null,
+      });
+    } finally {
+      rmSync(runnerTemp, { recursive: true, force: true });
+    }
+  });
+
   it("requeues the latest beta source after every production operation", () => {
     const cases = [
       [

@@ -151,8 +151,9 @@ jobs:
     steps:
       # Each beta deploy title carries its source SHA. Knowing what every site
       # already runs lets a push publish only the sites its changes affect.
-      # Runs before checkout so the token never reaches repository code; any
-      # lookup failure leaves that site unknown, which publishes it.
+      # Runs before checkout so the token never reaches repository code. A
+      # failed site lookup leaves that site unknown, which publishes it; a
+      # failed site-list read writes no bases file, which publishes every site.
       - name: Read each beta site's published source
         id: bases
         if: github.event_name == 'push'
@@ -169,13 +170,22 @@ jobs:
               core.warning('NETLIFY_AUTH_TOKEN is not set; publishing every beta site.');
               return;
             }
-            const { data } = await github.rest.repos.getContent({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              path: 'scripts/netlify-beta-sites.json',
-              ref: process.env.SOURCE_SHA,
-            });
-            const sites = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+            let sites;
+            try {
+              const { data } = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: 'scripts/netlify-beta-sites.json',
+                ref: process.env.SOURCE_SHA,
+              });
+              sites = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+              if (!Array.isArray(sites)) throw new Error('expected a JSON array of sites');
+            } catch (error) {
+              core.warning(
+                `Could not read scripts/netlify-beta-sites.json at ${process.env.SOURCE_SHA}: ${error.message}; publishing every beta site.`,
+              );
+              return;
+            }
             const bases = {};
             await Promise.all(sites.map(async ({ id, siteId }) => {
               bases[id] = null;
