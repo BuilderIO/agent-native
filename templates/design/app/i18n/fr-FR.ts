@@ -324,6 +324,8 @@ export default {
       bottomLeft: "BG",
       bottomRight: "BD",
       blend: "Fusion",
+      blendMode: "Mode de fusion",
+      removeBlendMode: "Supprimer le mode de fusion",
       border: "Bordure",
       outline: "Contour",
       inside: "Intérieur",
