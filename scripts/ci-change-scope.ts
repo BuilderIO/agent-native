@@ -81,6 +81,7 @@ const CHECK_NAMES = [
   "qa_static",
   "agentkit_acceptance",
   "neon_query_budget",
+  "neon_connection_budget",
   "changeset",
 ] as const;
 
@@ -112,6 +113,10 @@ export const QUERY_BUDGET_APPS = [
   "tasks",
 ] as const;
 
+// Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
+// every one; a template change rebuilds only that template.
+export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 export type CheckSelection = Record<CheckName, boolean>;
@@ -126,6 +131,7 @@ export type ChangeScope = {
   testWorkspaceFilters: string[];
   scriptTests: string[];
   queryBudgetApps: string[];
+  ssrBootApps: string[];
 };
 
 export function normalizeChangedPath(path: string): string {
@@ -360,6 +366,29 @@ function queryBudgetAppsFor(
   return changedQueryBudgetApps(changedPaths);
 }
 
+function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
+  return [
+    "packages/core/",
+    "packages/toolkit/",
+    "packages/recap-cli/",
+    "packages/creative-context/",
+  ].some((prefix) => hasPath(paths, prefix));
+}
+
+function ssrBootAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.ssr_boot) return [];
+  if (full || ssrBootSharedPackageChanged(changedPaths)) {
+    return [...SSR_BOOT_APPS];
+  }
+  return SSR_BOOT_APPS.filter((app) =>
+    hasPath(changedPaths, `templates/${app}/`),
+  );
+}
+
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
@@ -373,6 +402,7 @@ function buildChecks(
       changedPaths.every(isKnownQueryBudgetUnrelatedPath)
     ) {
       checks.neon_query_budget = false;
+      checks.neon_connection_budget = false;
     }
     return checks;
   }
@@ -397,11 +427,6 @@ function buildChecks(
   const brainChanged = hasPath(changedPaths, "templates/brain/");
   const clipsChanged = hasPath(changedPaths, "templates/clips/");
   const assetsChanged = hasPath(changedPaths, "templates/assets/");
-  const recapCliChanged = hasPath(changedPaths, "packages/recap-cli/");
-  const creativeContextChanged = hasPath(
-    changedPaths,
-    "packages/creative-context/",
-  );
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
     changedQueryBudgetApps(changedPaths).length > 0;
@@ -425,10 +450,7 @@ function buildChecks(
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
-      coreChanged ||
-      toolkitChanged ||
-      recapCliChanged ||
-      creativeContextChanged ||
+      ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
       planChanged ||
       clipsChanged ||
@@ -442,6 +464,9 @@ function buildChecks(
       sharedAppConfigChanged ||
       chatChanged,
     neon_query_budget: neonQueryBudgetChanged,
+    // The probe imports only core's database client, so templates cannot
+    // move it.
+    neon_connection_budget: coreChanged,
     changeset: changedPaths.some(isChangesetPath),
   };
 }
@@ -477,6 +502,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     testWorkspaceFilters,
     scriptTests: scriptTestsForPaths(changedPaths),
     queryBudgetApps: queryBudgetAppsFor(changedPaths, full, checks),
+    ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
   };
 }
 
@@ -499,6 +525,7 @@ function writeOutputs(scope: ChangeScope): void {
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_apps=${JSON.stringify(scope.queryBudgetApps)}`,
+      `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,

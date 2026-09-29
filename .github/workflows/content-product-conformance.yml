@@ -3,16 +3,7 @@ name: Content product conformance
 on:
   pull_request:
     branches: [main]
-    types:
-      [
-        opened,
-        synchronize,
-        reopened,
-        edited,
-        ready_for_review,
-        labeled,
-        unlabeled,
-      ]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
   contents: read
