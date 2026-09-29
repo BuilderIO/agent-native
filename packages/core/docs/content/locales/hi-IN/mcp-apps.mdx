@@ -24,7 +24,7 @@ OpenAI Plugin Extensions, मॉडल द्वारा बुलाए जा
 
 Embedded app route के बटन बातचीत जारी रखने के लिए `sendToAgentChat(...)` बुला सकते हैं। Core चुनी गई स्थिति को `ui/update-model-context` से `annotations.audience: ["assistant"]` के साथ भेजता है और फिर दिखने वाला संदेश `ui/message` से भेजता है। फ़ाइल व्यूअर, composer mentions और अन्य विशेष extensions के लिए ऐप-विशिष्ट input contract चाहिए।
 
-पुराने host पर Core केवल तभी text fallback इस्तेमाल कर सकता है जब अनुरोध में assistant-only context न हो और उसे text के रूप में दिखाया जा सके। यदि selected या structured context मौजूद है, rich content को दिखाया नहीं जा सकता, या host context update अस्वीकार करता है, तो `sendToAgentChat(...)` `false` लौटाता है।
+पुराने host पर Core केवल तभी text fallback इस्तेमाल कर सकता है जब अनुरोध में selected या structured context न हो, सारी सामग्री को text के रूप में दिखाया जा सके, और भेजे जाने वाले text की हर `annotations.audience` सूची में `assistant` और `user` दोनों हों। अन्यथा, या यदि host context update अस्वीकार करता है, तो `sendToAgentChat(...)` `false` लौटाता है।
 
 ## संलेखन: वैकल्पिक MCP ऐप्स UI {#mcp-apps}
 
