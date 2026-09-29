@@ -1233,6 +1233,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新电子邮件",
   "settings.emailNewPlaceholder": "输入新电子邮件",
   "usage.builderCredits": "Builder 积分",
+  "featureFlags.builderCreditReferrals.name": "Builder 积分推荐",
+  "featureFlags.builderCreditReferrals.description":
+    "在用量中显示已连接 Builder 工作区的推荐详情。",
   "usage.inviteFriends": "邀请好友",
   "usage.inviteCredits": "好友订阅后可获得 {{amount}} 个 Builder 积分。",
   "usage.copyInviteLink": "复制邀请链接",
