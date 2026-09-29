@@ -17,7 +17,6 @@ import {
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
-  isBuilderOrgManager,
 } from "./builder-oauth.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
 import {
@@ -466,11 +465,8 @@ async function resolveScopedBuilderCredential(
       }
       return { value: userSecret.value, source: "user", lookupFailed: false };
     };
-    const orgFirst = orgId ? await isBuilderOrgManager(orgId, email) : false;
-    if (!orgFirst) {
-      const personal = await readPersonal();
-      if (personal) return personal;
-    }
+    const personal = await readPersonal();
+    if (personal) return personal;
 
     // 2. Per-org shared credential: when one teammate connects Builder
     //    as an owner/admin we write the OAuth result at org scope so
@@ -516,11 +512,6 @@ async function resolveScopedBuilderCredential(
           `[builder-credential] key=${key} email=${email} orgId=${orgId} orgSource=${orgSource} miss tried=user,org,workspace`,
         );
       }
-    }
-
-    if (orgFirst) {
-      const personal = await readPersonal();
-      if (personal) return personal;
     }
 
     if (orgLookupCause !== undefined) {
@@ -669,13 +660,7 @@ async function resolveScopedBuilderCredentials(
         : null;
     };
 
-    // Members run on their own pair first; an owner or admin runs on the org's
-    // connection first, since a pair kept from before a promotion would
-    // otherwise shadow it. Their own pair stays the fallback: the owner who
-    // activates an account during first-run setup holds only a personal pair.
-    const orgFirst = orgId ? await isBuilderOrgManager(orgId, email) : false;
-    const order = orgFirst ? [tryOrg, tryPersonal] : [tryPersonal, tryOrg];
-    for (const attempt of order) {
+    for (const attempt of [tryPersonal, tryOrg]) {
       const creds = await attempt();
       if (creds) return { creds, lookupFailed: false };
     }

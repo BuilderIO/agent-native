@@ -1,6 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
 import { inboxTabHref } from "@shared/inbox-threads";
@@ -268,7 +267,10 @@ function ThreadListSidebar({
                     : "hover:bg-accent dark:hover:bg-[var(--mail-sidebar-hover-surface)]",
               )}
             >
-              <div className="flex items-center gap-1.5 min-w-0 w-full">
+              <div
+                data-an-mask
+                className="flex items-center gap-1.5 min-w-0 w-full"
+              >
                 {thread.hasUnread && (
                   <div className="h-[7px] w-[7px] rounded-full bg-primary shrink-0" />
                 )}
@@ -279,7 +281,6 @@ function ThreadListSidebar({
                       ? "font-semibold text-foreground"
                       : "text-foreground/90",
                   )}
-                  title={senderName}
                 >
                   {senderName}
                 </span>
@@ -290,7 +291,6 @@ function ThreadListSidebar({
                       ? "font-medium text-foreground"
                       : "text-muted-foreground/90",
                   )}
-                  title={email.subject}
                 >
                   {email.subject}
                 </span>
@@ -942,27 +942,6 @@ export function InboxPage() {
     prevThreadsRef.current = rawThreads;
     return rawThreads;
   }, [rawThreads]);
-  const activeSubject = threadId
-    ? threads.find(
-        (thread) =>
-          (thread.latestMessage.threadId || thread.latestMessage.id) ===
-          threadId,
-      )?.latestMessage.subject
-    : undefined;
-
-  useEffect(() => {
-    if (!activeSubject) return;
-    const nextTitle = `${normalizeDocumentTitle(
-      activeSubject,
-      t("mail.routeTitles.emailThread"),
-    )} — Mail`;
-    const previousTitle = document.title;
-    document.title = nextTitle;
-    return () => {
-      if (document.title === nextTitle) document.title = previousTitle;
-    };
-  }, [activeSubject, t]);
-
   const threadIds = useMemo(
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],

@@ -676,19 +676,21 @@ export function resolveBuilderCallbackWrite(input: {
 }
 
 /**
- * Where a new Builder.io account from account activation is stored. An owner
- * or admin activates for the organization, as they connect for it, so a
- * first-run owner's account powers the workspace instead of becoming a
- * personal grant that shadows the org's connection. Anyone else activates
- * personally. Authorization for a named connection is checked before this.
+ * Where a new Builder.io account from account activation is stored: the
+ * organization only when the connect names the org connection (owner/admin is
+ * checked before this), personally otherwise. An activation that names no
+ * connection stays personal for every role, so an owner or admin clicking a
+ * generic prompt never swaps the org's Builder account, and the quota every
+ * member bills, for a newly created one.
  */
 export function resolveBuilderActivationWrite(input: {
   requestedScope: BuilderConnectionScope | null;
   orgId: string | null;
   role: string | null;
 }): { orgId: string; role: string } | null {
-  if (input.requestedScope === "personal") return null;
-  return input.orgId && isBuilderOrgManagerRole(input.role)
+  return input.requestedScope === "org" &&
+    input.orgId &&
+    isBuilderOrgManagerRole(input.role)
     ? { orgId: input.orgId, role: input.role as string }
     : null;
 }
