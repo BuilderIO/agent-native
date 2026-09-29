@@ -15,6 +15,7 @@ import type {
 } from "../../shared/auth-page-types.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../../shared/runtime-config.js";
 import {
   isVerificationLinkInvalid,
   signInJourney,
@@ -831,6 +832,16 @@ export function AuthPage(props: AuthPageProps) {
       );
     },
     [messages],
+  );
+  // The server serves a setup page instead of this one while sign-in cannot
+  // work, but a copy of this page cached before a setting went missing can
+  // still submit, and the refusal should say why.
+  const accountFailureText = React.useCallback(
+    (data: Record<string, unknown>, fallback: string) =>
+      data.code === DEPLOY_SETTINGS_REQUIRED_CODE
+        ? t("deploySettingsMissingError")
+        : authErrorText(data, fallback, t("signupInviteOnly")),
+    [t],
   );
 
   const pendingEmailStorageKey = React.useCallback(
@@ -1881,11 +1892,7 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("signup", {
             kind: "error",
-            text: authErrorText(
-              data,
-              t("registrationFailed"),
-              t("signupInviteOnly"),
-            ),
+            text: accountFailureText(data, t("registrationFailed")),
           });
           return;
         }
@@ -1906,10 +1913,9 @@ export function AuthPage(props: AuthPageProps) {
           redirectToSignedInApp();
           return;
         }
-        const loginError = authErrorText(
+        const loginError = accountFailureText(
           loginResult.data,
           t("registrationFailed"),
-          t("signupInviteOnly"),
         );
         if (
           loginResult.response.status === 403 &&
@@ -1929,6 +1935,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     },
     [
+      accountFailureText,
       apiPath,
       identityBootstrapHref,
       pendingEmailStorageKey,
@@ -1986,7 +1993,7 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("login", {
           kind: "error",
-          text: authErrorText(data, t("invalidLogin"), t("signupInviteOnly")),
+          text: accountFailureText(data, t("invalidLogin")),
         });
       } catch {
         setNotice("login", { kind: "error", text: t("networkErrorDashRetry") });
@@ -1995,6 +2002,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     },
     [
+      accountFailureText,
       apiPath,
       loginEmail,
       loginPassword,

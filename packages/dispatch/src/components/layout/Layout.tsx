@@ -114,6 +114,7 @@ import {
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
+  workspaceAppSourceFromConnected,
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
@@ -260,15 +261,13 @@ interface DispatchChatFirstPane {
   view?: string;
 }
 
-interface ChatFirstGrantedAppSummary {
+interface ChatFirstConnectedAppSummary {
   id: string;
   name: string;
   description?: string | null;
   url?: string | null;
-}
-
-interface ChatFirstGrantedAppsResult {
-  apps: ChatFirstGrantedAppSummary[];
+  homeUrl?: string | null;
+  source?: string;
 }
 
 interface DispatchAgentThreadSummary {
@@ -1435,27 +1434,53 @@ export function Layout({
     { includeAgentCards: false, includeArchived: true },
     { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
-  const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
-    "list_apps",
+  // Not list_apps: MCP app access restricts routing, not what the workspace
+  // shows. list-connected-agents already applies the built-in app config.
+  const chatFirstConnectedAppsQuery = useActionQuery<
+    ChatFirstConnectedAppSummary[]
+  >(
+    "list-connected-agents",
     {},
     { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
+  const chatFirstEnabledBuiltinAppIds = useMemo(
+    () =>
+      chatFirstConnectedAppsQuery.data
+        ?.filter((app) => app.source === "builtin")
+        .map((app) => app.id),
+    [chatFirstConnectedAppsQuery.data],
+  );
   const chatFirstWorkspaceApps = useMemo(
-    () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),
-    [chatFirstAppsQuery.data],
+    () =>
+      mergeChatFirstWorkspaceApps(
+        chatFirstAppsQuery.data,
+        chatFirstEnabledBuiltinAppIds,
+      ),
+    [chatFirstAppsQuery.data, chatFirstEnabledBuiltinAppIds],
   );
   const chatHomeWorkspaceApps = useMemo(
     () =>
       mergeChatFirstWorkspaceApps(
         chatFirstWorkspaceApps,
-        chatFirstGrantedAppsQuery.data?.apps,
+        chatFirstEnabledBuiltinAppIds,
+        chatFirstConnectedAppsQuery.data?.map((app) => ({
+          id: app.id,
+          name: app.name,
+          description: app.description,
+          url: app.homeUrl?.trim() || app.url,
+          source: workspaceAppSourceFromConnected(app.source),
+        })),
       ).filter(
         (app) =>
           app.status !== "pending" &&
           app.archived !== true &&
           isWorkspaceAppVisibleInDefaultLaunchers(app),
       ),
-    [chatFirstGrantedAppsQuery.data?.apps, chatFirstWorkspaceApps],
+    [
+      chatFirstConnectedAppsQuery.data,
+      chatFirstEnabledBuiltinAppIds,
+      chatFirstWorkspaceApps,
+    ],
   );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
     const registrations = new Map<string, ChatFirstAppRegistration>();
@@ -1463,24 +1488,26 @@ export function Layout({
       registrations.set(app.id.toLowerCase(), {
         id: app.id,
         name: app.name,
+        source: app.source,
         path: app.path,
         url: app.url,
         homePath: app.homePath,
         enabled: app.status !== "pending" && app.archived !== true,
       });
     }
-    for (const app of chatFirstGrantedAppsQuery.data?.apps ?? []) {
+    for (const app of chatFirstConnectedAppsQuery.data ?? []) {
       const id = app.id.trim().toLowerCase();
       if (!id || registrations.has(id)) continue;
       registrations.set(id, {
         id,
         name: app.name,
-        url: app.url,
+        source: workspaceAppSourceFromConnected(app.source),
+        url: app.homeUrl?.trim() || app.url,
         enabled: true,
       });
     }
     return [...registrations.values()];
-  }, [chatFirstGrantedAppsQuery.data?.apps, chatFirstWorkspaceApps]);
+  }, [chatFirstConnectedAppsQuery.data, chatFirstWorkspaceApps]);
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
       chatFirstAppRegistrations
@@ -1490,6 +1517,7 @@ export function Layout({
         .map((app) => ({
           id: app.id,
           name: app.name ?? app.id,
+          source: app.source,
         })),
     [chatFirstAppRegistrations],
   );
@@ -1528,16 +1556,16 @@ export function Layout({
       apps: chatFirstAppItems,
       workspaceApps: chatHomeWorkspaceApps,
       isLoading:
-        chatFirstAppsQuery.isLoading || chatFirstGrantedAppsQuery.isLoading,
+        chatFirstAppsQuery.isLoading || chatFirstConnectedAppsQuery.isLoading,
       error: chatFirstAppsQuery.isError
         ? chatFirstAppsQuery.error
-        : chatFirstGrantedAppsQuery.isError
-          ? chatFirstGrantedAppsQuery.error
+        : chatFirstConnectedAppsQuery.isError
+          ? chatFirstConnectedAppsQuery.error
           : undefined,
       openApp: openChatFirstApp,
       retry: () => {
         void chatFirstAppsQuery.refetch();
-        void chatFirstGrantedAppsQuery.refetch();
+        void chatFirstConnectedAppsQuery.refetch();
       },
     }),
     [
@@ -1545,10 +1573,10 @@ export function Layout({
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
       chatFirstAppsQuery.refetch,
-      chatFirstGrantedAppsQuery.error,
-      chatFirstGrantedAppsQuery.isError,
-      chatFirstGrantedAppsQuery.isLoading,
-      chatFirstGrantedAppsQuery.refetch,
+      chatFirstConnectedAppsQuery.error,
+      chatFirstConnectedAppsQuery.isError,
+      chatFirstConnectedAppsQuery.isLoading,
+      chatFirstConnectedAppsQuery.refetch,
       chatFirstAppItems,
       chatHomeWorkspaceApps,
       openChatFirstApp,
@@ -1748,7 +1776,10 @@ export function Layout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      if (chatFirstAppsQuery.isLoading || chatFirstGrantedAppsQuery.isLoading) {
+      if (
+        chatFirstAppsQuery.isLoading ||
+        chatFirstConnectedAppsQuery.isLoading
+      ) {
         pendingChatFirstOpenAppRef.current = detail;
         return;
       }
@@ -1792,7 +1823,7 @@ export function Layout({
       chatFirstAppRegistrations,
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
-      chatFirstGrantedAppsQuery.isLoading,
+      chatFirstConnectedAppsQuery.isLoading,
       chatFirstSurfaceTabsStore,
       openChatFirstPane,
       navigate,
@@ -2004,7 +2035,7 @@ export function Layout({
     if (
       !pending ||
       chatFirstAppsQuery.isLoading ||
-      chatFirstGrantedAppsQuery.isLoading
+      chatFirstConnectedAppsQuery.isLoading
     )
       return;
     resolveChatFirstOpenApp(pending);
@@ -2012,8 +2043,8 @@ export function Layout({
     chatFirstAppsQuery.data,
     chatFirstAppsQuery.isError,
     chatFirstAppsQuery.isLoading,
-    chatFirstGrantedAppsQuery.data,
-    chatFirstGrantedAppsQuery.isLoading,
+    chatFirstConnectedAppsQuery.data,
+    chatFirstConnectedAppsQuery.isLoading,
     resolveChatFirstOpenApp,
   ]);
 

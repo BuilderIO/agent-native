@@ -1209,8 +1209,8 @@ export async function handleMcpConnect(
     }
     const session = await getSession(event);
     if (!session?.email) {
-      const loginHtml = getConfiguredLoginHtml(event);
-      if (loginHtml) return html(loginHtml, 200);
+      const loginPage = getConfiguredLoginHtml(event);
+      if (loginPage) return html(loginPage.html, loginPage.status);
       return html(
         renderConnectPage({
           connectBasePath: basePath,
