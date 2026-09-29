@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   listen: vi.fn(),
   emit: vi.fn(),
   transcribe: vi.fn(),
+  prepareLocalExport: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
@@ -22,6 +23,13 @@ vi.mock("./transcription-capture", () => ({
   startTranscriptionCapture: mocks.transcribe,
   shouldStartLocalRecordingTranscription: (enabled: boolean) => enabled,
 }));
+vi.mock("./local-export", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./local-export")>();
+  return {
+    ...actual,
+    prepareLocalRecordingExport: mocks.prepareLocalExport,
+  };
+});
 
 import { startRecording, type StartParams } from "./recorder";
 import type { TranscriptionCapture } from "./transcription-capture";
@@ -45,6 +53,71 @@ function capture(): TranscriptionCapture {
     resetTimeline: vi.fn(async () => {}),
   };
 }
+
+class TestMediaStream {
+  private tracks: MediaStreamTrack[];
+
+  constructor(tracks: MediaStreamTrack[] = []) {
+    this.tracks = [...tracks];
+  }
+
+  getTracks() {
+    return [...this.tracks];
+  }
+
+  getVideoTracks() {
+    return this.tracks.filter((track) => track.kind === "video");
+  }
+
+  getAudioTracks() {
+    return this.tracks.filter((track) => track.kind === "audio");
+  }
+
+  addTrack(track: MediaStreamTrack) {
+    this.tracks.push(track);
+  }
+
+  removeTrack(track: MediaStreamTrack) {
+    this.tracks = this.tracks.filter((candidate) => candidate !== track);
+  }
+}
+
+class TestMediaRecorder {
+  static isTypeSupported = vi.fn(() => true);
+
+  state: RecordingState = "inactive";
+  ondataavailable: ((event: BlobEvent) => void) | null = null;
+  start = vi.fn(() => {
+    mediaRecorderStart();
+    this.state = "recording";
+  });
+  stop = vi.fn(() => {
+    this.state = "inactive";
+  });
+  pause = vi.fn(() => {
+    this.state = "paused";
+  });
+  resume = vi.fn(() => {
+    this.state = "recording";
+  });
+  requestData = vi.fn();
+  addEventListener = vi.fn();
+}
+
+const mediaRecorderStart = vi.fn();
+
+function createLocalExport() {
+  return {
+    folderPath: "/recordings/test",
+    start: vi.fn(),
+    stop: vi.fn(async () => []),
+    cancel: vi.fn(async () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+  };
+}
+
+const localExports: ReturnType<typeof createLocalExport>[] = [];
 
 const params: StartParams = {
   serverUrl: "http://localhost:8080",
@@ -76,6 +149,12 @@ beforeEach(() => {
   handlers.clear();
   nativeCommands.clear();
   getUserMedia = vi.fn(() => new Promise(() => {}));
+  localExports.length = 0;
+  mocks.prepareLocalExport.mockImplementation(async () => {
+    const localExport = createLocalExport();
+    localExports.push(localExport);
+    return localExport;
+  });
   vi.stubGlobal("navigator", {
     platform: "MacIntel",
     mediaDevices: { getUserMedia, enumerateDevices: vi.fn() },
@@ -106,6 +185,9 @@ beforeEach(() => {
   });
   mocks.invoke.mockImplementation(async (name) => {
     if (nativeCommands.has(name)) return nativeCommands.get(name)!();
+    if (name === "rewind_capture_suspension_acquire") {
+      return { leaseId: null, suspendedRewind: false };
+    }
     if (name === "show_countdown") {
       setTimeout(() => {
         void mocks.emit("clips:countdown-done", { cause: "timer" });
@@ -181,6 +263,43 @@ describe("native recording startup", () => {
     const handle = await pending;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
     await handle.cancel();
+  });
+
+  it("does not activate Rewind capture when startup is aborted during the cue", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const cue = deferred<void>();
+    const controller = new AbortController();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    const pending = startRecording(
+      {
+        ...params,
+        source: "full-screen",
+        localRecordingMode: "composed",
+        signal: controller.signal,
+      },
+      audioCue,
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(audioCue.playBeforeCapture).toHaveBeenCalledOnce();
+
+    controller.abort();
+    await failed;
+    cue.resolve();
+    await flush();
+
+    expect(calls("rewind_clip_start")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
   it("fails cleanly when native countdown presentation stalls", async () => {
@@ -480,5 +599,104 @@ describe("native recording startup", () => {
       cancellationCount,
     );
     await handle.cancel();
+  });
+});
+
+describe("browser recording startup cancellation", () => {
+  function useBrowserCameraCapture() {
+    const track = {
+      kind: "video",
+      readyState: "live",
+      stop: vi.fn(),
+      getSettings: () => ({ width: 1280, height: 720 }),
+    } as unknown as MediaStreamTrack;
+    getUserMedia.mockImplementation(
+      async () => new TestMediaStream([track]) as unknown as MediaStream,
+    );
+    vi.stubGlobal("navigator", {
+      platform: "Linux x86_64",
+      mediaDevices: { getUserMedia, enumerateDevices: vi.fn() },
+    });
+    vi.stubGlobal("MediaStream", TestMediaStream);
+    vi.stubGlobal("MediaRecorder", TestMediaRecorder);
+    vi.stubGlobal("document", undefined);
+    return track;
+  }
+
+  async function reachCue(playBeforeCapture: ReturnType<typeof vi.fn>) {
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(playBeforeCapture).toHaveBeenCalledOnce();
+  }
+
+  it("does not start local export after cancellation during the cue", async () => {
+    useBrowserCameraCapture();
+    const cue = deferred<void>();
+    const controller = new AbortController();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        micOn: false,
+        systemAudioOn: false,
+        localRecordingMode: "composed",
+        signal: controller.signal,
+      },
+      audioCue,
+    );
+
+    await reachCue(audioCue.playBeforeCapture);
+    await mocks.emit("clips:recorder-cancel");
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    cue.resolve();
+    await flush();
+
+    expect(localExports).toHaveLength(1);
+    expect(localExports[0].start).not.toHaveBeenCalled();
+    expect(localExports[0].cancel).toHaveBeenCalledOnce();
+    expect(audioCue.cleanup).toHaveBeenCalled();
+  });
+
+  it("retains cloud Cancel during the cue and skips MediaRecorder.start", async () => {
+    useBrowserCameraCapture();
+    const cue = deferred<void>();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        micOn: false,
+        systemAudioOn: false,
+      },
+      audioCue,
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await reachCue(audioCue.playBeforeCapture);
+    await mocks.emit("clips:recorder-cancel");
+    cue.resolve();
+    await failed;
+    await flush();
+
+    expect(mediaRecorderStart).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads/recording-1/abort"),
+      expect.objectContaining({
+        body: expect.stringContaining('"failureCode":"user_cancelled"'),
+      }),
+    );
+    expect(audioCue.cleanup).toHaveBeenCalled();
   });
 });

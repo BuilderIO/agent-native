@@ -2810,6 +2810,7 @@ async function tryStartRewindFullscreenRecording(
         await audioCue.playBeforeCapture();
       },
       async activate(preparedRecording) {
+        throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
         await guardRecordingStart(
           invoke<RewindClipBackendStatus>("rewind_clip_start"),
@@ -4634,15 +4635,21 @@ async function startRecordingInner(
 
       try {
         await runRecordingCountdown(wantsScreen, params.signal);
+        await audioCue.playBeforeCapture();
+        throwIfRecordingStartAborted(params.signal);
+        if (stopped) throw new RecordingStartCancelledError();
+        localExport.start(2_000);
       } catch (err) {
-        stateUnlistens.forEach((unlisten) => unlisten());
-        stateUnlistens = [];
-        await localExport.cancel().catch(() => {});
-        cleanupUnstartedCapture();
+        if (!stopped) {
+          stopped = true;
+          stateUnlistens.forEach((unlisten) => unlisten());
+          stateUnlistens = [];
+          await localExport.cancel().catch(() => {});
+          cleanupUnstartedCapture();
+          await hideChrome();
+        }
         throw err;
       }
-      await audioCue.playBeforeCapture();
-      localExport.start(2_000);
       startedAt = Date.now();
       tickHandle = setInterval(() => emitState(pausedAt != null), 500);
       emit("clips:toolbar-enabled", true).catch(() => {});
@@ -4845,6 +4852,7 @@ async function startRecordingInner(
     let accumulatedPauseMs = 0;
     let stopped = false;
     let handle: RecorderHandle | null = null;
+    let cancelRequestedDuringStartup = false;
     let stateUnlistens: UnlistenFn[] = [];
     let tickHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -4927,7 +4935,11 @@ async function startRecordingInner(
       }),
       listen("clips:recorder-cancel", () => {
         console.log("[clips-recorder] cancel event received");
-        handle?.cancel().catch((err) => {
+        if (!handle) {
+          cancelRequestedDuringStartup = true;
+          return;
+        }
+        handle.cancel().catch((err) => {
           console.error("[clips-recorder] handle.cancel() threw:", err);
         });
       }),
@@ -4944,24 +4956,33 @@ async function startRecordingInner(
 
     try {
       await runRecordingCountdown(wantsScreen, params.signal);
+      await audioCue.playBeforeCapture();
+      throwIfRecordingStartAborted(params.signal);
+      if (cancelRequestedDuringStartup || stopped) {
+        throw new RecordingStartCancelledError();
+      }
+      recorder.start(LIVE_UPLOAD_CHUNK_MS);
     } catch (err) {
       stateUnlistens.forEach((unlisten) => unlisten());
       stateUnlistens = [];
-      const cancelled = isCountdownCancelledError(err);
-      await abortRecordingUpload(
-        params.serverUrl,
-        id,
-        cancelled
-          ? "Recording cancelled during countdown"
-          : err instanceof Error
-            ? err.message
-            : String(err),
-        cancelled ? "user_cancelled" : "upload_failed",
-      );
+      if (!stopped) {
+        const cancelled =
+          cancelRequestedDuringStartup ||
+          params.signal?.aborted === true ||
+          isCountdownCancelledError(err);
+        await abortRecordingUpload(
+          params.serverUrl,
+          id,
+          cancelled
+            ? "Recording cancelled during startup"
+            : err instanceof Error
+              ? err.message
+              : String(err),
+          cancelled ? "user_cancelled" : "upload_failed",
+        );
+      }
       throw err;
     }
-    await audioCue.playBeforeCapture();
-    recorder.start(LIVE_UPLOAD_CHUNK_MS);
     startedAt = Date.now();
     tickHandle = setInterval(() => emitState(pausedAt != null), 500);
     emit("clips:toolbar-enabled", true).catch(() => {});
