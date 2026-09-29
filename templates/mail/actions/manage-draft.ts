@@ -91,7 +91,7 @@ const manageDraftSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("update").describe("Update an existing draft"),
     id: draftId.describe(
-      "Existing draft ID from current compose state (`compose-{id}`) or a prior create result",
+      "Existing draft ID from compose state: if the state key is `compose-{id}`, pass only `{id}`. A prior create result also provides the ID.",
     ),
     ...draftFields,
   }),
@@ -156,16 +156,13 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft. Revise an existing draft " +
-    "with update and its id, whether it comes from current compose state " +
-    "(`compose-{id}`) or an earlier create result; do not create another " +
-    "draft. Always pass action " +
+    "Create, update, or delete a compose draft. For an existing draft, use " +
+    "update or delete with its raw ID. If its compose-state key is " +
+    "`compose-{id}`, pass only `{id}`; a prior create result also provides " +
+    "the ID. Create only when no existing draft is available. Always pass action " +
     "(create, update, delete, delete-saved, or delete-all). update and " +
-    "delete require the id from current compose state or a prior create " +
-    "call on this draft; " +
-    "delete-saved requires savedDraftId instead. Never call update or " +
-    "delete before a matching create - to draft a reply, first call with " +
-    "action=create, mode=reply, replyToId, to, subject, body.",
+    "delete-saved requires savedDraftId instead. To start a new reply, call " +
+    "create with mode=reply, replyToId, to, subject, and body.",
   schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,

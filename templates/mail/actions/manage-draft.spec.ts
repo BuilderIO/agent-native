@@ -269,6 +269,29 @@ describe("manage-draft saved mailbox deletion", () => {
 });
 
 describe("manage-draft local fallback", () => {
+  it("updates a compose draft already in app state without a create call", async () => {
+    appState.set("compose-ui-draft", {
+      id: "ui-draft",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "Original draft",
+      mode: "compose",
+    });
+
+    const updated = await action.run({
+      action: "update",
+      id: "ui-draft",
+      body: "Updated draft",
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledWith("compose-ui-draft");
+    expect(updated.draft.body).toBe("Updated draft");
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "compose-ui-draft",
+      expect.objectContaining({ body: "Updated draft" }),
+    );
+  });
+
   it("can create and update a local draft without an account marker", async () => {
     const created = await action.run({
       action: "create",
@@ -476,14 +499,17 @@ describe("manage-draft deep link", () => {
 });
 
 describe("manage-draft call-shape guidance", () => {
-  it("describes the required action field and the create-before-update contract", () => {
+  it("explains how to target existing drafts and when to create", () => {
     expect(action.description).toContain("action");
     expect(action.description).toContain(
-      "Revise an existing draft with update and its id, whether it comes from current compose state (`compose-{id}`) or an earlier create result; do not create another draft.",
+      "If its compose-state key is `compose-{id}`, pass only `{id}`",
+    );
+    expect(action.description).toContain(
+      "Create only when no existing draft is available.",
     );
     expect(action.description).toMatch(/create.*update.*delete/i);
-    expect(action.description).toContain(
-      "id from current compose state or a prior create call",
+    expect(action.description).not.toContain(
+      "Never call update or delete before a matching create",
     );
   });
 
