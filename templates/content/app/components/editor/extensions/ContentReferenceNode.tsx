@@ -16,6 +16,10 @@ function ContentReferenceView({ node, extension }: NodeViewProps) {
     typeof extension.options.currentPath === "string"
       ? extension.options.currentPath
       : null;
+  const documentId =
+    typeof extension.options.documentId === "string"
+      ? extension.options.documentId
+      : null;
   const referenceDepth =
     typeof extension.options.referenceDepth === "number"
       ? extension.options.referenceDepth
@@ -30,6 +34,7 @@ function ContentReferenceView({ node, extension }: NodeViewProps) {
       <ContentReferencePreview
         sourcePath={sourcePath}
         currentPath={currentPath}
+        fromDocumentId={documentId}
         title={title}
         referenceDepth={referenceDepth}
       />
@@ -39,6 +44,7 @@ function ContentReferenceView({ node, extension }: NodeViewProps) {
 
 export const ContentReferenceNode = TiptapNode.create<{
   currentPath?: string | null;
+  documentId?: string | null;
   referenceDepth?: number;
 }>({
   name: "contentReference",
@@ -50,6 +56,7 @@ export const ContentReferenceNode = TiptapNode.create<{
   addOptions() {
     return {
       currentPath: null,
+      documentId: null,
       referenceDepth: 0,
     };
   },

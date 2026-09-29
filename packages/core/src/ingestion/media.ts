@@ -1,6 +1,8 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 export interface MediaFingerprint {
   sha256: string;
   byteLength: number;
@@ -52,11 +54,6 @@ export async function extractDominantColors(
   limit = 6,
 ): Promise<string[]> {
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error(
-      "Image palette extraction requires the optional sharp dependency.",
-    );
-  }
   const output = await sharp(Buffer.from(data), { failOn: "none" })
     .resize(64, 64, { fit: "inside" })
     .removeAlpha()
@@ -102,9 +99,6 @@ export async function compareRasterImages(input: {
     throw new Error(`Image comparison input exceeds ${maxInputBytes} bytes.`);
   }
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error("Image comparison requires the optional sharp dependency.");
-  }
   const source = sharp(Buffer.from(input.source), { failOn: "none" });
   const rendered = sharp(Buffer.from(input.rendered), { failOn: "none" });
   const [sourceMetadata, renderedMetadata] = await Promise.all([
@@ -170,9 +164,6 @@ export async function cropImageRegion(input: {
     throw new Error("Image crop region is invalid or exceeds the pixel limit.");
   }
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error("Image cropping requires the optional sharp dependency.");
-  }
   const pipeline = sharp(Buffer.from(input.data), { failOn: "none" });
   const metadata = await pipeline.metadata();
   if (
@@ -205,7 +196,6 @@ export async function downscaleImageToFit(input: {
   minEdge?: number;
 }): Promise<ResizedImage | null> {
   const sharp = await loadSharp();
-  if (!sharp) return null;
   const minEdge = input.minEdge ?? 256;
   const source = Buffer.from(input.data);
   const metadata = await sharp(source, { failOn: "none" }).metadata();
@@ -316,14 +306,11 @@ type SharpFactory = (
   options: { failOn: "none" },
 ) => SharpPipeline;
 
-async function loadSharp(): Promise<SharpFactory | null> {
+async function loadSharp(): Promise<SharpFactory> {
   const specifier = "sharp";
-  try {
-    const module = (await import(/* @vite-ignore */ specifier)) as {
-      default?: SharpFactory;
-    };
-    return module.default ?? (module as unknown as SharpFactory);
-  } catch {
-    return null;
-  }
+  const module = (await loadOptionalPeer(
+    "sharp",
+    () => import(/* @vite-ignore */ specifier),
+  )) as { default?: SharpFactory };
+  return module.default ?? (module as unknown as SharpFactory);
 }

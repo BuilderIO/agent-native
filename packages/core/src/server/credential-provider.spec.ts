@@ -80,7 +80,8 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   isLocalDatabase: () => mockIsLocalDatabase(),
   getDbExec: () => mockGetDbExec(),
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: any[]) => mockGetSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),

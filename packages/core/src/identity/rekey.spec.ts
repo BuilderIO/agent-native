@@ -1,5 +1,5 @@
 import { SignJWT } from "jose";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import {
@@ -8,9 +8,13 @@ import {
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
 import {
+  __resetIdleIdentityRekeyProbeCacheForTests,
+  beginIdentityRekey,
+  failIdentityRekey,
   IDENTITY_REKEY_COLUMNS,
   rekeyIdentity,
   rekeyIdentityAfterEmailVerification,
+  resumePendingIdentityRekeys,
 } from "./rekey.js";
 
 function dbAdapter(db: {
@@ -502,6 +506,96 @@ describe("rekeyIdentity", () => {
     }
   });
 
+  it("rewrites promoted dataset idempotency keys to the new email", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(`
+        CREATE TABLE agent_eval_datasets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT,
+          idempotency_key TEXT
+        );
+        INSERT INTO agent_eval_datasets VALUES
+          ('ds-trace', 'OLD@example.test', 'from-trace:OLD%40example.test:run-1'),
+          ('ds-other', 'old@example.test', 'custom-key'),
+          ('ds-null', 'old@example.test', NULL);
+      `);
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      const rows = await pg
+        .prepare(
+          "SELECT id, user_id, idempotency_key FROM agent_eval_datasets ORDER BY id",
+        )
+        .all();
+      expect(rows).toEqual([
+        {
+          id: "ds-null",
+          user_id: "new@example.test",
+          idempotency_key: null,
+        },
+        {
+          id: "ds-other",
+          user_id: "new@example.test",
+          idempotency_key: "custom-key",
+        },
+        {
+          id: "ds-trace",
+          user_id: "new@example.test",
+          idempotency_key: "from-trace:new%40example.test:run-1",
+        },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("refuses a promoted dataset idempotency key owned by the new email", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(`
+        CREATE TABLE agent_eval_datasets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT,
+          idempotency_key TEXT
+        );
+        INSERT INTO agent_eval_datasets VALUES
+          ('ds-old', 'old@example.test', 'from-trace:old%40example.test:run-1'),
+          ('ds-new', 'new@example.test', 'from-trace:new%40example.test:run-1');
+      `);
+      await expect(
+        pg.db.transaction((tx) =>
+          rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+        ),
+      ).rejects.toThrow(/Promoted eval dataset collision/);
+      expect(await pg.prepare('SELECT email FROM "user"').get()).toEqual({
+        email: "old@example.test",
+      });
+      expect(
+        await pg
+          .prepare(
+            "SELECT id, user_id, idempotency_key FROM agent_eval_datasets ORDER BY id",
+          )
+          .all(),
+      ).toEqual([
+        {
+          id: "ds-new",
+          user_id: "new@example.test",
+          idempotency_key: "from-trace:new%40example.test:run-1",
+        },
+        {
+          id: "ds-old",
+          user_id: "old@example.test",
+          idempotency_key: "from-trace:old%40example.test:run-1",
+        },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
   it("refuses duplicate experiment assignments for the destination email", async () => {
     const pg = await createTestPglite();
     try {
@@ -639,5 +733,105 @@ describe("rekeyIdentity", () => {
     } finally {
       await pg.close();
     }
+  });
+});
+
+describe("resumePendingIdentityRekeys idle probe cache", () => {
+  const PENDING_PROBE = /FROM identity_rekeys\s+WHERE status = 'pending'\s+AND/;
+  let now = 1_000_000;
+
+  function ledgerDb(
+    probe: (
+      email: string,
+    ) =>
+      | Array<Record<string, unknown>>
+      | Promise<Array<Record<string, unknown>>> = () => [],
+  ) {
+    const probes: string[] = [];
+    const db = {
+      async unsafe(sql: string, args: unknown[] = []) {
+        const rows = PENDING_PROBE.test(sql)
+          ? (probes.push(String(args[0])), await probe(String(args[0])))
+          : [];
+        return Object.assign([...rows], { count: 0 });
+      },
+    };
+    return { db, probes };
+  }
+
+  beforeEach(() => {
+    __resetIdleIdentityRekeyProbeCacheForTests();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("probes an idle email once per TTL on the per-request path", async () => {
+    const { db, probes } = ledgerDb();
+    const options = { ensureLedger: false, cacheIdle: true };
+
+    await resumePendingIdentityRekeys(db, "Person@Example.test", options);
+    await resumePendingIdentityRekeys(db, "person@example.test", options);
+    await resumePendingIdentityRekeys(db, "other@example.test", options);
+    expect(probes).toEqual(["person@example.test", "other@example.test"]);
+
+    now += 15_001;
+    await resumePendingIdentityRekeys(db, "person@example.test", options);
+    expect(probes).toHaveLength(3);
+  });
+
+  it("always probes without the per-request option", async () => {
+    const { db, probes } = ledgerDb();
+
+    await resumePendingIdentityRekeys(db, "person@example.test", {
+      ensureLedger: false,
+    });
+    await resumePendingIdentityRekeys(db, "person@example.test", {
+      ensureLedger: false,
+    });
+
+    expect(probes).toHaveLength(2);
+  });
+
+  it("probes again as soon as a rekey is begun or fails back to pending", async () => {
+    const { db, probes } = ledgerDb();
+    const options = { ensureLedger: false, cacheIdle: true };
+
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+    const ledger = await beginIdentityRekey(
+      db,
+      "old@example.test",
+      "new@example.test",
+    );
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+    expect(probes).toHaveLength(2);
+
+    await failIdentityRekey(db, ledger.id, new Error("rekey failed"));
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+    expect(probes).toHaveLength(3);
+  });
+
+  it("does not remember an idle answer read while a rekey was being begun", async () => {
+    let releaseProbe!: () => void;
+    const probeHeld = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    let probeCount = 0;
+    const { db, probes } = ledgerDb(async () => {
+      probeCount += 1;
+      if (probeCount === 1) await probeHeld;
+      return [];
+    });
+    const options = { ensureLedger: false, cacheIdle: true };
+
+    const racing = resumePendingIdentityRekeys(db, "old@example.test", options);
+    await beginIdentityRekey(db, "old@example.test", "new@example.test");
+    releaseProbe();
+    await racing;
+    await resumePendingIdentityRekeys(db, "old@example.test", options);
+
+    expect(probes).toHaveLength(2);
   });
 });
