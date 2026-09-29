@@ -877,6 +877,8 @@ export interface TiptapComposerProps {
    * may fail outside the composer can keep the draft visible for quick edits.
    */
   clearOnSubmit?: boolean;
+  /** Clear the submitted text before awaiting the host request. */
+  clearOnSubmitImmediately?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   mentionItems?: MentionItem[];
@@ -2549,6 +2551,7 @@ export function TiptapComposer({
   onSubmit,
   onBeforeSubmit,
   clearOnSubmit = true,
+  clearOnSubmitImmediately = false,
   onTextChange,
   actionButton,
   willQueue = false,
@@ -4284,8 +4287,32 @@ export function TiptapComposer({
         if (submitInFlightRef.current) return false;
         const submittedAttachments = [...attachments];
         submitInFlightRef.current = true;
+        const restoreSubmittedDraft = () => {
+          if (
+            !clearOnSubmitImmediately ||
+            !clearOnSubmit ||
+            !isCurrentDraftScope() ||
+            !isComposerEditorUsable(ed) ||
+            composerDocumentHasContent(ed.state.doc) ||
+            slotReferencesRef.current.length > 0
+          ) {
+            return;
+          }
+          ed.commands.setContent(submittedEditorDocument.toJSON());
+          updateSlotReferences(submittedSlotReferences);
+          const restored = syncComposerState();
+          setEditorHasText(
+            restored.text.trim().length > 0 || restored.references.length > 0,
+          );
+          onTextChangeRef.current?.(restored.text);
+          flushComposerDraft();
+        };
         try {
           setContextSubmissionError(null);
+          if (clearOnSubmitImmediately && clearOnSubmit) {
+            cancelActiveVoice();
+            clearSubmittedDraft();
+          }
           try {
             await currentOnSubmit(text, references, submittedAttachments, {
               intent,
@@ -4294,6 +4321,7 @@ export function TiptapComposer({
                 : { contextItems: contextSnapshot }),
             });
           } catch (error) {
+            restoreSubmittedDraft();
             setContextSubmissionError(
               formatAttachmentError(
                 error,
@@ -4329,7 +4357,7 @@ export function TiptapComposer({
               );
             },
           );
-          if (clearOnSubmit) {
+          if (clearOnSubmit && !clearOnSubmitImmediately) {
             cancelActiveVoice();
             clearSubmittedDraft();
           }
@@ -4381,9 +4409,11 @@ export function TiptapComposer({
       flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
+      clearOnSubmitImmediately,
       onBeforeSubmit,
       extractComposerPayload,
       syncComposerState,
+      updateSlotReferences,
       voice,
       allSlashCommands,
       announceSlashCommand,

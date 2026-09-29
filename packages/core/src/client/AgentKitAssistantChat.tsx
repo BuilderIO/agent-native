@@ -2804,6 +2804,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const lastMessage = thread.messages.at(-1);
+  const showThinking =
+    (surface.isRunning || surface.isSubmissionInFlight) &&
+    lastMessage?.role === "user" &&
+    lastMessage.metadata?.hideUserMessage !== true;
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -2974,6 +2979,15 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
+      {showThinking ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="px-3 py-2 text-sm text-muted-foreground"
+        >
+          {t("agentChat.status.thinking")}
+        </div>
+      ) : null}
       {guided.questions?.length ? (
         <div className="px-3 pb-3">
           <GuidedQuestionFlow

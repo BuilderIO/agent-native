@@ -131,6 +131,8 @@ export interface PromptComposerProps {
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
   preserveDraftOnSubmit?: boolean;
+  /** Clear the submitted text before the host request finishes. */
+  clearOnSubmitImmediately?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
   /** Controlled open state for hosts that resize around the model picker. */
@@ -611,6 +613,7 @@ function PromptComposerInner({
   rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
+  clearOnSubmitImmediately,
   showModelSelector = true,
   modelSelectorOpen,
   showAutoModelOption = true,
@@ -898,6 +901,7 @@ function PromptComposerInner({
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
+          clearOnSubmitImmediately={clearOnSubmitImmediately}
           plusMenuMode={
             plusMenuMode ??
             (attachmentsEnabled || onAttachmentRequest
