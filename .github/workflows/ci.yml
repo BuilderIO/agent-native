@@ -660,6 +660,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
       AUTH_DISABLED: "true"
       BETTER_AUTH_SECRET: neon-query-budget-test-secret
       DATABASE_URL: pglite:memory
