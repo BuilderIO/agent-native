@@ -162,6 +162,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+`createIntegrationsPlugin()` accepts an optional `IntegrationsPluginOptions` object. Its `initialToolNames?: readonly string[]` option selects the local action schemas sent on the first model request. Omitting it keeps all local actions in the initial set. A supplied array is copied without modifying the caller’s array.
+
+An explicit empty list defers local actions until `tool-search` discovers them. Required framework tools remain available initially. This configuration also disables cross-app delegation when the deployment has no A2A peer:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+The same initial tool set applies to webhook processing, queued tasks, and Google Docs polling. The complete action registry remains searchable. `callAgent: false` independently disables registration of the built-in `call-agent` action, even if it appears in `initialToolNames`.
+
 Which platforms are active depends on which env vars are set. The plugin registers webhook routes for each one under `/_agent-native/integrations/`.
 
 ## Threading and identity {#threading-and-identity}
