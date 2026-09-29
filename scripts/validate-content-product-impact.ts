@@ -266,8 +266,8 @@ const CONTENT_ROOT_EXCLUSIONS = new Set([
   "templates/content/vitest.config.ts",
 ]);
 
-// Unit tests change no product behavior. E2E, parity, and conformance suites
-// stay evidence: they are the proof a Feature or Capability cites.
+// Unit tests change no product behavior unless a product record cites them as
+// evidence. E2E, parity, and conformance suites always stay evidence.
 function isContentUnitTest(normalized: string): boolean {
   if (!normalized.startsWith("templates/content/")) return false;
   if (/^templates\/content\/(?:e2e|parity)\//.test(normalized)) return false;
@@ -278,9 +278,34 @@ function isContentUnitTest(normalized: string): boolean {
   );
 }
 
-export function directContentEvidence(file: string): string | undefined {
+export function citedEvidencePaths(catalog: ProductCatalog): Set<string> {
+  const cited = new Set<string>();
+  for (const record of catalog.records) {
+    const evidence = record.data.evidence;
+    if (!Array.isArray(evidence)) continue;
+    const recordDirectory = path.posix.join(
+      PRODUCT_ROOT,
+      path
+        .relative(catalog.root, path.dirname(record.file))
+        .split(path.sep)
+        .join("/"),
+    );
+    for (const entry of evidence) {
+      if (typeof entry !== "string") continue;
+      cited.add(path.posix.normalize(path.posix.join(recordDirectory, entry)));
+    }
+  }
+  return cited;
+}
+
+export function directContentEvidence(
+  file: string,
+  citedEvidence: ReadonlySet<string> = new Set(),
+): string | undefined {
   const normalized = file.replaceAll("\\", "/");
-  if (isContentUnitTest(normalized)) return undefined;
+  if (isContentUnitTest(normalized) && !citedEvidence.has(normalized)) {
+    return undefined;
+  }
   const prefixes = [
     "templates/content/actions/",
     "templates/content/app/",
@@ -364,8 +389,12 @@ export function analyzeContentProductImpact(
   input: ImpactAnalysisInput,
 ): ImpactAnalysis {
   const declaration = parseContentImpactDeclaration(input.body);
+  const citedEvidence = new Set([
+    ...citedEvidencePaths(input.baseCatalog),
+    ...citedEvidencePaths(input.headCatalog),
+  ]);
   const direct = input.changedFiles
-    .map(directContentEvidence)
+    .map((file) => directContentEvidence(file, citedEvidence))
     .filter((file): file is string => file !== undefined);
   const headIntroducedCatalogFailure =
     (input.baseCatalogErrors?.length ?? 0) === 0 &&

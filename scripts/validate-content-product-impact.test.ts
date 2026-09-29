@@ -247,6 +247,39 @@ describe("Content impact analysis", () => {
     ]);
   });
 
+  it("keeps a unit test that a Capability cites as evidence", () => {
+    const citedRoot = path.join(temporaryRoot, "cited");
+    cpSync(fixture, citedRoot, { recursive: true });
+    const capability = path.join(
+      citedRoot,
+      "capabilities/content.test.beta.md",
+    );
+    writeFileSync(
+      capability,
+      readFileSync(capability, "utf8").replace(
+        "evidence: []",
+        'evidence:\n  - "../../../app/lib/cited.test.ts"',
+      ),
+    );
+    const { catalog } = validateContentProductDocs(citedRoot, {
+      strictCatalog: false,
+      checkProjections: false,
+    });
+    const applicable = (file: string) =>
+      analyzeContentProductImpact({
+        body: "",
+        changedFiles: [file],
+        baseCatalog: catalog,
+        headCatalog: catalog,
+      }).applicable;
+
+    assert.equal(applicable("templates/content/app/lib/cited.test.ts"), true);
+    assert.equal(
+      applicable("templates/content/app/lib/uncited.test.ts"),
+      false,
+    );
+  });
+
   it("accepts a complete applicable declaration without deterministic findings", () => {
     const { base, head } = catalogs();
     const result = analyzeContentProductImpact({
