@@ -1987,6 +1987,9 @@ export default function ShareRoute() {
         onOpenChange={(open) => {
           if (!open) setAccountGateIntent(null);
         }}
+        portalContainer={
+          isPlayerFullscreen ? playerRef.current?.container : undefined
+        }
         intent={accountGateIntent ?? "continue"}
         returnTo={shareReturnTo}
         onSignIn={() => fireShareCtaClick("signin")}

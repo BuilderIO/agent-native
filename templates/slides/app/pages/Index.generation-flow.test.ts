@@ -263,6 +263,16 @@ describe("new deck generation flow", () => {
   it("preserves the composer model selection through the reference step", () => {
     expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
+    expect(source).toContain(
+      `attachments.attachments,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,`,
+    );
     expect(flow).toContain("...modelSelection");
   });
 
