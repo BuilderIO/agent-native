@@ -95,6 +95,43 @@ function fixture(): { root: string; source: string; packageFile: string } {
 }
 
 describe("runMigrationCodemods", () => {
+  it("rewrites literal dynamic imports for whole-module moves", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'const loadComposer = () => import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({ default: PromptComposer }));',
+        "async function loadComposerOnDemand() { return import(`@agent-native/core/client/composer`); }",
+        "",
+      ].join("\n"),
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(source, "utf-8")).toBe(
+      [
+        'const loadComposer = () => import("@agent-native/toolkit/app/chat/composer/index").then(({ PromptComposer }) => ({ default: PromptComposer }));',
+        'async function loadComposerOnDemand() { return import("@agent-native/toolkit/app/chat/composer/index"); }',
+        "",
+      ].join("\n"),
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
+    expect(result.warnings).toEqual([]);
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(packageFile);
+  });
+
   it("rewrites moved stylesheet imports and adds the destination package", () => {
     const { root, packageFile } = fixture();
     const stylesheet = path.join(root, "app", "global.css");
@@ -154,8 +191,17 @@ describe("runMigrationCodemods", () => {
     expect(result.changes.map((change) => change.file)).toContain(stylesheet);
   });
 
-  it("moves app stylesheet imports to their Toolkit exports", () => {
-    const { root, packageFile } = fixture();
+  it("migrates AgentKit React entrypoints and stylesheet with the Core manifest", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import * as AgentKitReact from "@agent-native/agentkit/react";',
+        'import { AgentKitRoot } from "@agent-native/agentkit/react/root";',
+        "void AgentKitReact; void AgentKitRoot;",
+        "",
+      ].join("\n"),
+    );
     const stylesheet = path.join(root, "app", "global.css");
     fs.mkdirSync(path.dirname(stylesheet), { recursive: true });
     fs.writeFileSync(
@@ -174,12 +220,21 @@ describe("runMigrationCodemods", () => {
       targetExists: () => true,
     });
 
+    expect(fs.readFileSync(source, "utf-8")).toBe(
+      [
+        'import * as AgentKitReact from "@agent-native/toolkit/app/agentkit";',
+        'import { AgentKitRoot } from "@agent-native/toolkit/app/agentkit";',
+        "void AgentKitReact; void AgentKitRoot;",
+        "",
+      ].join("\n"),
+    );
     expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
       '@import "@agent-native/toolkit/app/agentkit/react/styles.css";\n@import "@agent-native/toolkit/app/styles/agent-conversation.css";\n@import "@agent-native/toolkit/app/styles/chat-history-list.css";\n',
     );
     expect(
       JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
     ).toMatchObject({ "@agent-native/toolkit": ">=0.23.0" });
+    expect(result.changes.map((change) => change.file)).toContain(source);
     expect(result.changes.map((change) => change.file)).toContain(stylesheet);
   });
 

@@ -50,6 +50,35 @@ describe("repository eject manifests", () => {
   );
   const manifests = [core, toolkit, scheduling, creativeContext];
 
+  it("routes migrated Core styles through Toolkit exports", () => {
+    const corePackage = readJson<{ exports: Record<string, unknown> }>(
+      "packages/core/package.json",
+    );
+    const toolkitPackage = readJson<{ exports: Record<string, unknown> }>(
+      "packages/toolkit/package.json",
+    );
+    const docsStylesheet = fs.readFileSync(
+      path.join(repoRoot, "packages/docs/app/global.css"),
+      "utf8",
+    );
+
+    for (const oldExport of [
+      "./styles/agent-native.css",
+      "./styles/agent-conversation.css",
+      "./styles/chat-history-list.css",
+    ]) {
+      expect(corePackage.exports[oldExport], oldExport).toBeUndefined();
+    }
+    expect(toolkitPackage.exports["./styles.css"]).toBe("./dist/styles.css");
+    expect(toolkitPackage.exports["./app/*.css"]).toBe("./dist/app/*.css");
+    expect(docsStylesheet).toContain(
+      '@import "@agent-native/toolkit/styles.css";',
+    );
+    expect(docsStylesheet).not.toContain(
+      "@agent-native/core/styles/agent-native.css",
+    );
+  });
+
   it("covers every current Toolkit public entrypoint", () => {
     const packageJson = readJson<{ exports: Record<string, unknown> }>(
       "packages/toolkit/package.json",

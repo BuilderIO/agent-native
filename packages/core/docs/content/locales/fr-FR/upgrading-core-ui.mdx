@@ -38,7 +38,7 @@ conservant les alias et les imports de type. Il réécrit aussi les chemins CSS
 @import simples et ajoute une dépendance manquante lorsqu’une réécriture
 résolue traverse la frontière d’un package.
 
-Le diagnostic détecte également les formes CommonJS `require()` et les formes `import()` dynamiques, mais le codemod ne réécrit pas ces expressions d’appel. Remplacez-les en utilisant la nouvelle destination indiquée dans le rapport, puis relancez Vite ou `agent-native doctor`. Les chemins CSS `@import url(...)` sont réécrits qu’ils soient entre guillemets ou non.
+Le diagnostic détecte également les formes CommonJS `require()` et les formes `import()` dynamiques. Le codemod réécrit les appels `import()` littéraux lorsque l’ancien module n’a qu’une seule nouvelle destination. Il laisse `require()` et les imports dynamiques nécessitant une séparation par symbole inchangés et signale un avertissement ; remplacez-les en utilisant la nouvelle destination indiquée dans le rapport, puis relancez Vite ou `agent-native doctor`. Les chemins CSS `@import url(...)` sont réécrits qu’ils soient entre guillemets ou non.
 
 Il ne modifie pas les sites d’appel et ne déplace pas vos fichiers. Les
 migrations non résolues ou planifiées restent inchangées et génèrent un
@@ -112,15 +112,22 @@ Pour rechercher dans le code source des modèles Agent-Native, ajoutez le paquet
 ## 3. Appliquer la mise à niveau
 
 Après examen de la simulation et confirmation des packages de fonctionnalités,
-appliquez le plan :
+appliquez le plan avec la CLI versionnée. C’est important si l’application
+utilise encore Core 0.196 ou une CLI plus ancienne, qui contient un ancien
+manifeste de migration :
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Une fois Core 0.198.0 installé dans l’application, la même commande est
+disponible depuis la CLI locale :
 
     npx agent-native upgrade --codemods
 
-Cette commande unique met à jour les spécifications de dépendance
-@agent-native/\* admissibles, aligne les dépendances des fonctionnalités
-détectées, lance le gestionnaire de paquets, épingle les versions
-Agent-Native résolues, applique les codemods pris en charge, actualise les
-skills de scaffold et exécute le script typecheck racine s’il existe. Ne
+Les deux commandes mettent à jour les spécifications de dépendance
+@agent-native/\* admissibles, alignent les dépendances des fonctionnalités
+détectées, lancent le gestionnaire de paquets, épinglent les versions
+Agent-Native résolues, appliquent les codemods pris en charge, actualisent les
+skills de scaffold et exécutent le script typecheck racine s’il existe. Ne
 lancez pas une seconde commande upgrade uniquement pour appliquer les codemods.
 Corrigez les avertissements et erreurs au niveau du code de l’application ;
 n’ajoutez pas d’overrides ou de patches du framework.
@@ -131,14 +138,22 @@ Examinez le diff complet, notamment les avertissements de codemod ignorés et
 les versions de dépendances, puis exécutez :
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Utilisez la commande typecheck équivalente pour npm ou Yarn, ainsi que les
-tests et la compilation pertinents de l’application. Vérifiez que les réglages
-locaux et déployés figurent dans le tableau des peers facultatifs. Recherchez
-les anciens imports du tableau ci-dessous ; les résultats restants doivent être
-intentionnels, non pris en charge par le manifeste ou expliqués par un
-avertissement.
+Doctor exécute par défaut les contrôles `migration-manifest` et
+`feature-dependencies`. Ils signalent les anciens imports et les peers
+facultatifs manquants pour les fonctionnalités détectées depuis la configuration
+locale. Doctor ne peut pas consulter les paramètres de déploiement distants ni
+les paramètres de fonctionnalité stockés en base de données. Vérifiez-les
+séparément.
+
+Utilisez la commande typecheck équivalente pour npm ou Yarn. Exécutez les scripts
+de test et de compilation de l’application lorsqu’ils existent, généralement
+`pnpm test` et `pnpm build`. Vérifiez que les réglages locaux et déployés figurent
+dans le tableau des peers facultatifs. Recherchez les anciens imports du tableau
+ci-dessous ; les résultats restants doivent être intentionnels, non pris en
+charge par le manifeste ou expliqués par un avertissement.
 
 ## Anciens chemins et destinations représentatives
 
