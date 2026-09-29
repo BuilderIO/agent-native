@@ -1,5 +1,15 @@
 # @agent-native/toolkit
 
+## 0.23.1
+
+### Patch Changes
+
+- f2e8ffe: Center empty chat composers correctly and make send buttons circular across shared chat surfaces.
+- 023ee9b: Keep home chat visible while provider readiness is checked.
+- 47985fe: Show a busy state while the composer checks AI readiness before submitting.
+- Release all public npm packages with a patch version bump.
+- fa62fdf: Improve provider setup controls, status retry backoff, and suggestion contrast.
+
 ## 0.23.0
 
 ### Minor Changes
@@ -914,11 +924,5 @@
 ### Patch Changes
 
 - 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
-
-## 0.4.9
-
-### Patch Changes
-
-- c690750: Button press feedback now eases instead of snapping: include the native `scale` property in the Button transition list (Tailwind v4 compiles `active:scale-*` to `scale`, which the previous `transform`-only list didn't animate).
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

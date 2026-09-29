@@ -1,5 +1,19 @@
 # @agent-native/scheduling
 
+## 0.2.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b8845eb: Scope booking workflows and webhook deliveries to the booking owner and organization.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+- Updated dependencies [f2e8ffe]
+- Updated dependencies [023ee9b]
+- Updated dependencies [47985fe]
+- Updated dependencies
+- Updated dependencies [fa62fdf]
+  - @agent-native/toolkit@0.23.1
+
 ## 0.2.4
 
 ### Patch Changes
