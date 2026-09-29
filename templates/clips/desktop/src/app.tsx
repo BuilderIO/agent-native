@@ -1502,7 +1502,12 @@ export function App({
     let unlisten: (() => void) | null = null;
     listen("meetings:auth-needed", async () => {
       console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
-      await resumePolling();
+      // Never resume the pollers here: every rejection fires this event, so a
+      // session check that passes while actions still 401/403 would reset the
+      // rejection budget each time and poll forever. A refreshed token changes
+      // the credentials, which the pollers already retry on their own.
+      const authResult = await checkAuth();
+      if (authResult.state === "authenticated") await pushMeetingsSession();
     })
       .then((u) => {
         unlisten = u;
@@ -1517,7 +1522,7 @@ export function App({
         }
       }
     };
-  }, [signedInAs, serverUrl, pushMeetingsSession, resumePolling]);
+  }, [signedInAs, serverUrl, checkAuth, pushMeetingsSession]);
 
   useEffect(() => {
     if (authStatus !== "authed") return;
