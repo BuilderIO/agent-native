@@ -10,6 +10,9 @@ const TERABYTE = 1_000_000_000_000;
 const DAILY_THRESHOLD_BYTES = 50 * GIGABYTE;
 const ABSOLUTE_THRESHOLD_BYTES = TERABYTE;
 const API_MIN_INTERVAL_MS = 1_300;
+const PROJECT_PAGE_SIZE = 400;
+const PROJECT_LIST_TIMEOUT_MS = 25_000;
+const LIVE_BACKTEST_DAYS = 28;
 let lastApiRequestAt = 0;
 
 export interface TransferPoint {
@@ -200,6 +203,14 @@ export function extractConsumptionRows(
   return [...totals.values()];
 }
 
+export function hasUnavailableProjects(
+  payload: Record<string, unknown>,
+): boolean {
+  return [payload.unavailable_project_ids, payload.unavailable].some(
+    (value) => Array.isArray(value) && value.length > 0,
+  );
+}
+
 async function neonGet(url: URL): Promise<unknown> {
   if (!API_KEY) throw new Error("NEON_API_KEY is required for the live alert.");
   const waitMs = Math.max(
@@ -226,33 +237,39 @@ async function neonGet(url: URL): Promise<unknown> {
 async function listProjects(): Promise<Map<string, string>> {
   const projects = new Map<string, string>();
   let cursor: string | undefined;
+  let page = 0;
   const seenCursors = new Set<string>();
   for (;;) {
+    page += 1;
     const url = new URL(`${API_BASE}/projects`);
-    url.searchParams.set("limit", "400");
+    url.searchParams.set("limit", String(PROJECT_PAGE_SIZE));
     url.searchParams.set("org_id", ORG_ID);
+    url.searchParams.set("timeout", String(PROJECT_LIST_TIMEOUT_MS));
     if (cursor) url.searchParams.set("cursor", cursor);
     const payload = object(await neonGet(url));
     if (!payload || !Array.isArray(payload.projects)) {
       throw new Error("Neon project response did not contain a projects list.");
     }
-    if (Array.isArray(payload.unavailable) && payload.unavailable.length) {
+    if (hasUnavailableProjects(payload))
       throw new Error(
-        "Neon project list was incomplete; some projects are unavailable.",
+        "Neon project list was incomplete; projects are unavailable.",
       );
-    }
     for (const rawProject of payload.projects) {
       const project = object(rawProject);
-      if (typeof project?.id === "string" && typeof project.name === "string") {
-        projects.set(project.id, project.name);
-      }
+      if (typeof project?.id !== "string" || typeof project.name !== "string")
+        throw new Error("Neon project list contained an invalid project row.");
+      projects.set(project.id, project.name);
     }
+    // Neon repeats the previous cursor on the terminal empty page.
+    if (payload.projects.length === 0) return projects;
     const pagination = object(payload.pagination);
     const nextCursor =
       typeof pagination?.cursor === "string" ? pagination.cursor : undefined;
     if (!nextCursor) return projects;
     if (seenCursors.has(nextCursor)) {
-      throw new Error("Neon project pagination repeated a cursor.");
+      throw new Error(
+        `Neon project pagination repeated a cursor after page ${page}; ${projects.size} projects were read and the last page contained ${payload.projects.length}. Cursor matches request: ${nextCursor === cursor}.`,
+      );
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
@@ -263,6 +280,14 @@ function utcDayOffset(day: string, offset: number): string {
   const date = new Date(`${day}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
+}
+
+export function liveBacktestRange(now = new Date()): {
+  from: string;
+  to: string;
+} {
+  const to = utcDayOffset(now.toISOString().slice(0, 10), -1);
+  return { from: utcDayOffset(to, 1 - LIVE_BACKTEST_DAYS), to };
 }
 
 async function fetchTransferPoints(
@@ -414,15 +439,25 @@ function parseArgs(args: string[]): {
   dryRun: boolean;
   send: boolean;
   backtest: boolean;
+  liveBacktest: boolean;
 } {
   const unknown = args.filter(
-    (arg) => !["--dry-run", "--send", "--backtest"].includes(arg),
+    (arg) =>
+      !["--dry-run", "--send", "--backtest", "--backtest-live"].includes(arg),
   );
   if (unknown.length) throw new Error(`Unknown argument: ${unknown[0]}`);
   const send = args.includes("--send");
   if (send && args.includes("--dry-run"))
     throw new Error("Choose either --send or --dry-run.");
-  return { dryRun: !send, send, backtest: args.includes("--backtest") };
+  const backtest = args.includes("--backtest");
+  const liveBacktest = args.includes("--backtest-live");
+  if (send && (backtest || liveBacktest)) {
+    throw new Error("Backtests never send Slack alerts.");
+  }
+  if (backtest && liveBacktest) {
+    throw new Error("Choose either --backtest or --backtest-live.");
+  }
+  return { dryRun: !send, send, backtest, liveBacktest };
 }
 
 async function postSlack(
@@ -448,7 +483,9 @@ async function postSlack(
 }
 
 async function run(): Promise<void> {
-  const { dryRun, send, backtest } = parseArgs(process.argv.slice(2));
+  const { dryRun, send, backtest, liveBacktest } = parseArgs(
+    process.argv.slice(2),
+  );
   if (backtest) {
     const points = await readBacktest();
     const alerts = findTransferAlerts(points);
@@ -469,6 +506,83 @@ async function run(): Promise<void> {
     for (const item of expected) {
       if (!actual.has(item))
         throw new Error(`Backtest did not flag required scenario ${item}.`);
+    }
+    return;
+  }
+
+  if (liveBacktest) {
+    if (!API_KEY || !ORG_ID) {
+      const missing = [
+        !API_KEY ? "NEON_API_KEY" : undefined,
+        !ORG_ID ? "NEON_ORG_ID" : undefined,
+      ].filter((key): key is string => Boolean(key));
+      console.error(
+        `[neon-transfer-alert] could not run: ${missing.join(" and ")} required for the live backtest.`,
+      );
+      process.exitCode = 2;
+      return;
+    }
+    const projects = await listProjects();
+    if (projects.size === 0) throw new Error("Neon project list was empty.");
+    const { from: backtestFrom, to: backtestTo } = liveBacktestRange();
+    const from = utcDayOffset(backtestFrom, -7);
+    const throughExclusive = utcDayOffset(backtestTo, 1);
+    const points = await fetchTransferPoints(projects, from, throughExclusive);
+    const alerts = findTransferAlerts(points).filter(
+      ({ date }) => date >= backtestFrom && date <= backtestTo,
+    );
+    console.log(
+      `Live Neon API backtest ${backtestFrom} through ${backtestTo}; fetched ${from} through ${utcDayOffset(throughExclusive, -1)} for trailing medians. This mode never posts to Slack.`,
+    );
+    console.log(formatAlertTable(alerts));
+    if (backtestFrom > "2026-09-03" || backtestTo < "2026-09-24") {
+      console.log(
+        "September expected-alert checks skipped because those dates are outside the rolling backtest window.",
+      );
+      return;
+    }
+    const scenarios = [
+      {
+        label: "Docs on 2026-09-03",
+        matches: alerts.some(
+          ({ projectId, projectName, date }) =>
+            (projectId === "nameless-heart-24943231" ||
+              projectName.toLowerCase() === "docs") &&
+            date === "2026-09-03",
+        ),
+      },
+      {
+        label: "Design around 2026-09-08",
+        matches: alerts.some(
+          ({ projectId, projectName, date }) =>
+            (projectId === "lively-lake-47544625" ||
+              projectName.toLowerCase() === "design") &&
+            date >= "2026-09-07" &&
+            date <= "2026-09-09",
+        ),
+      },
+      {
+        label: "Mail after 2026-09-19",
+        matches: alerts.some(
+          ({ projectId, projectName, date }) =>
+            (projectId === "patient-cake-44789837" ||
+              projectName.toLowerCase() === "mail") &&
+            date > "2026-09-19",
+        ),
+      },
+    ];
+    for (const scenario of scenarios) {
+      console.log(
+        `Expected scenario ${scenario.label}: ${scenario.matches ? "flagged" : "not flagged"}`,
+      );
+    }
+    const missingScenarios = scenarios
+      .filter(({ matches }) => !matches)
+      .map(({ label }) => label);
+    if (missingScenarios.length) {
+      throw new Error(
+        `Live backtest did not flag expected scenarios: ${missingScenarios.join(", ")}.`,
+      );
     }
     return;
   }
