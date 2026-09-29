@@ -679,7 +679,7 @@ const PR_REVIEW_MERGE_GATE_RE =
 const PR_REVIEW_MERGE_OBJECT = String.raw`(?:\s+(?:(?:(?:the|a|an|this|that|these|those|my|our)\s+)?(?:PR|pull\s+request|fix|code|change|changes|commit|branch|update)|it|this|that))?`;
 const PR_REVIEW_WITH_MERGE_PREFIX = String.raw`(?:merge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?|only(?:\s+merge${PR_REVIEW_MERGE_OBJECT})?)`;
 const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
-  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?(?:\s+without\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer))?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|as\s+long\s+as|subject\s+to|contingent\s+(?:upon|on)|provided\s+that|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
+  String.raw`\bmerge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?(?:\s+without\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer))?\s+(?:after|upon|once|when|until|unless|if|requires?|needs?|as\s+long\s+as|subject\s+to|contingent\s+(?:upon|on)|provided(?:\s+that)?(?=\s+\S)|conditional\s+on|dependent\s+on)\b[^.!?;]{0,60}$`,
   "i",
 );
 const PR_REVIEW_GATE_WAIT_FOR_RE =
@@ -930,6 +930,11 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "If no changes are needed, merge contingent on all required checks passing.",
+  ],
+  [false, "If no changes are needed, merge provided all required checks pass."],
+  [
+    false,
+    "If no changes are needed, merge provided the security team approves.",
   ],
   [false, "If no changes are needed, merge only after product-owner sign-off."],
   [
