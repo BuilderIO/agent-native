@@ -7,6 +7,7 @@ export {
   deferMigration,
   MIGRATION_DEFERRED,
   runMigrations,
+  withMigrationExecutionRuntime,
   withMigrationRuntime,
   type MigrationEntry,
   type MigrationRunResult,

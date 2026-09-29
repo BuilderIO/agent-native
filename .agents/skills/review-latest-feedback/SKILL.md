@@ -531,23 +531,27 @@ Use this worktree's branch. Batch fixes with one
 `origin/main` only for GitHub conflicts; prefer normal merges on shared
 branches. Behind/pending never justify syncing.
 
-With shipping authority — an explicit request, or a caller that already
-granted it — continue straight into `ship` in the same worktree without asking
-again. Without it, prepare the ready-to-ship handoff and say shipping is
-pending authorization. Carry each channel's start cursor, grouped reports,
-evidence, owning seam, sibling results, and dispositions into the PR body.
+Shipping authorizes new PRs and merge-authorized handling for PRs authored by
+the current GitHub user. Resolve that login with `gh api user --jq .login`,
+include `author` in the live PR query, and compare `author.login` before
+publishing. Pushing to an external PR requires explicit current-request
+authorization for that exact PR. Push-only authorization means
+`ship_mode=ready-only`; leave it open. Use `ship_mode=merge-authorized` only
+when this request separately authorizes merging that PR; follow `/ship`'s
+guarded merge gate. Without push authorization, hand off and mark publishing
+pending. Carry channel cursors, reports, evidence, owning seams, sibling
+results, and dispositions into the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
-If a tracker was supplied, carry its exact row ids and the reproduction ledger
-into the PR or release recap. Never turn a tracker status into a shipping claim.
-Give every row its own disposition marker. A single reaction, checkmark, or
-"reviewed" marker must not stand in for several rows, including expected,
-docs-owned, cross-team, or duplicate items. Any source/docs change is linked
-to its exact PR or commit; non-coding dispositions link the evidence or named
-owner instead of borrowing a nearby PR link.
+Carry exact tracker row ids and the reproduction ledger into the PR or release
+recap; tracker status is not shipping evidence. Mark each row independently: a
+reaction, checkmark, or "reviewed" cannot cover multiple rows, including
+expected, docs-owned, cross-team, or duplicate items. Link each source/docs
+change to its exact PR or commit, and each non-coding disposition to its
+evidence or owner.
 
-If the sweep found no verified fix, finish with the recap and say why no ship
-started. Unavailable connectors and external failures are not shipping blockers.
+If no fix is verified, recap why shipping did not start. Unavailable connectors
+and external failures are not shipping blockers.
 While waiting, **Clarification needed** stays open with `👀` and no `✅`. It
 must not block merging independently verified fixes unless the report could
 affect a PR change. Keep the eye when new evidence arrives.

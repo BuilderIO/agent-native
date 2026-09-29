@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "无法加载上下文。",
   "composer.contextLinkRequired": "请输入链接。",
   "composer.submitFailed": "无法提交。请重试。",
+  "composer.attachmentsRemainAfterSubmit":
+    "消息已发送，但仍有附件。请先移除附件再发送下一条消息。",
   "composer.addContext": "添加上下文",
   "composer.contextActionFailed": "无法添加上下文。",
   "composer.contextBack": "返回",
@@ -70,6 +72,11 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及文件、智能体或资源",
   "commands.new": "与 /clear 相同",
   "commands.plan": "切换到只读规划模式",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainOptional": "回复必须包含（可选）",
+  "observability.promoteMustContainLabel": "晋升后的评估回复必须包含的文本",
+  "observability.promoteNeedsContains":
+    "本次运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.viewDetails": "查看详情",
   "observability.hideDetails": "隐藏详情",
   "observability.input": "输入",
@@ -605,6 +612,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推荐",
   "integrations.subtitle": "连接您的智能体可以使用的工具。",
   "mcpIntegrations.menuLabel": "集成",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 应用需要 {{packageName}}。请使用 {{installCommand}} 安装。",
   "mcpIntegrations.menuDescription": "将工具和服务连接到智能体",
   "mcpIntegrations.title": "连接集成",
   "mcpIntegrations.description":
@@ -1233,6 +1242,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新电子邮件",
   "settings.emailNewPlaceholder": "输入新电子邮件",
   "usage.builderCredits": "Builder 积分",
+  "featureFlags.builderCreditReferrals.name": "Builder 积分推荐",
+  "featureFlags.builderCreditReferrals.description":
+    "在用量中显示已连接 Builder 工作区的推荐详情。",
   "usage.inviteFriends": "邀请好友",
   "usage.inviteCredits": "好友订阅后可获得 {{amount}} 个 Builder 积分。",
   "usage.copyInviteLink": "复制邀请链接",

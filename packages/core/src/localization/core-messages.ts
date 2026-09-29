@@ -1,3 +1,4 @@
+import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
 import englishMessages from "./core-messages/en-US.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
@@ -150,7 +151,7 @@ function nestAgentChatMessages(
   return messages;
 }
 
-function observabilitySummaryMessages(messages: AgentChatTranslation) {
+function observabilityMessages(messages: AgentChatTranslation) {
   return {
     summarizeWithAgent: messages["observability.summarizeWithAgent"],
     regenerateSummary: messages["observability.regenerateSummary"],
@@ -160,6 +161,11 @@ function observabilitySummaryMessages(messages: AgentChatTranslation) {
     summaryQueued: messages["observability.summaryQueued"],
     summaryFailed: messages["observability.summaryFailed"],
     summaryExpired: messages["observability.summaryExpired"],
+    promoteMustContain: messages["observability.promoteMustContain"],
+    promoteMustContainOptional:
+      messages["observability.promoteMustContainOptional"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
+    promoteNeedsContains: messages["observability.promoteNeedsContains"],
   };
 }
 
@@ -218,7 +224,8 @@ export async function loadCoreMessagesForLocale(
   ]);
   return {
     ...nestAgentChatMessages(agentChatMessages),
-    observability: observabilitySummaryMessages(agentChatMessages),
+    agentResources: agentResourcePackMessagesForLocale(locale),
+    observability: observabilityMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
     iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
@@ -230,7 +237,8 @@ export async function loadCoreMessagesForLocale(
 
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
-  observability: observabilitySummaryMessages(englishAgentChatMessages),
+  agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
+  observability: observabilityMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {

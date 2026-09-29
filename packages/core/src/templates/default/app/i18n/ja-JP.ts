@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "接続を解除しています…",
   },
   settings: {
-    title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     agentTitle: "エージェント設定",
     agentDescription:
       "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
@@ -33,7 +27,6 @@ const messages = {
       "チームのアクセスと共有ワークスペース リソースを管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    backHome: "ホームに戻る",
     emailChange: "メールアドレスを変更",
     emailChangeSent: "変更を確認するにはメールを確認してください。",
     emailChangeError: "確認メールを送信できませんでした。",
@@ -653,6 +646,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "リストに戻る",
+    promoteMustContain: "返信に含めるテキスト…",
+    promoteMustContainOptional: "返信に含めるテキスト（任意）",
+    promoteMustContainLabel: "昇格した評価の返信に含めるテキスト",
+    promoteNeedsContains:
+      "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",
     type: "タイプ",
     name: "名前",

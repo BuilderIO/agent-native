@@ -20,10 +20,6 @@ const messages = {
   },
   settings: {
     title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",

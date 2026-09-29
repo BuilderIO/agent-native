@@ -12,6 +12,7 @@ import {
   elementHasComponentAnnotation,
   inferElementSizing,
   inspectorObjectTitle,
+  isBoxlessText,
   isContainerElement,
   measuredElementSize,
   parentFlexDirection,
@@ -132,6 +133,67 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       isFlexContainer: true,
     });
     expect(isTextElement(element)).toBe(true);
+  });
+});
+
+describe("isBoxlessText — corner radius on text", () => {
+  const text = (computedStyles: Record<string, string> = {}) =>
+    makeElement({ tagName: "h1", hasOwnText: true, computedStyles });
+
+  it("treats plain text like Figma: no box to round", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage: "none",
+          borderTopWidth: "0px",
+          borderTopStyle: "none",
+          outlineWidth: "3px",
+          outlineStyle: "none",
+          outlineColor: "rgb(21, 24, 27)",
+          boxShadow: "none",
+          backdropFilter: "none",
+          textShadow: "0px 4px 12px rgba(30, 158, 73, 0.57)",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not count a gradient clipped to the glyphs as a box", () => {
+    expect(
+      isBoxlessText(
+        text({
+          backgroundImage: "linear-gradient(red, blue)",
+          backgroundClip: "text",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps corner radius when HTML text paints a box", () => {
+    expect(isBoxlessText(text({ backgroundColor: "rgb(255, 0, 0)" }))).toBe(
+      false,
+    );
+    expect(
+      isBoxlessText(text({ backgroundImage: "linear-gradient(red, blue)" })),
+    ).toBe(false);
+    expect(
+      isBoxlessText(
+        text({
+          borderLeftWidth: "1px",
+          borderLeftStyle: "solid",
+          borderLeftColor: "rgb(0, 0, 0)",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isBoxlessText(text({ boxShadow: "rgb(0, 0, 0) 0px 2px 4px 0px" })),
+    ).toBe(false);
+    expect(isBoxlessText(text({ backdropFilter: "blur(8px)" }))).toBe(false);
+  });
+
+  it("never disables corner radius on non-text layers", () => {
+    expect(isBoxlessText(makeElement({ tagName: "div" }))).toBe(false);
   });
 });
 

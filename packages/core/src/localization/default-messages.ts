@@ -241,6 +241,13 @@ const messages = {
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
+    exportPack: "Export pack",
+    importPack: "Import pack",
+    exportPackSuccess: "Downloaded resource pack",
+    exportPackFailed: "Could not export pack",
+    importPackSuccess: "Imported {{imported}} files, skipped {{skipped}}",
+    importPackFailed: "Could not import pack",
+    importPackInvalid: "That file is not a valid resource pack",
     createFile: {
       nameLabel: "File name",
       namePlaceholder: "notes/ideas",
@@ -1788,6 +1795,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Reply must contain (optional)",
+    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",
     output: "Output",
     error: "Error",

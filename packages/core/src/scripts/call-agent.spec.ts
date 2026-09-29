@@ -169,6 +169,10 @@ describe("call-agent action", () => {
 
     expect(tool.description).toContain("Use message by default");
     expect(tool.description).toContain(
+      "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
+    );
+    expect(tool.description).toContain("availability alone is not a reason");
+    expect(tool.description).toContain(
       "The receiver owns provider, schema, query, join, and SQL decisions",
     );
     expect(tool.description).toContain(
@@ -695,6 +699,50 @@ describe("call-agent action", () => {
       }
     },
   );
+
+  it("contains a child turn stop and blocks retrying that target", async () => {
+    callAgentMock.mockRejectedValueOnce(
+      Object.assign(new Error("remote task failed"), {
+        name: "A2ATaskTerminalError",
+        taskId: "task-child-stop",
+        state: "failed",
+        responseText:
+          "I stopped because get-capture needs an editor role.\n" +
+          "code: permanent_precondition",
+        errorCode: "permanent_precondition",
+      }),
+    );
+    const { run } = await import("./call-agent.js");
+    const blockedA2ATargets = new Map<string, string>();
+    const context = { send: vi.fn(), blockedA2ATargets } as any;
+
+    let firstError: unknown;
+    try {
+      await run(
+        { agent: "analytics", message: "inspect the account" },
+        context,
+      );
+    } catch (error) {
+      firstError = error;
+    }
+
+    expect(firstError).toMatchObject({
+      errorCode: "a2a_child_permanent_precondition",
+    });
+    expect((firstError as Error).message).toContain(
+      "Do not call Slides again this turn",
+    );
+    expect((firstError as Error).message).toContain("<<<diagnostic-snippet");
+    expect((firstError as Error).message).toContain(
+      "code: permanent_precondition",
+    );
+    expect(blockedA2ATargets.has("slides")).toBe(true);
+
+    await expect(
+      run({ agent: "analytics", message: "retry with raw content" }, context),
+    ).rejects.toThrow("Not calling Slides again this turn");
+    expect(callAgentMock).toHaveBeenCalledOnce();
+  });
 
   it("emits error when a direct semantic read returns a failed status", async () => {
     invokeActionMock.mockResolvedValueOnce({

@@ -4,6 +4,10 @@ const state = vi.hoisted(() => ({
   migrationPlugin: vi.fn(),
   ensureAdditiveColumns: vi.fn(async () => ({ errors: [] })),
   getDbExec: vi.fn(),
+  isProductionServerlessRuntime: vi.fn(() => true),
+  withMigrationExecutionRuntime: vi.fn(async (run: () => Promise<unknown>) =>
+    run(),
+  ),
   withMigrationRuntime: vi.fn(async (run: () => Promise<unknown>) => run()),
 }));
 
@@ -17,6 +21,7 @@ vi.mock("@agent-native/core/db", () => ({
   ensureAdditiveColumns: state.ensureAdditiveColumns,
   getDbExec: state.getDbExec,
   runMigrations: vi.fn(() => state.migrationPlugin),
+  withMigrationExecutionRuntime: state.withMigrationExecutionRuntime,
   withMigrationRuntime: state.withMigrationRuntime,
 }));
 
@@ -26,6 +31,9 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../db/index.js", () => ({}));
 vi.mock("../db/schema.js", () => ({}));
+vi.mock("../lib/production-serverless-runtime.js", () => ({
+  isProductionServerlessRuntime: state.isProductionServerlessRuntime,
+}));
 
 const originalEnv = { ...process.env };
 
@@ -37,6 +45,8 @@ describe("Analytics database plugin boot contract", () => {
     state.migrationPlugin.mockReset();
     state.ensureAdditiveColumns.mockClear();
     state.getDbExec.mockReset();
+    state.isProductionServerlessRuntime.mockReturnValue(true);
+    state.withMigrationExecutionRuntime.mockClear();
     state.withMigrationRuntime.mockClear();
     vi.resetModules();
   });
@@ -57,19 +67,40 @@ describe("Analytics database plugin boot contract", () => {
     expect(state.getDbExec).not.toHaveBeenCalled();
   });
 
-  it("runs migrations in the designated scheduled rollup worker", async () => {
+  it("runs schema setup for the scheduled production rollup invocation", async () => {
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ = true;
     const register = (await import("./db")).default;
 
     await register({});
 
     expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
-    expect(state.withMigrationRuntime).toHaveBeenCalledTimes(1);
     expect(state.ensureAdditiveColumns).toHaveBeenCalledTimes(1);
+    expect(state.getDbExec).toHaveBeenCalledTimes(1);
+    expect(state.withMigrationRuntime).toHaveBeenCalledTimes(1);
+    expect(state.withMigrationExecutionRuntime).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the migration path available to an explicitly long-lived runtime", async () => {
+    state.isProductionServerlessRuntime.mockReturnValue(false);
     process.env = { ...originalEnv, NODE_ENV: "production" };
+    const register = (await import("./db")).default;
+
+    await register({});
+
+    expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
+    expect(state.ensureAdditiveColumns).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps local Netlify and Vercel development on the migration path", async () => {
+    state.isProductionServerlessRuntime.mockReturnValue(false);
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: "production",
+      NETLIFY: "true",
+      NETLIFY_LOCAL: "true",
+      VERCEL: "1",
+      VERCEL_ENV: "development",
+    };
     const register = (await import("./db")).default;
 
     await register({});

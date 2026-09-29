@@ -70,6 +70,14 @@ column. If the source is denser, split it across slides. Never use zoom,
 text must remain at least 16px. Explicitly reduced slide padding is allowed when
 the content still needs the space.
 
+After all deck edits, call `get-layout-overflows` once. If you repair a
+measured overflow, call it once more; do not check between writes. If status is
+unknown, name the unmeasured slide numbers and IDs. The action reads current
+measurements from the open editor tab and cannot trigger or wait for them, so
+repeating the call this turn will not change the result unless the editor has
+produced a new measurement. Never claim the deck fits while any slide is
+unknown.
+
 ## Contrast
 
 Run `audit-contrast` as the last step of any turn that created or changed

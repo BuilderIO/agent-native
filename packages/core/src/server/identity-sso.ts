@@ -1088,19 +1088,22 @@ export async function handleIdentitySso(
       if (identity.orgId && identity.orgName && identity.orgRole) {
         const { provisionFederatedOrganization } =
           await import("../org/federation.js");
-        await provisionFederatedOrganization({
-          authority: binding.authority,
-          id: identity.orgId,
-          name: identity.orgName,
-          role: identity.orgRole,
-          email: identity.email,
-          ...(identity.orgIcon !== undefined
-            ? {
-                icon: identity.orgIcon,
-                iconRevision: identity.orgIconRevision,
-              }
-            : {}),
-        });
+        await provisionFederatedOrganization(
+          {
+            authority: binding.authority,
+            id: identity.orgId,
+            name: identity.orgName,
+            role: identity.orgRole,
+            email: identity.email,
+            ...(identity.orgIcon !== undefined
+              ? {
+                  icon: identity.orgIcon,
+                  iconRevision: identity.orgIconRevision,
+                }
+              : {}),
+          },
+          { event },
+        );
       }
     } catch {
       return errorPage(

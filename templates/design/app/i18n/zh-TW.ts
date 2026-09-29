@@ -156,11 +156,6 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
-    languageTitle: "語言",
-    languageDescription: "選取 Design 的介面語言。",
-    languageLabel: "介面語言",
-    labs: "Labs",
-    labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
     labTweaks: "設計微調",
     labTweaksDescription: "試用 AI 設計微調功能。",
     mcpAbout:
@@ -308,6 +303,7 @@ export default {
     },
   },
   common: {
+    loading: "載入中...",
     genericError: "出了點問題",
   },
   editPanel: {
@@ -433,6 +429,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "邊框",
       outline: "外框",
       inside: "內側",
@@ -1522,11 +1520,6 @@ export default {
       permissionPromptNoPrompt: "沒有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
         "點擊網址列左側的網站控制圖示，開啟網站設定，然後允許存取裝置上的 App。",
-      permissionCloseTitle: "要關閉設定嗎？",
-      permissionCloseDescription:
-        "在 Chrome 中允許存取前，即時編輯將無法使用。",
-      permissionCloseStay: "保持設定開啟",
-      permissionCloseAnyway: "仍要關閉",
       permissionPromptRetry: "重試連線",
     },
   },

@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "Slide {{current}} de {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["pt-BR"],
+  common: {
+    loading: "Carregando...",
+  },
   root: {
     commandPresentations: "Apresentações",
     searchDecks: "Buscar decks",
@@ -44,14 +47,10 @@ const messages = {
   settings: {
     agentObservability: "Observabilidade do agente",
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
     labs: "Labs",
     labsIntro: "Confira recursos experimentais antes do lançamento.",
     labLayoutOverflowWarningDescription:
       "Mostrar o aviso de estouro do layout no editor.",
-    emailNotifications: "Notificações por e-mail",
-    emailNotificationsDescription:
-      "Receba um e-mail quando alguém comentar ou responder na sua apresentação.",
     saveFailed: "Falha ao salvar",
     notificationsEmail: "E-mail",
     commentsAndReplies: "Comentários e respostas",
@@ -60,10 +59,6 @@ const messages = {
     retry: "Tentar novamente",
     mcpAbout:
       "Conecte o Slides ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Slides por você: criar apresentações, adicionar slides e exportar para o PowerPoint. Ele só vê o que você pode ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",

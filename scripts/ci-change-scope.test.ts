@@ -105,6 +105,18 @@ test("runs guards for a docs-app cache-header change", () => {
   assert.equal(scope.checks.build, true);
 });
 
+test("runs cold-request query budgets for framework and template changes", () => {
+  const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const template = classifyChangedPaths([
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const docs = classifyChangedPaths(["docs/guide.md"]);
+
+  assert.equal(core.checks.neon_query_budget, true);
+  assert.equal(template.checks.neon_query_budget, true);
+  assert.equal(docs.checks.neon_query_budget, false);
+});
+
 test("selects dependency-aware checks for a template change", () => {
   const scope = classifyChangedPaths([
     "templates/calendar/app/components/EventCard.tsx",

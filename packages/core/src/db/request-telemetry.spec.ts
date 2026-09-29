@@ -43,4 +43,51 @@ describe("database request telemetry", () => {
     expect(telemetry.operationCount).toBe(1);
     expect(telemetry.queryCount).toBe(1);
   });
+
+  it("records returned rows and observed catalog and migration-table queries", async () => {
+    const telemetry = createDatabaseRequestTelemetry();
+
+    await runWithDatabaseRequestTelemetry(telemetry, () =>
+      withDbTimeout(
+        "http-query",
+        async () => ({ rows: [{ name: "one" }, { name: "two" }] }),
+        100,
+        undefined,
+        {
+          sql: "SELECT name FROM information_schema.columns JOIN _org_migrations_named ON true",
+        },
+      ),
+    );
+
+    expect(telemetry.queryCount).toBe(1);
+    expect(telemetry.rowsReturned).toBe(2);
+    expect(telemetry.catalogQueryCount).toBe(1);
+    expect(telemetry.migrationTableQueryCount).toBe(1);
+  });
+
+  it("classifies app-prefixed migration tables", async () => {
+    const telemetry = createDatabaseRequestTelemetry();
+
+    await runWithDatabaseRequestTelemetry(telemetry, () =>
+      withDbTimeout("http-query", async () => [], 100, undefined, {
+        sql: 'SELECT name FROM public."forms_migrations"',
+      }),
+    );
+
+    expect(telemetry.migrationTableQueryCount).toBe(1);
+  });
+
+  it("does not classify catalog names inside comments or string literals", async () => {
+    const telemetry = createDatabaseRequestTelemetry();
+
+    await runWithDatabaseRequestTelemetry(telemetry, () =>
+      withDbTimeout("http-query", async () => [{ ok: true }], 100, undefined, {
+        sql: "SELECT 'pg_catalog._fake_migrations' AS note -- information_schema",
+      }),
+    );
+
+    expect(telemetry.rowsReturned).toBe(1);
+    expect(telemetry.catalogQueryCount).toBe(0);
+    expect(telemetry.migrationTableQueryCount).toBe(0);
+  });
 });

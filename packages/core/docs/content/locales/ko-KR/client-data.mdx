@@ -332,6 +332,13 @@ await callAction(
           description: "폴링 엔드포인트 URL입니다.",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "이 페이지의 백그라운드 동기화를 활성화합니다. 짧은 이유를 적어야 판단 근거와 비용을 코드에서 확인할 수 있습니다. 지정하지 않으면 백그라운드 전송을 열지 않습니다.",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -344,7 +351,8 @@ await callAction(
           type: "number",
           optional: true,
           default: "2000",
-          description: "폴링 간격(ms)입니다.",
+          description:
+            "에이전트 실행 중의 폴링 간격(ms)입니다. 유휴 상태에서는 1분, 2분, 5분으로 늘어납니다.",
         },
         {
           name: "fallbackInterval",
@@ -352,15 +360,15 @@ await callAction(
           optional: true,
           default: "60000",
           description:
-            "SSE가 연결되어 있는 동안, 이벤트를 놓쳤을 때를 대비한 백업으로 사용되는 폴링 간격입니다. 연결이 끊긴 탭은 더 빠른 `interval`(또는 고정된 유휴 주기)로 폴링합니다.",
+            "SSE 연결 중의 최소 폴링 간격(ms)입니다. 변경 없는 폴링이 성공하면 1분, 2분, 5분으로 늘어납니다.",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
+          default: "true",
           description:
-            "브라우저 탭이 숨겨져 있을 때 폴링을 일시 중지합니다. 숨겨진 탭도 SSE 연결은 유지하며, 활성 상태에서는 10초, 유휴 상태가 되면 60초보다 빠르게 폴링하지 않습니다.",
+            "브라우저 탭이 숨겨져 있으면 백그라운드 동기화를 일시 중지합니다.",
         },
         {
           name: "ignoreSource",
@@ -374,7 +382,7 @@ await callAction(
           type: "(data) => void",
           optional: true,
           description:
-            "SSE 또는 폴링이 변경 이벤트를 수신했을 때 실행되는 선택적 콜백입니다.",
+            "원격 동기화 이벤트와 로컬 채팅 실행 중 도구 완료 시 선택적으로 호출되는 콜백입니다.",
         },
         {
           name: "actionInvalidatePredicate",
@@ -403,7 +411,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-이 후크는 여러분의 actions 밖에서 일어나는 데이터베이스 변경 — 에이전트의 쓰기, 웹훅, 다른 브라우저 탭에서의 변경 등 — 과 UI를 동기화하기 위한 것입니다. 서버-전송 이벤트(server-sent events)로 변경을 수신하며, 서버-전송 이벤트를 사용할 수 없을 때는 폴링으로 대체합니다. 프로덕션 서버리스 배포에서는 앱 자체의 `/_agent-native/events` 스트림이 설계상 사용할 수 없습니다 — 서버가 함수 인스턴스를 열어 두는 대신 즉시 204를 응답합니다 — 그래서 앱이 [호스팅형 실시간 동기화 게이트웨이](/docs/real-time-collaboration#hosted-gateway)를 사용하도록 설정하지 않은 한, 그런 환경에서는 폴링이 동일한 주기로 모든 동기화를 담당합니다.
+`useDbSync()`는 로컬 채팅 실행 중 도구 완료와 실행 종료 시 갱신을 항상 처리합니다. 따라서 한 사용자의 에이전트 변경에는 백그라운드 요청이 필요하지 않습니다. 다른 탭, 사용자, 웹훅 또는 작업의 변경을 위한 동기화는 짧은 이유와 함께 페이지가 활성화할 때만 켜집니다. 탭당 전송 하나를 공유하고 숨겨지면 중지하며, 유휴 폴링 간격은 1분, 2분, 5분으로 늘립니다.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -414,6 +422,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -422,7 +431,7 @@ function App() {
 }
 ```
 
-일반적인 CRUD에는 `useActionQuery()`와 `useActionMutation()`을 사용하세요. 변형 actions는 `source: "action"`을 내보내므로 이 후크들은 즉시 다시 가져옵니다. 에이전트, 웹훅, 다른 탭에서 온 변경은 대신 `useDbSync()`를 통해 SSE 또는 폴링 폴백으로 도착합니다. 원시 `useQuery()` 호출을 커스텀 키로 동기화해야 한다면 [동기화 내부](/docs/client-sync-internals)를 참조하세요. `application_state`에 직접 써야 한다면 [고급](/docs/client-advanced)을 참조하세요.
+현재 사용자 동작 없이 데이터가 바뀔 수 있고 사용자가 새로고침 전에 이를 봐야 할 때만 실시간 동기화를 켭니다. 공동 Slides 편집과 Mail 받은 편지함이 적절한 예입니다. 공개 페이지, Docs, 설정, 양식, 변경이 드문 목록, 단일 사용자 에이전트 변경은 끄고 포커스나 탐색 시 다시 가져오세요. opt-in된 열린 탭마다 유휴 간격별 폴링 하나가 추가됩니다.
 
 ## 다음 단계
 

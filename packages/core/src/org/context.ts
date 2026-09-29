@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-import type { H3Event } from "h3";
+import { setCookie, type H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
-import { getSession } from "../server/auth.js";
+import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
   getRequestContext,
@@ -19,9 +19,15 @@ import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import {
+  ACTIVE_ORG_SETTING_KEY,
+  cachedActiveOrgSetting,
   cachedMemberships,
   invalidateMemberOrgCaches,
+  newOrgSelection,
+  ORG_SELECTION_COOKIE,
+  orgSelectionFromCookieHeader,
   requestMemberOrgIds,
+  type ActiveOrgSetting,
 } from "./request-org-cache.js";
 import { implicitServiceOrgRole } from "./service-identity.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
@@ -168,7 +174,13 @@ function markFederationMembershipValidated(
   ] = { email: email.trim().toLowerCase(), orgId };
 }
 
-type ActiveOrgSetting = { orgId: string | null } | null;
+function parseActiveOrgSetting(
+  value: Record<string, unknown> | null,
+): ActiveOrgSetting {
+  if (!value || !("orgId" in value)) return null;
+  if (value.orgId === null) return { orgId: null };
+  return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
+}
 
 function loadActiveOrgSettingForEvent(
   event: H3Event,
@@ -185,14 +197,29 @@ function loadActiveOrgSettingForEvent(
   const normalizedEmail = email.toLowerCase();
   let promise = cache.get(normalizedEmail);
   if (!promise) {
-    promise = getUserSetting(email, "active-org-id").then((value) => {
-      if (!value || !("orgId" in value)) return null;
-      if (value.orgId === null) return { orgId: null };
-      return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
-    });
+    promise = cachedActiveOrgSetting(
+      email,
+      orgSelectionFromCookieHeader(event.req?.headers?.get("cookie")),
+      async () =>
+        parseActiveOrgSetting(
+          await getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
+        ),
+    );
     cache.set(normalizedEmail, promise);
   }
   return promise;
+}
+
+/**
+ * Point this caller's later requests at a fresh `active-org-id` read on every
+ * instance. Call after the caller's own preference was written in this request.
+ */
+export function markActiveOrgSelectionChanged(event: H3Event): void {
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    ...crossSiteCookieAttrs(event),
+    httpOnly: true,
+    path: "/",
+  });
 }
 
 function loadMembershipsForEvent(
@@ -388,7 +415,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
           )));
 
       if (shouldActivate) {
-        await setActiveOrgId(email, joinedOrgId, "joined domain-matched org");
+        await setActiveOrgId(
+          email,
+          joinedOrgId,
+          "joined domain-matched org",
+          event,
+        );
         const active = memberships.find((m) => m.orgId === joinedOrgId);
         if (active) {
           return {
@@ -443,7 +475,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   }
 
   if (memberships.length === 0 && autoCreateDefaultOrgEnabled()) {
-    const created = await tryCreateDefaultOrg(exec, email, session);
+    const created = await tryCreateDefaultOrg(exec, email, session, event);
     if (created) return created;
     // Creation failed (race / DB error); fall through with an empty org context
     // so non-blocking invite/domain UI can still surface recovery options.
@@ -589,6 +621,8 @@ export async function createOrganization(
     id?: string;
     identityAuthority?: string;
     identityId?: string;
+    /** The creating caller's request; see `setActiveOrgId`. */
+    event?: H3Event;
   } = {},
 ): Promise<{
   id: string;
@@ -629,13 +663,19 @@ export async function createOrganization(
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
-  await setActiveOrgId(email, id, `created organization "${trimmedName}"`);
+  await setActiveOrgId(
+    email,
+    id,
+    `created organization "${trimmedName}"`,
+    options.event,
+  );
 
   return { id, name: trimmedName, role, a2aSecret, createdAt };
 }
 
 export async function bootstrapAdminOrganization(
   rawEmail: string,
+  event?: H3Event,
 ): Promise<boolean> {
   const email = rawEmail.trim().toLowerCase();
   if (!email || !isBootstrapAdmin(email)) return false;
@@ -660,7 +700,7 @@ export async function bootstrapAdminOrganization(
     const identity = config.app.workspaceId ?? config.app.id ?? name;
     const id = `bootstrap-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
     try {
-      await createOrganization(name, email, "owner", { id });
+      await createOrganization(name, email, "owner", { id, event });
       return true;
     } catch (error) {
       const existing = await exec.execute({
@@ -681,7 +721,12 @@ export async function bootstrapAdminOrganization(
     args: [nanoid(), orgId, email, now],
   });
   invalidateMemberOrgCaches();
-  await setActiveOrgId(email, orgId, "bootstrap admin organization access");
+  await setActiveOrgId(
+    email,
+    orgId,
+    "bootstrap admin organization access",
+    event,
+  );
   return true;
 }
 
@@ -784,6 +829,7 @@ async function tryCreateDefaultOrg(
   exec: ReturnType<typeof getDbExec>,
   email: string,
   session: { name?: string } | null,
+  event: H3Event,
 ): Promise<OrgContext | null> {
   await getSetting("__init").catch(() => null);
 
@@ -819,8 +865,23 @@ async function tryCreateDefaultOrg(
       args: [nanoid(), orgId, email, "owner", now],
     });
     invalidateMemberOrgCaches();
+    updateMembershipsForEvent(event, email, [
+      {
+        orgId,
+        role: "owner",
+        orgName,
+        allowedDomain: null,
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
 
-    await setActiveOrgId(email, orgId, "auto-created default organization");
+    await setActiveOrgId(
+      email,
+      orgId,
+      "auto-created default organization",
+      event,
+    );
     if (shouldWriteFirstRunOnboardingEligibility()) {
       try {
         await appStatePut(

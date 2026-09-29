@@ -369,23 +369,26 @@ Every consumer calls the same underlying function, so there is only one implemen
 
 ## Live sync {#polling-sync}
 
-When the agent changes data, the UI needs to reflect that without a manual refresh. `useDbSync()` is what makes that automatic. On a long-lived host, same-process writes stream over `/_agent-native/events`; `/_agent-native/poll` remains the cross-process fallback. When the agent writes to the database (application state, settings, or domain data), a version counter increments and the client invalidates the relevant React Query caches.
+When the agent changes data, the UI needs to reflect that without a manual refresh. The chat run stream invalidates the affected action queries and source counters after each side-effecting tool and again at run end, so single-user agent edits need no background polling. `useDbSync()` background sync is opt-in for changes made without this user acting, such as a collaborator editing a shared record or new mail arriving. On a long-lived host, those changes stream over `/_agent-native/events`; `/_agent-native/poll` is the fallback.
 
-SSE covers the common case instead of WebSockets because it gives same-process writes an immediate path to the browser with plain HTTP, while the version-counter poll stays as a fallback that works in every deployment environment. On a production serverless host (Netlify, Lambda, Vercel functions), the app's own `/_agent-native/events` isn't a slower path — it's off. Holding that stream open would tie up a function instance that serves one request at a time (so it could never see another invocation's write anyway) until the platform kills it, recycling the container; the server answers with an immediate 204 instead and `/_agent-native/poll` carries all sync, at the same cadence, unless the app has opted in to the [Hosted Realtime Sync Gateway](/docs/real-time-collaboration#hosted-gateway), which streams from its own long-lived process instead.
+Every opted-in page must include a short reason in its `useDbSync()` call. One shared transport serves the tab; visible opted-in tabs poll at 1, then 2, then 5 minute idle intervals, resetting after user activity or a local mutation. Hidden tabs pause. On a production serverless host, `/_agent-native/events` answers immediately and `/_agent-native/poll` carries remote sync. Realtime is appropriate for shared Slides editing and the Mail inbox. Keep it off for Docs, public or SSR pages, settings, forms, and read-mostly lists such as Analytics; refetch those on focus or navigation. Yjs collaborative editing keeps its own channel.
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: explicitly opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-Call this once, near the root of the app. It subscribes the whole app to change events, so any component using `useActionQuery` or a source-versioned `useQuery` refetches automatically when the data it reads changes.
+Call this only from a private route where data can change without the current user acting and the user needs to see the update before refreshing. A background subscriber costs one poll per open tab per interval. Without the opt-in, chat-run tool completions still refresh the current tab's action queries and source counters.
 
 The flow is:
 
 1. Agent runs an action that writes to the database
 2. The server emits a change event with a source such as `"action"` or `"settings"`
-3. `useDbSync` receives it over SSE or the polling fallback
+3. An opted-in `useDbSync` page receives it over SSE or the polling fallback
 4. `useActionQuery` hooks and source-versioned `useQuery` hooks refetch
 5. Components render the new data without a page reload
 

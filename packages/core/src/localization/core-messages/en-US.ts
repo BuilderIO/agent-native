@@ -8,6 +8,8 @@ const messages = {
   "composer.contextLoadFailed": "Could not load context.",
   "composer.contextLinkRequired": "Enter a link.",
   "composer.submitFailed": "Could not submit. Try again.",
+  "composer.attachmentsRemainAfterSubmit":
+    "The message was sent, but some attachments remain. Remove them before sending again.",
   "composer.addContext": "Add context",
   "composer.contextActionFailed": "Could not add context.",
   "composer.contextBack": "Back",
@@ -71,6 +73,12 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainOptional": "Reply must contain (optional)",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
   "observability.hideDetails": "Hide details",
   "observability.input": "Input",
@@ -634,6 +642,8 @@ const messages = {
   "integrations.recommended": "Recommended",
   "integrations.subtitle": "Connect the tools your agent can use.",
   "mcpIntegrations.menuLabel": "Integrations",
+  "mcpApps.optionalPeerRequired":
+    "This MCP App requires {{packageName}}. Install it with {{installCommand}}.",
   "mcpIntegrations.menuDescription": "Connect tools and services to the agent",
   "mcpIntegrations.title": "Connect integrations",
   "mcpIntegrations.description":
@@ -1305,6 +1315,9 @@ const messages = {
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
   "usage.builderCredits": "Builder credits",
+  "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
+  "featureFlags.builderCreditReferrals.description":
+    "Show connected Builder workspace referral details in Usage.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",

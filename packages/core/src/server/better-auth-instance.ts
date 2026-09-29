@@ -58,6 +58,7 @@ import {
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import {
   executeIdentityRekey,
   rekeyIdentity,
@@ -81,6 +82,7 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -104,13 +106,6 @@ import {
   resolveDeployEnvironment,
 } from "./deploy-environment.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import {
-  renderChangeEmailConfirmationEmail,
-  renderChangeEmailVerificationEmail,
-  renderMagicLinkEmail,
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
@@ -163,6 +158,7 @@ export async function resumeIdentityRekeysForEmail(
     email,
     {
       ensureLedger: false,
+      cacheIdle: true,
     },
   );
 }
@@ -2040,7 +2036,10 @@ async function createBetterAuthInstance(
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
-    const { sso } = await import("@better-auth/sso");
+    const { sso } = await loadOptionalPeer(
+      "@better-auth/sso",
+      () => import("@better-auth/sso"),
+    );
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
@@ -2077,7 +2076,10 @@ async function createBetterAuthInstance(
     );
   }
   if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
-    const { scim } = await import("@better-auth/scim");
+    const { scim } = await loadOptionalPeer(
+      "@better-auth/scim",
+      () => import("@better-auth/scim"),
+    );
     // Better Auth intentionally requires a separate 32-character HMAC secret
     // for managed SCIM credentials. Falling back to the deployment auth secret
     // keeps the opt-in feature usable for existing deployments while allowing
@@ -2139,10 +2141,13 @@ async function createBetterAuthInstance(
         });
       }
       const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
-      const { subject, html, text, appSender } = renderMagicLinkEmail({
-        email,
-        magicLinkUrl: deliveredMagicLinkUrl,
-      });
+      const { subject, html, text, appSender } = await renderTransactionalEmail(
+        CORE_MAGIC_LINK_EMAIL_ID,
+        {
+          email,
+          magicLinkUrl: deliveredMagicLinkUrl,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
@@ -2178,10 +2183,11 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}${publicFrameworkPath("/_agent-native/auth/reset")}?token=${encodeURIComponent(token)}`;
-        const { subject, html, text, appSender } = renderResetPasswordEmail({
-          email: user.email,
-          resetUrl,
-        });
+        const { subject, html, text, appSender } =
+          await renderTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, {
+            email: user.email,
+            resetUrl,
+          });
         await sendEmail({
           to: user.email,
           subject,
@@ -2215,9 +2221,12 @@ async function createBetterAuthInstance(
             emailChange.oldEmail,
             emailChange.newEmail,
           );
-        const renderedEmail = emailChange
-          ? renderChangeEmailVerificationEmail({ email: user.email, verifyUrl })
-          : renderVerifySignupEmail({ email: user.email, verifyUrl });
+        const renderedEmail = await renderTransactionalEmail(
+          emailChange
+            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+            : CORE_VERIFY_SIGNUP_EMAIL_ID,
+          { email: user.email, verifyUrl },
+        );
         await sendEmail({
           to: user.email,
           ...renderedEmail,
@@ -2264,11 +2273,10 @@ async function createBetterAuthInstance(
           const confirmationUrl = confirmationBasePath
             ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
             : url;
-          const renderedEmail = renderChangeEmailConfirmationEmail({
-            email: user.email,
-            newEmail,
-            confirmationUrl,
-          });
+          const renderedEmail = await renderTransactionalEmail(
+            CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            { email: user.email, newEmail, confirmationUrl },
+          );
           await sendEmail({
             to: user.email,
             ...renderedEmail,

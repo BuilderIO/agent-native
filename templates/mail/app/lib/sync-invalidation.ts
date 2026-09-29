@@ -1,5 +1,34 @@
-export function shouldInvalidateMailQueryForActionEvent(query: {
-  queryKey: readonly unknown[];
-}): boolean {
-  return query.queryKey[0] === "action";
+type MailSyncEvent = { source?: string; key?: string };
+
+export function shouldInvalidateMailQueryForActionEvent(
+  query: { queryKey: readonly unknown[] },
+  events?: readonly MailSyncEvent[],
+): boolean {
+  const queryKey = query.queryKey;
+  const actionEvents = events?.filter((event) => event.source === "action");
+
+  if (actionEvents?.length) {
+    const actionKeys = new Set(actionEvents.map((event) => event.key));
+    const hasOtherAction = [...actionKeys].some(
+      (key) => key !== "sync-inbox" && key !== "update-mail-preferences",
+    );
+    if (hasOtherAction) {
+      return queryKey[0] === "action";
+    }
+
+    return (
+      (actionKeys.has("sync-inbox") ||
+        actionKeys.has("update-mail-preferences")) &&
+      ((queryKey[0] === "action" &&
+        (queryKey[1] === "list-inbox-threads" ||
+          (actionKeys.has("sync-inbox") && queryKey[1] === "list-labels"))) ||
+        queryKey[0] === "mail-inbox-overview")
+    );
+  }
+
+  if (events?.length && events.every((event) => event.source === "settings")) {
+    return false;
+  }
+
+  return queryKey[0] === "action";
 }

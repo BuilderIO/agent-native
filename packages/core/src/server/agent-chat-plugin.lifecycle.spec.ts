@@ -52,6 +52,7 @@ vi.mock("../mcp-client/index.js", async (importOriginal) => {
     await importOriginal<typeof import("../mcp-client/index.js")>();
   return {
     ...actual,
+    buildMergedConfig: vi.fn(async () => null),
     startMcpConfigRefresh: () => {
       const markDirty = () => {};
       const emitter = lifecycle.settingsEmitter!;
@@ -88,6 +89,8 @@ interface TestHooks {
   callHook(name: string): Promise<void>;
 }
 
+const openedApps: Array<{ hooks: TestHooks }> = [];
+
 function createTestHooks(): TestHooks {
   const callbacks = new Map<string, Array<() => void | Promise<void>>>();
   return {
@@ -115,6 +118,7 @@ function startGeneration() {
     mcp: { enabled: false },
   });
   plugin(nitroApp);
+  openedApps.push(nitroApp);
   const initPromise = lifecycle.initPromises.at(-1);
   expect(initPromise).toBeDefined();
   return { initPromise: initPromise!, nitroApp };
@@ -168,6 +172,8 @@ describe("agent chat plugin Nitro lifecycle", () => {
   });
 
   afterEach(async () => {
+    await Promise.all(openedApps.map((app) => app.hooks.callHook("close")));
+    openedApps.length = 0;
     vi.clearAllTimers();
     releaseTransactions?.();
     await Promise.allSettled(lifecycle.probes);
@@ -210,7 +216,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       const app = await initializeGeneration();
       await app.hooks.callHook("close");
     }
-    await initializeGeneration();
+    const repeatedGeneration = await initializeGeneration();
     await startFastSweep();
 
     const repeatedLifecycle = {
@@ -229,6 +235,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       pendingTransactions: 1,
       settingsListeners: 1,
     });
+    await repeatedGeneration.hooks.callHook("close");
   });
 
   it("cleans resources registered after close races asynchronous initialization", async () => {
