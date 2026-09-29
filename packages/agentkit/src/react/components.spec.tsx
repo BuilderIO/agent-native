@@ -88,6 +88,28 @@ describe("AgentKitChat", () => {
     expect(html).toContain('data-empty-composer-placement="center"');
   });
 
+  it("keeps externally rendered conversations out of the empty layout", () => {
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+
+    const html = renderToStaticMarkup(
+      <AgentChat
+        transport={transport}
+        threadId="thread-1"
+        load="manual"
+        hasRenderedMessages
+      />,
+    );
+
+    expect(html).toContain('data-empty="false"');
+    expect(html).toContain('data-empty-composer-placement="bottom"');
+  });
+
   it("keeps custom compositions on the same managed controller boundary", () => {
     const transport: AgentTransport = {
       async startRun() {

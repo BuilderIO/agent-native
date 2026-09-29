@@ -26,6 +26,7 @@ const INITIAL_TOOL_NAMES = [
   "write-knowledge",
   "list-sources",
   "get-source",
+  "backfill-search-embeddings",
   "list-connection-providers",
   "create-source",
   "set-resource-visibility",

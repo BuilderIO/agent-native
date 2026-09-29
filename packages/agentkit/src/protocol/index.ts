@@ -1022,6 +1022,10 @@ export interface QueueMessageResult {
 export type SteerQueuedMessageResult = StartRunResult | void;
 
 export interface AgentTransportThreadOperations {
+  persistThreadSnapshot?(
+    input: { threadId: ThreadId; snapshot: AgentThreadSnapshot },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   createThread?(
     input?: CreateThreadInput,
     context?: AgentRequestContext,
@@ -1058,6 +1062,7 @@ export interface AgentTransportThreadOperations {
     input: QueueMessageInput,
     context?: AgentRequestContext,
   ): Promise<QueueMessageResult>;
+  /** Wait for the server's thread run slot before promoting this message. */
   steerQueuedMessage?(
     input: ThreadMessageInput,
     context?: AgentRequestContext,

@@ -1,4 +1,5 @@
 import { TextField } from "@agent-native/toolkit/design-system";
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconArrowUpRight,
@@ -16,8 +17,12 @@ import {
 import { appMountedPath } from "../api-path.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import {
+  canManageSharedAgents,
+  CONNECTED_AGENTS_SETTINGS_ID,
+} from "./AgentsSection.js";
 
-type DirectoryProvider = {
+export type AgentDirectoryProvider = {
   id: "foundry" | "gemini" | "anthropic";
   nameKey: string;
   hintKey: string;
@@ -25,7 +30,7 @@ type DirectoryProvider = {
   provider: "a2a" | "anthropic-managed-agents";
 };
 
-const PROVIDERS: readonly DirectoryProvider[] = [
+export const AGENT_DIRECTORY_PROVIDERS: readonly AgentDirectoryProvider[] = [
   {
     id: "foundry",
     nameKey: "agentChat.agents.directoryFoundry",
@@ -49,36 +54,45 @@ const PROVIDERS: readonly DirectoryProvider[] = [
   },
 ];
 
-function openAgentConnection(provider?: DirectoryProvider["provider"]) {
+/** The Global A2A Registry, where public agent cards are listed. */
+export const A2A_REGISTRY_URL = "https://www.a2a-registry.org";
+
+function openAgentConnection(provider?: AgentDirectoryProvider["provider"]) {
   if (typeof window === "undefined") return;
   const query = `?connect=${encodeURIComponent(provider ?? "manual")}`;
   const path = `${appMountedPath(
-    buildSettingsRoute("agent:agents", STANDARD_APP_ROUTES.settings),
+    buildSettingsRoute(
+      CONNECTED_AGENTS_SETTINGS_ID,
+      STANDARD_APP_ROUTES.settings,
+    ),
     STANDARD_APP_ROUTES.settings,
   )}${query}`;
   window.location.assign(path);
 }
 
-export function AgentDirectorySection() {
+/** Directory providers whose name, hint, or protocol matches `query`. */
+export function useAgentDirectoryProviders(
+  query: string,
+): readonly AgentDirectoryProvider[] {
   const t = useT();
-  const orgQuery = useOrg();
-  const canManageSharedAgents =
-    !orgQuery.isLoading &&
-    !orgQuery.isError &&
-    (!orgQuery.data?.orgId ||
-      orgQuery.data.role === "owner" ||
-      orgQuery.data.role === "admin");
-  const [query, setQuery] = useState("");
-  const filteredProviders = useMemo(() => {
+  return useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return PROVIDERS;
-    return PROVIDERS.filter((provider) =>
+    if (!normalized) return AGENT_DIRECTORY_PROVIDERS;
+    return AGENT_DIRECTORY_PROVIDERS.filter((provider) =>
       [t(provider.nameKey), t(provider.hintKey), t(provider.protocolKey)]
         .join(" ")
         .toLowerCase()
         .includes(normalized),
     );
   }, [query, t]);
+}
+
+export function AgentDirectorySection() {
+  const t = useT();
+  const orgQuery = useOrg();
+  const canManage = canManageSharedAgents(orgQuery);
+  const [query, setQuery] = useState("");
+  const filteredProviders = useAgentDirectoryProviders(query);
 
   return (
     <div className="w-full space-y-6">
@@ -91,16 +105,16 @@ export function AgentDirectorySection() {
           leadingContent={<IconSearch size={15} />}
           className="w-full sm:max-w-sm"
         />
-        {canManageSharedAgents && (
+        {canManage && (
           <Button
             type="button"
             variant="outline"
             intent="neutral"
             emphasis="outline"
             onClick={() => openAgentConnection()}
-            className="h-9 shrink-0 gap-1.5"
+            className="shrink-0"
           >
-            <IconPlugConnected size={15} />
+            <IconPlugConnected />
             {t("agentChat.agents.directoryManual")}
           </Button>
         )}
@@ -133,24 +147,23 @@ export function AgentDirectorySection() {
                         {t(provider.nameKey)}
                       </h3>
                     </div>
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {t(provider.protocolKey)}
-                    </span>
+                    <Badge variant="outline">{t(provider.protocolKey)}</Badge>
                   </div>
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t(provider.hintKey)}
                   </p>
                 </div>
-                {canManageSharedAgents && (
+                {canManage && (
                   <Button
                     type="button"
                     variant="ghost"
+                    size="sm"
                     intent="neutral"
                     onClick={() => openAgentConnection(provider.provider)}
-                    className="mt-4 h-8 justify-between px-2 text-xs"
+                    className="mt-4 justify-between"
                   >
                     {t("agentChat.common.connect")}
-                    <IconArrowUpRight size={14} />
+                    <IconArrowUpRight />
                   </Button>
                 )}
               </article>
@@ -179,7 +192,7 @@ export function AgentDirectorySection() {
             </div>
           </div>
           <a
-            href="https://www.a2a-registry.org"
+            href={A2A_REGISTRY_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"

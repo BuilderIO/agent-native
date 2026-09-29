@@ -8,7 +8,10 @@ import { loadCoreMessagesForLocale } from "../../localization/core-messages.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { registerFirstRunOnboardingExtension } from "./first-run-registry.js";
-import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
+import {
+  FirstRunOnboarding,
+  manualSetupSettingsRoute,
+} from "./FirstRunOnboarding.js";
 
 const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
@@ -18,6 +21,14 @@ const mocks = vi.hoisted(() => ({
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
+  redesign: false,
+}));
+
+vi.mock("../feature-flags/use-feature-flag.js", () => ({
+  useFeatureFlagState: () => ({
+    status: "ready",
+    enabled: mocks.redesign,
+  }),
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -59,6 +70,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
+    mocks.redesign = false;
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
@@ -79,6 +91,7 @@ describe("FirstRunOnboarding", () => {
         capabilities: [
           {
             id: "llm",
+            service: "model",
             label: "LLM",
             required: true,
             builderIncluded: true,
@@ -86,13 +99,33 @@ describe("FirstRunOnboarding", () => {
             why: "Needed for chat",
           },
           {
+            id: "voice-input",
+            service: "voice",
+            label: "Voice input",
+            required: false,
+            suggested: true,
+            builderIncluded: true,
+            keySummary: "Voice input",
+            why: "Turns speech into text",
+          },
+          {
             id: "images",
+            service: "images",
             label: "Images",
             required: false,
             suggested: true,
             builderIncluded: true,
             keySummary: "Image provider key",
             why: "Needed for image generation",
+          },
+          {
+            id: "embeddings",
+            service: "embeddings",
+            label: "Embeddings",
+            required: false,
+            builderIncluded: true,
+            keySummary: "Embeddings",
+            why: "Improves semantic search",
           },
           {
             id: "figma",
@@ -104,11 +137,40 @@ describe("FirstRunOnboarding", () => {
           },
           {
             id: "design-system-intelligence",
+            service: "design-system-intelligence",
+            builderOnly: true,
             label: "Design system intelligence",
             required: false,
             builderIncluded: true,
             keySummary: "Builder Design System Intelligence",
             why: "Uses your brand and design-system guidance to keep generated work on brand.",
+          },
+          {
+            id: "background-agents",
+            service: "background-agents",
+            builderOnly: true,
+            label: "Background agents",
+            required: false,
+            builderIncluded: true,
+            keySummary: "Background agents",
+            why: "Makes code changes from production.",
+          },
+          {
+            id: "video-generation",
+            label: "Video generation",
+            required: false,
+            suggested: true,
+            builderIncluded: true,
+            keySummary: "Gemini API key",
+            why: "Optional video generation",
+          },
+          {
+            id: "assets-library",
+            label: "Assets library",
+            required: false,
+            builderIncluded: true,
+            keySummary: "Connect the Assets app",
+            why: "Only needed for managed media",
           },
         ],
       },
@@ -757,7 +819,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("shows the full list of included Builder.io services on the card", () => {
+  it("lists the included Builder.io services from the app profile", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -772,23 +834,87 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    const builderCard = document.body
+      .querySelector("[data-testid='first-run-builder-create-account']")
+      ?.closest("section");
+    const included = [...(builderCard?.querySelectorAll("span") ?? [])].map(
+      (node) => node.textContent?.trim(),
+    );
+    // Every shared service, whether or not the app recommends it, plus the
+    // app's own headline capability Builder.io covers.
     for (const service of [
+      "LLM",
       "Voice input",
+      "Images",
+      "Embeddings",
+      "Design system intelligence",
       "Background agents",
-      "Image generation",
       "Video generation",
+    ]) {
+      expect(included).toContain(service);
+    }
+    // Not Builder.io capabilities, and no per-app extras.
+    for (const missing of [
       "Connected agents",
       "Hosting and deployment",
-      "Browser automation",
-      "Embeddings",
+      "Assets library",
     ]) {
-      expect(document.body.textContent).toContain(service);
+      expect(document.body.textContent).not.toContain(missing);
     }
     expect(
       [...document.body.querySelectorAll("button")].find((button) =>
         button.textContent?.trim().endsWith("more"),
       ),
     ).toBeUndefined();
+  });
+
+  it("does not ask Mail users to connect Gmail again in manual setup", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "mail",
+        appName: "Mail",
+        capabilities: [
+          {
+            id: "llm",
+            service: "model",
+            label: "AI model",
+            required: true,
+            builderIncluded: false,
+            keySummary: "Connect your own AI model",
+            why: "Needed for agent responses.",
+          },
+          {
+            id: "gmail",
+            label: "Gmail",
+            required: true,
+            builderIncluded: false,
+            satisfiedBySignIn: true,
+            keySummary: "Connect Gmail with OAuth",
+            why: "Google sign-in already connects Mail.",
+          },
+        ],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).not.toContain("Connect Gmail with OAuth");
+    expect(document.body.textContent).toContain("Connect your own AI model");
   });
 
   it("keeps per-app optional keys off both setup cards", () => {
@@ -1238,6 +1364,7 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
+    let completionResult: boolean | void;
     mocks.completeFirstRun
       .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
       .mockResolvedValueOnce(undefined);
@@ -1257,7 +1384,12 @@ describe("FirstRunOnboarding", () => {
       id: "test-extension",
       component: ({ onComplete, onSkip }) => (
         <>
-          <button type="button" onClick={onComplete}>
+          <button
+            type="button"
+            onClick={async () => {
+              completionResult = await onComplete();
+            }}
+          >
             Extension Complete
           </button>
           <button type="button" onClick={onSkip}>
@@ -1309,6 +1441,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    expect(completionResult).toBe(false);
     expect(document.body.textContent).toContain("Extension Complete");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
@@ -1319,7 +1452,7 @@ describe("FirstRunOnboarding", () => {
         ([event, properties]) =>
           event === "onboarding_step_completed" &&
           (properties as { step_id?: string }).step_id ===
-            "extension:test-extension",
+            "extension:test-extension:1",
       );
     expect(completedExtensionEvents()).toBe(false);
 
@@ -1435,6 +1568,32 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("lands on Agent › Model when the redesign is on", async () => {
+    mocks.redesign = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/settings/model");
+    expect(mocks.completeFirstRun).toHaveBeenCalled();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("keeps the API key destination inside the live mount omitted by the workspace manifest", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
@@ -1463,6 +1622,15 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(window.location.pathname).toBe("/dispatch/settings/keys");
+  });
+
+  it("picks the manual setup page from the flag", () => {
+    expect(manualSetupSettingsRoute({ redesign: true })).toBe(
+      "/settings/model",
+    );
+    expect(manualSetupSettingsRoute({ redesign: false })).toBe(
+      "/settings/keys",
+    );
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

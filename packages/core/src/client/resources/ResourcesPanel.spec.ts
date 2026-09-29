@@ -44,6 +44,8 @@ vi.mock("./use-resources.js", () => ({
   useCreateResource: () => ({ isPending: false, mutate: vi.fn() }),
   useUpdateResource: () => ({ mutate: vi.fn() }),
   useDeleteResource: () => ({ isPending: false, mutate: vi.fn() }),
+  useExportResourcePack: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useImportResourcePack: () => ({ isPending: false, mutateAsync: vi.fn() }),
   resourceDownloadUrl: (id: string) => id,
   withMcpServersFolder: (tree: unknown[]) => tree,
   withAgentScratchFolder: (tree: unknown[]) => tree,
@@ -79,15 +81,20 @@ vi.mock("../FileStorageSetupPopover.js", () => ({
   },
 }));
 
+import { isResourceRowReadOnly } from "./ResourceSettingsGroups.js";
 import {
+  canEditOrganizationResources,
   canUploadResourceFile,
   filterResourceTree,
+  isOrganizationResourceOwner,
   hasAvailableMcpIntegrations,
   mergePendingResourceUploads,
   normalizeResourceFileName,
   resolveInitialResourceScope,
   resolveResourceCreateMenuMode,
   shouldClearPendingResourceUploads,
+  resourcePackImportToast,
+  resourcePackPrefixForView,
   shouldRenderResourceSectionCreateMenu,
   takePendingResourceUploads,
   ResourcesPanel,
@@ -362,6 +369,69 @@ describe("filterResourceTree", () => {
     expect(filterResourceTree(tree, "skills")[0]?.path).toBe("skills");
     expect(filterResourceTree(tree, "instructions")[0]?.path).toBe("AGENTS.md");
     expect(filterResourceTree(tree, "learnings")[0]?.path).toBe("LEARNINGS.md");
+  });
+});
+
+describe("canEditOrganizationResources", () => {
+  it("lets owners, admins, and solo deployments edit organization resources", () => {
+    expect(canEditOrganizationResources({ orgId: "org", role: "owner" })).toBe(
+      true,
+    );
+    expect(canEditOrganizationResources({ orgId: "org", role: "admin" })).toBe(
+      true,
+    );
+    expect(canEditOrganizationResources({ orgId: null, role: null })).toBe(
+      true,
+    );
+  });
+
+  it("keeps organization resources read only for members", () => {
+    expect(canEditOrganizationResources({ orgId: "org", role: "member" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("isOrganizationResourceOwner", () => {
+  it("treats legacy shared and organization owners as organization resources", () => {
+    expect(isOrganizationResourceOwner("__shared__")).toBe(true);
+    expect(isOrganizationResourceOwner("__organization__:org-1")).toBe(true);
+    expect(isOrganizationResourceOwner("member@example.test")).toBe(false);
+    expect(isOrganizationResourceOwner("__workspace__")).toBe(false);
+  });
+});
+
+describe("isResourceRowReadOnly", () => {
+  const meta = (metadata: string | null) => ({
+    id: "id",
+    path: "AGENTS.md",
+    owner: "owner",
+    mimeType: "text/markdown",
+    size: 1,
+    createdAt: 0,
+    updatedAt: 0,
+    createdBy: "user" as const,
+    visibility: "workspace" as const,
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata,
+  });
+
+  it("follows the viewer's role for organization rows", () => {
+    expect(isResourceRowReadOnly("personal", meta(null), false)).toBe(false);
+    expect(isResourceRowReadOnly("shared", meta(null), false)).toBe(true);
+    expect(isResourceRowReadOnly("shared", meta(null), true)).toBe(false);
+  });
+
+  it("keeps Dispatch rows read only and local workspace files editable", () => {
+    const dispatch = JSON.stringify({ source: "dispatch-workspace-resource" });
+    const local = JSON.stringify({ source: "local-workspace-resource" });
+    expect(isResourceRowReadOnly("workspace", meta(dispatch), true)).toBe(true);
+    expect(isResourceRowReadOnly("workspace", meta("{bad json"), true)).toBe(
+      true,
+    );
+    expect(isResourceRowReadOnly("workspace", meta(local), false)).toBe(false);
   });
 });
 
@@ -675,5 +745,58 @@ describe("ResourcesPanel storage retries", () => {
     expect(
       (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
     ).toBe("current.png");
+  });
+});
+
+describe("resourcePackPrefixForView", () => {
+  it("scopes a pack export to the open collection", () => {
+    expect(resourcePackPrefixForView("memory")).toBe("memory/");
+    expect(resourcePackPrefixForView("skills")).toBe("skills/");
+    expect(resourcePackPrefixForView("agents")).toBe("agents/");
+    expect(resourcePackPrefixForView("files")).toBeUndefined();
+    expect(resourcePackPrefixForView(undefined)).toBeUndefined();
+  });
+});
+
+describe("resourcePackImportToast", () => {
+  function translate(key: string, values?: Record<string, unknown>) {
+    if (key === "agentResources.importPackSuccess") {
+      return `Imported ${values?.imported} files, skipped ${values?.skipped}`;
+    }
+    if (key === "agentResources.importPackFailed")
+      return "Could not import pack";
+    return key;
+  }
+
+  it("reports a complete import as success", () => {
+    expect(
+      resourcePackImportToast(
+        { imported: 2, skipped: 1, errors: [] },
+        translate,
+      ),
+    ).toEqual({
+      kind: "ok",
+      message: "Imported 2 files, skipped 1",
+    });
+  });
+
+  it("reports per-file failures instead of a success toast", () => {
+    const toast = resourcePackImportToast(
+      {
+        imported: 1,
+        skipped: 0,
+        errors: [
+          { path: "blocked.md", error: "not allowed" },
+          { path: "other.md", error: "missing" },
+        ],
+      },
+      translate,
+    );
+
+    expect(toast.kind).toBe("err");
+    expect(toast.message).toContain("Imported 1 files, skipped 0");
+    expect(toast.message).toContain("Could not import pack (2)");
+    expect(toast.message).toContain("blocked.md: not allowed");
+    expect(toast.message).toContain("other.md: missing");
   });
 });

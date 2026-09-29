@@ -60,7 +60,10 @@ import {
 import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
 import {
   assertDeckWriteApplied,
+  assertDeckClientWriteCurrent,
   deckRevisionWhere,
+  deckClientWriteFields,
+  deckClientWriteSchema,
   nextDeckRevision,
 } from "./_deck-write.js";
 import {
@@ -821,6 +824,7 @@ export default defineAction({
     "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    clientWrite: deckClientWriteSchema.optional(),
     rewriteSource: z
       .boolean()
       .optional()
@@ -858,6 +862,7 @@ export default defineAction({
   run: async (
     {
       deckId,
+      clientWrite,
       operations,
       requireAllSourceSlides,
       rewriteSource,
@@ -881,6 +886,22 @@ export default defineAction({
           errorCode: "deck_not_found",
           statusCode: 404,
         });
+
+      const writeDisposition = assertDeckClientWriteCurrent(
+        row,
+        deckId,
+        clientWrite,
+      );
+      if (writeDisposition === "already-applied") {
+        return {
+          ok: true,
+          deckId,
+          updatedAt: row.updatedAt,
+          applied: false,
+          updatedSlideIds: [],
+          deletedSlideIds: [],
+        };
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
@@ -1348,6 +1369,13 @@ export default defineAction({
             "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
           );
         }
+        if (clientWrite) {
+          const updateResult = await db
+            .update(schema.decks)
+            .set(deckClientWriteFields(clientWrite, row.updatedAt))
+            .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+          assertDeckWriteApplied(updateResult, deckId, "deck patch replay");
+        }
         return {
           ok: true,
           deckId,
@@ -1385,6 +1413,7 @@ export default defineAction({
             data: JSON.stringify(deck),
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
+            ...deckClientWriteFields(clientWrite, now),
           })
           .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
         assertDeckWriteApplied(updateResult, deckId, "deck patch");

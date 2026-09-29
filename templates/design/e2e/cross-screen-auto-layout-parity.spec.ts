@@ -43,7 +43,7 @@ const NESTED_DESTINATION_SCREEN = `<!doctype html>
 <html lang="en">
   <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff">
     <section data-agent-native-node-id="destination-shell" data-agent-native-layer-name="Destination Shell"
-      style="position:absolute;left:80px;top:100px;width:420px;min-height:240px;padding:20px;box-sizing:border-box;background:#334155">
+      style="position:absolute;left:80px;top:100px;width:600px;min-height:240px;padding:20px;box-sizing:border-box;display:flex;flex-direction:row;align-items:flex-start;gap:12px;background:#334155">
       <section data-agent-native-node-id="nested-auto" data-agent-native-layer-name="Nested Auto"
         style="display:flex;flex-direction:column;gap:12px;padding:16px;background:#475569">
         <div data-agent-native-node-id="destination-first" data-agent-native-layer-name="Destination First"
@@ -51,6 +51,8 @@ const NESTED_DESTINATION_SCREEN = `<!doctype html>
         <div data-agent-native-node-id="destination-second" data-agent-native-layer-name="Destination Second"
           style="width:180px;height:40px;background:#64748b;color:#f8fafc">Second</div>
       </section>
+      <div data-agent-native-node-id="destination-outer-anchor" data-agent-native-layer-name="Destination Outer Anchor"
+        style="width:90px;height:32px;background:#64748b;color:#f8fafc">Outer slot</div>
     </section>
   </body>
 </html>`;
@@ -341,37 +343,118 @@ async function dragScreenNode(
   nodeId: string,
   destination: { x: number; y: number },
   onHeld?: () => Promise<void>,
-): Promise<{ guide: number; ghost: number; sourceVisible: boolean }> {
+  grabFraction = { x: 0.5, y: 0.5 },
+): Promise<{
+  guide: number;
+  ghost: number;
+  sourceVisible: boolean;
+  pointer: { x: number; y: number };
+  grabFraction: { x: number; y: number };
+  sourceBox: { x: number; y: number; width: number; height: number };
+  guideBox: { x: number; y: number; width: number; height: number } | null;
+  ghostBox: { x: number; y: number; width: number; height: number } | null;
+}> {
   await selectScreenNode(page, screenId, nodeId);
   const source = await boxFor(page, screenId, nodeId);
-  await page.mouse.move(
-    source.x + source.width / 2,
-    source.y + source.height / 2,
-  );
+  const grab = {
+    x: source.x + source.width * grabFraction.x,
+    y: source.y + source.height * grabFraction.y,
+  };
+  await page.mouse.move(grab.x, grab.y);
   await page.mouse.down();
-  await page.mouse.move(
-    source.x + source.width / 2 + 20,
-    source.y + source.height / 2,
-    {
-      steps: 5,
-    },
-  );
+  await page.mouse.move(grab.x + 20, grab.y, { steps: 5 });
   await page.mouse.move(destination.x, destination.y, { steps: 30 });
   await expect
     .poll(() => page.locator("[data-cross-screen-drag-ghost]").count(), {
       timeout: 5_000,
     })
     .toBeGreaterThan(0);
+  const guide = page.locator("[data-cross-screen-drop-guide]");
+  const guideCount = await guide.count();
   const evidence = {
-    guide: await page.locator("[data-cross-screen-drop-guide]").count(),
+    guide: guideCount,
     ghost: await page.locator("[data-cross-screen-drag-ghost]").count(),
     sourceVisible: await designFrame(page, screenId)
       .locator(`[data-agent-native-node-id="${nodeId}"]`)
       .isVisible(),
+    pointer: destination,
+    grabFraction,
+    sourceBox: source,
+    guideBox: guideCount ? await guide.first().boundingBox() : null,
+    ghostBox: await page
+      .locator("[data-cross-screen-drag-ghost]")
+      .boundingBox(),
   };
   await onHeld?.();
   await page.mouse.up();
   return evidence;
+}
+
+function expectGhostToPreserveGrabOffset(held: {
+  pointer: { x: number; y: number };
+  grabFraction: { x: number; y: number };
+  sourceBox: { x: number; y: number; width: number; height: number };
+  ghostBox: { x: number; y: number; width: number; height: number } | null;
+}): void {
+  expect(held.ghostBox).not.toBeNull();
+  const ghost = held.ghostBox!;
+  expect(Math.abs(ghost.width - held.sourceBox.width)).toBeLessThan(5);
+  expect(Math.abs(ghost.height - held.sourceBox.height)).toBeLessThan(5);
+  expect(
+    Math.abs(ghost.x + ghost.width * held.grabFraction.x - held.pointer.x),
+  ).toBeLessThan(5);
+  expect(
+    Math.abs(ghost.y + ghost.height * held.grabFraction.y - held.pointer.y),
+  ).toBeLessThan(5);
+}
+
+function expectGuideToContainPointer(held: {
+  pointer: { x: number; y: number };
+  guideBox: { x: number; y: number; width: number; height: number } | null;
+}): void {
+  expect(held.guideBox).not.toBeNull();
+  const guide = held.guideBox!;
+  expect(held.pointer.x).toBeGreaterThanOrEqual(guide.x - 5);
+  expect(held.pointer.x).toBeLessThanOrEqual(guide.x + guide.width + 5);
+  expect(held.pointer.y).toBeGreaterThanOrEqual(guide.y - 5);
+  expect(held.pointer.y).toBeLessThanOrEqual(guide.y + guide.height + 5);
+}
+
+function expectGuideAfterChild(
+  held: {
+    pointer: { x: number; y: number };
+    guideBox: { x: number; y: number; width: number; height: number } | null;
+  },
+  child: { x: number; y: number; width: number; height: number },
+): void {
+  expect(held.guideBox).not.toBeNull();
+  const guide = held.guideBox!;
+  expect(guide.height).toBeLessThan(5);
+  expect(held.pointer.y).toBeGreaterThan(child.y + child.height / 2);
+  expect(guide.width).toBeGreaterThan(guide.height);
+  expect(Math.abs(guide.x - child.x)).toBeLessThan(5);
+  expect(Math.abs(guide.width - child.width)).toBeLessThan(5);
+  expect(
+    Math.abs(guide.y + guide.height / 2 - (child.y + child.height)),
+  ).toBeLessThan(5);
+}
+
+function expectGuideAfterChildAlongX(
+  held: {
+    pointer: { x: number; y: number };
+    guideBox: { x: number; y: number; width: number; height: number } | null;
+  },
+  child: { x: number; y: number; width: number; height: number },
+): void {
+  expect(held.guideBox).not.toBeNull();
+  const guide = held.guideBox!;
+  expect(guide.width).toBeLessThan(5);
+  expect(held.pointer.x).toBeGreaterThan(child.x + child.width / 2);
+  expect(
+    Math.abs(guide.x + guide.width / 2 - (child.x + child.width)),
+  ).toBeLessThan(5);
+  expect(Math.abs(guide.y - child.y)).toBeLessThan(5);
+  expect(Math.abs(guide.height - child.height)).toBeLessThan(5);
 }
 
 async function waitForMove(
@@ -564,6 +647,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     );
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
     await waitForMove(
       page,
       design.id,
@@ -610,6 +694,11 @@ test.describe("physical cross-screen auto-layout parity", () => {
       design.destinationId,
       "destination-flow",
     );
+    const anchor = await boxFor(
+      page,
+      design.destinationId,
+      "destination-anchor",
+    );
     const held = await dragScreenNode(page, design.sourceId, "screen-source", {
       x: destination.x + destination.width / 2,
       y: destination.y + destination.height / 2,
@@ -617,6 +706,8 @@ test.describe("physical cross-screen auto-layout parity", () => {
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideAfterChild(held, anchor);
     await waitForMove(
       page,
       design.id,
@@ -662,7 +753,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await settleReload(page);
   });
 
-  test("report path: free source drops into nested auto-layout with held guide, exact order, undo, and reload", async ({
+  test("G1: physical drop selects the eligible inner auto-layout frame and its held insertion slot", async ({
     page,
   }) => {
     const design = await createDesign(
@@ -678,7 +769,29 @@ test.describe("physical cross-screen auto-layout parity", () => {
     await gotoEditor(page, design.id);
     await settleScreens(page, design.sourceId, design.destinationId, {});
 
-    const target = await boxFor(page, design.destinationId, "nested-auto");
+    const outer = await boxFor(page, design.destinationId, "destination-shell");
+    const inner = await boxFor(page, design.destinationId, "nested-auto");
+    const first = await boxFor(page, design.destinationId, "destination-first");
+    expect(
+      await designFrame(page, design.destinationId)
+        .locator('[data-agent-native-node-id="destination-shell"]')
+        .evaluate((node) => getComputedStyle(node).display),
+    ).toBe("flex");
+    expect(
+      await designFrame(page, design.destinationId)
+        .locator('[data-agent-native-node-id="nested-auto"]')
+        .evaluate((node) => getComputedStyle(node).display),
+    ).toBe("flex");
+    const release = {
+      x: first.x + first.width / 2,
+      y: first.y + first.height * 0.75,
+    };
+    expect(release.x).toBeGreaterThan(inner.x);
+    expect(release.x).toBeLessThan(inner.x + inner.width);
+    expect(release.y).toBeGreaterThan(inner.y);
+    expect(release.y).toBeLessThan(inner.y + inner.height);
+    expect(release.x).toBeGreaterThan(outer.x);
+    expect(release.x).toBeLessThan(outer.x + outer.width);
     const sourceBefore = await fileContent(page, design.id, "index.html");
     const destinationBefore = await fileContent(
       page,
@@ -689,7 +802,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
       page,
       design.sourceId,
       "free-source",
-      { x: target.x + target.width / 2, y: target.y + target.height / 2 },
+      release,
       async () => {
         expect(await fileContent(page, design.id, "index.html")).toBe(
           sourceBefore,
@@ -703,10 +816,13 @@ test.describe("physical cross-screen auto-layout parity", () => {
           ),
         ).toHaveCount(1);
       },
+      { x: 0.31, y: 0.68 },
     );
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideAfterChild(held, first);
 
     await expect
       .poll(() =>
@@ -817,6 +933,96 @@ test.describe("physical cross-screen auto-layout parity", () => {
       });
   });
 
+  test("G4: blank space in an auto-layout receiver uses the pointer insertion slot", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      {
+        sourceContent: NESTED_SOURCE_SCREEN,
+        destinationContent: NESTED_DESTINATION_SCREEN,
+        title: "cross-screen nested flow to auto-layout receiver",
+      },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId, {});
+
+    const receiver = await boxFor(
+      page,
+      design.destinationId,
+      "destination-shell",
+    );
+    const marker = await boxFor(
+      page,
+      design.destinationId,
+      "destination-outer-anchor",
+    );
+    const release = {
+      x: receiver.x + receiver.width - 24,
+      y: receiver.y + receiver.height / 2,
+    };
+    expect(release.x).toBeGreaterThan(marker.x + marker.width);
+    expect(release.x).toBeLessThan(receiver.x + receiver.width);
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "nested-source",
+      release,
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+      },
+    );
+    expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideAfterChildAlongX(held, marker);
+
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "nested-source",
+        ),
+      )
+      .toEqual({ sourceHas: false, destinationHas: true });
+    await expect
+      .poll(() =>
+        designFrame(page, design.destinationId)
+          .locator('[data-agent-native-node-id="nested-source"]')
+          .evaluate((node) => ({
+            parent: node.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            order: node.parentElement
+              ? Array.from(node.parentElement.children).map((child) =>
+                  child.getAttribute("data-agent-native-node-id"),
+                )
+              : [],
+            position: getComputedStyle(node).position,
+          })),
+      )
+      .toEqual({
+        parent: "destination-shell",
+        order: ["nested-auto", "destination-outer-anchor", "nested-source"],
+        position: "static",
+      });
+  });
+
   test("report path: free source drops at an empty Screen root with exact pointer position, undo, and reload", async ({
     page,
   }) => {
@@ -865,6 +1071,8 @@ test.describe("physical cross-screen auto-layout parity", () => {
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideToContainPointer(held);
 
     await expect
       .poll(() =>
@@ -1005,6 +1213,8 @@ test.describe("physical cross-screen auto-layout parity", () => {
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideToContainPointer(held);
 
     await expect
       .poll(() =>
@@ -1066,11 +1276,36 @@ test.describe("physical cross-screen auto-layout parity", () => {
         ),
       )
       .toEqual({ sourceHas: false, destinationHas: true });
+    const movedPosition = await moved.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        parent: node.parentElement?.tagName,
+        position: style.position,
+        left: style.left,
+        top: style.top,
+      };
+    });
+    expect(movedPosition).toMatchObject({
+      parent: "BODY",
+      position: "absolute",
+    });
     await settleReload(page);
-    await expect(
-      designFrame(page, design.destinationId).locator(
-        '[data-agent-native-node-id="nested-source"]',
-      ),
-    ).toBeVisible();
+    const reloaded = designFrame(page, design.destinationId).locator(
+      '[data-agent-native-node-id="nested-source"]',
+    );
+    await expect(reloaded).toBeVisible();
+    await expect
+      .poll(() =>
+        reloaded.evaluate((node) => {
+          const style = getComputedStyle(node);
+          return {
+            parent: node.parentElement?.tagName,
+            position: style.position,
+            left: style.left,
+            top: style.top,
+          };
+        }),
+      )
+      .toEqual(movedPosition);
   });
 });

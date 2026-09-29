@@ -43,6 +43,8 @@ const messages = {
     suggestionSurvey: "ग्राहक feedback survey बनाएं",
     suggestionSubmissions: "दिन के हिसाब से submissions दिखाएं",
     suggestionExport: "Responses को CSV में export करें",
+    topSignal: "मुख्य संकेत",
+    draftFollowUp: "फ़ॉलो-अप प्रश्न का मसौदा लिखें",
   },
   sidebar: {
     collapseSidebar: "साइडबार समेटें",

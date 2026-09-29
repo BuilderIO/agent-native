@@ -108,6 +108,8 @@ export interface BackgroundAutomationRunOptions {
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
   historyId?: string;
+  hardTimeoutMs?: number;
+  hardDeadlineAt?: number;
   noProgressTimeoutMs?: number;
   backgroundNoProgressTimeoutMs?: number;
 }
@@ -266,6 +268,15 @@ function uniqueToolNames(names: readonly string[]): string[] {
   return [...new Set(names)];
 }
 
+function assertHardDeadline(deadlineAt?: number): void {
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new BackgroundAutomationRunError(
+      "Background automation time budget expired during setup.",
+      "background_automation_hard_timeout",
+    );
+  }
+}
+
 function assertRequestedMcpToolsAvailable(
   automation: BackgroundAutomationContext,
   actions: Record<string, ActionEntry>,
@@ -273,8 +284,9 @@ function assertRequestedMcpToolsAvailable(
   const requested = automation.meta.mcpTools ?? [];
   const missing = requested.filter((toolName) => !actions[toolName]);
   if (missing.length > 0) {
-    throw new Error(
+    throw new BackgroundAutomationRunError(
       `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
+      "background_automation_mcp_tools_unavailable",
     );
   }
 }
@@ -289,6 +301,7 @@ export async function runBackgroundAutomation(
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
+  assertHardDeadline(options.hardDeadlineAt);
   let historyId: string | null = null;
   if (options.historyId) {
     historyId = options.historyId;
@@ -306,6 +319,7 @@ export async function runBackgroundAutomation(
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
         appId: deps.appId,
+        notificationEmail: options.ownerEmail,
       });
     } catch (err) {
       console.error(
@@ -497,7 +511,9 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
+      assertHardDeadline(options.hardDeadlineAt);
       const baseActions = await deps.getActions(automation);
+      assertHardDeadline(options.hardDeadlineAt);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);
@@ -513,7 +529,9 @@ async function executeBackgroundAutomation(
       const availableTools = actionsToEngineTools(actions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
+      assertHardDeadline(options.hardDeadlineAt);
       const ownerApiKey = await resolveOwnerEngineApiKey({ ownerEmail });
+      assertHardDeadline(options.hardDeadlineAt);
       const apiKey = ownerApiKey.apiKey ?? deps.apiKey;
       const apiKeyProvenance = ownerApiKey.apiKey
         ? ownerApiKey.credentialProvenance
@@ -531,22 +549,30 @@ async function executeBackgroundAutomation(
           appId: deps.appId,
           credentialIdentity: { userEmail: ownerEmail, orgId },
         }));
+      assertHardDeadline(options.hardDeadlineAt);
       const modelCandidate =
         automation.meta.model ??
         deps.model ??
         (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
         engine.defaultModel;
       const model = normalizeModelForEngine(engine, modelCandidate);
+      assertHardDeadline(options.hardDeadlineAt);
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
+      assertHardDeadline(options.hardDeadlineAt);
       const thread = await createThread(ownerEmail, {
         title: threadTitle,
         orgId: orgId ?? null,
       });
+      assertHardDeadline(options.hardDeadlineAt);
       const runId = createRunId(options.runIdPrefix);
       if (runIdRef) runIdRef.current = runId;
       await recordRunThread(historyId, thread.id, runId);
+      assertHardDeadline(options.hardDeadlineAt);
 
-      const hardTimeoutMs = resolveBackgroundRunHardTimeoutMs();
+      const maxHardTimeoutMs = Math.min(
+        options.hardTimeoutMs ?? Number.POSITIVE_INFINITY,
+        resolveBackgroundRunHardTimeoutMs(),
+      );
       const softTimeoutMs = resolveBackgroundAutomationSoftTimeoutMs();
 
       const usageRef: {
@@ -556,6 +582,7 @@ async function executeBackgroundAutomation(
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
 
+      assertHardDeadline(options.hardDeadlineAt);
       await insertRun(runId, thread.id, undefined, {
         dispatchMode: "background",
       });
@@ -565,6 +592,12 @@ async function executeBackgroundAutomation(
           `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
         );
       }
+      const hardTimeoutMs = Math.min(
+        maxHardTimeoutMs,
+        options.hardDeadlineAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Math.max(1, options.hardDeadlineAt - Date.now()),
+      );
 
       await new Promise<void>((resolve, reject) => {
         const activeRun = startRun(
@@ -626,6 +659,7 @@ async function executeBackgroundAutomation(
                   spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
+                    automationId: automation.resource.id,
                     trigger: "background_automation",
                     label: usageLabel,
                     scope: orgId ? "organization" : "personal",

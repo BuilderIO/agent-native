@@ -165,6 +165,7 @@ export function useSlidesComposerContext({
       selection,
       t("home.context.emptySource"),
       t("home.context.figmaReadFailed"),
+      t("home.context.websiteReadFailed"),
     ).then((resolved) => {
       if (isActive && currentVersion === version.current) setItems(resolved);
     });
@@ -455,6 +456,7 @@ export function useSlidesComposerContext({
         snapshot,
         t("home.context.emptySource"),
         t("home.context.figmaReadFailed"),
+        t("home.context.websiteReadFailed"),
       );
       if (capturedIdentity !== activeIdentity.current)
         throw new Error(t("home.context.loadFailed"));

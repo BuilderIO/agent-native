@@ -35,7 +35,10 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { shouldDisableInProcessSweeps } from "../server/sweep-runtime.js";
-import { getAllSettings, getSettingsEmitter } from "../settings/store.js";
+import {
+  getSettingsEmitter,
+  listSettingsByKeySegments,
+} from "../settings/store.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
@@ -227,14 +230,21 @@ export function builtinMergedConfigKey(
 export async function buildMergedConfig(): Promise<McpConfig | null> {
   const base = loadMcpConfig() ?? autoDetectMcpConfig();
   const servers: Record<string, McpServerConfig> = { ...(base?.servers ?? {}) };
+  const includeBuiltins = areBuiltinMcpCapabilitiesSupported();
+  const settingsKeySegments = ["mcp-servers-remote"];
+  if (includeBuiltins) {
+    settingsKeySegments.push(builtinMcpCapabilitiesSettingsKey());
+  }
 
-  const all = await getAllSettings().catch((err: unknown) => {
-    console.warn(
-      `[mcp-client] settings read failed: ${(err as any)?.message ?? err}`,
-    );
-    throw new McpConfigUnreadableError(err);
-  });
-  for (const [fullKey, value] of Object.entries(all)) {
+  const settings = await listSettingsByKeySegments(settingsKeySegments).catch(
+    (err: unknown) => {
+      console.warn(
+        `[mcp-client] settings read failed: ${(err as any)?.message ?? err}`,
+      );
+      throw new McpConfigUnreadableError(err);
+    },
+  );
+  for (const { key: fullKey, value } of settings) {
     const userMatch = /^u:([^:]+):mcp-servers-remote$/.exec(fullKey);
     const orgMatch = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
     let scope: RemoteMcpScope | null = null;
@@ -258,8 +268,8 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
         await toHttpServerConfigAsync(scope, ownerId, stored);
     }
   }
-  if (areBuiltinMcpCapabilitiesSupported()) {
-    for (const [fullKey, value] of Object.entries(all)) {
+  if (includeBuiltins) {
+    for (const { key: fullKey, value } of settings) {
       const settingsKey = builtinMcpCapabilitiesSettingsKey();
       const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
       const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);

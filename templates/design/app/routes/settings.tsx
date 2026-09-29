@@ -1,8 +1,9 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { ObservabilityDashboard } from "@agent-native/core/client/observability";
-import { TeamPage, useOrg } from "@agent-native/core/client/org";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -10,7 +11,9 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
+  type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   CreativeContextSettingsLink,
@@ -25,12 +28,16 @@ import enUSMessages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
 
+const OBSERVABILITY_KEYWORDS =
+  "observability traces conversations evals experiments feedback review";
+
 export function meta() {
   return [{ title: enUSMessages.routeTitles.settingsDesign }];
 }
 
 export default function SettingsRoute() {
   const t = useT();
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
   const creativeContextEnabled = useCreativeContextLab();
   const {
     data: activeOrg,
@@ -42,28 +49,33 @@ export default function SettingsRoute() {
       ? [createCreativeContextAgentTab]
       : [],
   });
-  const observabilityBasePath = buildSettingsRoute("observability");
-  const observabilityTabs =
+  const canViewObservability =
     !orgLoading &&
     !orgError &&
-    activeOrg?.orgId &&
-    (activeOrg.role === "owner" || activeOrg.role === "admin")
-      ? [
-          {
-            id: "observability",
-            label: t("routeTitles.agentObservability"),
-            icon: IconActivity,
-            group: "agent",
-            href: `${observabilityBasePath}/overview`,
-            content: (
-              <ObservabilityDashboard
-                routeBasePath={observabilityBasePath}
-                showHumanReview
-              />
-            ),
-          },
-        ]
-      : [];
+    Boolean(activeOrg?.orgId) &&
+    (activeOrg?.role === "owner" || activeOrg?.role === "admin");
+  const observabilityBasePath = buildSettingsRoute("observability");
+  // Today's tabs link the nav item to the dashboard's first tab. In the
+  // redesigned Settings it is a Design page at that same path, so its nav
+  // item must not carry `href`: that renders it as a link out of Settings.
+  const observabilityTabs: SettingsTabItem[] = canViewObservability
+    ? [
+        {
+          id: "observability",
+          label: t("routeTitles.agentObservability"),
+          icon: IconActivity,
+          group: "agent",
+          keywords: OBSERVABILITY_KEYWORDS,
+          href: redesign ? undefined : `${observabilityBasePath}/overview`,
+          content: (
+            <ObservabilityDashboard
+              routeBasePath={observabilityBasePath}
+              showHumanReview
+            />
+          ),
+        },
+      ]
+    : [];
   const settingsTabs = [...agentSettingsTabs, ...observabilityTabs];
   const labs = useMemo(
     () => [
@@ -93,6 +105,28 @@ export default function SettingsRoute() {
     [t],
   );
 
+  const whatsNew = (
+    <div className="mx-auto w-full max-w-2xl">
+      <ChangelogSettingsCard markdown={changelog} />
+    </div>
+  );
+
+  if (redesign) {
+    // Language is on Account › Preferences, and the creative-context library
+    // is its own page in the Design group while its lab is on.
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        <SettingsTabsPage
+          account={<AccountSettingsCard />}
+          extraTabs={settingsTabs}
+          labs={labs}
+          mcpAbout={t("settings.mcpAbout")}
+          whatsNew={whatsNew}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
       <SettingsTabsPage
@@ -120,19 +154,7 @@ export default function SettingsRoute() {
             </SettingsGroup>
           </div>
         }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("pages.teamCreateOrgDescription")}
-            />
-          </div>
-        }
-        whatsNew={
-          <div className="mx-auto w-full max-w-2xl">
-            <ChangelogSettingsCard markdown={changelog} />
-          </div>
-        }
+        whatsNew={whatsNew}
       />
     </div>
   );

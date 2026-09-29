@@ -264,6 +264,7 @@ export default {
     weekStartSunday: "الأحد - السبت",
     weekStartMonday: "الاثنين - الأحد",
     eventRules: "قواعد الدعوات",
+    eventRulesAutomationLink: "لإجراءات أخرى، أنشئ أتمتة.",
     eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
     eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
     eventRulesConnectBuilder: "ربط Builder.io",
@@ -296,6 +297,39 @@ export default {
     eventRulesChecking: "جارٍ التحقق من حالة الأتمتة…",
     eventRulesConflict: "تخطّينا دعوة لأن قاعدتي القبول والرفض تطابقتا.",
     eventRulesUnregistered: "أتمتة Calendar غير مسجلة على هذا الخادم.",
+  },
+  calendarSettings: {
+    calendarsTab: "التقويمات",
+    bookingTab: "الحجز",
+    eventsGroup: "الأحداث",
+    appearanceGroup: "المظهر",
+    colorTheme: "سمة الألوان",
+    timezone: "المنطقة الزمنية للتقويم",
+    timezoneDescription: "يُستخدم لعرض الأحداث وإنشاء أحداث جديدة.",
+    defaultDuration: "المدة الافتراضية للحدث",
+    defaultDurationDescription:
+      "بالدقائق. يمكن لروابط الحجز تعيين مدة خاصة بها.",
+    durationInvalid: "أدخل مدة من 5 إلى 480 دقيقة.",
+    zoom: "Zoom",
+    connectedAs: "متصل باسم {{accounts}}",
+    setUp: "إعداد",
+    disconnectGoogleTitle: "هل تريد قطع الاتصال بتقويم Google؟",
+    disconnectGoogleDescription:
+      "يتوقف Calendar عن عرض الأحداث من حسابات Google ومزامنتها.",
+    disconnectZoomTitle: "هل تريد قطع الاتصال بـ Zoom؟",
+    disconnectZoomDescription:
+      "لن تحصل الأحداث والحجوزات الجديدة على روابط اجتماعات Zoom حتى تعيد الاتصال.",
+    manage: "إدارة",
+    edit: "تعديل",
+    cancel: "إلغاء",
+    save: "حفظ",
+    fallbackBookingPage: "صفحة الحجز البديلة",
+    fallbackBookingPageDescription:
+      "تُستخدم عندما لا يكون لرابط الحجز عنوان أو وصف خاص به.",
+    fallbackTitle: "العنوان",
+    fallbackDescription: "الوصف",
+    bookingLinksDescription:
+      "أنشئ روابط حجز وانسخ عناوين URL العامة الخاصة بها.",
   },
   eventDialog: {
     eventUpdated: "تم تحديث الحدث",

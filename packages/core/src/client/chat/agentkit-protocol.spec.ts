@@ -15,6 +15,7 @@ import {
   subscribeChatFirstOpenBrowser,
 } from "../chat-first.js";
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
+import { createAgentNativeChatRuntime } from "./runtime.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeEvent,
@@ -2015,6 +2016,96 @@ describe("createAgentKitProtocolAdapter", () => {
       error: { code: "stream_ended" },
     });
     expect(result.some((event) => event.type === "run.completed")).toBe(false);
+  });
+
+  it("follows native server-driven continuation runs", async () => {
+    const sseResponse = (events: unknown[], runId: string) =>
+      new Response(
+        events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "X-Run-Id": runId,
+          },
+        },
+      );
+    const continuationRunIds = ["run-2", "run-3"];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), "http://localhost");
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (method === "POST") {
+          return sseResponse(
+            [
+              { type: "text", text: "part one ", seq: 0 },
+              { type: "auto_continue", reason: "run_timeout", seq: 1 },
+            ],
+            "run-1",
+          );
+        }
+        if (url.pathname.endsWith("/runs/latest")) {
+          return Response.json({ runId: continuationRunIds.shift() });
+        }
+        const runId = url.pathname.split("/").at(-2);
+        if (runId === "run-1") return sseResponse([], runId);
+        if (runId === "run-2") {
+          return sseResponse(
+            [
+              { type: "text", text: "part two ", seq: 0 },
+              { type: "auto_continue", reason: "run_timeout", seq: 1 },
+            ],
+            runId,
+          );
+        }
+        if (runId === "run-3") {
+          return sseResponse(
+            [
+              { type: "text", text: "part three", seq: 0 },
+              { type: "done", seq: 1 },
+            ],
+            runId,
+          );
+        }
+        throw new Error(`Unexpected runtime request: ${url}`);
+      },
+    ) as typeof fetch;
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock,
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Continue the long answer")],
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "run.failed")).toBeUndefined();
+    expect(result.at(-1)?.type).toBe("run.completed");
+    expect(
+      result.find((event) => event.type === "message.completed"),
+    ).toMatchObject({
+      type: "message.completed",
+      message: {
+        parts: [{ type: "text", text: "part one part two part three" }],
+      },
+    });
+    const eventRequests = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input), "http://localhost"))
+      .filter(
+        (url) =>
+          url.pathname.includes("/runs/") && url.pathname.endsWith("/events"),
+      );
+    expect(
+      eventRequests.map((url) => [url.pathname, url.searchParams.get("after")]),
+    ).toEqual([
+      ["/_agent-native/agent-chat/runs/run-2/events", "0"],
+      ["/_agent-native/agent-chat/runs/run-3/events", "0"],
+    ]);
+    await transport.dispose();
   });
 
   it("deduplicates compatibility activity mirrors and closes activity on completion", async () => {

@@ -9,6 +9,7 @@ import type {
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseResponse,
   ContentDatabaseItem,
+  ContentLinkTarget,
   ContentNavigationContext,
   ContentNavigationPathEntry,
   Document,
@@ -62,6 +63,7 @@ import {
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
 } from "./use-content-database";
+import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
 
 export {
   documentQueryFilter,
@@ -482,6 +484,15 @@ export function patchDocumentCaches(
     contentDatabaseItemsContainingDocumentFilter(documentId),
     (current) => patchDocumentInDatabaseCache(current, documentId, patch),
   );
+  if (patch.title !== undefined) {
+    queryClient.setQueriesData<ContentLinkTarget | null>(
+      { queryKey: CONTENT_LINK_TARGETS_QUERY_KEY },
+      (current) =>
+        current && "documentId" in current && current.documentId === documentId
+          ? { ...current, title: patch.title! }
+          : current,
+    );
+  }
   queryClient.setQueriesData<{ entries: ContentRecentResult[] }>(
     { queryKey: ["action", "get-content-recent"] },
     (current) => {
@@ -718,6 +729,15 @@ export function useDocuments(options?: { enabled?: boolean }) {
     retry: false,
     enabled: options?.enabled !== false,
   });
+}
+
+// The sidebar and the editor breadcrumbs read the same entry.
+export function useContentNavigationContext(documentId: string | null) {
+  return useActionQuery<ContentNavigationContext>(
+    "get-content-navigation-context",
+    documentId ? { id: documentId } : undefined,
+    { enabled: Boolean(documentId) },
+  );
 }
 
 export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
@@ -1363,10 +1383,11 @@ export function useRollbackCreatedSlashDocument() {
   });
 }
 
-export function useTrashedDocuments() {
+export function useTrashedDocuments(options?: { enabled?: boolean }) {
   return useActionQuery<ListTrashedDocumentsResponse>(
     "list-trashed-documents",
     {},
+    { enabled: options?.enabled !== false },
   );
 }
 

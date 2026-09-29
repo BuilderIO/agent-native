@@ -17,7 +17,7 @@ test.beforeEach(async ({}, testInfo) => {
 });
 
 test.describe("reparenting rules", () => {
-  test("dragging a flow child out of a frame stacks it above that frame and persists after reload", async ({
+  test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
     page,
   }) => {
     const designId = await newDesign(
@@ -100,14 +100,20 @@ test.describe("reparenting rules", () => {
         throw new Error("G4 fixture nodes need rendered bounds before drag");
       }
 
+      const grabOffset = {
+        x: draggedBox.width * 0.85,
+        y: draggedBox.height / 2,
+      };
       const start = {
-        x: draggedBox.x + draggedBox.width / 2,
-        y: draggedBox.y + draggedBox.height / 2,
+        x: draggedBox.x + grabOffset.x,
+        y: draggedBox.y + grabOffset.y,
       };
       const release = {
-        x: outerBox.x + outerBox.width - 20,
-        y: outerBox.y + outerBox.height / 2,
+        x: nestedBox.x + nestedBox.width + 12,
+        y: nestedBox.y + nestedBox.height / 2,
       };
+      expect(release.x).toBeLessThan(outerBox.x + outerBox.width);
+      expect(release.y).toBeLessThan(outerBox.y + outerBox.height);
       const crossedPath = {
         x: candidateBox.x + candidateBox.width / 2,
         y: candidateBox.y + candidateBox.height / 2,
@@ -167,6 +173,41 @@ test.describe("reparenting rules", () => {
         order: ["nested", "dragme", "candidate", "overlap"],
       });
 
+      const visibleStacking = await node(page, "dragme").evaluate((dragged) => {
+        const document = dragged.ownerDocument;
+        const nested = document.querySelector<HTMLElement>(
+          '[data-agent-native-node-id="nested"]',
+        );
+        if (!nested) return null;
+        const nestedBox = nested.getBoundingClientRect();
+        const draggedBox = dragged.getBoundingClientRect();
+        const left = Math.max(nestedBox.left, draggedBox.left);
+        const top = Math.max(nestedBox.top, draggedBox.top);
+        const right = Math.min(nestedBox.right, draggedBox.right);
+        const bottom = Math.min(nestedBox.bottom, draggedBox.bottom);
+        if (right <= left || bottom <= top) return null;
+        const stack = document.elementsFromPoint(
+          (left + right) / 2,
+          (top + bottom) / 2,
+        );
+        const hitId = stack
+          .map((element) =>
+            element
+              .closest<HTMLElement>("[data-agent-native-node-id]")
+              ?.getAttribute("data-agent-native-node-id"),
+          )
+          .find((id) => id === "dragme" || id === "nested");
+        return {
+          overlapWidth: right - left,
+          overlapHeight: bottom - top,
+          hitId,
+        };
+      });
+      expect(visibleStacking).not.toBeNull();
+      expect(visibleStacking!.overlapWidth).toBeGreaterThan(0);
+      expect(visibleStacking!.overlapHeight).toBeGreaterThan(0);
+      expect(visibleStacking!.hitId).toBe("dragme");
+
       await openEditor(page, designId);
       await expect.poll(persistedStructure).toEqual({
         parent: "outer",
@@ -179,7 +220,7 @@ test.describe("reparenting rules", () => {
     }
   });
 
-  test("an object smaller than a frame becomes its child when dropped in", async ({
+  test("an object smaller than a frame becomes its direct child when dropped in", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -203,24 +244,21 @@ test.describe("reparenting rules", () => {
     // `[data-design-preview-iframe]` attribute, no `data-screen-iframe-id`,
     // and none of this screen's own content. See `node()` in
     // e2e/drag-and-drop.shared.ts, which guards against the same trap.
-    const nested = await page
+    const directParent = await page
       .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
       .contentFrame()
       .locator("body")
       .evaluate(() => {
-        const parent = document.querySelector(
-          '[data-agent-native-node-id="frame-a"]',
-        );
         const child = document.querySelector(
           '[data-agent-native-node-id="box-a"]',
         );
-        return !!parent && !!child && parent.contains(child);
+        return child?.parentElement?.getAttribute("data-agent-native-node-id");
       });
     expect(
-      nested,
+      directParent,
       'Figma: "If an object is smaller than a frame, we will make it a child of the frame."',
-    ).toBe(true);
+    ).toBe("frame-a");
   });
 
   test("holding Space while dragging keeps the object in its current parent", async ({

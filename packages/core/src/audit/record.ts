@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
 import {
   deriveActorKind,
@@ -47,6 +48,20 @@ function errorCode(error: unknown): string | null {
   return "error";
 }
 
+function isRefusal(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { statusCode?: unknown; status?: unknown };
+  const status = e.statusCode ?? e.status;
+  return status === 401 || status === 403;
+}
+
+// Same key as usage's `resolveUsageAppKey`, so the audit and usage app
+// filters agree. Null, not a placeholder, when the app has no identity.
+function auditAppKey(): string | null {
+  const { app } = getAppConfig();
+  return (app.id ?? app.name)?.trim() || null;
+}
+
 function safeTarget(
   config: ActionAuditConfig | undefined,
   args: unknown,
@@ -88,8 +103,13 @@ export async function recordActionAudit(
 
     const caller = ctx?.caller ?? "http";
     const actorEmail = ctx?.userEmail ?? null;
+    // A refused call is an attempt worth seeing, not a failure.
+    const status: AuditStatus =
+      input.status === "error" && isRefusal(input.error)
+        ? "denied"
+        : input.status;
     const meta: AuditCallMeta = {
-      status: input.status,
+      status,
       caller,
       userEmail: ctx?.userEmail,
       orgId: ctx?.orgId ?? null,
@@ -116,16 +136,17 @@ export async function recordActionAudit(
       turnId: ctx?.turnId ?? null,
       targetType: target?.type ?? null,
       targetId: target?.id ?? null,
-      status: input.status,
+      status,
       summary,
       input: inputJson,
-      errorCode: input.status === "error" ? errorCode(input.error) : null,
+      errorCode: input.error ? errorCode(input.error) : null,
       ownerEmail: target?.ownerEmail ?? actorEmail,
       visibility: target?.visibility ?? "private",
       runId: ctx?.runId ?? lineage?.runId ?? null,
       networkProtocol: ctx?.networkProtocol ?? null,
       networkId: ctx?.networkId ?? null,
       networkPeer: ctx?.networkPeer ?? null,
+      app: auditAppKey(),
     };
     if (integration) {
       if (

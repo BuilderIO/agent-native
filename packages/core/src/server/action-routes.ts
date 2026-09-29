@@ -58,6 +58,7 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
+import { readBodyWithSizeLimit } from "./h3-helpers.js";
 import {
   getHttpRequestTelemetryId,
   registerHttpRequestTelemetryActionRoute,
@@ -783,11 +784,18 @@ function mountActionRoutesInternal(
                   );
                 }
               } else {
-                const webReq = (event as any).req;
-                if (webReq && typeof webReq.json === "function") {
-                  params = await webReq.json();
+                if (typeof entry.maxBodyBytes === "number") {
+                  params = await readBodyWithSizeLimit(
+                    event,
+                    entry.maxBodyBytes,
+                  );
                 } else {
-                  params = (await readH3Body(event)) as Record<string, any>;
+                  const webReq = (event as any).req;
+                  if (webReq && typeof webReq.json === "function") {
+                    params = await webReq.json();
+                  } else {
+                    params = (await readH3Body(event)) as Record<string, any>;
+                  }
                 }
                 if (
                   !params ||
@@ -797,7 +805,13 @@ function mountActionRoutesInternal(
                   throw new Error("request body is not an object");
                 }
               }
-            } catch {
+            } catch (error) {
+              if ((error as { statusCode?: unknown })?.statusCode === 413) {
+                setResponseStatus(event, 413);
+                return {
+                  error: `Request body too large (max ${entry.maxBodyBytes} bytes)`,
+                };
+              }
               params = {};
               paramsError = "Request body must be a valid JSON object.";
             }
@@ -1098,7 +1112,6 @@ export function mountWebMcpActionRoutes(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false &&
         entry.uiOnly !== true,
     ),
   );

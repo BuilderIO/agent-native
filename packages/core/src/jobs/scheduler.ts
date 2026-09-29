@@ -421,6 +421,7 @@ async function recoverStaleAutomationHistory(
       run.id,
       "error",
       "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.",
+      "background_automation_interrupted",
     );
   } catch (error) {
     console.warn(
@@ -458,7 +459,7 @@ async function recordIdentityFailure(
       `User/membership no longer valid — leaving cron entry for admin review.`,
   );
   const alreadyRecorded =
-    meta.lastStatus === "skipped" && meta.lastError === reason;
+    meta.lastError === reason && hasRecentIdentityFailure(meta, now);
   meta.lastCheck = now.toISOString();
   meta.lastStatus = "skipped";
   meta.lastError = reason;

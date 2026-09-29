@@ -33,6 +33,21 @@ function stubMatchMedia(matches: boolean) {
   );
 }
 
+function resetLocalStorage() {
+  const values = new Map<string, string>();
+  const storage = {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  vi.stubGlobal("localStorage", storage);
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
 describe("agent sidebar width presets", () => {
   it("uses 75% of the desktop viewport for the wide preset", () => {
     expect(getAgentSidebarWideWidth(1440)).toBe(1080);
@@ -52,7 +67,7 @@ describe("agent sidebar width presets", () => {
 
 describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    resetLocalStorage();
     window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
   });
@@ -187,7 +202,7 @@ describe("getInitialAgentSidebarOpen", () => {
 
 describe("dispatchAgentSidebarStateChange", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    resetLocalStorage();
     window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
   });

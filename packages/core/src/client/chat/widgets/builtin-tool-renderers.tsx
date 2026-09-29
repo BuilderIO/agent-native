@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ComponentType } from "react";
 
 import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
@@ -8,6 +9,7 @@ import {
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
+  normalizeAgentTeamProgressResult,
   normalizeActionChangeResult,
   type ActionChange,
 } from "../../../action-ui.js";
@@ -70,6 +72,16 @@ const LazyRecordChangeWidget: ComponentType<{
     : lazy(() =>
         import("./RecordChangeWidget.js").then((module) => ({
           default: module.RecordChangeWidget,
+        })),
+      );
+const LazyAgentTeamProgressWidget: ComponentType<{
+  context: ToolRendererContext;
+}> =
+  (import.meta.env?.SSR ?? typeof window === "undefined")
+    ? () => null
+    : lazy(() =>
+        import("./AgentTeamProgressWidget.js").then((module) => ({
+          default: module.AgentTeamProgressWidget,
         })),
       );
 
@@ -356,6 +368,20 @@ const BuiltinRecordChangeRenderer: ToolRendererComponent = ({ context }) => {
   );
 };
 
+const BuiltinAgentTeamProgressRenderer: ToolRendererComponent = ({
+  context,
+}) => {
+  const result = normalizeAgentTeamProgressResult(context.resultJson);
+  if (!result) return null;
+  return (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyAgentTeamProgressWidget
+        context={{ ...context, resultJson: result }}
+      />
+    </Suspense>
+  );
+};
+
 export function isBuiltinConnectRequiredResult(
   context: ToolRendererContext,
 ): boolean {
@@ -399,6 +425,12 @@ export function resolveBuiltinActionChatRenderer(
     return BuiltinWorkspaceFileRenderer;
   }
   if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER &&
+    normalizeAgentTeamProgressResult(context.resultJson)
+  ) {
+    return BuiltinAgentTeamProgressRenderer;
+  }
+  if (
     (context.chatUI?.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER ||
       LEGACY_RECORD_CHANGE_RENDERERS.some(
         (id) => id === context.chatUI?.renderer,
@@ -439,6 +471,7 @@ export function resolveBuiltinFallbackToolRenderer(
 }
 
 for (const [id, renderer] of [
+  ["core.agent-team-progress", ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER],
   ["core.data-table", ACTION_CHAT_UI_DATA_TABLE_RENDERER],
   ["core.data-chart", ACTION_CHAT_UI_DATA_CHART_RENDERER],
   ["core.data-insights", ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER],
@@ -450,11 +483,13 @@ for (const [id, renderer] of [
     id,
     renderer,
     Component:
-      renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER
-        ? BuiltinInlineExtensionRenderer
-        : renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER
-          ? BuiltinRecordChangeRenderer
-          : BuiltinDataWidgetRenderer,
+      renderer === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER
+        ? BuiltinAgentTeamProgressRenderer
+        : renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER
+          ? BuiltinInlineExtensionRenderer
+          : renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER
+            ? BuiltinRecordChangeRenderer
+            : BuiltinDataWidgetRenderer,
   });
 }
 

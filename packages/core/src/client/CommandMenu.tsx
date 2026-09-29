@@ -15,6 +15,7 @@ import {
   IconMessage,
   IconHistory,
   IconLogout,
+  IconSettings,
 } from "@tabler/icons-react";
 import React, {
   createContext,
@@ -44,6 +45,10 @@ import {
   chatModelSelectionStorageKey,
   useChatModels,
 } from "./use-chat-models.js";
+import {
+  getSettingsShortcutHint,
+  openSettingsPage,
+} from "./use-settings-shortcut.js";
 import { cn } from "./utils.js";
 
 const LazyChangelogDialog = lazy(async () => {
@@ -139,6 +144,12 @@ interface CommandItemProps {
   keywords?: string[];
   className?: string;
   deferSelect?: boolean;
+  /**
+   * Stable identity for keyboard selection. Without it, the selection is keyed
+   * by the item's text, so an item whose text changes while it is shown (for
+   * example a search result gaining a snippet) loses the highlight.
+   */
+  value?: string;
 }
 
 function CommandItem({
@@ -147,6 +158,7 @@ function CommandItem({
   keywords: _keywords,
   className,
   deferSelect = true,
+  value,
 }: CommandItemProps) {
   const { onOpenChange } = useCommandMenuContext();
 
@@ -165,6 +177,7 @@ function CommandItem({
     <CommandItemPrimitive
       className={cn("cursor-pointer gap-2", className)}
       onSelect={handleSelect}
+      value={value}
     >
       {children}
     </CommandItemPrimitive>
@@ -247,6 +260,21 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
         </CommandItem>
       ))}
     </CommandGroup>
+  );
+}
+
+const SETTINGS_SEARCH_TERMS = [
+  "settings",
+  "preferences",
+  "account",
+  "profile",
+  "integrations",
+];
+
+function isApplePlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
   );
 }
 
@@ -416,6 +444,17 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showAboutRow = showAbout && aboutRowMatches;
+  const settingsLabel = t("settingsShortcut.command");
+  const showSettingsRow =
+    !search ||
+    [settingsLabel, ...SETTINGS_SEARCH_TERMS]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const handleOpenSettings = useCallback(() => {
+    onOpenChange(false);
+    openSettingsPage();
+  }, [onOpenChange]);
   const signOutLabel = t("agentChat.auth.logOut");
   const showSignOutRow =
     !search ||
@@ -498,9 +537,27 @@ export function CommandMenu({
       {results}
       {hasResults && filteredChildren}
 
-      {showChangelogRow && (
+      {showSettingsRow && (
         <>
           {hasResults && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleOpenSettings}
+            >
+              <IconSettings className="h-4 w-4 text-muted-foreground" />
+              <span>{settingsLabel}</span>
+              <CommandShortcutPrimitive>
+                {getSettingsShortcutHint(isApplePlatform())}
+              </CommandShortcutPrimitive>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showChangelogRow && (
+        <>
+          {(hasResults || showSettingsRow) && <CommandSeparator />}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -521,7 +578,9 @@ export function CommandMenu({
 
       {showAboutRow && (
         <>
-          {(hasResults || showChangelogRow) && <CommandSeparator />}
+          {(hasResults || showSettingsRow || showChangelogRow) && (
+            <CommandSeparator />
+          )}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -536,9 +595,10 @@ export function CommandMenu({
 
       {showSignOutRow && (
         <>
-          {(hasResults || showChangelogRow || showAboutRow) && (
-            <CommandSeparator />
-          )}
+          {(hasResults ||
+            showSettingsRow ||
+            showChangelogRow ||
+            showAboutRow) && <CommandSeparator />}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -554,6 +614,7 @@ export function CommandMenu({
       {showAgentFallback && (
         <>
           {(hasResults ||
+            showSettingsRow ||
             showChangelogRow ||
             showAboutRow ||
             showSignOutRow ||

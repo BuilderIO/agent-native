@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "../../action-ui.js";
 import { defineAction } from "../../action.js";
 import {
   getUserSetting,
@@ -8,6 +12,7 @@ import {
 import {
   LOCALIZATION_SETTING_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
   normalizeTimezonePreference,
@@ -29,7 +34,12 @@ export default defineAction({
       .describe("Scheduling timezone: 'system' or an IANA zone name.")
       .optional(),
   }),
-  run: async (args, ctx): Promise<ResolvedLocalizationPreference> => {
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
+  run: async (args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
 
     const current = normalizeLocalizationPreference(
@@ -62,7 +72,36 @@ export default defineAction({
       locale,
       timezone,
     };
+    const localeChanged = locale !== current.locale;
+    const timezoneChanged = timezone !== current.timezone;
+    if (!localeChanged && !timezoneChanged) return value;
+
     await putUserSetting(ctx.userEmail, LOCALIZATION_SETTING_KEY, value);
-    return value;
+
+    const localeLabel =
+      locale === "system" ? locale : localeDisplayName(locale);
+    const timezoneLabel =
+      timezone === "system"
+        ? timezone
+        : (new Intl.DateTimeFormat(locale === "system" ? undefined : locale, {
+            timeZone: timezone,
+            timeZoneName: "long",
+          })
+            .formatToParts(new Date())
+            .find((part) => part.type === "timeZoneName")?.value ?? timezone);
+
+    return {
+      ...value,
+      change: {
+        verb: "updated",
+        kind: "preference",
+        title: [
+          ...(localeChanged ? [localeLabel] : []),
+          ...(timezoneChanged ? [timezoneLabel] : []),
+        ]
+          .join(" · ")
+          .slice(0, 180),
+      },
+    };
   },
 });

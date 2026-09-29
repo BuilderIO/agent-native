@@ -371,6 +371,7 @@ import {
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
+  DuplicateMode,
   FrameGeometry,
   GradientEditOverlayTarget,
   MultiScreenCanvasTool,
@@ -423,9 +424,7 @@ import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "@/components/editor/FigmaLinkComposerBubble";
-import PromptPopover, {
-  preloadPromptComposer,
-} from "@/components/editor/PromptDialog";
+import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -4761,7 +4760,6 @@ function DesignEditor() {
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
-      if (open) preloadPromptComposer();
       setShowPrompt(open);
       if (open) {
         setPromptDesignSystemId(design?.designSystemId ?? undefined);
@@ -4775,7 +4773,6 @@ function DesignEditor() {
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && (!canEditDesign || !tweaksEnabled)) return;
-      if (open) preloadPromptComposer();
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
@@ -4787,7 +4784,6 @@ function DesignEditor() {
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
       if (!canEditDesign || !tweaksEnabled) return;
-      preloadPromptComposer();
       tweakPromptAnchorRef.current = anchor;
       setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);
@@ -6817,7 +6813,7 @@ function DesignEditor() {
     (
       screenId: string,
       request?: {
-        mode?: "alt-click" | "alt-drag";
+        mode?: DuplicateMode;
         canvasPosition?: { x: number; y: number };
         canvasFrameGeometryById?: CanvasFrameGeometryById;
         preserveCamera?: boolean;
@@ -24243,6 +24239,7 @@ function DesignEditor() {
           motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
           motionDefaultEase={motionDefaultEase}
           motionDurationMs={motionDurationMs}
+          shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
               ? inScreenGradientEditTarget
@@ -24447,6 +24444,7 @@ function DesignEditor() {
       motionTracksWire,
       motionDefaultEase,
       motionDurationMs,
+      shaderFillPreview,
       inScreenGradientEditTarget,
       handleInScreenGradientEditChange,
       statePreviewTarget,
@@ -25134,8 +25132,8 @@ function DesignEditor() {
         <Button
           ref={projectMenuTriggerRef}
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*5.5)]"
+          size="icon-sm"
+          className="shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[calc(var(--spacing)*5.5)]"
           aria-label={t("designEditor.more")}
         >
           <AgentNativeMenuMark className="size-[calc(var(--spacing)*5.5)] text-foreground dark:text-white" />
@@ -25374,8 +25372,8 @@ function DesignEditor() {
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 rounded-md"
+          size="icon-sm"
+          className="shrink-0 rounded-md"
           aria-label={
             minimalUi
               ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
@@ -25510,9 +25508,9 @@ function DesignEditor() {
         <TooltipTrigger asChild>
           <Button
             asChild
-            variant="outline"
+            variant="secondary"
             size="sm"
-            className="h-8 min-w-0 shrink cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
+            className="min-w-0 shrink cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
             <a href={signInToSaveHref}>
@@ -25528,7 +25526,7 @@ function DesignEditor() {
             asChild
             variant="default"
             size="sm"
-            className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+            className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
             aria-label={t(
               hasLocalhostScreens
                 ? "designEditor.signUpToShareLiveCanvas"
@@ -25740,7 +25738,7 @@ function DesignEditor() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 cursor-pointer"
+                className="cursor-pointer"
                 onClick={() => setPublishWaitlistPopoverOpen(false)}
               >
                 {
@@ -25752,7 +25750,7 @@ function DesignEditor() {
               {!publishWaitlistJoined && (
                 <Button
                   size="sm"
-                  className="h-8 cursor-pointer"
+                  className="cursor-pointer"
                   onClick={() => void handleJoinPublishWaitlist()}
                   disabled={joiningPublishWaitlist}
                 >
@@ -26209,8 +26207,8 @@ function DesignEditor() {
             </span>
             <Button
               variant="ghost"
-              size="icon"
-              className="size-8 cursor-pointer"
+              size="icon-sm"
+              className="cursor-pointer"
               onClick={() => {
                 window.parent.postMessage(
                   { type: "design:close" },
@@ -26542,7 +26540,7 @@ function DesignEditor() {
             row rather than a second floating control. Not needed for the
             floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
         {responsiveInteractActive && !minimalUi ? (
-          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
+          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
             <ResponsiveInteractExitButton
               onClose={handleExitResponsiveInteract}
               className="pointer-events-auto"
@@ -27003,7 +27001,7 @@ function DesignEditor() {
                         <Button
                           className={cn(
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
-                            "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
+                            "min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
                             (!shellMode ||
                               !canApplyPendingVisualEditsWithAgent) &&
                               "rounded-r-none",
@@ -27983,7 +27981,7 @@ function DesignEditor() {
                 type="button"
                 variant="secondary"
                 size="icon"
-                className="fixed right-3 top-14 z-[75] size-9 rounded-full shadow-lg md:hidden"
+                className="fixed right-3 top-14 z-[75] rounded-full shadow-lg md:hidden"
                 aria-label={t("editPanel.properties")}
               >
                 <IconAdjustmentsHorizontal className="size-4" />

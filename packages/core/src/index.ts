@@ -175,6 +175,7 @@ export {
   isFeatureFlagEnabled,
   listFeatureFlags,
   registerFeatureFlags,
+  SETTINGS_REDESIGN_FLAG,
   type FeatureFlagDefinition,
   type FeatureFlagMode,
   type FeatureFlagRules,

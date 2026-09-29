@@ -45,9 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "받은편지함 건너뛰기",
       aiSetupSave: "설정 저장",
       aiSetupSkip: "나중에 하기",
-      aiSetupImportantHeadline: "중요한 항목",
-      aiSetupSkipInboxHeadline: "받은편지함을 건너뛸 항목",
-      aiSetupTagsHeadline: "탭 선택",
+      aiSetupImportantHeadline: "무엇이 중요한가요?",
+      aiSetupSkipInboxHeadline: "받은편지함을 건너뛸 메일은 무엇인가요?",
+      aiSetupTagsHeadline: "메일을 탭으로 정리",
       aiSetupArchiveSpamHeadline: "받은편지함 건너뛰기 및 스팸",
       aiSetupTagReceipts: "영수증",
       aiSetupTagUpdates: "제품 업데이트",
@@ -61,6 +61,14 @@ const messages = {
         "받은편지함 건너뛰기: 봇 댓글이나 자동 상태 업데이트가 포함된 GitHub 알림.\n스팸: 요청하지 않은 명백한 홍보성 또는 원치 않는 메시지.",
       aiSetupCustomTag: "사용자 지정",
       aiSetupDone: "완료",
+      aiSetupConnectGmailHeadline: "Gmail을 연결해 받은편지함 정리하기",
+      aiSetupConnectGmailDescription:
+        "Google을 연결하면 최근 메일에 규칙을 적용할 수 있어요.",
+      aiSetupConnectJevHeadline: "Jev를 연결해 받은편지함 정리하기",
+      aiSetupConnectJevDescription:
+        "Jev를 연결하면 최근 메일에 규칙을 적용할 수 있어요.",
+      aiSetupCustomTabName: "탭 이름",
+      aiSetupCustomTabExample: "예: 거래처 청구서",
       aiSetupRunAgain: "설정 다시 실행",
       aiSetupTagCalendar: "캘린더",
       aiSetupPromptCalendar: "필요한 캘린더 초대와 일정 업데이트",
@@ -71,13 +79,23 @@ const messages = {
       aiSetupArchiveExample: "GitHub, Vercel, Dependabot의 봇 및 CI 알림",
       aiSetupFilteredExample: "답장하지 않은 영업 메일과 채용 담당자 메시지",
       aiSetupSortingHeadline: "받은편지함을 정리하고 있어요",
+      aiSetupSortingDescription: "최근 메일에서 규칙과 일치한 결과입니다.",
       aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
+      aiSetupRetry: "다시 시도",
+      aiSetupGmailStatusFailed: "Gmail 연결을 확인할 수 없어요",
+      aiSetupAutomationSettingsFailed: "AI 모델 설정을 확인할 수 없어요",
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
+      aiSetupUndoBeforeRetry:
+        "다시 시도하기 전에 일부 변경 사항을 먼저 실행 취소하세요.",
       aiSetupSortingFailed:
         "받은편지함을 정리하지 못했어요. 규칙은 저장되었으니 다시 시도해 주세요.",
       aiSetupUndoComplete: "{{count}}개 메시지를 이전 상태로 복원했어요.",
+      aiSetupUndoFailed:
+        "받은편지함 변경사항을 실행 취소하지 못했어요. 다시 시도해 주세요.",
+      aiSetupUndoStatusFailed:
+        "실행 취소 요청을 보냈지만 최신 결과를 불러오지 못했어요.",
       aiSetupRuleCount: "{{count}}개 일치",
       aiSetupNoMatches: "지난 14일 동안 이 규칙에 맞는 메시지가 없어요.",
       aiSetupChatTip: "채팅에서 언제든지 규칙을 수정하거나 추가할 수 있어요.",
@@ -85,7 +103,28 @@ const messages = {
       aiSetupNoRules: "선택한 규칙이 없어요.",
       aiSetupPartialFailure: "{{count}}개 메시지를 업데이트하지 못했어요.",
       aiSetupSortInbox: "받은편지함 정리하기",
-      aiSetupImportantExample: "매니저 Priya가 보낸 모든 메일…",
+      aiSetupImportantExample: "상사 Priya(priya@company.com)의 모든 메일…",
+      aiSetupTagsDescription:
+        "AI가 조건에 맞는 메일에 태그를 붙이고 받은편지함 옆에 태그별 탭을 만듭니다.",
+      aiSetupImportantDescription:
+        "AI가 조건에 맞는 메일에 중요 라벨을 추가해 중요 탭에 표시합니다.",
+      aiSetupSkipInboxDescription:
+        "AI가 조건에 맞는 메일을 보관처리해 받은편지함에 표시하지 않습니다. 모든 메일과 검색에서는 계속 확인할 수 있습니다.",
+      aiSetupAddTab: "탭 추가",
+      aiSetupAdjustRules: "규칙 조정",
+      aiSetupImportantBoss: "상사의 메일, ",
+      aiSetupImportantBossChip: "상사의 메일",
+      aiSetupImportantReply: "답장이 필요해요",
+      aiSetupImportantDeadlines: "마감일",
+      aiSetupImportantCustomers: "고객",
+      aiSetupImportantGitHub: "GitHub 사용자",
+      aiSetupImportantCalendar: "일정 초대",
+      aiSetupSkipNewsletters: "뉴스레터",
+      aiSetupSkipPromotions: "프로모션",
+      aiSetupSkipBots: "봇·CI 알림",
+      aiSetupSkipColdSales: "원치 않는 영업",
+      aiSetupSkipRecruiters: "채용 담당자",
+      aiSetupSkipSocial: "소셜 알림",
       priorityFeedbackLabel: "중요도 피드백",
       priorityScoreHigh: "중요도 높음",
       priorityScoreMedium: "중요도 보통",
@@ -286,6 +325,15 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "예약 발송 취소",
+      deliveryUnknownWarning:
+        "전송 상태를 알 수 없습니다. 해결하기 전에 Gmail의 보낸편지함을 확인하세요.",
+      markSentAfterChecking: "보낸편지함을 확인했습니다. 전송됨으로 표시",
+      sendNewCopy: "새 사본 보내기",
+      sendingStatus:
+        "예약된 메일을 처리 중입니다. 작업을 일시적으로 사용할 수 없습니다.",
+      confirmSendNewCopyTitle: "사본을 한 번 더 보낼까요?",
+      confirmSendNewCopyDescription:
+        "원본이 이미 전송되었을 수 있습니다. 먼저 Gmail의 보낸편지함을 확인하세요. 다시 보내면 메일이 중복될 수 있습니다.",
       dateInput: "날짜 및 시간",
       noDateMatch: "일치하는 미래 시간이 없습니다",
       inputPlaceholder: "예: 오전 8시, 3일 후, 8월 7일",
@@ -395,6 +443,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "예약 이메일을 보냈습니다.",
       scheduledSendFailed: "예약 이메일 보내기 실패",
+      uncertainScheduledMarkedSent: "예약 이메일을 전송됨으로 표시했습니다.",
+      uncertainScheduledResolveFailed:
+        "예약 이메일 상태를 해결하지 못했습니다.",
+      uncertainScheduledRetryStarted: "새 사본을 보내고 있습니다.",
+      uncertainScheduledRetryFailed: "새 사본을 보내지 못했습니다.",
       scheduledCancelled: "예약 이메일이 취소되었습니다.",
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -444,6 +497,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google 계정 연결",
+      connectionNotConfigured:
+        "이 앱에는 Gmail 연결이 설정되어 있지 않습니다. 관리자에게 활성화를 요청하거나 지금은 이 단계를 건너뛰세요.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -608,6 +663,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}}개 메시지 복원됨",
       ruleBackfillReview: "일치 항목 검토",
       importantMode: "중요",
+      notifyMode: "알림",
+      notifyModeHelp:
+        "일치하는 메일을 중요 표시하고 Mail을 열어 두고 종 모양 메뉴에서 알림을 켜면 브라우저 팝업을 표시합니다. 모바일 앱은 곧 제공될 예정입니다.",
+      manageAutomationsLink: "더 많은 자동화 작업",
       notImportantMode: "중요하지 않음",
       importantLabel: "AI 중요",
       reviewImportant: "중요 메일 보기",
@@ -736,6 +795,7 @@ const messages = {
     markRead: "읽음으로 표시",
     star: "별표",
     trash: "휴지통",
+    notify: "알림",
     labelName: "라벨 이름",
     addAction: "+ 작업 추가",
     ruleName: "규칙 이름",
@@ -811,7 +871,6 @@ const messages = {
     slackPostEndpoint: "Slack POST 엔드포인트",
     slackPostEndpointHelp:
       "Slack Event Subscriptions에서 사용하세요. 브라우저 GET은 Not Found를 표시할 수 있습니다.",
-    teamDescription: "동료와 이메일 자동화 및 설정을 공유할 팀을 설정하세요.",
     title: "설정",
     general: "일반",
     generalDescription: "Mail의 언어 및 계정 수준 기본 설정입니다.",
@@ -837,12 +896,19 @@ const messages = {
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
     automations: "자동화",
+    rules: "규칙",
+    rulesModel: "규칙 모델",
+    rulesModelDescription: "받은 메일을 규칙과 비교합니다.",
+    slackDraftRequests: "초안 요청",
+    slackDraftQueue: "Slack에서 초안 대기열에 추가",
+    slackDraftQueueDescription:
+      "팀원이 Slack에서 에이전트를 멘션해 이메일 초안을 요청합니다. 초안은 검토를 위해 초안 대기열에서 기다립니다.",
+    openDraftQueue: "초안 대기열 열기",
     aiFilter: "AI 분류",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",
     slack: "Slack",
-    team: "팀",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

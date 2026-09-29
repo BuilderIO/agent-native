@@ -1275,6 +1275,126 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("keeps an AgentKit approval continuation out of the legacy placeholder", () => {
+    const approvedToolCallId = "accept-release-call";
+    const releaseMessage = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Release accepted." } },
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            id: approvedToolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: approvedToolCallId,
+            tool: "accept-agentkit-release",
+            result: "Release accepted.",
+          },
+        },
+      ],
+      "runtime-continuation",
+      { turnId: "turn-approval" },
+    );
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "server-run-approval",
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "Waiting for your approval to run accept-agentkit-release.",
+              },
+              {
+                type: "tool-call",
+                toolCallId: approvedToolCallId,
+                toolName: "accept-agentkit-release",
+                args: { release: "agentkit-acceptance" },
+                result: "Awaiting human approval. This action did NOT execute.",
+                approval: { approvalKey: "accept-agentkit-release:approval" },
+              },
+            ],
+            metadata: {
+              runId: "runtime-approval",
+              custom: { turnId: "turn-approval" },
+            },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "message-approval",
+            role: "assistant",
+            parts: [
+              {
+                type: "text",
+                text: "Waiting for your approval to run accept-agentkit-release.",
+              },
+            ],
+          },
+          {
+            id: "message-canonical",
+            role: "assistant",
+            parts: [{ type: "text", text: "Release accepted." }],
+          },
+        ],
+        toolCalls: [
+          {
+            id: approvedToolCallId,
+            name: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+            output: "Release accepted.",
+            status: "completed",
+            messageId: "message-canonical",
+          },
+        ],
+      },
+    };
+
+    const saved = foldAssistantTurn(repo, releaseMessage!, {
+      turnId: "turn-approval",
+      runId: "runtime-continuation",
+      agentKitOwnsContinuation: true,
+    });
+    const restored = JSON.parse(JSON.stringify(saved));
+    const releaseText = [
+      ...restored.messages.flatMap((entry: any) =>
+        entry.message.content.flatMap((part: any) =>
+          part.type === "text" ? [part.text] : [],
+        ),
+      ),
+      ...restored.agentKit.messages.flatMap((message: any) =>
+        message.parts.flatMap((part: any) =>
+          part.type === "text" ? [part.text] : [],
+        ),
+      ),
+    ].filter((text: string) => text.includes("Release accepted"));
+
+    expect(restored.messages[0].message.content).toHaveLength(2);
+    expect(restored.messages[0].message.content[1]).toMatchObject({
+      type: "tool-call",
+      toolCallId: approvedToolCallId,
+      result: "Awaiting human approval. This action did NOT execute.",
+    });
+    expect(restored.agentKit.toolCalls).toContainEqual(
+      expect.objectContaining({
+        id: approvedToolCallId,
+        status: "completed",
+        messageId: "message-canonical",
+      }),
+    );
+    expect(releaseText).toEqual(["Release accepted."]);
+  });
+
   it("keeps tool call ids unique when folding continuation chunks", () => {
     const firstChunk = buildAssistantMessage(
       [

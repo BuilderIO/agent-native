@@ -102,11 +102,19 @@ describe("AgentKitChat interactions", () => {
           .querySelector<HTMLButtonElement>(
             'button[aria-label="Message actions"]',
           )
-          ?.click();
+          ?.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              button: 0,
+              pointerType: "mouse",
+            }),
+          );
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       const forkItem = Array.from(
-        document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+        document.body.querySelectorAll<HTMLElement>(
+          '.agentkit-message-menu [role="menuitem"]',
+        ),
       ).find((item) => item.textContent?.trim().startsWith("Fork"));
       expect(forkItem).toBeDefined();
       await act(async () => {

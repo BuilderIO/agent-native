@@ -36,10 +36,6 @@
   overflow: hidden;
 }
 
-.agent-prompt-home-connection > .agent-builder-setup-card--attached {
-  margin-bottom: -1.875rem;
-}
-
 .agent-prompt-home-library {
   padding-block-start: 2rem;
 }
@@ -87,6 +83,7 @@
   grid-column: 2;
   grid-row: 2;
   align-self: start;
+  z-index: 1;
   opacity: 1;
 }
 

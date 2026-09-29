@@ -5,8 +5,8 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Skills
 
-- `recording` — capture, upload, playback, Loom import, mobile, folders, bulk
-  moves, Chrome extension.
+- `recording` — capture, screenshots, upload, playback, Loom import, mobile,
+  folders, bulk moves, Chrome extension.
 - `ai-video-tools` — transcription, cleanup, titles, summaries, chapters,
   `voiceContext`, AI setup, Builder credits.
 - `video-editing` — `editsJson`, trim/split/cut/speed/blur, export.
@@ -92,7 +92,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 | `search-meetings` | Search meetings |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
-| `get-clips-notification-prefs`, `update-clips-notification-prefs` | Read or update email alerts |
+| `get-`, `update-clips-notification-prefs`, `-recording-defaults` | Email alerts; default speed, visibility |
 | `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
 | `create-recording-agent-link` | Two-hour `agent_access` share URL |
 | `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |

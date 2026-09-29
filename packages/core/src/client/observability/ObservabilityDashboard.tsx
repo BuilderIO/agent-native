@@ -71,6 +71,7 @@ import {
   useObservabilityOverview,
   useTraces,
   useTraceDetail,
+  usePromoteTraceEval,
   useFeedbackList,
   useFeedbackStats,
   useEvalStats,
@@ -154,6 +155,23 @@ function reviewThreadHref(threadId: string): string {
     AGENT_SIDEBAR_QUERY_VALUE_OPEN,
   );
   return isBrowser ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
+}
+
+function ReviewTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 const REVIEW_ARTIFACT_APPS = {
@@ -476,6 +494,7 @@ function ConversationsTab({ days }: { days: number }) {
   if (selectedRunId) {
     return (
       <TraceDetailView
+        key={selectedRunId}
         runId={selectedRunId}
         onBack={() => setSelectedRunId(null)}
       />
@@ -565,16 +584,73 @@ function TraceDetailView({
   const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
   const [expandedSpanId, setExpandedSpanId] = useState<string | null>(null);
+  const promote = usePromoteTraceEval();
+  const [mustContain, setMustContain] = useState("");
+  const needle = mustContain.trim();
+  const needsNeedle = !!data && data.summary.successfulTools === 0;
+  const canPromote =
+    !!data && !promote.isPending && (!needsNeedle || needle.length > 0);
 
   return (
     <div>
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
-      >
-        <IconArrowLeft size={14} />
-        {t("observability.backToList")}
-      </button>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <IconArrowLeft size={14} />
+          {t("observability.backToList")}
+        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <input
+            type="text"
+            value={mustContain}
+            onChange={(event) => setMustContain(event.target.value)}
+            disabled={promote.isPending || !data}
+            placeholder={
+              needsNeedle
+                ? t("observability.promoteMustContain")
+                : t("observability.promoteMustContainOptional")
+            }
+            aria-label={t("observability.promoteMustContainLabel")}
+            className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
+          />
+          <button
+            type="button"
+            disabled={!canPromote}
+            onClick={() =>
+              promote.mutate({
+                runId,
+                ...(needle ? { mustContain: needle } : {}),
+              })
+            }
+            className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {promote.isPending
+              ? t("observability.promotingToEval")
+              : t("observability.promoteToEval")}
+          </button>
+        </div>
+      </div>
+      {needsNeedle && needle.length === 0 && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t("observability.promoteNeedsContains")}
+        </p>
+      )}
+
+      {promote.isSuccess && promote.data && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t("observability.promotedEval", { id: promote.data.dataset.id })}{" "}
+          {t("observability.promotedEvalHint", { runId })}
+        </p>
+      )}
+      {promote.isError && (
+        <p className="mb-3 text-xs text-destructive">
+          {promote.error instanceof Error
+            ? promote.error.message
+            : t("observability.promoteEvalFailed")}
+        </p>
+      )}
 
       {isLoading && <LoadingState />}
 
@@ -1298,6 +1374,8 @@ function ReviewTab({
       latestReviewVote(review, review.runId)?.feedbackType;
     const search = reviewSearch.trim().toLocaleLowerCase();
     const searchable = [
+      review.ask,
+      review.answer,
       review.summary?.ask,
       review.summary?.outcome,
       review.threadTitle,
@@ -1333,6 +1411,7 @@ function ReviewTab({
     selectedRun?.runId ??
     selectedReview?.runs?.[0]?.runId ??
     selectedReview?.runId;
+  const activeThreadId = selectedRun?.threadId ?? selectedReview?.threadId;
   const reviewDetailQuery = useOutputReviewDetail(
     activeRunId ?? null,
     selectedReview?.orgId,
@@ -1379,7 +1458,7 @@ function ReviewTab({
         selectedArtifact.artifactId,
         selectedArtifact.path,
         {
-          threadId: selectedReview?.threadId,
+          threadId: activeThreadId,
           readOnly: selectedReview?.readOnly,
         },
       )
@@ -2044,38 +2123,42 @@ function ReviewTab({
                             {t("agentChat.common.saveFailed")}
                           </span>
                         )}
-                        <button
-                          type="button"
-                          aria-label={t("observability.thumbsUp")}
-                          aria-pressed={voteType === "thumbs_up"}
-                          title={t("observability.thumbsUp")}
-                          data-review-vote="up"
-                          onClick={() => rateFromList(review, "thumbs_up")}
-                          disabled={pendingVotes[review.runId] === true}
-                          className={cn(
-                            "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
-                            voteType === "thumbs_up" &&
-                              "bg-emerald-500/10 text-emerald-600 opacity-100",
-                          )}
-                        >
-                          <IconThumbUp size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("observability.thumbsDown")}
-                          aria-pressed={voteType === "thumbs_down"}
-                          title={t("observability.thumbsDown")}
-                          data-review-vote="down"
-                          onClick={() => rateFromList(review, "thumbs_down")}
-                          disabled={pendingVotes[review.runId] === true}
-                          className={cn(
-                            "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
-                            voteType === "thumbs_down" &&
-                              "bg-rose-500/10 text-rose-600 opacity-100",
-                          )}
-                        >
-                          <IconThumbDown size={15} />
-                        </button>
+                        <ReviewTooltip label={t("observability.thumbsUp")}>
+                          <button
+                            type="button"
+                            aria-label={t("observability.thumbsUp")}
+                            aria-pressed={voteType === "thumbs_up"}
+                            title={t("observability.thumbsUp")}
+                            data-review-vote="up"
+                            onClick={() => rateFromList(review, "thumbs_up")}
+                            disabled={pendingVotes[review.runId] === true}
+                            className={cn(
+                              "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
+                              voteType === "thumbs_up" &&
+                                "bg-emerald-500/10 text-emerald-600 opacity-100",
+                            )}
+                          >
+                            <IconThumbUp size={15} />
+                          </button>
+                        </ReviewTooltip>
+                        <ReviewTooltip label={t("observability.thumbsDown")}>
+                          <button
+                            type="button"
+                            aria-label={t("observability.thumbsDown")}
+                            aria-pressed={voteType === "thumbs_down"}
+                            title={t("observability.thumbsDown")}
+                            data-review-vote="down"
+                            onClick={() => rateFromList(review, "thumbs_down")}
+                            disabled={pendingVotes[review.runId] === true}
+                            className={cn(
+                              "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
+                              voteType === "thumbs_down" &&
+                                "bg-rose-500/10 text-rose-600 opacity-100",
+                            )}
+                          >
+                            <IconThumbDown size={15} />
+                          </button>
+                        </ReviewTooltip>
                       </>
                     )}
                     {!review.summary && !review.readOnly && (
@@ -2092,34 +2175,42 @@ function ReviewTab({
                         />
                       </span>
                     )}
-                    <button
-                      type="button"
-                      data-review-chevron
-                      aria-label={t(
+                    <ReviewTooltip
+                      label={t(
                         expanded
                           ? "observability.hideReviewDetails"
                           : "observability.showReviewDetails",
                       )}
-                      title={t(
-                        expanded
-                          ? "observability.hideReviewDetails"
-                          : "observability.showReviewDetails",
-                      )}
-                      aria-expanded={expanded}
-                      aria-controls={detailId}
-                      onClick={() => toggleReview(review.runId)}
-                      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <IconChevronRight
-                        size={16}
-                        className={cn(
-                          "shrink-0 transition-transform",
+                      <button
+                        type="button"
+                        data-review-chevron
+                        aria-label={t(
                           expanded
-                            ? "rotate-90"
-                            : "group-hover:translate-x-0.5",
+                            ? "observability.hideReviewDetails"
+                            : "observability.showReviewDetails",
                         )}
-                      />
-                    </button>
+                        title={t(
+                          expanded
+                            ? "observability.hideReviewDetails"
+                            : "observability.showReviewDetails",
+                        )}
+                        aria-expanded={expanded}
+                        aria-controls={detailId}
+                        onClick={() => toggleReview(review.runId)}
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <IconChevronRight
+                          size={16}
+                          className={cn(
+                            "shrink-0 transition-transform",
+                            expanded
+                              ? "rotate-90"
+                              : "group-hover:translate-x-0.5",
+                          )}
+                        />
+                      </button>
+                    </ReviewTooltip>
                   </div>
                 </div>
 
@@ -2240,16 +2331,20 @@ function ReviewTab({
                                 maxAppHeight={420}
                                 previewLabel={t("observability.reviewPreview")}
                               />
-                              <button
-                                type="button"
-                                data-review-lightbox-trigger
-                                aria-label={t("observability.reviewPreview")}
-                                title={t("observability.reviewPreview")}
-                                onClick={() => setPreviewExpanded(true)}
-                                className="absolute right-2 top-2 rounded-md border border-border bg-background/95 p-2 text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              <ReviewTooltip
+                                label={t("observability.reviewPreview")}
                               >
-                                <IconArrowsMaximize size={16} />
-                              </button>
+                                <button
+                                  type="button"
+                                  data-review-lightbox-trigger
+                                  aria-label={t("observability.reviewPreview")}
+                                  title={t("observability.reviewPreview")}
+                                  onClick={() => setPreviewExpanded(true)}
+                                  className="absolute right-2 top-2 rounded-md border border-border bg-background/95 p-2 text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <IconArrowsMaximize size={16} />
+                                </button>
+                              </ReviewTooltip>
                             </div>
                           </section>
                         )}
@@ -2287,8 +2382,7 @@ function ReviewTab({
                                 </select>
                               )}
                             </div>
-                            {(selectedArtifactOpenHref ||
-                              selectedReview.threadId) && (
+                            {(selectedArtifactOpenHref || activeThreadId) && (
                               <div className="flex items-center gap-1">
                                 {selectedArtifactOpenHref &&
                                   selectedArtifact && (
@@ -2312,14 +2406,14 @@ function ReviewTab({
                                       </Tooltip>
                                     </TooltipProvider>
                                   )}
-                                {selectedReview.threadId &&
+                                {activeThreadId &&
                                   selectedReview.orgId === activeOrg?.orgId && (
                                     <TooltipProvider delayDuration={200}>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <a
                                             href={reviewThreadHref(
-                                              selectedReview.threadId,
+                                              activeThreadId,
                                             )}
                                             target="_blank"
                                             rel="noreferrer"
@@ -2475,66 +2569,78 @@ function ReviewTab({
                                   {t("agentChat.common.saveFailed")}
                                 </span>
                               )}
-                              <button
-                                type="button"
-                                aria-label={t("observability.thumbsUp")}
-                                aria-pressed={selectedVoteType === "thumbs_up"}
-                                title={t("observability.thumbsUp")}
-                                disabled={Boolean(
-                                  activeRunId && pendingVotes[activeRunId],
-                                )}
-                                onClick={() =>
-                                  saveFeedback(
-                                    activeRunId ?? selectedReview.runId,
-                                    "thumbs_up",
-                                  )
-                                }
-                                className={cn(
-                                  "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
-                                  selectedVoteType === "thumbs_up" &&
-                                    "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-                                )}
+                              <ReviewTooltip
+                                label={t("observability.thumbsUp")}
                               >
-                                <IconThumbUp size={16} />
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={t("observability.thumbsDown")}
-                                aria-pressed={
-                                  selectedVoteType === "thumbs_down"
-                                }
-                                title={t("observability.thumbsDown")}
-                                disabled={Boolean(
-                                  activeRunId && pendingVotes[activeRunId],
-                                )}
-                                onClick={() => {
-                                  saveFeedback(
-                                    activeRunId ?? selectedReview.runId,
-                                    "thumbs_down",
-                                  );
-                                  setFeedbackNote((current) =>
-                                    current?.runId ===
-                                    (activeRunId ?? selectedReview.runId)
-                                      ? current
-                                      : {
-                                          runId:
-                                            activeRunId ?? selectedReview.runId,
-                                          value: "",
-                                        },
-                                  );
-                                  setOpenPopover({
-                                    runId: activeRunId ?? selectedReview.runId,
-                                    kind: "feedback",
-                                  });
-                                }}
-                                className={cn(
-                                  "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
-                                  selectedVoteType === "thumbs_down" &&
-                                    "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-                                )}
+                                <button
+                                  type="button"
+                                  aria-label={t("observability.thumbsUp")}
+                                  aria-pressed={
+                                    selectedVoteType === "thumbs_up"
+                                  }
+                                  title={t("observability.thumbsUp")}
+                                  disabled={Boolean(
+                                    activeRunId && pendingVotes[activeRunId],
+                                  )}
+                                  onClick={() =>
+                                    saveFeedback(
+                                      activeRunId ?? selectedReview.runId,
+                                      "thumbs_up",
+                                    )
+                                  }
+                                  className={cn(
+                                    "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                                    selectedVoteType === "thumbs_up" &&
+                                      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                                  )}
+                                >
+                                  <IconThumbUp size={16} />
+                                </button>
+                              </ReviewTooltip>
+                              <ReviewTooltip
+                                label={t("observability.thumbsDown")}
                               >
-                                <IconThumbDown size={16} />
-                              </button>
+                                <button
+                                  type="button"
+                                  aria-label={t("observability.thumbsDown")}
+                                  aria-pressed={
+                                    selectedVoteType === "thumbs_down"
+                                  }
+                                  title={t("observability.thumbsDown")}
+                                  disabled={Boolean(
+                                    activeRunId && pendingVotes[activeRunId],
+                                  )}
+                                  onClick={() => {
+                                    saveFeedback(
+                                      activeRunId ?? selectedReview.runId,
+                                      "thumbs_down",
+                                    );
+                                    setFeedbackNote((current) =>
+                                      current?.runId ===
+                                      (activeRunId ?? selectedReview.runId)
+                                        ? current
+                                        : {
+                                            runId:
+                                              activeRunId ??
+                                              selectedReview.runId,
+                                            value: "",
+                                          },
+                                    );
+                                    setOpenPopover({
+                                      runId:
+                                        activeRunId ?? selectedReview.runId,
+                                      kind: "feedback",
+                                    });
+                                  }}
+                                  className={cn(
+                                    "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                                    selectedVoteType === "thumbs_down" &&
+                                      "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+                                  )}
+                                >
+                                  <IconThumbDown size={16} />
+                                </button>
+                              </ReviewTooltip>
                             </div>
                             <Popover
                               open={feedbackOpen}
@@ -2781,7 +2887,7 @@ function ReviewTab({
                                   onClick={() =>
                                     saveInstruction(
                                       activeRunId ?? selectedReview.runId,
-                                      selectedReview.threadId,
+                                      activeThreadId ?? null,
                                     )
                                   }
                                   title={t("observability.saveUpdate")}

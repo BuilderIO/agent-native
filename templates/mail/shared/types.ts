@@ -27,6 +27,7 @@ export type EmailMessage = {
   isStarred: boolean;
   isDraft?: boolean;
   isSent?: boolean;
+  scheduledJobStatus?: "pending" | "processing" | "uncertain";
   isArchived: boolean;
   isTrashed: boolean;
   labelIds: string[];
@@ -175,6 +176,7 @@ export type Alias = {
 
 export type AutomationAction =
   | { type: "label"; labelName: string }
+  | { type: "notify" }
   | { type: "archive" }
   | { type: "mark_read" }
   | { type: "star" }

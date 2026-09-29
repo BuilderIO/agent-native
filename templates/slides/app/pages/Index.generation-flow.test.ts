@@ -83,9 +83,7 @@ describe("new deck generation flow", () => {
     const generatingRouteIndex = flow.indexOf(
       "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
-    const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(prompt)",
-    );
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
@@ -93,6 +91,41 @@ describe("new deck generation flow", () => {
       "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
     );
     expect(flow).toContain("submitMessageId: generationSubmitMessageId");
+    expect(flow).toContain("if (!submission.delivered)");
+    expect(flow).toContain('"agent_submit_failed"');
+    expect(flow).toContain("submission.reason ??");
+  });
+
+  it("closes before references and restores prompt state when returning", () => {
+    const recovery = flow.slice(
+      flow.indexOf("const recoverFromGenerationSetupFailure"),
+      flow.indexOf("const persisted = await ensureDeckPersisted"),
+    );
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const referenceStep = source.slice(
+      source.indexOf("<NewDeckReferenceStep"),
+      source.indexOf(
+        "onDesignSystemsChanged",
+        source.indexOf("<NewDeckReferenceStep"),
+      ),
+    );
+
+    expect(recovery).toContain('settlePendingDeckAttachments("commit")');
+    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
+      promptSubmit.indexOf("if (options?.slidesContext)"),
+    );
+    expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
+    expect(referenceStep).toContain("text: pending.prompt");
+    expect(referenceStep).toContain("pending.files");
+    expect(referenceStep).toContain("pending.referenceFilePaths");
+    expect(referenceStep).toContain("pending.importedReference");
+    expect(referenceStep).toContain("pending.context");
+    expect(referenceStep).toContain("pending.attachments");
+    expect(referenceStep).toContain("pending.modelSelection");
+    expect(referenceStep).toContain("setShowNewDeckPrompt(true)");
   });
 
   it("carries hidden prompt context through generation retries", () => {
@@ -198,9 +231,7 @@ describe("new deck generation flow", () => {
 
   it("blocks generation when an attached reference cannot be read", () => {
     const hydrateIndex = flow.indexOf("await hydrateReferenceDocuments(");
-    const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(prompt)",
-    );
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
 
     expect(hydrateIndex).toBeGreaterThan(-1);
     expect(hydrateIndex).toBeLessThan(submitIndex);
@@ -244,6 +275,15 @@ describe("new deck generation flow", () => {
     expect(source).toContain("onSubmit={handlePromptSubmit}");
     expect(source).toContain("onSkip={handlePromptSkip}");
     expect(source).toContain("setShowNewDeckReferenceStep(true)");
+  });
+
+  it("clears uploaded files when a retry prompt is skipped", () => {
+    const skip = source.slice(
+      source.indexOf("const handlePromptSkip"),
+      source.indexOf("const handleDirectImport"),
+    );
+
+    expect(skip).toContain("setNewDeckRetryFiles([]);");
   });
 
   it("imports directly from the new-deck prompt and opens the imported deck", () => {

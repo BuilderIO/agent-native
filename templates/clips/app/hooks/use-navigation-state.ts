@@ -9,6 +9,7 @@ import { parseTimeParam } from "@/lib/time-param";
 
 export type ClipsView =
   | "library"
+  | "screenshots"
   | "shared"
   | "spaces"
   | "space"
@@ -78,6 +79,7 @@ export function stateFromLocation(
     if (!recordingId) return { view: "library" };
     const panel = params.get("panel");
     const agentSidebarOpen =
+      !params.has("panel") &&
       params.get(AGENT_SIDEBAR_QUERY_PARAM) === AGENT_SIDEBAR_QUERY_VALUE_OPEN;
     const atParam = params.get("at") ?? params.get("t");
     const atMs = atParam == null ? undefined : parseTimeParam(atParam);
@@ -151,6 +153,7 @@ export function stateFromLocation(
     };
   }
 
+  if (p === "/screenshots") return { view: "screenshots" };
   if (p === "/spaces") return { view: "spaces" };
   if (p === "/shared") return { view: "shared" };
   if (p === "/archive") return { view: "archive" };
@@ -181,14 +184,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "recording":
       if (!cmd.recordingId) return "/library";
       const recordingParams = new URLSearchParams();
-      if (cmd.panel === "agent") {
-        recordingParams.set(
-          AGENT_SIDEBAR_QUERY_PARAM,
-          AGENT_SIDEBAR_QUERY_VALUE_OPEN,
-        );
-      } else if (cmd.panel) {
-        recordingParams.set("panel", cmd.panel);
-      }
+      if (cmd.panel) recordingParams.set("panel", cmd.panel);
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
         recordingParams.set(
           "at",

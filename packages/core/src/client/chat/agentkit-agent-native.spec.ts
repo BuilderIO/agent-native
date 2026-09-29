@@ -241,6 +241,749 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("persists compact completed activity history without replacing messages", async () => {
+    const repository = {
+      queuedMessages: [{ id: "queued-after-snapshot-read", text: "Later" }],
+      messages: [
+        {
+          id: "assistant-legacy",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "tool-history",
+              toolName: "create-release",
+              args: {},
+              result: { ok: true },
+              chatUI: { renderer: "test.action", title: "Release created" },
+            },
+          ],
+        },
+      ],
+      retained: true,
+      agentKit: {
+        messages: [
+          {
+            id: "assistant-stale",
+            role: "assistant",
+            parts: [{ type: "text", text: "Old response." }],
+          },
+        ],
+      },
+    };
+    let threadData = JSON.stringify(repository);
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/runs/active?threadId=thread-history")) {
+          return json({ active: false });
+        }
+        if (url.endsWith("/threads/thread-history") && init?.method === "PUT") {
+          threadData = JSON.parse(String(init.body)).threadData;
+          return json({ ok: true });
+        }
+        if (url.endsWith("/threads/thread-history")) {
+          return json({
+            id: "thread-history",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      adapter: { now: () => "2026-09-26T00:01:00.000Z" },
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "thread-history",
+      snapshot: {
+        id: "thread-history",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [
+          {
+            id: "user-approval",
+            role: "user",
+            parts: [
+              {
+                type: "file",
+                name: "durable-upload.txt",
+                fileId: "upload-1",
+                url: "data:text/plain;base64,c2VjcmV0",
+              },
+              {
+                type: "file",
+                name: "inline-secret.txt",
+                url: "data:text/plain;base64,c2VjcmV0",
+              },
+              {
+                type: "file",
+                name: "remote.txt",
+                url: "https://files.example.test/remote.txt",
+              },
+            ],
+            metadata: {
+              hideUserMessage: true,
+              privatePrompt: "do not persist this metadata",
+            },
+          },
+          {
+            id: "assistant-history",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Release created." },
+              { type: "data", data: { private: "do not persist raw data" } },
+            ],
+          },
+        ],
+        toolCalls: [
+          {
+            id: "tool-history",
+            name: "create-release",
+            input: { release: "agentkit-acceptance" },
+            output: { display: { title: "Release created" } },
+            status: "completed",
+            messageId: "assistant-history",
+          },
+          {
+            id: "tool-string-history",
+            name: "string-result",
+            input: {},
+            output: '{"value":1}',
+            status: "completed",
+          },
+          {
+            id: "tool-large-history",
+            name: "large-result",
+            output: "x".repeat(65_536),
+            status: "completed",
+            messageId: "assistant-history",
+          },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-history",
+            widget: {
+              id: "tool-history:chat-ui",
+              kind: "test.action",
+              data: {
+                toolCallId: "tool-history",
+                toolName: "create-release",
+                raw: "do not persist widget payloads",
+              },
+              title: "Release created",
+              metadata: { description: "Created one release." },
+              actions: [{ id: "raw-action", label: "Discard" }],
+            },
+          },
+          {
+            messageId: "assistant-pending",
+            widget: {
+              id: "pending:chat-ui",
+              kind: "test.action",
+              data: { toolCallId: "pending", toolName: "create-release" },
+            },
+          },
+        ],
+        events: [
+          {
+            id: "history-1",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:01.000Z",
+            type: "run.started",
+          },
+          {
+            id: "history-2",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:02.000Z",
+            type: "activity.started",
+            activity: {
+              id: "activity-history",
+              kind: "tool",
+              label: "Create release",
+              status: "running",
+            },
+          },
+          {
+            id: "history-3",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 3,
+            occurredAt: "2026-09-26T00:00:03.000Z",
+            type: "activity.completed",
+            activity: {
+              id: "activity-history",
+              kind: "tool",
+              label: "Create release",
+              detail: "A long action result",
+              status: "completed",
+            },
+          },
+          {
+            id: "history-4",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 4,
+            occurredAt: "2026-09-26T00:00:04.000Z",
+            type: "message.completed",
+            message: {
+              id: "assistant-history",
+              role: "assistant",
+              parts: [{ type: "text", text: "Release created." }],
+              status: "complete",
+            },
+          },
+          {
+            id: "history-5",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 5,
+            occurredAt: "2026-09-26T00:00:05.000Z",
+            type: "tool.updated",
+            toolCall: {
+              id: "tool-history",
+              name: "create-release",
+              output: "Do not persist this duplicate result",
+              status: "completed",
+            },
+          },
+          {
+            id: "history-6",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 6,
+            occurredAt: "2026-09-26T00:00:06.000Z",
+            type: "run.completed",
+          },
+          {
+            id: "history-error",
+            threadId: "thread-history",
+            runId: "run-error",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:07.000Z",
+            type: "run.failed",
+            error: {
+              code: "provider_error",
+              message: "Provider failed. ".repeat(200),
+              retryable: false,
+              correlationId: "provider-trace-1",
+              details: { secret: "do not persist error details" },
+              metadata: { private: "do not persist error metadata" },
+            },
+          },
+        ],
+        runs: [
+          {
+            id: "run-history",
+            threadId: "thread-history",
+            status: "completed",
+            lastSequence: 6,
+            startedAt: "2026-09-26T00:00:01.000Z",
+            completedAt: "2026-09-26T00:00:06.000Z",
+          },
+          {
+            id: "run-error",
+            threadId: "thread-history",
+            status: "failed",
+            lastSequence: 1,
+            error: {
+              code: "provider_error",
+              message: "Provider failed. ".repeat(200),
+              retryable: false,
+              correlationId: "provider-trace-1",
+              details: { secret: "do not persist error details" },
+              metadata: { private: "do not persist error metadata" },
+            },
+          },
+        ],
+        activeRunIds: [],
+        suggestions: [
+          { id: "release-summary", label: "Summarize this release" },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-history",
+            annotation: {
+              id: "annotation-history",
+              kind: "source",
+              label: "Release notes",
+              url: "https://docs.example.test/release",
+              start: 0,
+              end: 15,
+              metadata: { private: "do not persist annotation metadata" },
+            },
+          },
+          {
+            messageId: "missing-message",
+            annotation: {
+              id: "annotation-orphan",
+              kind: "reference",
+              label: "Orphan",
+            },
+          },
+        ],
+      },
+    });
+
+    const restored = await transport.getThreadSnapshot?.({
+      threadId: "thread-history",
+    });
+    const saved = JSON.parse(threadData);
+
+    expect(saved.messages).toEqual(repository.messages);
+    expect(saved.retained).toBe(true);
+    expect(saved.queuedMessages).toBeUndefined();
+    expect(saved.agentKit.messages).toEqual([
+      {
+        id: "user-approval",
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            name: "durable-upload.txt",
+            fileId: "upload-1",
+          },
+          {
+            type: "file",
+            name: "remote.txt",
+            url: "https://files.example.test/remote.txt",
+          },
+        ],
+        metadata: { hideUserMessage: true },
+      },
+      {
+        id: "assistant-history",
+        role: "assistant",
+        parts: [{ type: "text", text: "Release created." }],
+      },
+    ]);
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
+      "do not persist raw data",
+    );
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain("c2VjcmV0");
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
+      "do not persist this metadata",
+    );
+    expect(saved.agentKit.annotations).toEqual([
+      {
+        messageId: "assistant-history",
+        annotation: {
+          id: "annotation-history",
+          kind: "source",
+          label: "Release notes",
+          url: "https://docs.example.test/release",
+          start: 0,
+          end: 15,
+        },
+      },
+    ]);
+    expect(saved.agentKit.widgets).toEqual([
+      {
+        messageId: "assistant-history",
+        widget: {
+          id: "tool-history:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-history", toolName: "create-release" },
+          title: "Release created",
+          metadata: { description: "Created one release." },
+        },
+      },
+    ]);
+    expect(JSON.stringify(saved.agentKit.widgets)).not.toContain(
+      "do not persist widget payloads",
+    );
+    expect(saved.agentKit.toolCalls).toEqual([
+      {
+        id: "tool-history",
+        name: "create-release",
+        status: "completed",
+        input: { release: "agentkit-acceptance" },
+        output: { display: { title: "Release created" } },
+        messageId: "assistant-history",
+      },
+      {
+        id: "tool-string-history",
+        name: "string-result",
+        status: "completed",
+        input: {},
+        output: '{"value":1}',
+      },
+      {
+        id: "tool-large-history",
+        name: "large-result",
+        status: "completed",
+        messageId: "assistant-history",
+        metadata: {
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+          },
+        },
+      },
+    ]);
+    expect(
+      saved.agentKit.events.map((event: AgentEvent) => event.type),
+    ).toEqual([
+      "run.started",
+      "activity.started",
+      "activity.completed",
+      "message.completed",
+      "run.completed",
+      "run.failed",
+    ]);
+    expect(saved.agentKit.events[2].activity.detail).toBeUndefined();
+    expect(saved.agentKit.events.at(-1).error).toMatchObject({
+      code: "provider_error",
+      retryable: false,
+      correlationId: "provider-trace-1",
+    });
+    expect(saved.agentKit.events.at(-1).error.message).toHaveLength(2_048);
+    expect(Object.keys(saved.agentKit.events.at(-1).error).sort()).toEqual([
+      "code",
+      "correlationId",
+      "message",
+      "retryable",
+    ]);
+    expect(
+      saved.agentKit.runs.find((run: { id: string }) => run.id === "run-error")
+        ?.error,
+    ).toEqual(saved.agentKit.events.at(-1).error);
+    expect(JSON.stringify(saved.agentKit)).not.toContain(
+      "do not persist error details",
+    );
+    expect(JSON.stringify(saved.agentKit)).not.toContain(
+      "do not persist error metadata",
+    );
+    expect(restored?.events?.map((event) => event.type)).toEqual([
+      "run.started",
+      "activity.started",
+      "activity.completed",
+      "message.completed",
+      "run.completed",
+      "run.failed",
+    ]);
+    expect(restored?.runs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "run-history", status: "completed" }),
+        expect.objectContaining({
+          id: "run-error",
+          status: "failed",
+          error: saved.agentKit.events.at(-1).error,
+        }),
+      ]),
+    );
+    expect(restored?.messages).toEqual([
+      {
+        id: "user-approval",
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            name: "durable-upload.txt",
+            fileId: "upload-1",
+          },
+          {
+            type: "file",
+            name: "remote.txt",
+            url: "https://files.example.test/remote.txt",
+          },
+        ],
+        metadata: { hideUserMessage: true },
+      },
+      {
+        id: "assistant-history",
+        role: "assistant",
+        parts: [{ type: "text", text: "Release created." }],
+      },
+    ]);
+    expect(restored?.annotations).toEqual(saved.agentKit.annotations);
+    expect(restored?.widgets).toEqual([
+      {
+        messageId: "assistant-history",
+        widget: {
+          id: "tool-history:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-history", toolName: "create-release" },
+          title: "Release created",
+          metadata: { description: "Created one release." },
+        },
+      },
+    ]);
+    expect(restored?.toolCalls).toEqual([
+      {
+        id: "tool-history",
+        name: "create-release",
+        status: "completed",
+        input: { release: "agentkit-acceptance" },
+        output: { display: { title: "Release created" } },
+        messageId: "assistant-history",
+      },
+      {
+        id: "tool-string-history",
+        name: "string-result",
+        status: "completed",
+        input: {},
+        output: '{"value":1}',
+      },
+      {
+        id: "tool-large-history",
+        name: "large-result",
+        status: "completed",
+        messageId: "assistant-history",
+        metadata: {
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+          },
+        },
+      },
+    ]);
+    expect(restored?.suggestions).toEqual([
+      { id: "release-summary", label: "Summarize this release" },
+    ]);
+    expect(saved.agentKit.suggestions).toEqual([
+      { id: "release-summary", label: "Summarize this release" },
+    ]);
+  });
+
+  it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {
+    const fetcher = vi.fn(async () =>
+      json({
+        id: "thread-non-json",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        threadData: JSON.stringify({}),
+      }),
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+    });
+    const output: { self?: unknown } = {};
+    output.self = output;
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId: "thread-non-json",
+        snapshot: {
+          id: "thread-non-json",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          messages: [],
+          toolCalls: [
+            {
+              id: "tool-circular",
+              name: "circular-result",
+              output,
+              status: "completed",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/circular|cyclic/i);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("restores the complete durable reply when a same-id AgentKit snapshot is shorter", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-short-reply",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      content: [
+                        { type: "text", text: "Full answer with final lines" },
+                      ],
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "Full answer" }],
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-short-reply",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "assistant-1",
+        parts: [{ type: "text", text: "Full answer with final lines" }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("restores the durable reply when the server and AgentKit use different message ids", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-different-ids",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-run-1",
+                      role: "assistant",
+                      status: "complete",
+                      content: [
+                        { type: "text", text: "Full answer with final lines" },
+                      ],
+                      metadata: { runId: "run-1" },
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "message-1",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "Full answer" }],
+                    },
+                  ],
+                  events: [
+                    {
+                      id: "event-1",
+                      type: "message.created",
+                      threadId: "thread-different-ids",
+                      runId: "run-1",
+                      sequence: 1,
+                      occurredAt: "2026-09-28T00:00:00.000Z",
+                      message: {
+                        id: "message-1",
+                        role: "assistant",
+                        parts: [],
+                      },
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-different-ids",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "message-1",
+        parts: [{ type: "text", text: "Full answer with final lines" }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("does not replace unrelated or reordered AgentKit content with durable text", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-other-reply",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-other-run",
+                      role: "assistant",
+                      content: [{ type: "text", text: "Different answer" }],
+                      metadata: { runId: "other-run" },
+                    },
+                  },
+                  {
+                    message: {
+                      id: "message-1",
+                      role: "assistant",
+                      content: [{ type: "text", text: "Rewritten answer" }],
+                    },
+                  },
+                  {
+                    message: {
+                      id: "message-2",
+                      role: "assistant",
+                      content: [
+                        { type: "text", text: "Before tool with suffix" },
+                      ],
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "message-1",
+                      role: "assistant",
+                      parts: [{ type: "text", text: "Original answer" }],
+                    },
+                    {
+                      id: "message-2",
+                      role: "assistant",
+                      parts: [
+                        { type: "text", text: "Before tool" },
+                        {
+                          type: "data",
+                          mediaType: "application/json",
+                          data: { tool: "done" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-other-reply",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      { id: "message-1", parts: [{ type: "text", text: "Original answer" }] },
+      {
+        id: "message-2",
+        parts: [
+          { type: "text", text: "Before tool" },
+          {
+            type: "data",
+            mediaType: "application/json",
+            data: { tool: "done" },
+          },
+        ],
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("restores failed action calls without success widgets", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async () =>
@@ -279,6 +1022,198 @@ describe("createAgentNativeAgentKitTransport", () => {
       { id: "tool-failed", status: "failed", messageId: "assistant-1" },
     ]);
     expect(snapshot?.widgets).toEqual([]);
+  });
+
+  it("keeps legacy chatUI widgets paired with parents missing from AgentKit history", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-divergent-history",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-later",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-later",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-earlier",
+                  role: "assistant",
+                  parts: [{ type: "text", text: "Earlier response." }],
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-divergent-history",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-earlier",
+      "assistant-later",
+    ]);
+    expect(snapshot?.messages[1]).toMatchObject({
+      id: "assistant-later",
+      role: "assistant",
+      parts: [],
+    });
+    expect(snapshot?.widgets).toEqual([
+      {
+        messageId: "assistant-later",
+        widget: {
+          id: "tool-later:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-later", toolName: "create-release" },
+        },
+      },
+    ]);
+  });
+
+  it("does not duplicate a legacy widget already embedded in AgentKit history", async () => {
+    const widget = {
+      id: "tool-shared:chat-ui",
+      kind: "test.action",
+      data: { toolCallId: "tool-shared", toolName: "create-release" },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-embedded-widget",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-legacy",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-shared",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-canonical",
+                  role: "assistant",
+                  parts: [
+                    { type: "text", text: "Release created." },
+                    { type: "widget", widget },
+                  ],
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-embedded-widget",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-canonical",
+    ]);
+    expect(snapshot?.messages[0]?.parts).toContainEqual({
+      type: "widget",
+      widget,
+    });
+    expect(snapshot?.widgets).toEqual([]);
+    expect(snapshot?.toolCalls).toMatchObject([
+      { id: "tool-shared", output: { created: true } },
+    ]);
+  });
+
+  it("attaches a legacy widget to its canonical tool message after reload", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-canonical-tool-message",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-legacy",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-shared",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-canonical",
+                  role: "assistant",
+                  parts: [{ type: "text", text: "Release created." }],
+                },
+              ],
+              toolCalls: [
+                {
+                  id: "tool-shared",
+                  name: "create-release",
+                  status: "completed",
+                  messageId: "assistant-canonical",
+                  output: { created: true },
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-canonical-tool-message",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-canonical",
+    ]);
+    expect(snapshot?.widgets).toEqual([
+      {
+        messageId: "assistant-canonical",
+        widget: {
+          id: "tool-shared:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-shared", toolName: "create-release" },
+        },
+      },
+    ]);
   });
 
   it("loads durable history and promotes queued work into a real stream", async () => {
@@ -1185,24 +2120,68 @@ describe("createAgentNativeAgentKitTransport", () => {
                   role: "user",
                   content: [{ type: "text", text: "Review it" }],
                 },
-                {
-                  id: "assistant-1",
-                  role: "assistant",
-                  content: [{ type: "text", text: "Ready." }],
-                },
-                {
-                  id: "user-2",
-                  role: "user",
-                  content: [{ type: "text", text: "Publish it" }],
-                },
               ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "Review it" }],
+                  },
+                  {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [{ type: "text", text: "Ready." }],
+                  },
+                  {
+                    id: "user-2",
+                    role: "user",
+                    parts: [{ type: "text", text: "Publish it" }],
+                  },
+                ],
+                widgets: [
+                  {
+                    messageId: "assistant-1",
+                    widget: {
+                      id: "widget-retained",
+                      kind: "test.action",
+                      data: {
+                        toolCallId: "tool-retained",
+                        toolName: "publish",
+                      },
+                    },
+                  },
+                  {
+                    messageId: "user-2",
+                    widget: {
+                      id: "widget-later",
+                      kind: "test.action",
+                      data: { toolCallId: "tool-later", toolName: "publish" },
+                    },
+                  },
+                ],
+                toolCalls: [
+                  {
+                    id: "tool-retained",
+                    name: "publish",
+                    status: "completed",
+                    messageId: "assistant-1",
+                  },
+                  {
+                    id: "tool-later",
+                    name: "publish",
+                    status: "completed",
+                    messageId: "user-2",
+                  },
+                ],
+              },
             }),
           });
         }
         if (url.endsWith("/threads/thread-1/fork")) {
           const body = JSON.parse(String(init?.body)) as {
             id: string;
-            source: { threadData: string };
+            source: { threadData: string; fromMessageId?: string };
           };
           requests.push({ url, body });
           return json({
@@ -1252,15 +2231,41 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     });
     const forkBody = requests[1]?.body as {
-      source?: { threadData?: string; messageCount?: number };
+      source?: {
+        threadData?: string;
+        messageCount?: number;
+        fromMessageId?: string;
+      };
     };
     expect(forkBody.source?.messageCount).toBe(2);
+    expect(forkBody.source?.fromMessageId).toBe("assistant-1");
     expect(
       JSON.parse(forkBody.source?.threadData ?? "{}").messages,
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(
+      JSON.parse(forkBody.source?.threadData ?? "{}").agentKit.messages.map(
+        (message: { id: string }) => message.id,
+      ),
+    ).toEqual(["user-1", "assistant-1"]);
+    expect(
+      JSON.parse(forkBody.source?.threadData ?? "{}").agentKit.widgets.map(
+        (widget: { widget: { id: string } }) => widget.widget.id,
+      ),
+    ).toEqual(["widget-retained"]);
+    expect(
+      JSON.parse(forkBody.source?.threadData ?? "{}").agentKit.toolCalls.map(
+        (toolCall: { id: string }) => toolCall.id,
+      ),
+    ).toEqual(["tool-retained"]);
     expect(fork).toMatchObject({
       id: "thread-fork",
       messages: [{ id: "user-1" }, { id: "assistant-1" }],
+      widgets: [
+        {
+          messageId: "assistant-1",
+          widget: { id: "widget-retained" },
+        },
+      ],
     });
   });
 

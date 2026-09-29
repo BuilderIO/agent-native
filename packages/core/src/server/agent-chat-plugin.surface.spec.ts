@@ -274,13 +274,13 @@ describe("request-scoped action surface", () => {
     expect(skipFiles).toContain('"migrate-production"');
   });
 
-  it("restores the durable worker org from the validated persisted surface", () => {
+  it("restores the durable worker from the persisted turn initiator", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
     expect(source).toMatch(
-      /const persistedSurface = readPersistedActionSurface\(\s*workerBody,\s*"__resolvedActionSurface",\s*\);[\s\S]*?seedBackgroundAgentRunOwnerContext\([\s\S]*?persistedSurface\?\.orgId,/,
+      /await seedBackgroundAgentRunOwnerContext\(event, prepared\.runId\)/,
     );
   });
 

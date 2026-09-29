@@ -98,12 +98,13 @@ export function HomeImportButton() {
       />
       <Popover open={open} onOpenChange={changeOpen}>
         <PopoverAnchor asChild>
-          <div className="inline-flex">
+          <div className="inline-flex shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   ref={menuTrigger}
                   size="sm"
+                  className="design-home-import-button"
                   disabled={busy}
                   aria-label={t("home.import")}
                 >
@@ -111,7 +112,7 @@ export function HomeImportButton() {
                   <span className="design-home-import-label">
                     {t("home.import")}
                   </span>
-                  <IconChevronDown />
+                  <IconChevronDown className="design-home-import-chevron" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

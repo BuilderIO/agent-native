@@ -1,14 +1,4 @@
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
-
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
-import {
-  AuthPage,
-  isVerificationLinkInvalid,
-  type AuthPageProps,
-  type AuthView,
-} from "../client/auth/AuthPage.js";
-import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -19,6 +9,11 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
+import type {
+  AuthPageProps,
+  AuthView,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
   BETA_FORCE_QUERY_PARAM,
@@ -32,7 +27,10 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
-import { signInJourney } from "../shared/sign-in-journey.js";
+import {
+  isVerificationLinkInvalid,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -46,9 +44,15 @@ import {
   normalizeAppBasePath,
 } from "./app-base-path.js";
 import {
+  AUTH_MARKETING_LOCALE_COPY,
+  type AuthMarketingLocaleCopy,
+} from "./auth-marketing-locales.js";
+import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
   resolveBuiltInAuthMarketingPresentation,
+  resolveBuiltInAuthMarketingSlug,
+  resolveBuiltInAuthMarketingSlugFromName,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
 import {
@@ -1108,6 +1112,24 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
+  renderSignInPage?: (props: AuthPageProps) => string;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
 }
 
 function initialAuthView(
@@ -1207,9 +1229,24 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingWasResolvedFromCatalog = !opts.marketing;
+  const configuredMarketingSlug = resolveBuiltInAuthMarketingSlugFromName(
+    marketing?.appName,
+  );
+  const learnMoreSlug = marketing?.learnMoreUrl?.match(
+    /^https:\/\/agent-native\.com\/apps\/([^/?#]+)/,
+  )?.[1];
   const isFirstPartyMarketing =
-    marketing?.learnMoreUrl?.startsWith("https://agent-native.com/apps/") ??
-    false;
+    !!configuredMarketingSlug &&
+    configuredMarketingSlug ===
+      resolveBuiltInAuthMarketingSlugFromName(learnMoreSlug);
+  const marketingSlug = marketingWasResolvedFromCatalog
+    ? resolveBuiltInAuthMarketingSlug({
+        requestHost: opts.requestHost,
+        requestPath: opts.requestPath,
+      })
+    : isFirstPartyMarketing
+      ? configuredMarketingSlug
+      : undefined;
   const marketingPresentation =
     marketingWasResolvedFromCatalog || isFirstPartyMarketing
       ? resolveBuiltInAuthMarketingPresentation(marketing, {
@@ -1217,6 +1254,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           requestPath: opts.requestPath,
         })
       : undefined;
+  const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
+  if (marketingSlug) {
+    for (const [locale, copyBySlug] of Object.entries(
+      AUTH_MARKETING_LOCALE_COPY,
+    )) {
+      const copy = copyBySlug?.[marketingSlug];
+      if (copy) localizedMarketingCopy[locale] = copy;
+    }
+  }
   const signupLocalModeNote =
     isAgentNativeHostedHost(opts.requestHost) &&
     marketing?.signupLocalModeNote?.command.trim()
@@ -1225,6 +1271,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           command: marketing.signupLocalModeNote.command.trim(),
         }
       : undefined;
+  const brandMarkSrc = withAppBasePath(
+    "/agent-native-icon-dark.svg",
+    appBasePath,
+  );
+  const brandMarkLightSrc = withAppBasePath(
+    "/agent-native-icon-light.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
@@ -1278,6 +1332,20 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       identitySsoRequestProtocol,
     ) ||
       (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
+  const authMarketingLocales: AuthPageProps["marketingLocales"] =
+    Object.fromEntries(
+      Object.entries(localizedMarketingCopy).map(([locale, copy]) => [
+        locale,
+        {
+          appName: marketing?.appName ?? "",
+          tagline: copy.tagline ?? marketing?.tagline ?? "",
+          description: copy.description,
+          features: copy.features ?? marketing?.features,
+          authHeadline: copy.authHeadline ?? copy.tagline,
+          authDescription: copy.authDescription ?? copy.description,
+        },
+      ]),
+    );
   const authPageProps: AuthPageProps = {
     authMode,
     googleOnly,
@@ -1296,6 +1364,28 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       value: locale,
       label: localeDisplayName(locale),
     })),
+    marketing:
+      hasMarketing && marketing
+        ? {
+            appName: marketing.appName,
+            tagline: marketing.tagline,
+            description: marketing.description,
+            features: marketing.features,
+            authHeadline:
+              marketing.authHeadline ?? marketingPresentation?.headline,
+            authDescription:
+              marketing.authDescription ?? marketingPresentation?.description,
+            learnMoreUrl:
+              marketing.learnMoreUrl ??
+              (marketingSlug
+                ? `https://agent-native.com/apps/${marketingSlug}`
+                : undefined),
+          }
+        : undefined,
+    marketingLocales: authMarketingLocales,
+    brandMarkSrc,
+    brandMarkLightSrc,
+    githubUrl: "https://github.com/BuilderIO/agent-native",
     appName: hasMarketing ? marketing?.appName : undefined,
     showGoogle,
     organizationSsoEnabled: getAppConfig().access.sso.enabled,
@@ -1322,6 +1412,39 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     passwordMaxCopy: `Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.`,
   };
   const authPageData = serializeAuthPageData(authPageProps);
+
+  const marketingStyles = hasMarketing
+    ? `
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    padding: 0;
+    position: relative;
+    overflow-x: clip;
+    color-scheme: dark;
+  }
+  .split { position: relative; z-index: 1; }
+  .marketing-content { max-width: 480px; }
+  .app-name { display: flex; align-items: center; }
+  .app-name img.brand-mark {
+    height: 2.21375rem;
+    width: auto;
+    display: block;
+    flex-shrink: 0;
+  }
+  .marketing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .form-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+`
+    : "";
 
   const authDocumentStyles = `\n
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1672,8 +1795,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 2.75rem;
-    padding: 0.75rem;
     text-align: center;
     text-decoration: none;
   }
@@ -1929,176 +2050,461 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .google-debug.show { display: block; }
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  ${marketingStyles}
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
+`;
+  const authPageLayoutStyles = `
+  .auth-root { width: 100%; }
+  .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow: clip; }
+  .auth-marketing-shell { padding: 0; }
+  .auth-marketing-home .auth-marketing-shell-with-top-right {
+    position: relative;
+    display: block;
+    min-height: 100vh;
+  }
+  .auth-marketing-top-right {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    position: absolute;
+    padding: 0;
+    top: max(1rem, env(safe-area-inset-top));
+    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));
+    z-index: 2;
+  }
+  .auth-marketing-learn-more { font-size: 0.8rem; }
+  .auth-marketing-home .auth-marketing-layout {
+    min-height: 100vh;
+    display: flex;
+    align-items: stretch;
+  }
+  .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
+  .auth-marketing-home .marketing-panel {
+    order: 1;
+    flex: 1 1 50%;
+    max-width: none;
+    min-width: 0;
+    min-height: 100vh;
+    padding: 0;
+  }
+  .auth-marketing-visual {
+    position: relative;
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    flex-direction: column;
+    justify-content: stretch;
+    overflow: hidden;
+    padding: 3rem 3.5rem;
+  }
+  .auth-marketing-visual > [data-agent-native-marketing-background] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: none;
+  }
+  .auth-marketing-visual .marketing-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: space-between;
+    width: 100%;
+    min-height: calc(100vh - 6rem);
+  }
+  .auth-marketing-visual .marketing-copy { margin-top: auto; }
+  .auth-marketing-home .form-panel {
+    order: 2;
+    flex: 1 1 50%;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    min-height: 100vh;
+    padding: 2rem clamp(2rem, 6vw, 6rem);
+    background: color-mix(in srgb, CanvasText 4%, Canvas);
+    border-inline-start: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+  }
+  .auth-marketing-home .form-panel > .card { margin-block: auto; }
+  @media not all and (min-width: 901px) {
+    .auth-marketing-home .auth-marketing-screenshot-wrap { display: none; }
+    body.has-marketing {
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+    .auth-marketing-home .auth-marketing-top-right {
+      top: max(1rem, env(safe-area-inset-top));
+      inset-inline-start: auto;
+      inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));
+      transform: none;
+    }
+    .auth-marketing-home .auth-marketing-visual {
+      min-height: min(62vh, 560px);
+      padding: 4.25rem 1.5rem 2rem;
+    }
+    .auth-marketing-home .auth-marketing-visual .marketing-content {
+      min-height: min(54vh, 470px);
+    }
+    .auth-marketing-home .form-panel {
+      flex: none;
+      width: 100%;
+      min-height: auto;
+      padding: 1.5rem 1.25rem;
+      border-inline-start: 0;
+    }
+    .auth-marketing-home .auth-marketing-layout { min-height: auto; }
+    .auth-marketing-home .auth-marketing-shell { display: block; }
+    .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
+  }
+  /* guard:allow-raw-color - these are the exact standalone auth palette tokens from Figma */
+  body.has-marketing {
+    --auth-marketing-left-bg: #090909; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-right-bg: #141414; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-foreground: #faf9f5; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-muted: #9a9997; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-subtle: #858583; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-border: #2e2e2e; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-badge-bg: #1b1b1b; /* guard:allow-raw-color - exact Figma auth palette */
+  }
+  body.has-marketing,
+  .auth-marketing-home {
+    font-family: "Geist", system-ui, sans-serif;
+    font-synthesis: none;
+  }
+  .auth-marketing-home {
+    background: var(--auth-marketing-right-bg);
+    color: var(--auth-marketing-foreground);
+  }
+  .auth-marketing-home .auth-marketing-top-right {
+    top: 4.5rem;
+    inset-inline-end: 5rem;
+  }
+  .auth-marketing-home .auth-marketing-learn-more {
+    color: var(--auth-marketing-muted);
+    font-family: "Geist Mono", ui-monospace, monospace;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.25;
+  }
+  .auth-marketing-home .auth-marketing-learn-more:hover,
+  .auth-marketing-home .auth-marketing-learn-more-link {
+    color: inherit;
+  }
+  .auth-marketing-home .auth-marketing-layout {
+    border: 0;
+  }
+  .auth-marketing-home .marketing-panel {
+    background: var(--auth-marketing-left-bg);
+  }
+  .auth-marketing-home .auth-marketing-visual {
+    min-height: 100vh;
+    padding: 4.5rem 5rem 4rem;
+    background: var(--auth-marketing-left-bg);
+  }
+  .auth-marketing-home .auth-marketing-screenshot-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .auth-marketing-home .auth-marketing-screenshot {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    filter: none;
+    background:
+      radial-gradient(ellipse 82% 72% at 80% 64%, color-mix(in srgb, var(--auth-marketing-foreground) 16%, transparent), transparent 72%),
+      radial-gradient(ellipse 48% 36% at 24% 26%, color-mix(in srgb, var(--auth-marketing-foreground) 8%, transparent), transparent 82%);
+  }
+  .auth-marketing-home [data-agent-native-marketing-background] {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: translateY(-5vh);
+  }
+  .auth-marketing-home .auth-marketing-visual .marketing-content {
+    min-height: calc(100vh - 8.5rem);
+  }
+  .auth-marketing-home .app-name {
+    gap: 0.7rem;
+    margin: 0;
+    color: var(--auth-marketing-foreground);
+    font: 600 1.8rem/1 "Geist", system-ui, sans-serif;
+    letter-spacing: -0.04em;
+  }
+  .auth-marketing-home .app-name img.brand-mark {
+    width: auto;
+    height: 1.55rem;
+    filter: grayscale(1) brightness(0) invert(1);
+  }
+  .auth-marketing-home .app-status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.6rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: var(--auth-marketing-foreground);
+    color: var(--auth-marketing-right-bg);
+    font: 600 0.8rem/1 "Geist Mono", ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .auth-marketing-home .marketing-copy {
+    max-width: 50rem;
+  }
+  .auth-marketing-home .auth-marketing-headline {
+    max-width: 52rem;
+    margin: 0;
+    color: var(--auth-marketing-foreground);
+    font: 400 2.875rem/1.2 "Geist", system-ui, sans-serif;
+    letter-spacing: -0.04em;
+    white-space: pre-line;
+  }
+  .auth-marketing-home .auth-marketing-description {
+    margin: 1.5rem 0 0;
+    color: var(--auth-marketing-muted);
+    font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
+  }
+  .auth-marketing-home .auth-marketing-description-link {
+    color: var(--auth-marketing-muted);
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+    white-space: nowrap;
+  }
+  .auth-marketing-home .auth-marketing-description-link:hover {
+    color: var(--auth-marketing-foreground);
+  }
+  .auth-marketing-home .marketing-actions {
+    margin-top: 3rem;
+  }
+  .auth-marketing-home .oss-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.125rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--auth-marketing-border);
+    border-radius: 0.375rem;
+    background: var(--auth-marketing-badge-bg);
+    color: var(--auth-marketing-foreground);
+    font: 600 0.875rem/1 "Geist Mono", ui-monospace, monospace;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    text-transform: uppercase;
+  }
+  .auth-marketing-home .oss-badge:hover {
+    border-color: var(--auth-marketing-muted);
+  }
+  .auth-marketing-home .form-panel {
+    padding: 0 5rem;
+    background: var(--auth-marketing-right-bg);
+    border-inline-start: 1px solid var(--auth-marketing-border);
+    position: relative;
+    z-index: 1;
+  }
+  .auth-marketing-home .form-panel > .card {
+    width: min(27.5rem, 100%);
+    max-width: 27.5rem;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .auth-marketing-home .card h1 {
+    margin-bottom: 0.75rem;
+    color: var(--auth-marketing-foreground);
+    font: 400 2.5rem/1.2 "Geist", system-ui, sans-serif;
+    letter-spacing: -0.035em;
+    text-align: center;
+  }
+  .auth-marketing-home .card .subtitle {
+    margin-bottom: 3rem;
+    color: var(--auth-marketing-muted);
+    font: 400 1.125rem/1.35 "Geist", system-ui, sans-serif;
+    text-align: center;
+  }
+  .auth-marketing-home .card .divider {
+    color: var(--auth-marketing-muted);
+    font: 400 1rem/1.35 "Geist", system-ui, sans-serif;
+  }
+  .auth-marketing-home .card .auth-mode-switch {
+    margin-top: 0.75rem;
+    font: 400 0.9375rem/1.35 "Geist", system-ui, sans-serif;
+    text-align: start;
+  }
+  .auth-marketing-home .card .auth-mode-link,
+  .auth-marketing-home .card .auth-mode-link:hover {
+    color: var(--auth-marketing-muted);
+    font: inherit;
+    text-decoration: none;
+  }
+  .auth-marketing-home .card .legal-note {
+    margin: 3.5rem 0 0;
+    color: var(--auth-marketing-subtle);
+    font: 400 0.8125rem/1.35 "Geist", system-ui, sans-serif;
+    text-align: center;
+  }
+  .auth-marketing-home .card .legal-note a,
+  .auth-marketing-home .card .legal-note a:hover {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.125rem;
+  }
+  body.has-marketing .locale-picker {
+    top: auto;
+    bottom: max(1.25rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1.25rem, env(safe-area-inset-right));
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
+      --auth-marketing-left-bg: Canvas;
+      --auth-marketing-right-bg: Canvas;
+      --auth-marketing-foreground: CanvasText;
+      --auth-marketing-muted: GrayText;
+      --auth-marketing-subtle: GrayText;
+      --auth-marketing-border: color-mix(in srgb, CanvasText 18%, transparent);
+      --auth-marketing-badge-bg: color-mix(in srgb, CanvasText 7%, Canvas);
+      color-scheme: light;
+    }
+    .auth-marketing-home .auth-marketing-visual,
+    .auth-marketing-home .marketing-panel,
+    .auth-marketing-home .form-panel {
+      background: Canvas;
+    }
+    .auth-marketing-home .card input {
+      color: var(--auth-marketing-foreground);
+      border-color: var(--auth-marketing-border);
+    }
+    .auth-marketing-home .card input:focus {
+      border-color: color-mix(in srgb, var(--auth-marketing-foreground) 45%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--auth-marketing-foreground) 15%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder {
+      color: var(--auth-marketing-muted);
+      opacity: 1;
+    }
+    .auth-marketing-home .card .btn-google,
+    .auth-marketing-home .card .btn-primary,
+    .auth-marketing-home .card button[type="submit"] {
+      border: 1px solid var(--auth-marketing-border);
+    }
+    .auth-marketing-home .app-name img.brand-mark {
+      filter: grayscale(1) brightness(0);
+    }
+  }
+  @media not all and (min-width: 901px) {
+    .auth-marketing-home {
+      min-height: 100vh;
+      min-height: 100svh;
+    }
+    .auth-marketing-home .auth-marketing-shell-with-top-right {
+      flex-direction: column;
+    }
+    .auth-marketing-home .auth-marketing-top-right {
+      display: none;
+    }
+    .auth-marketing-home .auth-marketing-layout {
+      flex-direction: column;
+    }
+    .auth-marketing-home .auth-marketing-visual {
+      min-height: min(62vh, 560px);
+      padding: 4.5rem 1.5rem 2rem;
+    }
+    .auth-marketing-home .auth-marketing-visual .marketing-content {
+      min-height: min(54vh, 470px);
+    }
+    .auth-marketing-home .auth-marketing-headline {
+      font-size: 2.25rem;
+    }
+    .auth-marketing-home .form-panel {
+      order: 1;
+      padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem max(1.5rem, env(safe-area-inset-bottom));
+      border-inline-start: 0;
+    }
+    .auth-marketing-home .marketing-panel { display: none; }
+    .auth-marketing-home .card h1 {
+      font-size: clamp(1.625rem, 6vw, 2rem);
+      line-height: 1.15;
+      margin-bottom: 0.5rem;
+    }
+    .auth-marketing-home .card .subtitle {
+      margin-bottom: 1.5rem;
+      font-size: 1rem;
+      line-height: 1.4;
+    }
+    .auth-marketing-home .card .divider { margin: 1rem 0; }
+    .auth-marketing-home .card .legal-note { margin-top: 1.5rem; }
+    .auth-marketing-home .card input,
+    .auth-marketing-home .card button {
+      min-height: 2.75rem;
+    }
+    body.has-marketing .locale-trigger {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
+    .auth-marketing-home .card input { font-size: 1rem; }
+  }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);
   const title = hasMarketing
     ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
     : t("pageTitleWelcome");
-  const authDocumentMarkup = renderToString(
-    createElement(
-      "html",
-      { lang: DEFAULT_LOCALE, dir: "ltr" },
-      createElement(
-        "head",
-        null,
-        createElement("meta", { charSet: "UTF-8" }),
-        createElement("script", {
-          "data-agent-native-locale-init": "",
-          dangerouslySetInnerHTML: { __html: localeInitScript },
-        }),
-        createElement("script", {
-          "data-agent-native-embedded-init": "",
-          dangerouslySetInnerHTML: { __html: embeddedAuthInitScript },
-        }),
-        createElement("meta", {
-          name: "viewport",
-          content:
-            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
-        }),
-        hasMarketing
-          ? [
-              createElement("link", {
-                key: "geist-preconnect",
-                rel: "preconnect",
-                href: "https://fonts.googleapis.com",
-              }),
-              createElement("link", {
-                key: "geist-preconnect-static",
-                rel: "preconnect",
-                href: "https://fonts.gstatic.com",
-                crossOrigin: "anonymous",
-              }),
-              createElement("link", {
-                key: "geist-stylesheet",
-                rel: "stylesheet",
-                href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap",
-              }),
-            ]
-          : null,
-        createElement("title", null, title),
-        createElement("link", {
-          rel: "icon",
-          type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg", appBasePath),
-        }),
-        createElement("link", {
-          rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg", appBasePath),
-        }),
-        hasMarketing
-          ? [
-              createElement("meta", {
-                key: "description",
-                name: "description",
-                content: marketing!.tagline,
-              }),
-              createElement("meta", {
-                key: "og-type",
-                property: "og:type",
-                content: "website",
-              }),
-              socialSiteName
-                ? createElement("meta", {
-                    key: "og-site-name",
-                    property: "og:site_name",
-                    content: socialSiteName,
-                  })
-                : null,
-              socialPageUrl
-                ? createElement("meta", {
-                    key: "og-url",
-                    property: "og:url",
-                    content: socialPageUrl,
-                  })
-                : null,
-              createElement("meta", {
-                key: "og-title",
-                property: "og:title",
-                content: socialAppName,
-              }),
-              createElement("meta", {
-                key: "og-description",
-                property: "og:description",
-                content: marketing!.tagline,
-              }),
-              createElement("meta", {
-                key: "og-image",
-                property: "og:image",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "og-image-secure",
-                property: "og:image:secure_url",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "og-image-type",
-                property: "og:image:type",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-              }),
-              createElement("meta", {
-                key: "og-image-width",
-                property: "og:image:width",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-              }),
-              createElement("meta", {
-                key: "og-image-height",
-                property: "og:image:height",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-              }),
-              createElement("meta", {
-                key: "og-image-alt",
-                property: "og:image:alt",
-                content: socialImageAlt,
-              }),
-              createElement("meta", {
-                key: "twitter-card",
-                name: "twitter:card",
-                content: "summary_large_image",
-              }),
-              createElement("meta", {
-                key: "twitter-image",
-                name: "twitter:image",
-                content: socialImageUrl,
-              }),
-              createElement("meta", {
-                key: "twitter-image-alt",
-                name: "twitter:image:alt",
-                content: socialImageAlt,
-              }),
-            ]
-          : null,
-        createElement("style", {
-          dangerouslySetInnerHTML: {
-            __html: authDocumentStyles,
-          },
-        }),
-        createElement("script", {
-          type: "module",
-          src: authClientScriptPath,
-        }),
-      ),
-      createElement(
-        "body",
-        {
-          className: simplifiedAuth ? "simplified-auth" : undefined,
-        },
-        createElement(
-          "div",
-          { id: "agent-native-auth-root", className: "auth-root" },
-          createElement(AuthPage, authPageProps),
-        ),
-        createElement("script", {
-          type: "application/json",
-          id: "agent-native-auth-data",
-          dangerouslySetInnerHTML: { __html: authPageData },
-        }),
-      ),
-    ),
-  );
-  return `<!DOCTYPE html>${authDocumentMarkup}`;
+  const authPageMarkup = opts.renderSignInPage?.(authPageProps);
+  const fallbackTitle = googleOnly
+    ? t("pageTitleSignIn")
+    : t("pageTitleWelcome");
+  const fallbackDescription = googleOnly
+    ? t("googleOnlySubtitle")
+    : t("createAccountSubtitle");
+  const pageMarkup =
+    authPageMarkup ??
+    `<main class="auth-fallback" aria-live="polite"><h1>${escapeHtml(fallbackTitle)}</h1><p>${escapeHtml(fallbackDescription)}</p></main>`;
+  const fontLinks = hasMarketing
+    ? '<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@400;600&display=swap"/>'
+    : "";
+  const marketingMeta = hasMarketing
+    ? [
+        `<meta name="description" content="${escapeHtml(marketing!.tagline)}"/>`,
+        '<meta property="og:type" content="website"/>',
+        socialSiteName
+          ? `<meta property="og:site_name" content="${escapeHtml(socialSiteName)}"/>`
+          : "",
+        socialPageUrl
+          ? `<meta property="og:url" content="${escapeHtml(socialPageUrl)}"/>`
+          : "",
+        `<meta property="og:title" content="${escapeHtml(socialAppName ?? "")}"/>`,
+        `<meta property="og:description" content="${escapeHtml(marketing!.tagline)}"/>`,
+        `<meta property="og:image" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta property="og:image:secure_url" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}"/>`,
+        `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}"/>`,
+        `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}"/>`,
+        `<meta property="og:image:alt" content="${escapeHtml(socialImageAlt)}"/>`,
+        '<meta name="twitter:card" content="summary_large_image"/>',
+        `<meta name="twitter:image" content="${escapeHtml(socialImageUrl)}"/>`,
+        `<meta name="twitter:image:alt" content="${escapeHtml(socialImageAlt)}"/>`,
+      ].join("")
+    : "";
+  const bodyClass = simplifiedAuth
+    ? "simplified-auth"
+    : hasMarketing
+      ? "has-marketing"
+      : "";
+  return `<!DOCTYPE html><html lang="${DEFAULT_LOCALE}" dir="ltr"><head><meta charset="UTF-8"/><script data-agent-native-locale-init="">${localeInitScript}</script><script data-agent-native-embedded-init="">${embeddedAuthInitScript}</script><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>${fontLinks}<title>${escapeHtml(title)}</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/>${marketingMeta}<style>${authDocumentStyles + authPageLayoutStyles}</style><script type="module" src="${escapeHtml(authClientScriptPath)}"></script></head><body${bodyClass ? ` class="${bodyClass}"` : ""}><div id="agent-native-auth-root" class="auth-root"${authPageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${pageMarkup}</div><script type="application/json" id="agent-native-auth-data">${authPageData}</script></body></html>`;
 }
 
 const RESET_PASSWORD_STYLES = `
@@ -2123,7 +2529,10 @@ const RESET_PASSWORD_STYLES = `
   .back:hover { color: #bbb; }
 `;
 
-export function getResetPasswordHtml(requestPath?: string): string {
+export function getResetPasswordHtml(
+  requestPath?: string,
+  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(requestPath);
@@ -2133,54 +2542,9 @@ export function getResetPasswordHtml(requestPath?: string): string {
     passwordMinLength: PASSWORD_MIN_LENGTH,
     passwordMaxLength: PASSWORD_MAX_LENGTH,
   };
-  const resetDocumentMarkup = renderToString(
-    createElement(
-      "html",
-      { lang: "en", dir: "ltr" },
-      createElement(
-        "head",
-        null,
-        createElement("meta", { charSet: "UTF-8" }),
-        createElement("meta", {
-          name: "viewport",
-          content:
-            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
-        }),
-        createElement("title", null, "Reset password"),
-        createElement("link", {
-          rel: "icon",
-          type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg", appBasePath),
-        }),
-        createElement("link", {
-          rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg", appBasePath),
-        }),
-        createElement("style", {
-          dangerouslySetInnerHTML: { __html: RESET_PASSWORD_STYLES },
-        }),
-        createElement("script", {
-          type: "module",
-          src: authClientAssetPath(appBasePath),
-        }),
-      ),
-      createElement(
-        "body",
-        null,
-        createElement(
-          "div",
-          { id: "agent-native-auth-root" },
-          createElement(ResetPasswordPage, resetPageProps),
-        ),
-        createElement("script", {
-          type: "application/json",
-          id: "agent-native-auth-data",
-          dangerouslySetInnerHTML: {
-            __html: serializeAuthPageData(resetPageProps),
-          },
-        }),
-      ),
-    ),
-  );
-  return `<!DOCTYPE html>${resetDocumentMarkup}`;
+  const pageMarkup = renderResetPasswordPage?.(resetPageProps);
+  const resetMarkup =
+    pageMarkup ??
+    '<main class="card"><h1>Reset password</h1><p class="subtitle">Reset your password</p></main>';
+  return `<!DOCTYPE html><html lang="en" dir="ltr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><title>Reset password</title><link rel="icon" type="image/svg+xml" href="${escapeHtml(withAppBasePath("/favicon.svg", appBasePath))}"/><link rel="apple-touch-icon" href="${escapeHtml(withAppBasePath("/icon-180.svg", appBasePath))}"/><style>${RESET_PASSWORD_STYLES}</style><script type="module" src="${escapeHtml(authClientAssetPath(appBasePath))}"></script></head><body><div id="agent-native-auth-root"${pageMarkup === undefined ? ' data-agent-native-auth-fallback="true"' : ""}>${resetMarkup}</div><script type="application/json" id="agent-native-auth-data">${serializeAuthPageData(resetPageProps)}</script></body></html>`;
 }

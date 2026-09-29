@@ -1,4 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
+import type { LocaleCode } from "@agent-native/core/localization";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -15,23 +21,36 @@ import {
   resolveFindTimeRange,
 } from "../server/lib/find-time.js";
 import type { FindTimeBusyBlock } from "../shared/api.js";
+import {
+  calendarTimeChoiceChange,
+  resolveCalendarActionLocale,
+} from "./action-chat-ui.js";
 import { listCalendarEvents } from "./list-events.js";
 
-function formatSlotTime(value: string, timezone: string): string {
-  return new Intl.DateTimeFormat("en-US", {
+function formatSlotTime(
+  value: string,
+  timezone: string,
+  locale: LocaleCode,
+): string {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: timezone,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
-function dayName(date: string, timezone: string): string {
-  return new Intl.DateTimeFormat("en-US", {
+function dayName(date: string, timezone: string, locale: LocaleCode): string {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: timezone,
     weekday: "long",
   })
     .format(new Date(`${date}T12:00:00Z`))
     .toLowerCase();
+}
+
+function projectTimeChoice(result: unknown) {
+  const projected = normalizeActionChangeResult(result);
+  return projected?.change.kind === "calendar-time-choice" ? projected : null;
 }
 
 export default defineAction({
@@ -48,12 +67,21 @@ export default defineAction({
       .describe("Minimum slot duration in minutes (default: 30)"),
   }),
   http: false,
-  run: async (args) => {
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => projectTimeChoice(result) !== null,
+    projectResult: (_args, result) => projectTimeChoice(result),
+  },
+  run: async (args, actionContext?: ActionRunContext) => {
     if (!args.date) throw new Error("date is required (YYYY-MM-DD format)");
 
     const dateStr = args.date;
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const locale = await resolveCalendarActionLocale(
+      ownerEmail,
+      actionContext?.requestHeaders,
+    );
 
     const requestTimezone = normalizeTimezone(getRequestTimezone());
     const stored =
@@ -90,16 +118,27 @@ export default defineAction({
             durationMinutes: args.duration,
             slotStepMinutes: args.duration,
           });
+    const timeChoice =
+      listed.errors.length === 0 && slots[0]
+        ? calendarTimeChoiceChange(
+            slots[0].start,
+            slots[0].end,
+            timezone,
+            locale,
+          )
+        : null;
 
     return {
       date: dateStr,
-      day: dayName(dateStr, timezone),
+      day: dayName(dateStr, timezone, locale),
       timezone,
       minDuration: args.duration,
       actionable: listed.errors.length === 0,
       slots: slots.map((slot) => ({
-        start: formatSlotTime(slot.start, timezone),
-        end: formatSlotTime(slot.end, timezone),
+        start: formatSlotTime(slot.start, timezone, locale),
+        end: formatSlotTime(slot.end, timezone, locale),
+        startAt: slot.start,
+        endAt: slot.end,
         durationMin: Math.round(
           (new Date(slot.end).getTime() - new Date(slot.start).getTime()) /
             60_000,
@@ -107,6 +146,7 @@ export default defineAction({
       })),
       total: slots.length,
       errors: listed.errors,
+      ...(timeChoice ?? {}),
     };
   },
 });

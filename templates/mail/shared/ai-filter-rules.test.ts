@@ -13,6 +13,10 @@ const classifiedCases: Array<[AutomationAction[], AiFilterRuleMode]> = [
   [[{ type: "archive" }], "archive"],
   [[{ type: "label", labelName: AI_IMPORTANT_LABEL }], "important"],
   [
+    [{ type: "label", labelName: AI_IMPORTANT_LABEL }, { type: "notify" }],
+    "notify",
+  ],
+  [
     [{ type: "label", labelName: AI_FILTER_LABEL }, { type: "archive" }],
     "filtered",
   ],
@@ -49,5 +53,12 @@ describe("AI filter rule actions", () => {
         { type: "archive" },
       ]),
     ).toEqual([{ type: "label", labelName: "Receipts" }, { type: "archive" }]);
+  });
+
+  it("adds Important highlighting and notification for notify mode", () => {
+    expect(aiFilterRuleActionsForMode("notify")).toEqual([
+      { type: "label", labelName: AI_IMPORTANT_LABEL },
+      { type: "notify" },
+    ]);
   });
 });

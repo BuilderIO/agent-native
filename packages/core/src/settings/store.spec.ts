@@ -68,6 +68,9 @@ describe("settings store", () => {
     expect(seen).toContain(
       "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
     );
+    expect(seen).toContain(
+      "CREATE INDEX IF NOT EXISTS settings_key_segment_idx ON public.settings ((substring(key from '[^:]+$')))",
+    );
   });
 
   it("round-trips a value via put/get", async () => {
@@ -169,6 +172,39 @@ describe("settings store", () => {
       "builder-connect-pending:a",
       "builder-connect-pending:b",
     ]);
+  });
+
+  it("reads only settings with requested key segments", async () => {
+    const { listSettingsByKeySegments } = await import("./store.js");
+    await runWithRequestContext(
+      { userEmail: "alice@example.com" },
+      async () => {
+        await putSetting("u:alice@example.com:mcp-servers-remote", {
+          servers: [],
+        });
+        await putSetting("u:alice@example.com:other-setting", { value: 1 });
+
+        rawClient.execute.mockClear();
+        const rows = await listSettingsByKeySegments(["mcp-servers-remote"]);
+
+        expect(rows).toEqual([
+          {
+            key: "u:alice@example.com:mcp-servers-remote",
+            value: { servers: [] },
+          },
+        ]);
+        expect(rawClient.execute).toHaveBeenCalledWith({
+          sql: expect.stringContaining(
+            "WHERE substring(key from '[^:]+$') IN (?)",
+          ),
+          args: ["mcp-servers-remote"],
+        });
+
+        rawClient.execute.mockClear();
+        await getSetting("u:alice@example.com:mcp-servers-remote");
+        expect(rawClient.execute).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it("bounds and orders prefix reads when requested", async () => {

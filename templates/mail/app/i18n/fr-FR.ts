@@ -45,9 +45,10 @@ const messages = {
       aiSetupArchiveLabel: "Ignorer la boîte de réception",
       aiSetupSave: "Enregistrer la configuration",
       aiSetupSkip: "Ignorer pour le moment",
-      aiSetupImportantHeadline: "Ce qui est important",
-      aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
-      aiSetupTagsHeadline: "Choisissez vos onglets",
+      aiSetupImportantHeadline: "Qu’est-ce qui est important pour vous ?",
+      aiSetupSkipInboxHeadline:
+        "Que peut-on retirer de votre boîte de réception ?",
+      aiSetupTagsHeadline: "Trier les e-mails dans des onglets",
       aiSetupArchiveSpamHeadline: "Ignorer la boîte de réception et spam",
       aiSetupTagReceipts: "Reçus",
       aiSetupTagUpdates: "Mises à jour produit",
@@ -63,6 +64,16 @@ const messages = {
         "Ignorer la boîte de réception : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
       aiSetupCustomTag: "Personnalisé",
       aiSetupDone: "Terminé",
+      aiSetupConnectGmailHeadline:
+        "Connectez Gmail pour trier votre boîte de réception",
+      aiSetupConnectGmailDescription:
+        "Connectez Google pour appliquer vos règles aux e-mails récents.",
+      aiSetupConnectJevHeadline:
+        "Connectez Jev pour trier votre boîte de réception",
+      aiSetupConnectJevDescription:
+        "Connectez Jev pour appliquer vos règles aux e-mails récents.",
+      aiSetupCustomTabName: "Nom de l’onglet",
+      aiSetupCustomTabExample: "ex. factures de fournisseurs",
       aiSetupRunAgain: "Relancer la configuration",
       aiSetupTagCalendar: "Calendrier",
       aiSetupPromptCalendar:
@@ -77,14 +88,26 @@ const messages = {
       aiSetupFilteredExample:
         "Prospection commerciale non sollicitée et recruteurs auxquels je n’ai pas répondu",
       aiSetupSortingHeadline: "Tri de votre boîte de réception",
+      aiSetupSortingDescription:
+        "Voici ce que vos règles ont trouvé dans les e-mails récents.",
       aiSetupFindingRecentMail: "Recherche des e-mails récents…",
+      aiSetupRetry: "Réessayer",
+      aiSetupGmailStatusFailed: "Impossible de vérifier la connexion à Gmail",
+      aiSetupAutomationSettingsFailed:
+        "Impossible de vérifier les paramètres du modèle d’IA",
       aiSetupSortingProgress:
         "Tri des messages récents : {{processed}} sur {{total}}",
       aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
+      aiSetupUndoBeforeRetry:
+        "Annulez les modifications partielles avant de réessayer.",
       aiSetupSortingFailed:
         "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
       aiSetupUndoComplete:
         "{{count}} messages ont retrouvé leur état précédent.",
+      aiSetupUndoFailed:
+        "Impossible d’annuler ces changements dans votre boîte de réception. Réessayez.",
+      aiSetupUndoStatusFailed:
+        "L’annulation a été demandée, mais les derniers résultats n’ont pas pu être chargés.",
       aiSetupRuleCount: "{{count}} correspondances",
       aiSetupNoMatches:
         "Aucun message des 14 derniers jours ne correspond à ces règles.",
@@ -94,7 +117,29 @@ const messages = {
       aiSetupNoRules: "Aucune règle n’a été sélectionnée.",
       aiSetupPartialFailure: "{{count}} messages n’ont pas pu être mis à jour.",
       aiSetupSortInbox: "Trier ma boîte de réception",
-      aiSetupImportantExample: "Tout ce qui vient de ma responsable, Priya…",
+      aiSetupImportantExample:
+        "Tout message de mon responsable, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "L’IA attribue des tags aux e-mails correspondants et crée un onglet par tag à côté de votre boîte de réception.",
+      aiSetupImportantDescription:
+        "L’IA ajoute le libellé Important aux e-mails correspondants pour les afficher dans l’onglet Important.",
+      aiSetupSkipInboxDescription:
+        "L’IA archive les e-mails correspondants pour qu’ils n’arrivent pas dans votre boîte de réception. Ils restent accessibles dans Tous les messages et dans la recherche.",
+      aiSetupAddTab: "Ajouter un onglet",
+      aiSetupAdjustRules: "Ajuster les règles",
+      aiSetupImportantBoss: "Messages de mon patron, ",
+      aiSetupImportantBossChip: "Messages de mon patron",
+      aiSetupImportantReply: "À répondre",
+      aiSetupImportantDeadlines: "Échéances",
+      aiSetupImportantCustomers: "Clients",
+      aiSetupImportantGitHub: "Personnes sur GitHub",
+      aiSetupImportantCalendar: "Invitations",
+      aiSetupSkipNewsletters: "Newsletters",
+      aiSetupSkipPromotions: "Promotions",
+      aiSetupSkipBots: "Alertes bot et CI",
+      aiSetupSkipColdSales: "Ventes non sollicitées",
+      aiSetupSkipRecruiters: "Recruteurs",
+      aiSetupSkipSocial: "Alertes sociales",
       priorityFeedbackLabel: "Retour sur l’importance",
       priorityScoreHigh: "Importance élevée",
       priorityScoreMedium: "Importance moyenne",
@@ -295,6 +340,16 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Annuler l’envoi programmé",
+      deliveryUnknownWarning:
+        "État de livraison inconnu ; vérifiez les messages envoyés dans Gmail avant de résoudre le problème.",
+      markSentAfterChecking:
+        "J’ai vérifié les messages envoyés ; marquer comme envoyé",
+      sendNewCopy: "Envoyer une nouvelle copie",
+      sendingStatus:
+        "L’envoi programmé est en cours. Les actions sont temporairement indisponibles.",
+      confirmSendNewCopyTitle: "Envoyer une autre copie ?",
+      confirmSendNewCopyDescription:
+        "L’original a peut-être déjà été remis. Vérifiez d’abord les messages envoyés dans Gmail. Un nouvel envoi peut créer un doublon.",
       dateInput: "Date et heure",
       noDateMatch: "Aucun horaire futur correspondant",
       inputPlaceholder: "Essayez : 8 h, 3 jours, 7 août",
@@ -405,6 +460,12 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programmé envoyé.",
       scheduledSendFailed: "Échec de l’envoi de l’email programmé",
+      uncertainScheduledMarkedSent: "Email programmé marqué comme envoyé.",
+      uncertainScheduledResolveFailed:
+        "Échec de la résolution de l’email programmé.",
+      uncertainScheduledRetryStarted:
+        "Une nouvelle copie est en cours d’envoi.",
+      uncertainScheduledRetryFailed: "Échec de l’envoi d’une nouvelle copie.",
       scheduledCancelled: "Email programmé annulé.",
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -454,6 +515,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connecter votre compte Google",
+      connectionNotConfigured:
+        "La connexion Gmail n’est pas configurée pour cette application. Demandez à votre administrateur de l’activer ou ignorez cette étape pour le moment.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -628,6 +691,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} messages restaurés",
       ruleBackfillReview: "Examiner les correspondances",
       importantMode: "Important",
+      notifyMode: "Notifier",
+      notifyModeHelp:
+        "Marque les messages correspondants comme importants et affiche une fenêtre du navigateur lorsque Mail est ouvert et que les notifications sont activées depuis la cloche. Application mobile bientôt disponible.",
+      manageAutomationsLink: "Autres actions d’automatisation",
       notImportantMode: "Pas important",
       importantLabel: "Important par IA",
       reviewImportant: "Voir les importants",
@@ -762,6 +829,7 @@ const messages = {
     markRead: "Marquer comme lu",
     star: "Ajouter une étoile",
     trash: "Corbeille",
+    notify: "Notifier",
     labelName: "Nom du libellé",
     addAction: "+ Ajouter une action",
     ruleName: "Nom de la règle",
@@ -841,8 +909,6 @@ const messages = {
     slackPostEndpoint: "Point de terminaison POST Slack",
     slackPostEndpointHelp:
       "À utiliser dans Slack Event Subscriptions. Un GET navigateur peut afficher Not Found.",
-    teamDescription:
-      "Configurez une équipe pour partager les automatisations et paramètres mail avec vos collègues.",
     title: "Parametres",
     general: "Général",
     generalDescription: "Langue et preferences de compte pour Mail.",
@@ -869,12 +935,19 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
+    rules: "Règles",
+    rulesModel: "Modèle des règles",
+    rulesModelDescription: "Compare les e-mails entrants à vos règles.",
+    slackDraftRequests: "Demandes de brouillons",
+    slackDraftQueue: "Mettre en file des brouillons depuis Slack",
+    slackDraftQueueDescription:
+      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Les brouillons attendent votre relecture dans la file de brouillons.",
+    openDraftQueue: "Ouvrir la file de brouillons",
     aiFilter: "Tri par IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
     slack: "Slack",
-    team: "Equipe",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },
