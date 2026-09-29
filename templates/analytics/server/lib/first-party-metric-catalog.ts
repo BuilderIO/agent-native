@@ -135,6 +135,7 @@ const PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE = 20;
 const OBSERVED_ACTIVITY_LOOKBACK_DAYS = 365;
 const RETENTION_SPINE_DAYS_SQL =
   "(CASE '{{timeRange}}' WHEN '7d' THEN 7 WHEN '30d' THEN 30 WHEN '90d' THEN 90 WHEN '180d' THEN 180 WHEN '365d' THEN 365 ELSE 365 END)";
+const ANALYTICS_DATE_SPINE_MAX_OFFSET = 3_659;
 
 function daysAgoSql(days: number): string {
   const unit = days === 1 ? "day" : "days";
@@ -144,6 +145,8 @@ function daysAgoSql(days: number): string {
 function todaySql(): string {
   return "to_char(CURRENT_DATE, 'YYYY-MM-DD')";
 }
+
+const DATE_SPINE_OFFSET_CTES = `digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 + thousands.n * 1000 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds CROSS JOIN digits thousands WHERE thousands.n < 4 AND ones.n + tens.n * 10 + hundreds.n * 100 + thousands.n * 1000 <= ${ANALYTICS_DATE_SPINE_MAX_OFFSET})`;
 
 function windowStartFilter(days: number): string {
   return `${EVENT_DATE_SQL} >= ${daysAgoSql(days)}`;
@@ -305,8 +308,11 @@ export const LEGACY_SEED_SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_N
 export const LEGACY_SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY ${EVENT_DATE_SQL}) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${LEGACY_DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
 // guard:allow-unbounded-read — bounded signup CTE retained as an exact repair signature.
 export const PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL = `WITH digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds WHERE hundreds.n < 8), signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
-// guard:allow-unbounded-read — signup_events is date-filtered; the output spans that range.
-export const SIGNUPS_OVER_TIME_SQL = `WITH signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}), bounds AS (SELECT CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE MIN(date::date) END AS start_date, CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE MAX(date::date) END AS end_date FROM signup_events), dates AS (SELECT to_char(days.day, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN LATERAL pg_catalog.generate_series(bounds.start_date::timestamp, bounds.end_date::timestamp, INTERVAL '1 day') AS days(day)), templates AS (SELECT DISTINCT template FROM signup_events UNION ALL SELECT 'unknown' WHERE NOT EXISTS (SELECT 1 FROM signup_events)), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
+const SIGNUPS_OVER_TIME_DATE_FILTER = `('{{timeRange}}' NOT IN ('', 'all') OR ${EVENT_DATE_SQL} >= to_char(CURRENT_DATE - INTERVAL '${ANALYTICS_DATE_SPINE_MAX_OFFSET} days', 'YYYY-MM-DD'))`;
+// guard:allow-unbounded-read — signup_events is scoped to the visible date spine.
+export const SIGNUPS_OVER_TIME_SQL = `WITH ${DATE_SPINE_OFFSET_CTES}, signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${SIGNUPS_OVER_TIME_DATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}), bounds AS (SELECT CASE WHEN '{{timeRange}}' IN ('', 'all') THEN (CURRENT_DATE - INTERVAL '${ANALYTICS_DATE_SPINE_MAX_OFFSET} days')::date WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE MIN(date::date) END AS start_date, CASE WHEN '{{timeRange}}' IN ('', 'all') THEN CURRENT_DATE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE MAX(date::date) END AS end_date FROM signup_events), date_spine_bounds AS (SELECT GREATEST(bounds.start_date, (bounds.end_date - INTERVAL '${ANALYTICS_DATE_SPINE_MAX_OFFSET} days')::date) AS start_date, bounds.end_date FROM bounds), dates AS (SELECT to_char(date_spine_bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM date_spine_bounds CROSS JOIN offsets WHERE date_spine_bounds.start_date + offsets.n <= date_spine_bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events UNION ALL SELECT 'unknown' WHERE NOT EXISTS (SELECT 1 FROM signup_events)), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
+// guard:allow-unbounded-read — exact previously deployed SQL used only for repair matching.
+export const PRE_CAPPED_SIGNUPS_OVER_TIME_SQL = `WITH signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}), bounds AS (SELECT CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE MIN(date::date) END AS start_date, CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE MAX(date::date) END AS end_date FROM signup_events), dates AS (SELECT to_char(days.day, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN LATERAL pg_catalog.generate_series(bounds.start_date::timestamp, bounds.end_date::timestamp, INTERVAL '1 day') AS days(day)), templates AS (SELECT DISTINCT template FROM signup_events UNION ALL SELECT 'unknown' WHERE NOT EXISTS (SELECT 1 FROM signup_events)), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
 // guard:allow-unbounded-read — legacy SQL is a migration signature, not executed.
 export const LEGACY_RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), anchor_dates AS (SELECT DISTINCT cohort_date AS date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date", false)}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period UNION ALL SELECT '7-14d return' AS period), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT cs.date, p.period, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs CROSS JOIN periods p LEFT JOIN retained r ON r.date = cs.date AND r.period = p.period WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, p.period`;
 // guard:allow-unbounded-read — legacy SQL is a migration input; current queries bound activity history.
@@ -385,8 +391,33 @@ export const PRE_CUSTOM_RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED
 export const PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL =
   /* guard:allow-unbounded-read — exact prior query snapshot reads its bounded base CTE. */
   "WITH base AS (\n  SELECT NULLIF(user_key, '') AS user_key, event_date AS event_date, user_id\n  FROM analytics_events\n  WHERE ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}')) AND ((event_name IN ('session status', 'session_status') AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) <> 'docs' AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides') AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) <> 'www' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))\n    AND event_date >= CASE WHEN '{{timeRange}}' = 'custom' THEN to_char(NULLIF('{{timeRangeStart}}', '')::date - INTERVAL '6 days', 'YYYY-MM-DD') ELSE to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD') END\n    AND event_date <= CASE WHEN '{{timeRange}}' = 'custom' THEN to_char(LEAST(NULLIF('{{timeRangeEnd}}', '')::date + INTERVAL '14 days', CURRENT_DATE), 'YYYY-MM-DD') ELSE to_char(CURRENT_DATE, 'YYYY-MM-DD') END\n), first_seen AS (\n  SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key\n), anchor_dates AS (\n  SELECT to_char(anchor_date::date, 'YYYY-MM-DD') AS date\n  FROM generate_series(\n    CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE CURRENT_DATE - (CASE '{{timeRange}}' WHEN '7d' THEN 7 WHEN '30d' THEN 30 WHEN '90d' THEN 90 WHEN '180d' THEN 180 WHEN '365d' THEN 365 ELSE 365 END) END,\n    CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE CURRENT_DATE END,\n    INTERVAL '1 day'\n  ) AS anchor_date\n), cohort_windows AS (\n  SELECT a.date, f.user_key, f.cohort_date\n  FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= to_char(a.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND f.cohort_date <= a.date\n), cohort_sizes AS (\n  SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date\n), periods AS (\n  SELECT '1-7d return' AS period, to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AS mature_through\n  UNION ALL SELECT '7-14d return' AS period, to_char(CURRENT_DATE - INTERVAL '14 days', 'YYYY-MM-DD') AS mature_through\n), retained AS (\n  SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained\n  FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD')\n  GROUP BY cw.date\n  UNION ALL\n  SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained\n  FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD')\n  GROUP BY cw.date\n)\nSELECT a.date, p.period,\n  CASE WHEN a.date <= p.mature_through AND cs.users >= 5 THEN COALESCE(r.retained, 0) ELSE NULL END AS retained_users,\n  COALESCE(cs.users, 0) AS cohort_users,\n  CASE WHEN a.date <= p.mature_through AND cs.users >= 5 THEN COALESCE(r.retained, 0)::float / NULLIF(cs.users, 0) ELSE NULL END AS rate\nFROM anchor_dates a CROSS JOIN periods p\nLEFT JOIN cohort_sizes cs ON cs.date = a.date\nLEFT JOIN retained r ON r.date = a.date AND r.period = p.period\nORDER BY a.date, p.period";
-// guard:allow-unbounded-read — base and cohort_history have explicit date and scope bounds.
-const RETENTION_OVER_TIME_SQL = `WITH base AS (
+const RETENTION_DATE_SPINE_START_SQL = `CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE CURRENT_DATE - ${RETENTION_SPINE_DAYS_SQL} END`;
+const RETENTION_DATE_SPINE_END_SQL = `CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE CURRENT_DATE END`;
+const RETENTION_DATE_SPINE_CTES = `${DATE_SPINE_OFFSET_CTES}, date_spine_bounds AS (
+  SELECT
+    GREATEST(range_bounds.start_date, (range_bounds.end_date - INTERVAL '${ANALYTICS_DATE_SPINE_MAX_OFFSET} days')::date) AS start_date,
+    range_bounds.end_date
+  FROM (
+    SELECT
+      (${RETENTION_DATE_SPINE_START_SQL})::date AS start_date,
+      (${RETENTION_DATE_SPINE_END_SQL})::date AS end_date
+  ) AS range_bounds
+), anchor_dates AS (
+  SELECT to_char(date_spine_bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date
+  FROM date_spine_bounds
+  CROSS JOIN offsets
+  WHERE date_spine_bounds.start_date + offsets.n <= date_spine_bounds.end_date
+)`;
+const PRE_CAPPED_RETENTION_DATE_SPINE_CTES = `anchor_dates AS (
+  SELECT to_char(anchor_date::date, 'YYYY-MM-DD') AS date
+  FROM pg_catalog.generate_series(
+    ${RETENTION_DATE_SPINE_START_SQL},
+    ${RETENTION_DATE_SPINE_END_SQL},
+    INTERVAL '1 day'
+  ) AS anchor_date
+)`;
+// guard:allow-unbounded-read — exact legacy query used only for persisted-query repair.
+export const PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL = `WITH base AS (
   SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
   FROM analytics_events
   WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
@@ -408,13 +439,61 @@ const RETENTION_OVER_TIME_SQL = `WITH base AS (
     SELECT user_key, event_date FROM cohort_history
   ) activity
   GROUP BY user_key
-), anchor_dates AS (
-  SELECT to_char(anchor_date::date, 'YYYY-MM-DD') AS date
-  FROM pg_catalog.generate_series(
-    CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE CURRENT_DATE - ${RETENTION_SPINE_DAYS_SQL} END,
-    CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(NULLIF('{{timeRangeEnd}}', '')::date, CURRENT_DATE) ELSE CURRENT_DATE END,
-    INTERVAL '1 day'
-  ) AS anchor_date
+), ${RETENTION_DATE_SPINE_CTES}, cohort_windows AS (
+  SELECT a.date, f.user_key, f.cohort_date
+  FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date
+), cohort_sizes AS (
+  SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date
+), periods AS (
+  SELECT '1-7d return' AS period, ${daysAgoSql(7)} AS mature_through
+  UNION ALL SELECT '7-14d return' AS period, ${daysAgoSql(14)} AS mature_through
+), retained AS (
+  SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained
+  FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD')
+  GROUP BY cw.date
+  UNION ALL
+  SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained
+  FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD')
+  GROUP BY cw.date
+)
+SELECT a.date, p.period,
+  CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0) ELSE NULL END AS retained_users,
+  COALESCE(cs.users, 0) AS cohort_users,
+  CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0)::float / NULLIF(cs.users, 0) ELSE NULL END AS rate
+FROM anchor_dates a CROSS JOIN periods p
+LEFT JOIN cohort_sizes cs ON cs.date = a.date
+LEFT JOIN retained r ON r.date = a.date AND r.period = p.period
+ORDER BY a.date, p.period`;
+// guard:allow-unbounded-read — base and cohort_history have explicit date and scope bounds.
+const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, base AS (
+  SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
+  FROM analytics_events
+  CROSS JOIN date_spine_bounds
+  WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
+    AND date_spine_bounds.start_date <= date_spine_bounds.end_date
+    AND (
+      ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD'))
+      OR ('{{timeRange}}' <> 'custom' AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER})
+    )
+    AND event_date <= to_char(LEAST(date_spine_bounds.end_date + INTERVAL '14 days', CURRENT_DATE)::date, 'YYYY-MM-DD')
+), cohort_history AS (
+  SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
+  FROM analytics_events
+  CROSS JOIN date_spine_bounds
+  WHERE '{{timeRange}}' = 'custom'
+    AND ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
+    AND date_spine_bounds.start_date <= date_spine_bounds.end_date
+    AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '${OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1} days')::date, 'YYYY-MM-DD')
+    AND event_date < to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD')
+    AND event_date <= ${todaySql()}
+), first_seen AS (
+  SELECT user_key, MIN(event_date) AS cohort_date
+  FROM (
+    SELECT user_key, event_date FROM base
+    UNION ALL
+    SELECT user_key, event_date FROM cohort_history
+  ) activity
+  GROUP BY user_key
 ), cohort_windows AS (
   SELECT a.date, f.user_key, f.cohort_date
   FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date
@@ -440,6 +519,11 @@ FROM anchor_dates a CROSS JOIN periods p
 LEFT JOIN cohort_sizes cs ON cs.date = a.date
 LEFT JOIN retained r ON r.date = a.date AND r.period = p.period
 ORDER BY a.date, p.period`;
+export const PRE_CAPPED_RETENTION_OVER_TIME_SQL =
+  RETENTION_OVER_TIME_SQL.replace(
+    RETENTION_DATE_SPINE_CTES,
+    PRE_CAPPED_RETENTION_DATE_SPINE_CTES,
+  );
 export const PRE_MARKETING_SITE_ONE_DAY_RETENTION_BY_TEMPLATE_SQL =
   LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL.replace(
     `${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen`,
@@ -528,6 +612,8 @@ export function repairFirstPartyObservedRetentionPanels(
           PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL,
           PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
           PRE_CUSTOM_RETENTION_OVER_TIME_SQL,
+          PRE_CAPPED_RETENTION_OVER_TIME_SQL,
+          PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
         ],
         sql: RETENTION_OVER_TIME_SQL,
         legacyDescription: [

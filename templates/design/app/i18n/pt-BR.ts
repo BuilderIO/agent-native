@@ -1428,6 +1428,8 @@ export default {
         "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
       reactSourceAnchorsUnavailable:
         "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
+      sourceLocationSnapshotFailed:
+        "Não foi possível verificar os locais do código-fonte desta visualização.",
       screenSourceUpdated: "Fonte da tela atualizada",
       screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
       vectorEditUnsupported:
@@ -1490,7 +1492,7 @@ export default {
         "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
       permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
       permissionPromptSettingsInstructions:
-        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e permita o acesso aos apps do seu dispositivo.",
+        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e defina Rede local como Permitir.",
       permissionPromptRetry: "Tentar conexão novamente",
     },
   },

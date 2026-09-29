@@ -41,10 +41,9 @@ describe("embedApp", () => {
     );
     expect(html).toContain("prompt: fallbackPrompt");
     expect(html).toContain("let hostChatQueue = Promise.resolve();");
-    expect(html).toContain(
-      "const result = hostChatQueue.then(() => sendHostChatNow(chat));",
-    );
-    expect(html).toContain("function sendHostChatNow(chat)");
+    expect(html).toContain("const result = hostChatQueue.then(() => {");
+    expect(html).toContain("return sendHostChatNow(chat, request);");
+    expect(html).toContain("function sendHostChatNow(chat, hostChatRequest)");
     expect(html).toContain("const modelContext = {");
     expect(html).not.toContain("agentNativeModelContext");
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
@@ -501,10 +500,11 @@ describe("embedApp", () => {
     );
     expect(fixture.html).toContain("prompt: fallbackPrompt");
     expect(fixture.html).toContain("let hostChatQueue = Promise.resolve();");
+    expect(fixture.html).toContain("const result = hostChatQueue.then(() => {");
+    expect(fixture.html).toContain("return sendHostChatNow(chat, request);");
     expect(fixture.html).toContain(
-      "const result = hostChatQueue.then(() => sendHostChatNow(chat));",
+      "function sendHostChatNow(chat, hostChatRequest)",
     );
-    expect(fixture.html).toContain("function sendHostChatNow(chat)");
     expect(fixture.html).toContain("MCP host rejected model context update.");
     expect(fixture.html).not.toContain(
       'context.trim() + "\\\\n\\\\n" + message',
@@ -527,6 +527,31 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("use the URL below");
     expect(fixture.html).toContain("name: startTool");
     expect(fixture.html).toContain("arguments: args");
+  });
+
+  it("preserves host outcomes and prevents timed out wrapper chats from replaying", () => {
+    const { html } = createLocalMcpAppEmbedHarness();
+
+    expect(html).toContain("pending.resolve(message.result);");
+    expect(html).toContain("code: message.error.code");
+    expect(html).toContain("error.code = message.error.code;");
+    expect(html).toContain("return await app.updateModelContext(params);");
+    expect(html).toContain(
+      "if (contextResult && (contextResult.isError === true || contextResult.ok === false))",
+    );
+    expect(html).toContain('audience.includes("assistant")');
+    expect(html).not.toContain('!audience.includes("user")');
+    expect(html).toContain('message.type === "agentNative.cancelChat"');
+    expect(html).toContain('if (request.state === "queued")');
+    expect(html).toContain('hostChatRequest.state = "sending"');
+    expect(html).toContain(
+      "const methodNotFound = err && Number(err.code) === -32601;",
+    );
+    expect(html).toContain(
+      'if (methodNotFound && openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function")',
+    );
+    expect(html).toContain("notSubmitted: true");
+    expect(html).toContain("...requestModePayload");
   });
 });
 

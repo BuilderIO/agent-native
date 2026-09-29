@@ -4,7 +4,6 @@ import {
   createCreativeContextAgentTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,

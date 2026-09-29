@@ -120,8 +120,6 @@ import {
   isPathMountedWorkspaceApp,
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
-  mergeChatFirstWorkspaceApps,
-  workspaceAppSourceFromConnected,
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
@@ -268,15 +266,6 @@ interface DispatchChatFirstPane {
   view?: string;
 }
 
-interface ChatFirstConnectedAppSummary {
-  id: string;
-  name: string;
-  description?: string | null;
-  url?: string | null;
-  homeUrl?: string | null;
-  source?: string;
-}
-
 interface DispatchAgentThreadSummary {
   id: string;
   title: string;
@@ -293,7 +282,6 @@ const DispatchExtensionsContext = createContext<
   DispatchExtensionConfig | undefined
 >(undefined);
 interface DispatchWorkspaceAppLauncher {
-  apps: readonly ChatFirstAppItem[];
   workspaceApps: readonly WorkspaceAppSummary[];
   isLoading: boolean;
   error?: unknown;
@@ -1449,94 +1437,43 @@ export function Layout({
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
-    { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
-  );
-  // Not list_apps: MCP app access restricts routing, not what the workspace
-  // shows. list-connected-agents already applies the built-in app config.
-  const chatFirstConnectedAppsQuery = useActionQuery<
-    ChatFirstConnectedAppSummary[]
-  >(
-    "list-connected-agents",
-    {},
-    { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
-  );
-  const chatFirstEnabledBuiltinAppIds = useMemo(
-    () =>
-      chatFirstConnectedAppsQuery.data
-        ?.filter((app) => app.source === "builtin")
-        .map((app) => app.id),
-    [chatFirstConnectedAppsQuery.data],
+    {
+      enabled:
+        shouldQueryChatFirstApps(isChatRoute, chatFirstMode) ||
+        workspaceAppRouteActive,
+    },
   );
   const chatFirstWorkspaceApps = useMemo(
     () =>
-      mergeChatFirstWorkspaceApps(
-        chatFirstAppsQuery.data,
-        chatFirstEnabledBuiltinAppIds,
-      ),
-    [chatFirstAppsQuery.data, chatFirstEnabledBuiltinAppIds],
-  );
-  const chatHomeWorkspaceApps = useMemo(
-    () =>
-      mergeChatFirstWorkspaceApps(
-        chatFirstWorkspaceApps,
-        chatFirstEnabledBuiltinAppIds,
-        chatFirstConnectedAppsQuery.data?.map((app) => ({
-          id: app.id,
-          name: app.name,
-          description: app.description,
-          url: app.homeUrl?.trim() || app.url,
-          source: workspaceAppSourceFromConnected(app.source),
-        })),
-      ).filter(
+      (chatFirstAppsQuery.data ?? []).filter(
         (app) =>
           app.status !== "pending" &&
           app.archived !== true &&
           isWorkspaceAppVisibleInDefaultLaunchers(app),
       ),
-    [
-      chatFirstConnectedAppsQuery.data,
-      chatFirstEnabledBuiltinAppIds,
-      chatFirstWorkspaceApps,
-    ],
+    [chatFirstAppsQuery.data],
   );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
-    const registrations = new Map<string, ChatFirstAppRegistration>();
-    for (const app of chatFirstWorkspaceApps) {
-      registrations.set(app.id.toLowerCase(), {
+    return (chatFirstAppsQuery.data ?? [])
+      .filter((app) => app.status !== "pending" && app.archived !== true)
+      .map((app) => ({
         id: app.id,
         name: app.name,
-        source: app.source,
+        source: app.source ?? "workspace",
         path: app.path,
         url: app.url,
         homePath: app.homePath,
-        enabled: app.status !== "pending" && app.archived !== true,
-      });
-    }
-    for (const app of chatFirstConnectedAppsQuery.data ?? []) {
-      const id = app.id.trim().toLowerCase();
-      if (!id || registrations.has(id)) continue;
-      registrations.set(id, {
-        id,
-        name: app.name,
-        source: workspaceAppSourceFromConnected(app.source),
-        url: app.homeUrl?.trim() || app.url,
         enabled: true,
-      });
-    }
-    return [...registrations.values()];
-  }, [chatFirstConnectedAppsQuery.data, chatFirstWorkspaceApps]);
+      }));
+  }, [chatFirstAppsQuery.data]);
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
-      chatFirstAppRegistrations
-        .filter(
-          (app) => app.enabled && isWorkspaceAppVisibleInDefaultLaunchers(app),
-        )
-        .map((app) => ({
-          id: app.id,
-          name: app.name ?? app.id,
-          source: app.source,
-        })),
-    [chatFirstAppRegistrations],
+      chatFirstWorkspaceApps.map((app) => ({
+        id: app.id,
+        name: app.name,
+        source: app.source ?? "workspace",
+      })),
+    [chatFirstWorkspaceApps],
   );
   const openChatFirstApp = useCallback(
     (app: ChatFirstAppItem) => {
@@ -1570,32 +1507,18 @@ export function Layout({
   );
   const chatHomeAppLauncher = useMemo<DispatchWorkspaceAppLauncher>(
     () => ({
-      apps: chatFirstAppItems,
-      workspaceApps: chatHomeWorkspaceApps,
-      isLoading:
-        chatFirstAppsQuery.isLoading || chatFirstConnectedAppsQuery.isLoading,
-      error: chatFirstAppsQuery.isError
-        ? chatFirstAppsQuery.error
-        : chatFirstConnectedAppsQuery.isError
-          ? chatFirstConnectedAppsQuery.error
-          : undefined,
+      workspaceApps: chatFirstWorkspaceApps,
+      isLoading: chatFirstAppsQuery.isLoading,
+      error: chatFirstAppsQuery.isError ? chatFirstAppsQuery.error : undefined,
       openApp: openChatFirstApp,
-      retry: () => {
-        void chatFirstAppsQuery.refetch();
-        void chatFirstConnectedAppsQuery.refetch();
-      },
+      retry: () => void chatFirstAppsQuery.refetch(),
     }),
     [
       chatFirstAppsQuery.error,
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
       chatFirstAppsQuery.refetch,
-      chatFirstConnectedAppsQuery.error,
-      chatFirstConnectedAppsQuery.isError,
-      chatFirstConnectedAppsQuery.isLoading,
-      chatFirstConnectedAppsQuery.refetch,
-      chatFirstAppItems,
-      chatHomeWorkspaceApps,
+      chatFirstWorkspaceApps,
       openChatFirstApp,
     ],
   );
@@ -1793,10 +1716,7 @@ export function Layout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      if (
-        chatFirstAppsQuery.isLoading ||
-        chatFirstConnectedAppsQuery.isLoading
-      ) {
+      if (chatFirstAppsQuery.isLoading) {
         pendingChatFirstOpenAppRef.current = detail;
         return;
       }
@@ -1840,7 +1760,6 @@ export function Layout({
       chatFirstAppRegistrations,
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
-      chatFirstConnectedAppsQuery.isLoading,
       chatFirstSurfaceTabsStore,
       openChatFirstPane,
       navigate,
@@ -2049,19 +1968,12 @@ export function Layout({
 
   useEffect(() => {
     const pending = pendingChatFirstOpenAppRef.current;
-    if (
-      !pending ||
-      chatFirstAppsQuery.isLoading ||
-      chatFirstConnectedAppsQuery.isLoading
-    )
-      return;
+    if (!pending || chatFirstAppsQuery.isLoading) return;
     resolveChatFirstOpenApp(pending);
   }, [
     chatFirstAppsQuery.data,
     chatFirstAppsQuery.isError,
     chatFirstAppsQuery.isLoading,
-    chatFirstConnectedAppsQuery.data,
-    chatFirstConnectedAppsQuery.isLoading,
     resolveChatFirstOpenApp,
   ]);
 
@@ -2513,24 +2425,25 @@ export function Layout({
         renderTab={renderChatFirstSurfaceTab}
       />
     ) : null;
-  const workspaceAppChatName =
-    (workspaceAppId
-      ? chatFirstAppRegistrations.find(
-          (app) => app.id.toLowerCase() === workspaceAppId.toLowerCase(),
-        )?.name
-      : null) ??
-    workspaceAppId ??
-    "Workspace app";
+  const workspaceAppChatRegistration = workspaceAppId
+    ? chatFirstAppRegistrations.find(
+        (app) => app.id.toLowerCase() === workspaceAppId.toLowerCase(),
+      )
+    : undefined;
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
-      <WorkspaceAppChatRail
-        appId={workspaceAppId}
-        appName={workspaceAppChatName}
-        agentPageHref={agentPageHref}
-        onFullscreenRequest={openAskAgentFullscreen}
-      >
+      workspaceAppChatRegistration ? (
+        <WorkspaceAppChatRail
+          appId={workspaceAppId}
+          appName={workspaceAppChatRegistration.name ?? workspaceAppId}
+          agentPageHref={agentPageHref}
+          onFullscreenRequest={openAskAgentFullscreen}
+        >
+          <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
+        </WorkspaceAppChatRail>
+      ) : (
         <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
-      </WorkspaceAppChatRail>
+      )
     ) : (
       <WorkspaceAppKeepAlive
         activeAppId={workspaceAppRouteActive ? workspaceAppId : null}

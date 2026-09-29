@@ -1443,6 +1443,8 @@ export default {
         "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
       reactSourceAnchorsUnavailable:
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
+      sourceLocationSnapshotFailed:
+        "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
       screenSourceUpdated: "Screen-Quelle aktualisiert",
       screenSourceUpdateFailed:
         "Screen-Quelle konnte nicht aktualisiert werden",
@@ -1506,7 +1508,7 @@ export default {
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
       permissionPromptSettingsInstructions:
-        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
+        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
     },
   },

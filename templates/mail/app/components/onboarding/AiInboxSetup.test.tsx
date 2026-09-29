@@ -104,6 +104,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/onboarding", () => ({
+  useOnboardingPreviewMode: () => mocks.onboardingPreview,
+}));
+
+vi.mock("@agent-native/toolkit/app/onboarding", () => ({
   ONBOARDING_PRIMARY_BUTTON_CLASS: "onboarding-primary-button",
   OnboardingStepLayout: ({
     title,
@@ -132,7 +136,6 @@ vi.mock("@agent-native/core/client/onboarding", () => ({
   ),
   useFirstRunOnboardingGateOwnsSurface: () =>
     mocks.firstRunOnboardingGateOwnsSurface,
-  useOnboardingPreviewMode: () => mocks.onboardingPreview,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({

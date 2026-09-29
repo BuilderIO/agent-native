@@ -1440,6 +1440,8 @@ export default {
         "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       reactSourceAnchorsUnavailable:
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+      sourceLocationSnapshotFailed:
+        "Impossible de vérifier les emplacements du code source de cet aperçu.",
       screenSourceUpdated: "Source de l’écran mise à jour",
       screenSourceUpdateFailed:
         "Impossible de mettre à jour la source de l’écran",
@@ -1504,7 +1506,7 @@ export default {
         "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
       permissionPromptNoPrompt: "Aucune invite Chrome ?",
       permissionPromptSettingsInstructions:
-        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis autorisez l’accès aux applications sur votre appareil.",
+        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
     },
   },
