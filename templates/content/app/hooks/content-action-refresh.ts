@@ -69,6 +69,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "import-content-source",
   "migrate-content-database-rows",
   "move-database-item",
+  "patch-database-items",
   "remove-database-items",
   "reorder-document-property",
   "restore-content-database",

@@ -44,7 +44,7 @@ const agentSchema = schema
 
 export default defineAction({
   description:
-    "Sparsely update one exact Content collection row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
+    "Sparsely update one exact Content collection row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt. To give two or more rows different values, use patch-database-items once instead of looping this action.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,

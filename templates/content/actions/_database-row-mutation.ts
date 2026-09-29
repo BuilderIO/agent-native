@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { ActionContractError } from "@agent-native/core";
+import { ActionContractError, isActionContractError } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -16,6 +16,8 @@ import type {
   ContentDatabaseMutationContract,
   ContentDatabaseRowMutationReceipt,
   ContentDatabaseRowMutationResult,
+  ContentDatabaseRowPatchBatchResult,
+  ContentDatabaseRowPatchReceipt,
 } from "../shared/api.js";
 import {
   isBlocksPropertyType,
@@ -33,6 +35,10 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  normalizeDatabasePropertyInput,
+  type DatabasePropertyEntry,
+} from "./_database-property-input.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
@@ -138,6 +144,24 @@ export interface UpdateDatabaseRowMutationInput extends CreateDatabaseRowMutatio
 export interface UpsertDatabaseRowMutationInput extends CreateDatabaseRowMutationInput {
   keyValue: string;
   expectedRowRevision: string | null;
+}
+
+export const DATABASE_ROW_PATCH_LIMIT = 250;
+
+export interface DatabaseRowPatchInput {
+  itemId: string;
+  documentId: string;
+  expectedRowRevision: string;
+  title?: string;
+  propertyEntries?: DatabasePropertyEntry[];
+  propertyValues?: Record<string, unknown>;
+}
+
+export interface PatchDatabaseRowsMutationInput {
+  target: DatabaseMutationTargetInput;
+  expectedSchemaRevision: string;
+  idempotencyKey: string;
+  rows: DatabaseRowPatchInput[];
 }
 
 function canonical(value: unknown): string {
@@ -699,49 +723,80 @@ export async function rowSnapshot(
   documentId: string,
   revisionPropertyIds: Set<string>,
 ): Promise<RowSnapshot | null> {
-  const [row] = await db
-    .select({ item: schema.contentDatabaseItems, document: schema.documents })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.id, itemId),
-        eq(schema.contentDatabaseItems.databaseId, databaseId),
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        isNull(schema.documents.trashedAt),
-      ),
-    );
-  if (!row) return null;
+  const snapshots = await rowSnapshots(
+    db,
+    databaseId,
+    [{ itemId, documentId }],
+    revisionPropertyIds,
+  );
+  return snapshots.get(itemId) ?? null;
+}
+
+export async function rowSnapshots(
+  db: Db,
+  databaseId: string,
+  rows: ReadonlyArray<{ itemId: string; documentId: string }>,
+  revisionPropertyIds: Set<string>,
+): Promise<Map<string, RowSnapshot>> {
+  if (rows.length === 0) return new Map();
+  const requested = new Map(rows.map((row) => [row.itemId, row.documentId]));
+  const found = (
+    await db
+      .select({ item: schema.contentDatabaseItems, document: schema.documents })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(
+        and(
+          inArray(schema.contentDatabaseItems.id, [...requested.keys()]),
+          eq(schema.contentDatabaseItems.databaseId, databaseId),
+          isNull(schema.documents.trashedAt),
+        ),
+      )
+  ).filter((row) => requested.get(row.item.id) === row.item.documentId);
   const values =
-    revisionPropertyIds.size === 0
+    revisionPropertyIds.size === 0 || found.length === 0
       ? []
       : await db
           .select()
           .from(schema.documentPropertyValues)
           .where(
             and(
-              eq(schema.documentPropertyValues.documentId, documentId),
+              inArray(
+                schema.documentPropertyValues.documentId,
+                found.map((row) => row.item.documentId),
+              ),
               inArray(schema.documentPropertyValues.propertyId, [
                 ...revisionPropertyIds,
               ]),
             ),
           );
-  const valueMap = new Map(
-    values.map((value) => [value.propertyId, value.valueJson]),
-  );
-  const revision = databaseRowRevision({
-    itemId,
-    documentId,
-    title: row.document.title,
-    values: [...valueMap.entries()].map(([propertyId, valueJson]) => ({
-      propertyId,
-      value: parsePropertyValue(valueJson),
-    })),
-  });
-  return { ...row, values: valueMap, revision };
+  const valuesByDocument = new Map<string, Map<string, string>>();
+  for (const value of values) {
+    let valueMap = valuesByDocument.get(value.documentId);
+    if (!valueMap) {
+      valueMap = new Map();
+      valuesByDocument.set(value.documentId, valueMap);
+    }
+    valueMap.set(value.propertyId, value.valueJson);
+  }
+  const snapshots = new Map<string, RowSnapshot>();
+  for (const row of found) {
+    const valueMap = valuesByDocument.get(row.item.documentId) ?? new Map();
+    const revision = databaseRowRevision({
+      itemId: row.item.id,
+      documentId: row.item.documentId,
+      title: row.document.title,
+      values: [...valueMap.entries()].map(([propertyId, valueJson]) => ({
+        propertyId,
+        value: parsePropertyValue(valueJson),
+      })),
+    });
+    snapshots.set(row.item.id, { ...row, values: valueMap, revision });
+  }
+  return snapshots;
 }
 
 export function revisionPropertyIds(context: MutationContext) {
@@ -1094,6 +1149,43 @@ async function createInsideTransaction(
   return snapshot;
 }
 
+async function writeRowTitle(
+  tx: Db,
+  actor: ReturnType<typeof requireDocumentRequestActor>,
+  now: string,
+  before: RowSnapshot,
+  args: { title: string; expectedRowRevision: string },
+) {
+  const nextUpdatedAt =
+    now > before.document.updatedAt
+      ? now
+      : new Date(
+          new Date(before.document.updatedAt).getTime() + 1,
+        ).toISOString();
+  const [updatedDocument] = await tx
+    .update(schema.documents)
+    .set({
+      title: args.title.trim(),
+      updatedAt: nextUpdatedAt,
+      ...documentEditAttribution(actor),
+    })
+    .where(
+      and(
+        eq(schema.documents.id, before.document.id),
+        eq(schema.documents.updatedAt, before.document.updatedAt),
+        isNull(schema.documents.trashedAt),
+      ),
+    )
+    .returning({ id: schema.documents.id });
+  if (!updatedDocument) {
+    conflict("ROW_REVISION_CONFLICT", "The database row changed.", {
+      expected: args.expectedRowRevision,
+      itemId: before.item.id,
+      documentId: before.document.id,
+    });
+  }
+}
+
 async function updateInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -1160,34 +1252,10 @@ async function updateInsideTransaction(
   const titleChanged =
     args.title !== undefined && args.title.trim() !== before.document.title;
   if (titleChanged) {
-    const nextUpdatedAt =
-      now > before.document.updatedAt
-        ? now
-        : new Date(
-            new Date(before.document.updatedAt).getTime() + 1,
-          ).toISOString();
-    const [updatedDocument] = await tx
-      .update(schema.documents)
-      .set({
-        title: args.title!.trim(),
-        updatedAt: nextUpdatedAt,
-        ...documentEditAttribution(actor),
-      })
-      .where(
-        and(
-          eq(schema.documents.id, args.documentId),
-          eq(schema.documents.updatedAt, before.document.updatedAt),
-          isNull(schema.documents.trashedAt),
-        ),
-      )
-      .returning({ id: schema.documents.id });
-    if (!updatedDocument) {
-      conflict("ROW_REVISION_CONFLICT", "The database row changed.", {
-        expected: args.expectedRowRevision,
-        itemId: args.itemId,
-        documentId: args.documentId,
-      });
-    }
+    await writeRowTitle(tx, actor, now, before, {
+      title: args.title!,
+      expectedRowRevision: args.expectedRowRevision,
+    });
   }
   for (const [propertyId, valueJson] of changedValues) {
     const existing = before.values.get(propertyId);
@@ -1647,4 +1715,585 @@ export async function upsertDatabaseRow(
     });
   });
   return result;
+}
+
+const ROW_PATCH_RECEIPT_OPERATION = "batch:patch";
+const ROW_PATCH_WRITE_CHUNK = 500;
+
+interface CanonicalRowPatch {
+  itemId: string;
+  documentId: string;
+  expectedRowRevision: string;
+  title?: string;
+  propertyValues?: Record<string, unknown>;
+  propertyTypeAssertions?: Record<string, string>;
+}
+
+interface RowPatchIssue {
+  index: number;
+  itemId: string;
+  documentId: string;
+  [detail: string]: unknown;
+}
+
+export function isUniqueConstraintError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code =
+    typeof candidate?.code === "string"
+      ? candidate.code
+      : (JSON.stringify(candidate?.code) ?? "");
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : (JSON.stringify(candidate?.message) ?? "");
+  return (
+    code === "23505" ||
+    /unique constraint|primary key constraint|duplicate key/i.test(message)
+  );
+}
+
+function rowPatchIssues(
+  errorCode: string,
+  message: string,
+  rows: RowPatchIssue[],
+  statusCode?: number,
+) {
+  if (rows.length === 0) return;
+  throw new ActionContractError(message, {
+    errorCode,
+    details: { rows },
+    statusCode,
+  });
+}
+
+function rowPatchValidationIssue(
+  index: number,
+  row: { itemId: string; documentId: string },
+  error: unknown,
+): RowPatchIssue {
+  if (!isActionContractError(error)) throw error;
+  return {
+    index,
+    itemId: row.itemId,
+    documentId: row.documentId,
+    errorCode: error.errorCode,
+    message: error.message,
+    ...(error.details ? { details: error.details } : {}),
+  };
+}
+
+function chunked<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    chunks.push(items.slice(start, start + size));
+  }
+  return chunks;
+}
+
+function canonicalRowPatches(rows: DatabaseRowPatchInput[]) {
+  if (rows.length === 0 || rows.length > DATABASE_ROW_PATCH_LIMIT) {
+    throw new ActionContractError(
+      `Patch between 1 and ${DATABASE_ROW_PATCH_LIMIT} rows per call.`,
+      {
+        errorCode: "ROW_PATCH_LIMIT",
+        details: { requested: rows.length, limit: DATABASE_ROW_PATCH_LIMIT },
+        statusCode: 400,
+      },
+    );
+  }
+  const seenItems = new Set<string>();
+  const seenDocuments = new Set<string>();
+  rowPatchIssues(
+    "DUPLICATE_ROW",
+    "Each row may appear only once in a patch batch.",
+    rows.flatMap((row, index) => {
+      const duplicate =
+        seenItems.has(row.itemId) || seenDocuments.has(row.documentId);
+      seenItems.add(row.itemId);
+      seenDocuments.add(row.documentId);
+      return duplicate
+        ? [{ index, itemId: row.itemId, documentId: row.documentId }]
+        : [];
+    }),
+    400,
+  );
+  const canonical: CanonicalRowPatch[] = [];
+  const issues: RowPatchIssue[] = [];
+  rows.forEach((row, index) => {
+    const { propertyEntries, propertyValues, ...rest } = row;
+    try {
+      const normalized = normalizeDatabasePropertyInput({
+        propertyEntries,
+        propertyValues,
+      });
+      if (
+        rest.title === undefined &&
+        Object.keys(normalized.propertyValues ?? {}).length === 0
+      ) {
+        throw new ActionContractError(
+          "Each row needs a title or at least one property entry.",
+          { errorCode: "EMPTY_ROW_PATCH", statusCode: 400 },
+        );
+      }
+      canonical.push({ ...rest, ...normalized });
+    } catch (error) {
+      issues.push(rowPatchValidationIssue(index, row, error));
+    }
+  });
+  rowPatchIssues(
+    "INVALID_ROW_PATCHES",
+    "Some row patches are invalid; nothing was written.",
+    issues,
+    400,
+  );
+  return canonical;
+}
+
+function rowPatchPayloadDigest(
+  input: PatchDatabaseRowsMutationInput,
+  rows: CanonicalRowPatch[],
+) {
+  const { authorityScope: _authorityScope, ...stableTarget } = input.target;
+  return digest({
+    operation: ROW_PATCH_RECEIPT_OPERATION,
+    target: stableTarget,
+    expectedSchemaRevision: input.expectedSchemaRevision,
+    idempotencyKey: input.idempotencyKey,
+    rows: rows
+      .map(({ propertyTypeAssertions: _propertyTypeAssertions, ...row }) => row)
+      .sort((left, right) => left.itemId.localeCompare(right.itemId)),
+  });
+}
+
+async function assertRowEditorAccess(rows: CanonicalRowPatch[]) {
+  const accessible = new Set(
+    (
+      await getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(
+              schema.documents.id,
+              rows.map((row) => row.documentId),
+            ),
+            accessFilter(
+              schema.documents,
+              schema.documentShares,
+              undefined,
+              "editor",
+            ),
+          ),
+        )
+    ).map((document) => document.id),
+  );
+  rowPatchIssues(
+    "ROW_ACCESS_DENIED",
+    "Editor access is required for every row; these rows were not found or are not editable.",
+    rows.flatMap((row, index) =>
+      accessible.has(row.documentId)
+        ? []
+        : [{ index, itemId: row.itemId, documentId: row.documentId }],
+    ),
+    403,
+  );
+}
+
+async function normalizeRowPatches(
+  context: MutationContext,
+  rows: CanonicalRowPatch[],
+) {
+  const patches: Map<string, string>[] = [];
+  const issues: RowPatchIssue[] = [];
+  for (const [index, row] of rows.entries()) {
+    try {
+      assertPropertyTypeAssertions(context, row.propertyTypeAssertions);
+      patches.push(await normalizePatch(context, row.propertyValues));
+    } catch (error) {
+      issues.push(rowPatchValidationIssue(index, row, error));
+    }
+  }
+  rowPatchIssues(
+    "INVALID_ROW_PATCHES",
+    "Some row patches are invalid; nothing was written.",
+    issues,
+    400,
+  );
+  return patches;
+}
+
+async function replayRowPatchReceipt(
+  context: MutationContext,
+  idempotencyKey: string,
+  payloadDigest: string,
+  rows: CanonicalRowPatch[],
+  db: Db = getDb(),
+): Promise<ContentDatabaseRowPatchBatchResult | null> {
+  const [stored] = await db
+    .select()
+    .from(schema.contentDatabaseRowMutationReceipts)
+    .where(
+      and(
+        eq(
+          schema.contentDatabaseRowMutationReceipts.databaseId,
+          context.database.id,
+        ),
+        eq(
+          schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+          idempotencyKey,
+        ),
+      ),
+    );
+  if (!stored) return null;
+  if (
+    stored.operation !== ROW_PATCH_RECEIPT_OPERATION ||
+    stored.payloadDigest !== payloadDigest
+  ) {
+    conflict(
+      "IDEMPOTENCY_KEY_REUSED",
+      "This idempotency key was already used for a different row mutation.",
+      { idempotencyKey },
+    );
+  }
+  const parsed = JSON.parse(
+    stored.resultJson,
+  ) as ContentDatabaseRowPatchBatchResult;
+  const storedRows = new Map(
+    parsed.receipt.rows.map((receipt) => [receipt.itemId, receipt]),
+  );
+  const ordered = rows.map((row) => storedRows.get(row.itemId));
+  if (
+    parsed.receipt.receiptId !== stored.id ||
+    storedRows.size !== rows.length ||
+    ordered.some((receipt) => !receipt)
+  ) {
+    conflict(
+      "RECEIPT_MISMATCH",
+      "The stored database row patch receipt is inconsistent.",
+      { receiptId: stored.id },
+    );
+  }
+  return {
+    receipt: {
+      ...parsed.receipt,
+      idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      rows: ordered as ContentDatabaseRowPatchReceipt[],
+    },
+  };
+}
+
+async function patchRowsInsideTransaction(
+  tx: Db,
+  context: MutationContext,
+  rows: CanonicalRowPatch[],
+  patches: Map<string, string>[],
+): Promise<ContentDatabaseRowPatchReceipt[]> {
+  const actor = requireDocumentRequestActor();
+  const itemIds = rows.map((row) => row.itemId);
+  const documentIds = rows.map((row) => row.documentId);
+  await tx
+    .update(schema.documents)
+    .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+    .where(
+      and(
+        inArray(schema.documents.id, documentIds),
+        isNull(schema.documents.trashedAt),
+      ),
+    );
+  await tx
+    .update(schema.contentDatabaseItems)
+    .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
+    .where(
+      and(
+        inArray(schema.contentDatabaseItems.id, itemIds),
+        eq(schema.contentDatabaseItems.databaseId, context.database.id),
+      ),
+    );
+  const revisionIds = revisionPropertyIds(context);
+  const before = await rowSnapshots(tx, context.database.id, rows, revisionIds);
+  // Missing and stale rows share one report so a single reread covers both.
+  const unavailable: RowPatchIssue[] = [];
+  for (const [index, row] of rows.entries()) {
+    const actual = before.get(row.itemId)?.revision;
+    if (actual === row.expectedRowRevision) continue;
+    unavailable.push({
+      index,
+      itemId: row.itemId,
+      documentId: row.documentId,
+      ...(actual === undefined
+        ? { reason: "not_found" }
+        : {
+            reason: "stale_revision",
+            expected: row.expectedRowRevision,
+            actual,
+          }),
+    });
+  }
+  const missing = unavailable.some((issue) => issue.reason === "not_found");
+  rowPatchIssues(
+    missing ? "ROW_NOT_FOUND" : "ROW_REVISION_CONFLICT",
+    "Some rows are not active members of this collection or changed since they were read; nothing was written. Reread the listed rows before retrying.",
+    unavailable,
+    missing ? 404 : 409,
+  );
+
+  const now = new Date().toISOString();
+  const valueUpdates: Array<{
+    documentId: string;
+    propertyId: string;
+    valueJson: string;
+  }> = [];
+  const valueInserts: typeof valueUpdates = [];
+  const planned = rows.map((row, index) => {
+    const snapshot = before.get(row.itemId)!;
+    const changedPropertyIds: string[] = [];
+    for (const [propertyId, valueJson] of patches[index]) {
+      const existing = snapshot.values.get(propertyId);
+      if (existing === valueJson) continue;
+      changedPropertyIds.push(propertyId);
+      (existing === undefined ? valueInserts : valueUpdates).push({
+        documentId: row.documentId,
+        propertyId,
+        valueJson,
+      });
+    }
+    const titleChanged =
+      row.title !== undefined && row.title.trim() !== snapshot.document.title;
+    return { snapshot, changedPropertyIds, titleChanged };
+  });
+
+  for (const [index, plan] of planned.entries()) {
+    if (plan.titleChanged) {
+      await writeRowTitle(tx, actor, now, plan.snapshot, {
+        title: rows[index].title!,
+        expectedRowRevision: rows[index].expectedRowRevision,
+      });
+    }
+  }
+  const values = schema.documentPropertyValues;
+  for (const chunk of chunked(valueUpdates, ROW_PATCH_WRITE_CHUNK)) {
+    await tx
+      .update(values)
+      .set({
+        valueJson: sql`CASE ${sql.join(
+          chunk.map(
+            (update) =>
+              sql`WHEN ${values.documentId} = ${update.documentId} AND ${values.propertyId} = ${update.propertyId} THEN ${update.valueJson}`,
+          ),
+          sql` `,
+        )} ELSE ${values.valueJson} END`,
+        updatedAt: now,
+      })
+      .where(
+        or(
+          ...chunk.map((update) =>
+            and(
+              eq(values.documentId, update.documentId),
+              eq(values.propertyId, update.propertyId),
+            ),
+          ),
+        ),
+      );
+  }
+  for (const chunk of chunked(valueInserts, ROW_PATCH_WRITE_CHUNK)) {
+    await tx.insert(values).values(
+      chunk.map((insert) => ({
+        id: nanoid(),
+        ownerEmail: context.database.ownerEmail,
+        documentId: insert.documentId,
+        propertyId: insert.propertyId,
+        valueJson: insert.valueJson,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+  const keyIssues: RowPatchIssue[] = [];
+  for (const [index, row] of rows.entries()) {
+    try {
+      await ensureNaturalKeyClaim(tx, context, {
+        itemId: row.itemId,
+        documentId: row.documentId,
+        values: patches[index],
+        now,
+      });
+    } catch (error) {
+      keyIssues.push(rowPatchValidationIssue(index, row, error));
+    }
+  }
+  rowPatchIssues(
+    "NATURAL_KEY_CONFLICT",
+    "Some rows claim a natural key that is already in use or cannot change; nothing was written.",
+    keyIssues,
+  );
+
+  const after = await rowSnapshots(tx, context.database.id, rows, revisionIds);
+  return rows.map((row, index) => {
+    const snapshot = after.get(row.itemId);
+    const patch = patches[index];
+    if (
+      !snapshot ||
+      [...patch].some(
+        ([propertyId, valueJson]) =>
+          snapshot.values.get(propertyId) !== valueJson,
+      ) ||
+      (row.title !== undefined && snapshot.document.title !== row.title.trim())
+    ) {
+      throw new Error(
+        "Patched row readback did not match the requested values.",
+      );
+    }
+    const plan = planned[index];
+    return {
+      itemId: row.itemId,
+      documentId: row.documentId,
+      outcome:
+        plan.titleChanged || plan.changedPropertyIds.length > 0
+          ? "updated"
+          : "unchanged",
+      affected: {
+        title: plan.titleChanged,
+        propertyIds: plan.changedPropertyIds.sort(),
+      },
+      revisions: { before: plan.snapshot.revision, after: snapshot.revision },
+      readback: {
+        verified: true,
+        ...(row.title !== undefined ? { title: snapshot.document.title } : {}),
+        propertyValues: Object.fromEntries(
+          [...patch.keys()]
+            .sort()
+            .map((propertyId) => [
+              propertyId,
+              parsePropertyValue(snapshot.values.get(propertyId)!),
+            ]),
+        ),
+      },
+    };
+  });
+}
+
+export async function patchDatabaseRows(
+  input: PatchDatabaseRowsMutationInput,
+): Promise<ContentDatabaseRowPatchBatchResult> {
+  const rows = canonicalRowPatches(input.rows);
+  const initial = await loadContext(input.target, "editor");
+  await assertRowEditorAccess(rows);
+  const inputDigest = rowPatchPayloadDigest(input, rows);
+  const replay = await replayRowPatchReceipt(
+    initial,
+    input.idempotencyKey,
+    inputDigest,
+    rows,
+  );
+  if (replay) return replay;
+  assertSchema(initial, input.expectedSchemaRevision);
+  const patches = await normalizeRowPatches(initial, rows);
+  return withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    await assertRowEditorAccess(rows);
+    try {
+      return await patchRowsTransaction(
+        input,
+        initial,
+        rows,
+        patches,
+        inputDigest,
+      );
+    } catch (error) {
+      // Another instance committed this key first. Replay its receipt, or
+      // report the key reuse, instead of surfacing the unique violation.
+      if (!isUniqueConstraintError(error)) throw error;
+      const raced = await replayRowPatchReceipt(
+        initial,
+        input.idempotencyKey,
+        inputDigest,
+        rows,
+      );
+      if (raced) return raced;
+      throw error;
+    }
+  });
+}
+
+function patchRowsTransaction(
+  input: PatchDatabaseRowsMutationInput,
+  initial: MutationContext,
+  rows: CanonicalRowPatch[],
+  patches: Map<string, string>[],
+  inputDigest: string,
+): Promise<ContentDatabaseRowPatchBatchResult> {
+  return getDb().transaction(async (tx) => {
+    const db = tx as unknown as Db;
+    await lockContentDatabaseMutation(db, initial.database.id);
+    // The collection lock serializes every row, block, and batch writer, so
+    // a receipt committed by any of them is visible here.
+    const lockedReplay = await replayRowPatchReceipt(
+      initial,
+      input.idempotencyKey,
+      inputDigest,
+      rows,
+      db,
+    );
+    if (lockedReplay) return lockedReplay;
+    const locked = await loadContext(input.target, "editor", db, true);
+    assertSchema(locked, input.expectedSchemaRevision);
+    const rowReceipts = await patchRowsInsideTransaction(
+      db,
+      locked,
+      rows,
+      patches,
+    );
+    const now = new Date().toISOString();
+    await touchContentDatabase(db, locked.database.id, now);
+    const updated = rowReceipts.filter(
+      (receipt) => receipt.outcome === "updated",
+    ).length;
+    const result: ContentDatabaseRowPatchBatchResult = {
+      receipt: {
+        receiptId: nanoid(),
+        target: {
+          authorityScope: authorityScopeForContext(locked),
+          spaceId: locked.database.spaceId!,
+          databaseId: locked.database.id,
+          databaseDocumentId: locked.database.documentId,
+        },
+        schemaRevision: locked.schemaRevision,
+        idempotency: {
+          key: input.idempotencyKey,
+          result: "applied",
+          payloadDigest: inputDigest,
+        },
+        counts: {
+          requested: rows.length,
+          updated,
+          unchanged: rows.length - updated,
+        },
+        rows: rowReceipts,
+      },
+    };
+    // One receipt under the exact key keeps key reuse detectable across row,
+    // block, and batch mutations. Its row columns describe the first patched
+    // row; resultJson carries every row's receipt for replay.
+    const [first] = rowReceipts;
+    await db.insert(schema.contentDatabaseRowMutationReceipts).values({
+      id: result.receipt.receiptId,
+      ownerEmail: locked.database.ownerEmail,
+      orgId: locked.database.orgId,
+      spaceId: locked.database.spaceId!,
+      databaseId: locked.database.id,
+      databaseDocumentId: locked.database.documentId,
+      operation: ROW_PATCH_RECEIPT_OPERATION,
+      itemId: first.itemId,
+      documentId: first.documentId,
+      idempotencyKey: input.idempotencyKey,
+      payloadDigest: inputDigest,
+      schemaRevision: locked.schemaRevision,
+      preRowRevision: first.revisions.before,
+      postRowRevision: first.revisions.after,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return result;
+  });
 }
