@@ -233,19 +233,12 @@ export function runMigrations(
   }
 
   const namedTable = `${table}_named`;
+  const skipServerlessRequest = () =>
+    options?.runInServerlessRequest !== true &&
+    isServerlessRequestRuntime() &&
+    appMigratesAtRelease() &&
+    !isMigrationAuthorizedRuntime();
   const migrate = async () => {
-    if (
-      options?.runInServerlessRequest !== true &&
-      isServerlessRequestRuntime() &&
-      appMigratesAtRelease() &&
-      !isMigrationAuthorizedRuntime()
-    ) {
-      console.info(
-        `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
-      );
-      return;
-    }
-
     try {
       const migrations =
         typeof migrationSource === "function"
@@ -433,8 +426,15 @@ export function runMigrations(
       }
     }
   };
-  return async () =>
-    withMigrationLock(getMigrationDatabaseUrl(), () =>
+  return async () => {
+    if (skipServerlessRequest()) {
+      console.info(
+        `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
+      );
+      return;
+    }
+    return withMigrationLock(getMigrationDatabaseUrl(), () =>
       withMigrationExecutionRuntime(migrate),
     );
+  };
 }
