@@ -18,6 +18,10 @@ on:
       - "packages/agentkit/**"
       - "packages/recap-cli/**"
       - "scripts/build-branding-assets.mjs"
+      # Install-time inputs: the root postinstall prebuilds workspace packages.
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-canary.yml"
 
