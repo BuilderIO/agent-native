@@ -8,6 +8,7 @@ import {
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
+  createToolSearchEntry,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
@@ -74,7 +75,52 @@ describe("tool-search", () => {
     });
   });
 
-  it("labels Plan availability and current callability without hiding schemas", () => {
+  it("filters feature-gated actions per requesting user before search", async () => {
+    const available = vi.fn(
+      (context?: { userEmail?: string }) =>
+        context?.userEmail === "enabled@example.test",
+    );
+    const registry = {
+      "list-context-packs": {
+        ...action("List Creative Context packs"),
+        agentDiscoveryAvailable: available,
+      },
+      "read-context-source": {
+        ...action("Read a Creative Context source"),
+        agentDiscoveryAvailable: available,
+      },
+      "list-calendar-events": action("List calendar events"),
+    };
+    const toolSearch = createToolSearchEntry(() => registry);
+
+    const disabled = await toolSearch.run(
+      {},
+      {
+        caller: "tool",
+        userEmail: "disabled@example.test",
+      },
+    );
+    expect(
+      disabled.results.map((result: { name: string }) => result.name),
+    ).toEqual(["list-calendar-events"]);
+    expect(available).toHaveBeenCalledOnce();
+    expect(available).toHaveBeenCalledWith({
+      caller: "tool",
+      userEmail: "disabled@example.test",
+    });
+
+    available.mockClear();
+    const enabled = await toolSearch.run(
+      { query: "Creative Context" },
+      { caller: "tool", userEmail: "enabled@example.test" },
+    );
+    expect(
+      enabled.results.map((result: { name: string }) => result.name),
+    ).toEqual(["list-context-packs", "read-context-source"]);
+    expect(available).toHaveBeenCalledOnce();
+  });
+
+  it("labels Plan availability and current callability without returning schemas", () => {
     const read = action("Inspect records");
     const conditional = {
       ...action("Query or persist provider records"),
@@ -104,16 +150,17 @@ describe("tool-search", () => {
           name: "provider",
           callable: true,
           planAvailability: "conditional",
-          inputSchema: expect.any(Object),
         }),
         expect.objectContaining({
           name: "delete",
           callable: false,
           planAvailability: "act-only",
-          inputSchema: expect.any(Object),
         }),
       ]),
     );
+    for (const tool of result.results) {
+      expect(tool).not.toHaveProperty("inputSchema");
+    }
   });
 
   it("can restrict results to read-only or conditionally read-only tools", () => {
@@ -162,21 +209,21 @@ describe("tool-search", () => {
         expect.objectContaining({
           name: "inspect",
           planAvailability: "read",
-          inputSchema: expect.any(Object),
         }),
         expect.objectContaining({
           name: "conditional",
           planAvailability: "conditional",
-          inputSchema: expect.any(Object),
         }),
         expect.objectContaining({
           name: "mcp__zapier__list_records",
           kind: "mcp",
           planAvailability: "conditional",
-          inputSchema: expect.any(Object),
         }),
       ]),
     );
+    for (const tool of result.results) {
+      expect(tool).not.toHaveProperty("inputSchema");
+    }
   });
 
   it("includes connected MCP tools and reports their source server", async () => {
@@ -201,11 +248,7 @@ describe("tool-search", () => {
       kind: "mcp",
       source: "zapier",
     });
-    expect(result.results[0].inputSchema).toMatchObject({
-      properties: {
-        channel: { type: "string" },
-      },
-    });
+    expect(result.results[0]).not.toHaveProperty("inputSchema");
   });
 
   it("searches the live registry after MCP tools are added", async () => {
@@ -324,7 +367,16 @@ describe("tool-search", () => {
       expect(blank.results).toEqual(omitted.results);
     });
 
-    it("is not capped by limit or maxLimit — returns all tools beyond the cap", () => {
+    it("caps menu descriptions", () => {
+      const result = searchToolRegistry(
+        { help: action("Tool description ".repeat(30)) },
+        {},
+      );
+
+      expect(result.results[0].description.length).toBeLessThanOrEqual(140);
+    });
+
+    it("honors the requested limit and enforces the hard result cap", () => {
       const registry: Record<string, ActionEntry> = {};
       for (let i = 0; i < 30; i++) {
         const name = `tool-${String(i).padStart(2, "0")}`;
@@ -334,14 +386,23 @@ describe("tool-search", () => {
       const result = searchToolRegistry(registry, {});
 
       expect(result.totalTools).toBe(30);
-      expect(result.count).toBe(30);
-      expect(result.results).toHaveLength(30);
+      expect(result.count).toBe(8);
+      expect(result.results).toHaveLength(8);
       expect(result.results[0].name).toBe("tool-00");
-      expect(result.results[29].name).toBe("tool-29");
+      expect(result.results[7].name).toBe("tool-07");
 
       const withLimit = searchToolRegistry(registry, { limit: 5 });
-      expect(withLimit.count).toBe(30);
-      expect(withLimit.results).toHaveLength(30);
+      expect(withLimit.count).toBe(5);
+      expect(withLimit.results).toHaveLength(5);
+
+      const aboveHardCap = searchToolRegistry(
+        registry,
+        { limit: 100 },
+        { maxLimit: 100 },
+      );
+      expect(aboveHardCap.count).toBe(10);
+      expect(aboveHardCap.results).toHaveLength(10);
+      expect(aboveHardCap.message).toContain("Showing 10 of 30");
     });
 
     it("never includes the tool-search entry itself in its own menu results", () => {
@@ -379,8 +440,8 @@ describe("tool-search", () => {
     });
   });
 
-  describe("query mode (unchanged behavior)", () => {
-    it("returns ranked matches with parameters populated and includes inputSchema when requested", () => {
+  describe("query mode", () => {
+    it("returns ranked matches with concise parameters and omits redundant schemas", () => {
       const registry = {
         "send-email": action(
           "Send an email message",
@@ -408,14 +469,7 @@ describe("tool-search", () => {
         ],
       });
       expect(result.results[0].score).toBeGreaterThan(0);
-      expect(result.results[0].inputSchema).toMatchObject({
-        type: "object",
-        properties: {
-          to: { type: "string" },
-          subject: { type: "string" },
-        },
-        required: ["to"],
-      });
+      expect(result.results[0]).not.toHaveProperty("inputSchema");
     });
 
     it("respects limit in query mode", () => {
@@ -433,6 +487,45 @@ describe("tool-search", () => {
       expect(result.totalTools).toBe(30);
       expect(result.count).toBe(5);
       expect(result.results).toHaveLength(5);
+
+      const aboveHardCap = searchToolRegistry(registry, {
+        query: "report",
+        limit: 100,
+      });
+      expect(aboveHardCap.count).toBe(10);
+      expect(aboveHardCap.results).toHaveLength(10);
+    });
+
+    it("bounds descriptions and parameter summaries", () => {
+      const properties = Object.fromEntries(
+        Array.from({ length: 12 }, (_, index) => [
+          `field-${index}`,
+          {
+            type: "string",
+            description: "parameter detail ".repeat(20),
+            enum: Array.from({ length: 10 }, () => "value-".repeat(20)),
+          },
+        ]),
+      );
+      const registry = {
+        report: action(
+          `Generate a report ${"tool detail ".repeat(40)}`,
+          properties,
+          ["field-0"],
+        ),
+      };
+
+      const result = searchToolRegistry(registry, { query: "report" });
+      const [tool] = result.results;
+
+      expect(tool.description.length).toBeLessThanOrEqual(220);
+      expect(tool.parameters).toHaveLength(8);
+      for (const parameter of tool.parameters) {
+        expect(parameter.description?.length).toBeLessThanOrEqual(120);
+        expect(parameter.enum).toHaveLength(5);
+        expect(parameter.enum?.every((value) => value.length <= 60)).toBe(true);
+      }
+      expect(tool).not.toHaveProperty("inputSchema");
     });
   });
 });

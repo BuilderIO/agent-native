@@ -2156,6 +2156,34 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("shows the localized stopped state for a completed tool-loop stop", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "assistant-loop-stop",
+        role: "assistant",
+        status: "complete",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "The deck is complete." }],
+        metadata: {
+          custom: {
+            runWarning: {
+              errorCode: "tool_loop_stopped",
+              message: "Stopped after repeated layout checks.",
+            },
+          },
+        },
+      },
+    ];
+    await mount(baseProps());
+
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "agentChat.error.stopped",
+    );
+    expect(
+      container.querySelector('[role="status"]')?.textContent,
+    ).not.toContain("Stopped after repeated layout checks.");
+  });
+
   it("restores a thread with a loading state, a 404 state, and retry", async () => {
     const onThreadRestoreNotFound = vi.fn();
     await mount(baseProps({ isNewThread: false, onThreadRestoreNotFound }));

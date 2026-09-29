@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
   track: vi.fn(),
   loadAgentsBundle: vi.fn(),
   getRuntimeSkills: vi.fn(),
+  getRuntimeSkillsForUser: vi.fn(),
   requestOrgId: vi.fn(() => null),
+  requestUserEmail: vi.fn(() => undefined),
   resourceGet: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock("../../agent/jev-tool-prefetch.js", () => ({
 vi.mock("../agents-bundle.js", () => ({
   loadAgentsBundle: (...args: unknown[]) => mocks.loadAgentsBundle(...args),
   getRuntimeSkills: (...args: unknown[]) => mocks.getRuntimeSkills(...args),
+  getRuntimeSkillsForUser: (...args: unknown[]) =>
+    mocks.getRuntimeSkillsForUser(...args),
 }));
 vi.mock("../../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -54,6 +58,7 @@ vi.mock("../agent-discovery.js", () => ({
 }));
 vi.mock("../request-context.js", () => ({
   getRequestOrgId: () => mocks.requestOrgId(),
+  getRequestUserEmail: () => mocks.requestUserEmail(),
   getRequestRunContext: () => mocks.requestRunContext(),
 }));
 
@@ -77,10 +82,15 @@ describe("preloadJevContextForPrompt", () => {
         content: "# Launch messaging\n\nLead with the customer outcome.",
       },
     ]);
+    mocks.getRuntimeSkillsForUser.mockImplementation(
+      (_bundle: unknown, userEmail?: string) =>
+        userEmail === "disabled@example.test" ? [] : mocks.getRuntimeSkills(),
+    );
     mocks.resourceListAccessible.mockResolvedValue([]);
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
+    mocks.requestUserEmail.mockReturnValue(undefined);
     mocks.requestRunContext.mockReturnValue(null);
   });
 
@@ -122,6 +132,35 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(mocks.resourceList).not.toHaveBeenCalled();
     expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
+  });
+
+  it("filters Lab-gated skills from JEV candidates per user", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["context-0"]);
+
+    const disabled = await preloadJevContextForPrompt({
+      request: "reuse approved context",
+      owner: "disabled@example.test",
+      apiKey: "jev-test-key",
+    });
+    expect(disabled).not.toContain("# Launch messaging");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+
+    const enabled = await preloadJevContextForPrompt({
+      request: "reuse approved context",
+      owner: "enabled@example.test",
+      apiKey: "jev-test-key",
+    });
+    expect(enabled).toContain("# Launch messaging");
+    expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      "disabled@example.test",
+    );
+    expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      "enabled@example.test",
+    );
   });
 
   it("prefetches Jev context with a saved personal key and no deployment key", async () => {

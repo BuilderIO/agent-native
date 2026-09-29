@@ -465,7 +465,8 @@ export type AgentChatEvent =
     }
   | {
       type: "done";
-      reason?: "user";
+      reason?: "user" | "loop_breaker";
+      message?: string;
     }
   | {
       type: "error";

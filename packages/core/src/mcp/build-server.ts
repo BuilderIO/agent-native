@@ -310,9 +310,15 @@ function scopeToolSearchToAdvertised(
     ...advertised,
     [TOOL_SEARCH_TOOL_NAME]: {
       ...entry,
-      run: async (args: Record<string, unknown>) => {
-        const { searchToolRegistry } = await import("../agent/tool-search.js");
-        return searchToolRegistry(advertised, args ?? {});
+      run: async (args: Record<string, unknown>, context) => {
+        const { searchToolRegistryForRequest } =
+          await import("../agent/tool-search.js");
+        return searchToolRegistryForRequest(
+          advertised,
+          args ?? {},
+          {},
+          context,
+        );
       },
     },
   };

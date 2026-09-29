@@ -209,6 +209,20 @@ function actionEntry(opts: {
   };
 }
 
+function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
+  return options.messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.startsWith(
+            "This turn stopped to prevent a repeating tool loop:",
+          ),
+      ),
+  );
+}
+
 describe("toolCallCacheKey", () => {
   it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
     expect(
@@ -1683,7 +1697,7 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
-  it("does not compact repeated includeSchemas tool-search calls", async () => {
+  it("compacts repeated tool-search calls even when schemas were requested", async () => {
     const registry = attachToolSearch({
       "hubspot-deals": actionEntry({
         readOnly: true,
@@ -1704,8 +1718,8 @@ describe("buildUserContentWithAttachments", () => {
         } as any) as any;
 
         expect(first.repeated).toBeUndefined();
-        expect(second.repeated).toBeUndefined();
-        expect(second.results[0].inputSchema).toBeDefined();
+        expect(second.repeated).toBe(true);
+        expect(second.results[0].inputSchema).toBeUndefined();
       },
     );
   });
@@ -1721,8 +1735,8 @@ describe("buildUserContentWithAttachments", () => {
     const result = searchToolRegistry(registry, {});
 
     expect(result.results.map((tool) => tool.name)).toContain("hubspot-deals");
-    expect(result.message).toContain("does not load schemas");
-    expect(result.message).toContain("tool-search again with a specific query");
+    expect(result.message).toContain("Search once by capability or tool name");
+    expect(result.message).toContain("load matching schemas");
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
@@ -5133,8 +5147,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "I have the document and no more reads are needed.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -5169,14 +5196,13 @@ describe("runAgentLoop", () => {
     });
 
     expect(readAction).toHaveBeenCalledTimes(1);
-    expect(streamCalls).toBe(4);
-    expect(events).toContainEqual({
-      type: "error",
-      error:
-        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-      errorCode: "duplicate_read_only_tool",
-      recoverable: false,
-    });
+    expect(streamCalls).toBe(5);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("stops after the third visible duplicate across continuation invocations", async () => {
@@ -5289,14 +5315,13 @@ describe("runAgentLoop", () => {
     expect(readAction).not.toHaveBeenCalled();
     expect(first.streamCalls).toBe(2);
     expect(second.streamCalls).toBe(2);
-    expect(third.streamCalls).toBe(1);
-    expect(third.events).toContainEqual({
-      type: "error",
-      error:
-        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-      errorCode: "duplicate_read_only_tool",
-      recoverable: false,
-    });
+    expect(third.streamCalls).toBe(2);
+    expect(third.events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(third.events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("does not cache repeated reads when the action opts out of deduping", async () => {
@@ -6449,8 +6474,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "Stopped after eight repeated reads; nothing remains.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6475,7 +6513,8 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "spinning-read": {
-          ...actionEntry({ readOnly: true, dedupe: false }),
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
           run,
         },
       },
@@ -6483,9 +6522,171 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "spinning-read",
+        result: "same answer every time",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Stopped after eight repeated reads; nothing remains.",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("allows nine identical reads when each successful write changes the deck", async () => {
+    let streamCalls = 0;
+    let reads = 0;
+    let writes = 0;
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (
+          isLoopBreakerCloseout(options) ||
+          streamCalls > (MAX_IDENTICAL_TOOL_CALLS + 1) * 2
+        ) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "All nine edits are measured." },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        const write =
+          streamCalls <= (MAX_IDENTICAL_TOOL_CALLS + 1) * 2 &&
+          streamCalls % 2 === 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `edit-check-${streamCalls}`,
+              name: write ? "patch-deck" : "get-layout-overflows",
+              input: write ? { revision: writes + 1 } : { deckId: "deck-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "edit" }] }],
+      actions: {
+        "get-layout-overflows": {
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
+          run: vi.fn(async () => `measurement-${++reads}`),
+        },
+        "patch-deck": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => `saved-${++writes}`),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(reads).toBe(9);
+    expect(writes).toBe(9);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: "done" }));
+  });
+
+  it("stops after eight identical successful writes while preserving the eighth result", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "write completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "The write finished." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-${streamCalls}`,
+              name: "repeat-write",
+              input: { id: "same" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: { "repeat-write": { ...actionEntry({ readOnly: false }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      MAX_IDENTICAL_TOOL_CALLS,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
   });
 
   it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
@@ -6503,8 +6704,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated invalid calls stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6538,7 +6752,13 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).not.toHaveBeenCalled();
-    expect(streamCalls).toBe(3);
+    expect(streamCalls).toBe(4);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
@@ -6589,7 +6809,7 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        research: { ...actionEntry({ readOnly: true, dedupe: false }), run },
+        research: { ...actionEntry({ readOnly: true }), dedupe: false, run },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -6747,8 +6967,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6782,6 +7015,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).toHaveBeenCalledTimes(3);
+    expect(streamCalls).toBe(4);
     expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -6790,14 +7024,11 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        recoverable: false,
-        error: expect.stringContaining("failed 3 times"),
-        details: expect.stringContaining("DB failed"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -6815,8 +7046,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The unknown tool calls stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6844,7 +7088,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(streamCalls).toBe(3);
+    expect(streamCalls).toBe(4);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -6852,12 +7096,11 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        error: expect.stringContaining("failed 3 times"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -7416,8 +7659,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The source sweep stopped after repeating the same failure.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -7446,13 +7702,13 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBeLessThan(
-      resolveSourceSweepToolCallThreshold() + 13,
+      resolveSourceSweepToolCallThreshold() + 14,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_tool_error_across_arguments",
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "loop_limit" }),

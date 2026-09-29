@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   filterFrameworkToolGroups,
@@ -139,6 +139,21 @@ describe("action discovery", () => {
     });
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
+
+  it("preserves request-scoped action discovery predicates", () => {
+    const available = vi.fn(() => true);
+    const registry = loadActionsFromStaticRegistry({
+      "feature-action": {
+        default: {
+          tool: { description: "Feature action", parameters: {} },
+          agentDiscoveryAvailable: available,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["feature-action"].agentDiscoveryAvailable).toBe(available);
   });
 
   it("preserves explicit endsTurn metadata", () => {

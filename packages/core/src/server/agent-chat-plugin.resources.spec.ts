@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     skills: {},
   })),
   generateSkillsPromptBlock: vi.fn(() => ""),
+  getRuntimeSkillsForUser: vi.fn(),
   getSession: vi.fn(),
 }));
 
@@ -64,6 +65,8 @@ vi.mock("./agents-bundle.js", () => ({
   loadAgentsBundle: (...args: any[]) => mocks.loadAgentsBundle(...args),
   generateSkillsPromptBlock: (...args: any[]) =>
     mocks.generateSkillsPromptBlock(...args),
+  getRuntimeSkillsForUser: (...args: any[]) =>
+    mocks.getRuntimeSkillsForUser(...args),
   getRuntimeSkills: (bundle: any) => runtimeSkillsFromBundle(bundle),
 }));
 
@@ -212,6 +215,13 @@ beforeEach(() => {
     skills: {},
   });
   mocks.generateSkillsPromptBlock.mockReturnValue("");
+  mocks.getRuntimeSkillsForUser.mockImplementation(
+    (bundle: { skills?: Record<string, any> }, userEmail?: string) =>
+      runtimeSkillsFromBundle(bundle).filter(
+        (skill: any) =>
+          !skill.meta.requiresLab || userEmail === "enabled@example.test",
+      ),
+  );
   mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
     if (owner === "__workspace__" && path === "AGENTS.md") {
       return { content: "# Workspace Instructions\n\nUse global context." };
@@ -325,6 +335,53 @@ async function fetchWithRequestContext(
 }
 
 describe("agent chat resource route organization scopes", () => {
+  it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {
+    const h3App = await mountResourceRoutes();
+    const creativeSkill = {
+      meta: {
+        name: "creative-context",
+        description: "Use Creative Context packs.",
+        scope: "both",
+        requiresLab: "content.creative-context",
+      },
+      content: "# Creative Context",
+      dir: ".agents/skills/creative-context",
+      extraFiles: [],
+      files: {},
+    };
+    mocks.loadAgentsBundle.mockResolvedValue({
+      workspaceAgentsMd: "",
+      agentsMd: "",
+      skills: { "creative-context": creativeSkill },
+    });
+    mocks.resourceList.mockResolvedValue([]);
+    mocks.resourceListAccessible.mockResolvedValue([]);
+
+    const disabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "disabled@example.test" },
+    );
+    const enabledResponse = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "enabled@example.test" },
+    );
+    const disabled = (await disabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+    const enabled = (await enabledResponse.json()) as {
+      skills: Array<{ name: string }>;
+    };
+
+    expect(disabled.skills.map((skill) => skill.name)).not.toContain(
+      "creative-context",
+    );
+    expect(enabled.skills.map((skill) => skill.name)).toContain(
+      "creative-context",
+    );
+  });
+
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
     expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
@@ -636,6 +693,59 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it.each([false, true])(
+    "keeps Lab-gated skills per-user in %s compact prompt mode",
+    async (compact) => {
+      const creativeSkill = {
+        meta: {
+          name: "creative-context",
+          description: "Use Creative Context packs.",
+          scope: "both",
+          requiresLab: "content.creative-context",
+        },
+        content: "CREATIVE_CONTEXT_SKILL_MARKER",
+        dir: ".agents/skills/creative-context",
+        extraFiles: [],
+        files: {},
+      };
+      const bundle = {
+        workspaceAgentsMd: "",
+        agentsMd: "",
+        skills: { "creative-context": creativeSkill },
+      };
+      mocks.loadAgentsBundle.mockResolvedValue(bundle);
+      mocks.generateSkillsPromptBlock.mockImplementation(
+        (_bundle: unknown, skills: (typeof creativeSkill)[]) =>
+          skills.map((skill) => skill.content).join("\n"),
+      );
+
+      const disabled = await loadResourcesForPrompt(
+        "disabled@example.test",
+        compact,
+      );
+      const enabled = await loadResourcesForPrompt(
+        "enabled@example.test",
+        compact,
+      );
+
+      expect(disabled).not.toContain("CREATIVE_CONTEXT_SKILL_MARKER");
+      expect(disabled).not.toContain("creative-context");
+      expect(enabled).toContain(
+        compact ? "creative-context" : "CREATIVE_CONTEXT_SKILL_MARKER",
+      );
+      expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+        1,
+        bundle,
+        "disabled@example.test",
+      );
+      expect(mocks.getRuntimeSkillsForUser).toHaveBeenNthCalledWith(
+        2,
+        bundle,
+        "enabled@example.test",
+      );
+    },
+  );
+
   it("uses runtime-scoped instructions and excludes development instructions", async () => {
     mocks.loadAgentsBundle.mockResolvedValueOnce({
       workspaceAgentsMd: "",

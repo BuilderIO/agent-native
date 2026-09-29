@@ -14,6 +14,18 @@ export interface PriorTurnToolCallSummary {
   input: unknown;
 }
 
+export type PriorTurnToolCallSequenceEntry =
+  | ({ event: "start" } & PriorTurnToolCallSummary)
+  | {
+      event: "done";
+      name: string;
+      input: unknown;
+      result: string;
+      isError: boolean;
+      completedSideEffect?: boolean;
+      matchedStart: boolean;
+    };
+
 export interface PriorTurnToolResultSummary {
   name: string;
   input?: unknown;
@@ -28,6 +40,7 @@ export type PriorTurnToolCallJournalRead =
       toolCallJournal: ToolCallJournal | null;
       priorToolCalls: PriorTurnToolCallSummary[];
       priorToolResults: PriorTurnToolResultSummary[];
+      priorToolCallSequence: PriorTurnToolCallSequenceEntry[];
     }
   | { status: "unreadable"; error: string };
 
@@ -60,6 +73,7 @@ export async function loadPriorTurnToolCallJournal(
       toolCallJournal: null,
       priorToolCalls: [],
       priorToolResults: [],
+      priorToolCallSequence: [],
     };
   }
   let priorEvents: AgentChatEvent[];
@@ -74,19 +88,41 @@ export async function loadPriorTurnToolCallJournal(
   }
   const priorToolCalls: PriorTurnToolCallSummary[] = [];
   const priorToolResults: PriorTurnToolResultSummary[] = [];
-  const openInputsByTool = new Map<string, unknown[]>();
+  const priorToolCallSequence: PriorTurnToolCallSequenceEntry[] = [];
+  const openCallsById = new Map<string, PriorTurnToolCallSummary>();
+  const openCallsByTool = new Map<string, PriorTurnToolCallSummary[]>();
   for (const event of priorEvents) {
     if (event.type === "tool_start") {
       priorToolCalls.push({ name: event.tool, input: event.input });
-      const queue = openInputsByTool.get(event.tool);
-      if (queue) queue.push(event.input);
-      else openInputsByTool.set(event.tool, [event.input]);
+      const call = { name: event.tool, input: event.input };
+      priorToolCallSequence.push({ event: "start", ...call });
+      if (event.id) openCallsById.set(event.id, call);
+      const queue = openCallsByTool.get(event.tool);
+      if (queue) queue.push(call);
+      else openCallsByTool.set(event.tool, [call]);
     } else if (event.type === "tool_done") {
-      const fifoInput = openInputsByTool.get(event.tool)?.shift();
+      const queue = openCallsByTool.get(event.tool);
+      const call = event.id ? openCallsById.get(event.id) : queue?.[0];
+      if (call) {
+        const index = queue?.indexOf(call) ?? -1;
+        if (index >= 0) queue!.splice(index, 1);
+        if (event.id) openCallsById.delete(event.id);
+      }
+      priorToolCallSequence.push({
+        event: "done",
+        name: event.tool,
+        input: event.input ?? call?.input,
+        result: event.result,
+        isError: event.isError === true,
+        ...(event.completedSideEffect === true
+          ? { completedSideEffect: true }
+          : {}),
+        matchedStart: call !== undefined,
+      });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
       priorToolResults.push({
         name: event.tool,
-        input: event.input ?? fifoInput,
+        input: event.input ?? call?.input,
         content: event.result,
         isError: event.isError === true,
         ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
@@ -99,5 +135,97 @@ export async function loadPriorTurnToolCallJournal(
       priorEvents.length > 0 ? classifyToolCallJournal(priorEvents) : null,
     priorToolCalls,
     priorToolResults,
+    priorToolCallSequence,
   };
+}
+
+export const JOURNALED_TOOL_REPLAY_PREFIX =
+  "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n";
+export const RECOVERED_TOOL_REPLAY_PREFIX =
+  "(Recovered from prior interrupted chunk — action already completed.)\n\n";
+const LOADED_SKILL_CONTEXT_MAX_CHARS = 24_000;
+
+export function loadedSkillPagesContext(
+  results: readonly PriorTurnToolResultSummary[],
+  allowedSlugs: ReadonlySet<string>,
+): string {
+  const pages = new Map<string, string>();
+  for (const result of results) {
+    if (result.name !== "docs-search" || result.isError) continue;
+    const input =
+      result.input && typeof result.input === "object"
+        ? (result.input as Record<string, unknown>)
+        : null;
+    const slug = input?.slug;
+    if (
+      typeof slug !== "string" ||
+      !slug.startsWith("skill-") ||
+      !allowedSlugs.has(slug) ||
+      !result.content.startsWith("# Skill:") ||
+      result.content.includes("Doc not found:")
+    ) {
+      continue;
+    }
+    pages.delete(slug);
+    pages.set(slug, result.content);
+  }
+  if (pages.size === 0) return "";
+
+  const opening =
+    "<already-loaded-skills>These skill pages were already read earlier in this turn. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+  const closing = "\n</already-loaded-skills>";
+  let remaining =
+    LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
+  const blocks: string[] = [];
+  for (const [slug, page] of pages) {
+    const heading = `\n## ${slug}\n`;
+    if (remaining <= heading.length) break;
+    const truncated = page.length > remaining - heading.length;
+    const marker = truncated
+      ? "\n[Skill page truncated to fit continuation context.]"
+      : "";
+    const body = page.slice(
+      0,
+      Math.max(0, remaining - heading.length - marker.length),
+    );
+    blocks.push(`${heading}${body}${marker}`);
+    remaining -= heading.length + body.length + marker.length;
+    if (truncated) break;
+  }
+  return blocks.length > 0 ? `${opening}${blocks.join("\n")}${closing}` : "";
+}
+
+export function seedRepeatedToolCallCountsFromJournal(
+  calls: readonly PriorTurnToolCallSequenceEntry[],
+  keyForCall: (name: string, input: unknown) => string,
+  isResurfacedReadOnlyDuplicate: (name: string, result: string) => boolean,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const call of calls) {
+    const key = keyForCall(call.name, call.input);
+    if (call.event === "start") {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      continue;
+    }
+
+    if (
+      call.result.startsWith(JOURNALED_TOOL_REPLAY_PREFIX) ||
+      call.result.startsWith(RECOVERED_TOOL_REPLAY_PREFIX) ||
+      isResurfacedReadOnlyDuplicate(call.name, call.result)
+    ) {
+      if (call.matchedStart) {
+        const count = counts.get(key) ?? 0;
+        if (count > 1) counts.set(key, count - 1);
+        else counts.delete(key);
+      }
+      continue;
+    }
+
+    if (call.isError || call.completedSideEffect !== true) continue;
+    if (!call.matchedStart) counts.set(key, (counts.get(key) ?? 0) + 1);
+    for (const otherKey of counts.keys()) {
+      if (otherKey !== key) counts.delete(otherKey);
+    }
+  }
+  return counts;
 }

@@ -34,7 +34,11 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
-import { getRequestOrgId, getRequestRunContext } from "../request-context.js";
+import {
+  getRequestOrgId,
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../request-context.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
@@ -755,13 +759,32 @@ async function loadResourceSkillPromptEntries(
         full: await resourceGet(resource.id, { orgId }).catch(() => null),
       })),
     );
+    const parsed = loaded.map(({ resource, full }) => ({
+      resource,
+      full,
+      meta: full?.content ? parseSkillFrontmatter(full.content) : null,
+    }));
+    const requiredLabs = parsed.flatMap(({ meta }) =>
+      meta?.requiresLab ? [meta.requiresLab] : [],
+    );
+    const enabledLabs = requiredLabs.length
+      ? await import("../agents-bundle.js").then(
+          ({ getEnabledSkillLabsForUser }) =>
+            getEnabledSkillLabsForUser(
+              requiredLabs,
+              owner === SHARED_OWNER
+                ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+                : owner,
+            ),
+        )
+      : new Set<string>();
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
-    for (const { resource, full } of loaded) {
-      if (!full?.content) continue;
-      const meta = parseSkillFrontmatter(full.content);
+    for (const { resource, full, meta } of parsed) {
+      if (!full?.content || !meta) continue;
       if (meta.userInvocable === false) continue;
       if (!isRuntimeVisibleScope(meta.scope)) continue;
+      if (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -852,6 +875,7 @@ async function loadResourceIndexForPrompt(
 
 async function collectJevPromptCandidates(
   signal: AbortSignal,
+  userEmail?: string,
 ): Promise<JevPromptCandidate[]> {
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
@@ -878,11 +902,11 @@ async function collectJevPromptCandidates(
   };
 
   try {
-    const { getRuntimeSkills, loadAgentsBundle } =
+    const { getRuntimeSkillsForUser, loadAgentsBundle } =
       await import("../agents-bundle.js");
     signal.throwIfAborted();
     const bundle = await loadAgentsBundle();
-    for (const skill of getRuntimeSkills(bundle)) {
+    for (const skill of await getRuntimeSkillsForUser(bundle, userEmail)) {
       signal.throwIfAborted();
       add({
         kind: "skill",
@@ -1227,7 +1251,14 @@ export async function preloadJevContextForPrompt(options: {
     const collection = await withinPromptBudget(
       (signal) =>
         Promise.all([
-          hasJev ? collectJevPromptCandidates(signal) : Promise.resolve([]),
+          hasJev
+            ? collectJevPromptCandidates(
+                signal,
+                options.owner ??
+                  getRequestUserEmail() ??
+                  getRequestRunContext()?.owner,
+              )
+            : Promise.resolve([]),
           collectJevMemoryPromptCandidates({
             owner: options.owner,
             orgId: options.orgId,
@@ -1531,8 +1562,11 @@ export async function loadResourcesForPrompt(
     : SHARED_PROMPT_RESOURCE_MAX_CHARS;
 
   try {
-    const { loadAgentsBundle, generateSkillsPromptBlock, getRuntimeSkills } =
-      await import("../agents-bundle.js");
+    const {
+      loadAgentsBundle,
+      generateSkillsPromptBlock,
+      getRuntimeSkillsForUser,
+    } = await import("../agents-bundle.js");
     const bundle = await loadAgentsBundle();
 
     if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
@@ -1562,9 +1596,14 @@ export async function loadResourcesForPrompt(
       addSection(block);
     }
 
-    const runtimeSkills = getRuntimeSkills(bundle);
+    const runtimeSkills = await getRuntimeSkillsForUser(
+      bundle,
+      owner === SHARED_OWNER
+        ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+        : owner,
+    );
     if (!compact) {
-      const skillsBlock = generateSkillsPromptBlock(bundle);
+      const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
       addSection(skillsBlock);
     } else if (runtimeSkills.length > 0) {
       const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
