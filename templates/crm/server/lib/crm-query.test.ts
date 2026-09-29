@@ -827,19 +827,25 @@ describe("cursor pagination", () => {
     expect(withoutTotal).not.toHaveProperty("totalEstimate");
   });
 
-  it("omits totalEstimate when a row on the page is withheld from the current scope", async () => {
+  it("leaves rows withheld from the current scope out of totalEstimate, beyond the page too", async () => {
     await createRecord("Zzz Stale Scope Co", {
       accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-total-key" }),
     });
-    const result = await run({
+    const withheldOnPage = await run({
       limit: 10,
       includeTotal: true,
       query: "Zzz Stale Scope Co",
     });
-    // The row is withheld (its stored scope key no longer matches), so a count
-    // taken before that check would disclose a record the caller cannot see.
-    expect(result.records).toHaveLength(0);
-    expect(result).not.toHaveProperty("totalEstimate");
+    expect(withheldOnPage.records).toHaveLength(0);
+    expect(withheldOnPage.totalEstimate).toBe(0);
+
+    // The stale row sorts last, so this page never scans it.
+    const pageOfOne = await run({
+      limit: 1,
+      includeTotal: true,
+      sort: [{ field: "displayName", direction: "asc" }],
+    });
+    expect(pageOfOne.totalEstimate).toBe(4);
   });
 
   it("fills the page past a withheld row instead of returning it short", async () => {
@@ -950,5 +956,57 @@ describe("recordsInCurrentScope", () => {
     });
     expect(checked).toHaveLength(45);
     expect(visible).toHaveLength(44);
+  });
+});
+
+describe("listCrmTasks", () => {
+  async function createTask(title: string, dueAt: string, recordId?: string) {
+    const id = `task_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmTasks)
+      .values({
+        id,
+        recordId: recordId ?? null,
+        title,
+        dueAt,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+    return id;
+  }
+
+  it("withholds a task whose linked record is out of the current scope and fills the page past it", async () => {
+    const { listCrmTasks } = await import("../db/crm-store.js");
+    const stale = await createRecord("Task Stale Record", {
+      accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-task-key" }),
+    });
+    const visible = await createRecord("Task Visible Record");
+    await createTask("Stale follow-up", "2099-12-03", stale);
+    const linked = await createTask("Visible follow-up", "2099-12-02", visible);
+    const standalone = await createTask("Standalone follow-up", "2099-12-01");
+
+    const first = await asUser(OWNER, () =>
+      listCrmTasks({ limit: 1 }, { resolveScope: async () => SCOPE }),
+    );
+    expect(first.tasks.map((task) => task.id)).toEqual([linked]);
+    expect(first.tasks[0]).not.toHaveProperty("accessScopeJson");
+
+    const second = await asUser(OWNER, () =>
+      listCrmTasks(
+        { limit: 1, cursor: first.nextCursor },
+        { resolveScope: async () => SCOPE },
+      ),
+    );
+    expect(second.tasks.map((task) => task.id)).toEqual([standalone]);
+
+    const forStale = await asUser(OWNER, () =>
+      listCrmTasks(
+        { limit: 10, recordId: stale },
+        { resolveScope: async () => SCOPE },
+      ),
+    );
+    expect(forStale.tasks).toHaveLength(0);
   });
 });

@@ -66,7 +66,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Include totalEstimate: the filtered row count before per-record provider scope revalidation.",
+        "Include totalEstimate: the filtered row count, counting only rows the current provider scope still covers.",
       ),
   }),
   http: { method: "GET" },

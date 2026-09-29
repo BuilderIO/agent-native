@@ -1401,7 +1401,6 @@ export async function queryCrmRecords(
   let scanConditions = pageConditions;
   let lastRawRow: RawRow | undefined;
   let exhausted = false;
-  let anyWithheld = false;
   for (
     let batch = 0;
     batch < MAX_SCOPE_FILL_BATCHES && kept.length < targetVisible && !exhausted;
@@ -1416,7 +1415,6 @@ export async function queryCrmRecords(
     exhausted = rawRows.length < need;
     lastRawRow = rawRows[rawRows.length - 1];
     const visible = await recordsInCurrentScope(rawRows, scopeResolver);
-    if (visible.length < rawRows.length) anyWithheld = true;
     kept.push(...visible);
     if (!exhausted) {
       const after = cursorAfter(lastRawRow);
@@ -1438,20 +1436,38 @@ export async function queryCrmRecords(
   const columnNames = view?.columns.map((column) => column.attributeId);
   const records = pageRows.map((row) => toRecordSummary(row, columnNames));
 
-  // A count taken before scope revalidation would disclose the existence of
-  // rows the caller's provider access no longer covers; omit it rather than
-  // publish a number the visible rows cannot account for.
+  // Count per stored scope and keep only the groups the current scope still
+  // covers, so every matched row is scope-validated and the total never
+  // discloses rows the caller's provider access no longer covers.
   let totalEstimate: number | undefined;
-  if (input.includeTotal && !anyWithheld) {
-    const [count] = await db
-      .select({ total: sql<number>`count(*)` })
+  if (input.includeTotal) {
+    const groups = await db
+      .select({
+        connectionId: schema.crmRecords.connectionId,
+        objectType: schema.crmRecords.objectType,
+        provider: schema.crmRecords.provider,
+        accessScopeJson: schema.crmRecords.accessScopeJson,
+        workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
+        total: sql<number>`count(*)`,
+      })
       .from(schema.crmRecords)
       .innerJoin(
         schema.crmConnections,
         eq(schema.crmRecords.connectionId, schema.crmConnections.id),
       )
-      .where(and(...conditions));
-    totalEstimate = Number(count?.total ?? 0);
+      .where(and(...conditions))
+      .groupBy(
+        schema.crmRecords.connectionId,
+        schema.crmRecords.objectType,
+        schema.crmRecords.provider,
+        schema.crmRecords.accessScopeJson,
+        schema.crmConnections.workspaceConnectionId,
+      );
+    const inScope = await recordsInCurrentScope(groups, scopeResolver);
+    totalEstimate = inScope.reduce(
+      (sum, group) => sum + Number(group.total),
+      0,
+    );
   }
 
   return {
