@@ -59,11 +59,15 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
-  async function renderLiveEditCanvas() {
+  async function renderLiveEditCanvas(
+    onRuntimeLayerSnapshotReadinessChange?: (ready: boolean) => void,
+    onRuntimeLayerSnapshot?: (snapshot: unknown) => void,
+  ) {
     await act(async () => {
       root.render(
         <DesignCanvas
@@ -82,6 +86,10 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
           readOnly={false}
           onElementSelect={() => {}}
           onElementHover={() => {}}
+          onRuntimeLayerSnapshotReadinessChange={
+            onRuntimeLayerSnapshotReadinessChange
+          }
+          onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
           tweakValues={{}}
         />,
       );
@@ -103,7 +111,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     ).length;
   }
 
-  function postReadyHandshake(source?: Window) {
+  function postReadyHandshake(source?: Window, documentId?: string) {
     const iframeWindow =
       source ?? container.querySelector("iframe")?.contentWindow;
     if (!iframeWindow) {
@@ -111,7 +119,10 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     }
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "agent-native:editor-chrome-ready" },
+        data: {
+          type: "agent-native:editor-chrome-ready",
+          ...(documentId ? { documentId } : {}),
+        },
         origin: BRIDGE_URL,
         source: iframeWindow,
       }),
@@ -511,7 +522,8 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
       throw new Error(`unexpected fetch: ${url}`);
     });
 
-    await renderLiveEditCanvas();
+    const onRuntimeLayerSnapshotReadinessChange = vi.fn();
+    await renderLiveEditCanvas(onRuntimeLayerSnapshotReadinessChange);
     const liveIframe = container.querySelector("iframe");
     const retiredLiveWindow = liveIframe?.contentWindow;
     expect(retiredLiveWindow).toBeTruthy();
@@ -538,7 +550,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
 
     await act(async () => {
-      postReadyHandshake(retiredLiveWindow!);
+      postReadyHandshake(retiredLiveWindow!, "retired-runtime-document");
       await flushMicrotasks();
     });
     expect(container.textContent ?? "").not.toContain(
@@ -547,6 +559,27 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").toContain("Preparing live editor");
     expect(container.querySelector("iframe")?.getAttribute("src")).toContain(
       "/live-edit",
+    );
+
+    const recoveredIframe =
+      container.querySelector<HTMLIFrameElement>("iframe");
+    expect(recoveredIframe?.contentWindow).toBeTruthy();
+    const recoveredWindow = recoveredIframe!.contentWindow!;
+    const iframePostMessage = vi.spyOn(recoveredWindow, "postMessage");
+    await act(async () => {
+      postReadyHandshake(recoveredWindow, "recovered-runtime-document");
+      await flushMicrotasks();
+    });
+    const readinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    const readinessRequest = readinessRequests[readinessRequests.length - 1];
+    expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      false,
     );
   });
 

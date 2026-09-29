@@ -295,6 +295,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
       documentId,
       reservationToken: "reservation-for-43",
     });
+    await sendBridgeMessage({ type: "agent-native:runtime-reloading" });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      false,
+    );
   });
 
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {

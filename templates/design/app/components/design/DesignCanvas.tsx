@@ -3745,6 +3745,7 @@ export function DesignCanvas({
           editorChromeReadyRef.current = false;
           readyRuntimeLayerDocumentIdRef.current = null;
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
+          onRuntimeLayerSnapshotReadinessChange?.(false);
           liveRoutePathRef.current = null;
           onBootStart?.();
           liveEditHealthProbeGenerationRef.current += 1;
@@ -3897,7 +3898,6 @@ export function DesignCanvas({
         liveEditHealthProbeGenerationRef.current += 1;
         liveEditRestartInFlightRef.current = false;
         if (trustedLateLiveEditReady && lateReadyRecovery) {
-          lateLiveEditReadyRecoveryRef.current = null;
           if (lateReadyRecovery.registrationHandoffKey) {
             liveEditRegistrationHandoff.set(
               lateReadyRecovery.registrationHandoffKey,
@@ -3908,7 +3908,6 @@ export function DesignCanvas({
             current?.bridgeKey === lateReadyRecovery.bridgeKey ? null : current,
           );
           setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
-          return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
         readyRuntimeLayerDocumentIdRef.current =
