@@ -67,14 +67,11 @@ contract.
   is manual through `.github/workflows/deploy-production-sites-prebuilt.yml` or
   `promote-netlify-deploy.yml`. Let workflows manage Netlify locks; clearing
   one does not promote production.
-- Worktrees are valid PR sources. When the user authorizes shipping or opening
-  or updating a PR from a worktree, use that worktree's current branch and cwd
-  for the commit, push, and PR operation; do not copy changes into the shared
-  checkout.
-- Never push to someone else's PR unless the user explicitly authorizes a push
-  to that exact PR. A general ship request or PR link is not authorization;
-  verify the live PR author and target before every authorized push. See `ship`
-  and `babysit-pr` for the full gate; `unauthorized-pr-push` tracks corrections.
+- When shipping from a worktree, commit, push, and open or update the PR there;
+  leave the shared checkout untouched.
+- Never push to someone else's PR without explicit authorization for that exact
+  PR. A link or general ship request is insufficient; see `ship` and
+  `babysit-pr` for the verification gate.
 - Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.

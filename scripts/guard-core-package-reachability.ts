@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 
 const CORE_ROOT = "packages/core";
-const MAX_RUNTIME_DEPENDENCIES = 63;
+// Deploy builds resolve esbuild from the installed Core package at runtime.
+const MAX_RUNTIME_DEPENDENCIES = 64;
 const CODE_EXTENSIONS = [
   ".ts",
   ".tsx",
