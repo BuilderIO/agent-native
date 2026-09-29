@@ -156,13 +156,13 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft. For an existing draft, use " +
-    "update or delete with its raw ID. If its compose-state key is " +
-    "`compose-{id}`, pass only `{id}`; a prior create result also provides " +
-    "the ID. Create only when no existing draft is available. Always pass action " +
-    "(create, update, delete, delete-saved, or delete-all). update and " +
-    "delete-saved requires savedDraftId instead. To start a new reply, call " +
-    "create with mode=reply, replyToId, to, subject, and body.",
+    "Manage compose drafts: use `create` for a new draft even if another " +
+    "compose draft is open; use `update` to revise a specific existing draft " +
+    "with its raw compose ID (`compose-{id}` is the app-state key, so pass " +
+    "only `{id}`; a prior create result also provides the ID). Use `delete` " +
+    "with a compose draft ID, `delete-saved` with `savedDraftId` for a saved " +
+    "mailbox draft, or `delete-all` to remove all compose drafts. To start a " +
+    "new reply, call `create` with mode=reply, replyToId, to, subject, and body.",
   schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,

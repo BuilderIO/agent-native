@@ -500,12 +500,15 @@ describe("manage-draft deep link", () => {
 
 describe("manage-draft call-shape guidance", () => {
   it("explains how to target existing drafts and when to create", () => {
-    expect(action.description).toContain("action");
     expect(action.description).toContain(
-      "If its compose-state key is `compose-{id}`, pass only `{id}`",
+      "use `create` for a new draft even if another compose draft is open",
     );
     expect(action.description).toContain(
-      "Create only when no existing draft is available.",
+      "`update` to revise a specific existing draft with its raw compose ID",
+    );
+    expect(action.description).toContain("pass only `{id}`");
+    expect(action.description).toContain(
+      "`delete-saved` with `savedDraftId` for a saved mailbox draft",
     );
     expect(action.description).toMatch(/create.*update.*delete/i);
     expect(action.description).not.toContain(
