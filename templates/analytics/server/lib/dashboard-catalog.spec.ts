@@ -387,7 +387,9 @@ describe("dashboard catalog", () => {
     expect(catalogPanel.sql).toContain("'{{timeRange}}' = 'custom'");
     expect(catalogPanel.sql).toContain("'{{timeRangeStart}}'");
     expect(catalogPanel.sql).toContain("'{{timeRangeEnd}}'");
-    expect(catalogPanel.sql).toContain("generate_series(bounds.start_date");
+    expect(catalogPanel.sql).toContain(
+      "generate_series(GREATEST(bounds.start_date::timestamp",
+    );
     expect(catalogPanel.sql).toContain("SELECT 'unknown' WHERE NOT EXISTS");
     expect(catalogPanel.sql).not.toContain("WITH digits AS");
     expect(seedPanel?.sql).toBe(catalogPanel.sql);

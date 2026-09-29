@@ -571,7 +571,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
   it("allows only bounded daily generate_series date spines", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series('{{timeRangeStart}}'::date, '{{timeRangeEnd}}'::date, INTERVAL '1 day') AS days(day)",
+        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(GREATEST(bounds.start_date::timestamp, bounds.end_date::timestamp - INTERVAL '3659 days'), bounds.end_date::timestamp, INTERVAL '1 day') AS days(day)",
       ),
     ).not.toThrow();
     expect(() =>
@@ -582,6 +582,16 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1 /* timeRangeStart */, 10000000 /* timeRangeEnd */, INTERVAL '1 day') AS days(day)",
+      ),
+    ).toThrow("bounded dates and a 1-day step");
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(CURRENT_DATE - INTERVAL '100000 days' + 0 * length('timeRangeStart'), CURRENT_DATE - INTERVAL '1 day', INTERVAL '1 day') AS days(day)",
+      ),
+    ).toThrow("bounded dates and a 1-day step");
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog /* split */ . generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
     ).toThrow("bounded dates and a 1-day step");
     expect(() =>

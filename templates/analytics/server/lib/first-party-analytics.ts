@@ -772,9 +772,19 @@ function stripSqlLiterals(sql: string): string {
     }
     if (!inSingle && !inDouble && ch === "/" && next === "*") {
       const start = i;
+      let depth = 1;
       i += 2;
-      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      if (i < sql.length) i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
       out += " ".repeat(i - start);
       continue;
     }
@@ -853,6 +863,7 @@ interface AnalyticsSqlToken {
   value: string;
   quoted: boolean;
   depth: number;
+  start: number;
 }
 
 interface AnalyticsSqlSource {
@@ -891,10 +902,18 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
     }
     if (ch === "/" && next === "*") {
       i += 2;
-      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) {
-        i++;
+      let commentDepth = 1;
+      while (i < sql.length && commentDepth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          commentDepth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          commentDepth--;
+          i += 2;
+        } else {
+          i++;
+        }
       }
-      i += 2;
       continue;
     }
     if (ch === "'") {
@@ -913,6 +932,7 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
       continue;
     }
     if (ch === '"' || ch === "`" || ch === "[") {
+      const start = i;
       const closing = ch === "[" ? "]" : ch;
       let value = "";
       i++;
@@ -928,30 +948,35 @@ function tokenizeAnalyticsSql(sql: string): AnalyticsSqlToken[] {
         }
         value += sql[i++];
       }
-      tokens.push({ value, quoted: true, depth });
+      tokens.push({ value, quoted: true, depth, start });
       continue;
     }
     if (/[A-Za-z_]/.test(ch)) {
       const start = i;
       i++;
       while (i < sql.length && /[A-Za-z0-9_$]/.test(sql[i])) i++;
-      tokens.push({ value: sql.slice(start, i), quoted: false, depth });
+      tokens.push({
+        value: sql.slice(start, i),
+        quoted: false,
+        depth,
+        start,
+      });
       continue;
     }
     if (ch === "(") {
-      tokens.push({ value: ch, quoted: false, depth });
+      tokens.push({ value: ch, quoted: false, depth, start: i });
       depth++;
       i++;
       continue;
     }
     if (ch === ")") {
       depth = Math.max(0, depth - 1);
-      tokens.push({ value: ch, quoted: false, depth });
+      tokens.push({ value: ch, quoted: false, depth, start: i });
       i++;
       continue;
     }
     if (ch === "." || ch === ",") {
-      tokens.push({ value: ch, quoted: false, depth });
+      tokens.push({ value: ch, quoted: false, depth, start: i });
     }
     i++;
   }
@@ -1104,11 +1129,30 @@ function readGenerateSeriesArgs(
   return null;
 }
 
+function normalizeAnalyticsSqlExpression(sql: string): string {
+  return stripSqlComments(sql).replace(/\s+/g, "").toLowerCase();
+}
+
 function validateAnalyticsDateSpines(sql: string): void {
   const code = stripSqlLiterals(sql);
-  const seriesCalls = /\bpg_catalog\s*\.\s*generate_series\s*\(/gi;
-  for (const match of code.matchAll(seriesCalls)) {
-    const open = match.index! + match[0].lastIndexOf("(");
+  const tokens = tokenizeAnalyticsSql(sql);
+  const dateBound = String.raw`[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*(?:::(?:date|timestamp))?`;
+  const boundedStart = new RegExp(
+    String.raw`^greatest\(\s*(${dateBound})\s*,\s*(${dateBound})\s*-\s*interval\s*'\s*${MAX_ANALYTICS_DATE_SPINE_DAYS - 1}\s+days?\s*'\s*\)$`,
+    "i",
+  );
+
+  for (let i = 0; i + 3 < tokens.length; i++) {
+    if (
+      !isAnalyticsSqlKeyword(tokens[i], "pg_catalog") ||
+      tokens[i + 1].value !== "." ||
+      !isAnalyticsSqlKeyword(tokens[i + 2], "generate_series") ||
+      tokens[i + 3].value !== "("
+    ) {
+      continue;
+    }
+
+    const open = tokens[i + 3].start;
     const args = readGenerateSeriesArgs(sql, code, open);
     if (!args || args.length !== 3) {
       throw new Error(
@@ -1117,28 +1161,13 @@ function validateAnalyticsDateSpines(sql: string): void {
     }
 
     const [start, end, step] = args.map(stripSqlComments);
-    const usesDateBounds =
-      (/\btimeRangeStart\b|\bstart_date\b/i.test(start) &&
-        /\btimeRangeEnd\b|\bend_date\b/i.test(end)) ||
-      (() => {
-        const startDate = /'(\d{4}-\d{2}-\d{2})'/.exec(start)?.[1];
-        const endDate = /'(\d{4}-\d{2}-\d{2})'/.exec(end)?.[1];
-        if (!startDate || !endDate) return false;
-        const parsedStart = new Date(`${startDate}T00:00:00.000Z`);
-        const parsedEnd = new Date(`${endDate}T00:00:00.000Z`);
-        const startMs = parsedStart.getTime();
-        const endMs = parsedEnd.getTime();
-        const days = (endMs - startMs) / 86_400_000 + 1;
-        return (
-          Number.isFinite(startMs) &&
-          Number.isFinite(endMs) &&
-          parsedStart.toISOString().slice(0, 10) === startDate &&
-          parsedEnd.toISOString().slice(0, 10) === endDate &&
-          days > 0 &&
-          days <= MAX_ANALYTICS_DATE_SPINE_DAYS
-        );
-      })();
-    if (!usesDateBounds || !/^interval\s*'\s*1\s+day\s*'$/i.test(step)) {
+    const bounded = boundedStart.exec(start);
+    if (
+      !bounded ||
+      normalizeAnalyticsSqlExpression(bounded[2]!) !==
+        normalizeAnalyticsSqlExpression(end) ||
+      !/^interval\s*'\s*1\s+day\s*'$/i.test(step)
+    ) {
       throw new Error(
         "First-party analytics date spines must use bounded dates and a 1-day step",
       );
