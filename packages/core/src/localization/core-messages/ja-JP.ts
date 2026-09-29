@@ -84,6 +84,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未取得",
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
+  "observability.promoteMustContain": "返信に含めるテキスト…",
+  "observability.promoteMustContainLabel": "昇格した評価の返信に含めるテキスト",
+  "observability.promoteMustContainOptional": "返信に含めるテキスト（任意）",
+  "observability.promoteNeedsContains":
+    "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.summarizeWithAgent": "エージェントで要約",
   "observability.regenerateSummary": "要約を再生成",
   "observability.summarizeWithAgentHelp":

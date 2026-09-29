@@ -64,6 +64,13 @@ vi.mock("./useObservability.js", () => ({
   }),
   useTraces: (...args: unknown[]) => mockTraces(...args),
   useTraceDetail: (...args: unknown[]) => mockTraceDetail(...args),
+  usePromoteTraceEval: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    data: undefined,
+  }),
   useFeedbackList: vi.fn(),
   useFeedbackStats: vi.fn(),
   useEvalStats: vi.fn(),
