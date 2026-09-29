@@ -63,7 +63,15 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(
     QueryClientProvider,
     { client: queryClient },
-    createElement(DeckProvider, null, children),
+    createElement(DeckProvider, { realtimeEnabled: true, children }),
+  );
+}
+
+function noRealtimeWrapper({ children }: { children: ReactNode }) {
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(DeckProvider, { children }),
   );
 }
 
@@ -730,6 +738,58 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("does not poll the deck list when realtime is disabled", async () => {
+    window.history.pushState({}, "", "/p/public-deck");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), {
+      wrapper: noRealtimeWrapper,
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("refreshes the home list after a local agent run when realtime is disabled", async () => {
+    window.history.pushState({}, "", "/home");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), {
+      wrapper: noRealtimeWrapper,
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const deck: Deck = {
+      id: "local-agent-deck",
+      title: "Created by the agent",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    api.setServerDecks([deck]);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: { completedSideEffect: true, tabId: "thread-1" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "thread-1" },
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.decks.map(({ id }) => id)).toEqual([deck.id]),
+    );
   });
 
   it("still reads once on an announced write in a hidden tab with no deck open", async () => {
