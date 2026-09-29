@@ -35,6 +35,15 @@ vi.mock("./observational-memory/index.js", () => ({
   serializeObservationalMemoryBlock: () => "",
 }));
 
+vi.mock("../server/agents-bundle.js", () => ({
+  loadAgentsBundle: vi.fn(async () => ({})),
+  getRuntimeSkillsForUser: vi.fn(async () => [
+    { meta: { name: "slide-editing" } },
+  ]),
+  skillDocsSlug: (name: string) =>
+    `skill-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+}));
+
 const {
   runAgentLoop,
   MAX_IDENTICAL_TOOL_CALLS,
@@ -133,6 +142,66 @@ beforeEach(() => {
 });
 
 describe("tool-call journal hard-block", () => {
+  it("carries loaded skill pages into internal continuation prompts", async () => {
+    const skillPage =
+      "# Skill: slide-editing\nCheck the layout only after all edits.";
+    currentTurnEventsMock.mockResolvedValue(
+      completedLedger(
+        "docs-search",
+        { slug: "skill-slide-editing" },
+        skillPage,
+      ),
+    );
+    let continuedSystemPrompt = "";
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options): AsyncIterable<EngineEvent> {
+        continuedSystemPrompt = options.systemPrompt;
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Continued." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "base system prompt",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Continue the work." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-loaded-skill-continuation",
+    });
+
+    expect(continuedSystemPrompt).toContain(skillPage);
+    expect(continuedSystemPrompt).toContain(
+      "Reuse them instead of calling docs-search again",
+    );
+  });
+
   it("includes prior continuation tool results in final-response guards", async () => {
     currentTurnEventsMock.mockResolvedValue(
       completedLedger(
@@ -228,6 +297,52 @@ describe("tool-call journal hard-block", () => {
     expect(toolDone?.artifacts).toEqual(artifacts);
   });
 
+  it("does not count a completed journal replay toward the repeated-call stop", async () => {
+    const priorWrite = completedLedger(
+      "create-workspace-resource",
+      { resourceId: "same" },
+      "resource created",
+    );
+    currentTurnEventsMock.mockResolvedValue(
+      Array.from(
+        { length: MAX_IDENTICAL_TOOL_CALLS - 1 },
+        () => priorWrite,
+      ).flat(),
+    );
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("create-workspace-resource", {
+        resourceId: "same",
+      }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ],
+      actions: { "create-workspace-resource": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-replayed-write-at-threshold",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        result: expect.stringContaining(
+          "Already completed in an earlier interrupted attempt",
+        ),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: "done" }));
+  });
+
   it("executes a fresh call normally when the journal is empty", async () => {
     currentTurnEventsMock.mockResolvedValue([]);
 
@@ -305,7 +420,7 @@ describe("tool-call journal hard-block", () => {
     expect(action.run).toHaveBeenCalledOnce();
   });
 
-  it("serves a read-only tool's journaled result from the prior chunk instead of re-executing it", async () => {
+  it("re-executes a read-only tool instead of replaying its journaled result", async () => {
     const fullResult = "x".repeat(50_000);
     currentTurnEventsMock.mockResolvedValue(
       completedLedger("get-data", { id: "1" }, fullResult),
@@ -326,16 +441,22 @@ describe("tool-call journal hard-block", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "read" }] }],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "read" }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
       actions: { "get-data": readAction },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
       threadId: "thread-read",
     });
 
-    expect(readAction.run).not.toHaveBeenCalled();
+    expect(readAction.run).toHaveBeenCalledOnce();
     const done = events.find((event) => event.type === "tool_done");
-    expect(done.result).toContain(fullResult);
+    expect(done.result).toBe("fresh-read");
   });
 
   it("still re-executes a read-only tool that opted out with dedupe: false", async () => {
@@ -421,15 +542,11 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-repeat-across-chunks",
     });
 
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_tool_call",
-        recoverable: false,
-      }),
-    );
     expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "done" }),
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -466,15 +583,11 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-repeat-normalized-input",
     });
 
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_tool_call",
-        recoverable: false,
-      }),
-    );
     expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "done" }),
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -521,12 +634,11 @@ describe("tool-call journal hard-block", () => {
     });
 
     expect(action.run).toHaveBeenCalledOnce();
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        details: expect.stringContaining("DB exploded"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -612,7 +724,7 @@ describe("tool-call journal hard-block", () => {
     expect(action.run).toHaveBeenCalledOnce();
   });
 
-  it("does not stop the turn after 8 resurfaced re-fetches of the same read across chunks", async () => {
+  it("re-fetches read-only results instead of replaying them across chunks", async () => {
     const RAW_RESULT = "the actual document content";
     const resurfacedResult =
       "Skipped duplicate read-only call to get-doc: identical input already ran in this turn. " +
@@ -647,6 +759,10 @@ describe("tool-call journal hard-block", () => {
             role: "user",
             content: [{ type: "text", text: `continue ${chunk}` }],
           },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
         ],
         actions: { "get-doc": action },
         send: (e) => events.push(e),
@@ -658,7 +774,7 @@ describe("tool-call journal hard-block", () => {
         expect.objectContaining({ errorCode: "repeated_tool_call" }),
       );
       const toolDone = events.find((e: any) => e.type === "tool_done");
-      expect(toolDone?.result).toBe(resurfacedResult);
+      expect(toolDone?.result).toBe(RAW_RESULT);
 
       ledger = [
         ...ledger,
@@ -666,7 +782,7 @@ describe("tool-call journal hard-block", () => {
       ];
     }
 
-    expect(readAction).not.toHaveBeenCalled();
+    expect(readAction).toHaveBeenCalledTimes(8);
   });
 
   it("seeds repeat counts by call identity, not FIFO-per-tool-name, when concurrent same-tool calls resolve out of order", async () => {
@@ -712,12 +828,11 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-concurrent-out-of-order",
     });
 
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_tool_call",
-        recoverable: false,
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 });

@@ -48,6 +48,7 @@ import {
   MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
   readMcpOAuthFlowCookiePayload,
 } from "./oauth-flow-cookie.js";
+import { normalizeMcpPrincipal, type McpPrincipal } from "./principal.js";
 import {
   addOAuthRemoteServer,
   listRemoteServers,
@@ -155,6 +156,7 @@ export interface McpOAuthRoutesOptions {
     scope: RemoteMcpScope;
     scopeId: string;
     server: StoredRemoteMcpServer;
+    principal: McpPrincipal;
   }) => Promise<boolean>;
 }
 
@@ -249,6 +251,8 @@ async function handleMcpOAuthStart(
   // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
   const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const principal = normalizeMcpPrincipal({ userEmail: session?.email });
+  if (!principal) return unauthorized(event);
 
   const query = getQuery(event);
   const reconnectServerId = text(query.serverId);
@@ -637,6 +641,10 @@ async function handleMcpOAuthCallback(
   // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
   const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const authenticatedPrincipal = normalizeMcpPrincipal({
+    userEmail: session?.email,
+  });
+  if (!authenticatedPrincipal) return unauthorized(event);
 
   const query = getQuery(event);
   const code = text(query.code);
@@ -725,9 +733,13 @@ async function handleMcpOAuthCallback(
       scope: flow.scope,
       scopeId: flow.scopeId,
       server: persistedServer,
+      principal: {
+        userEmail: authenticatedPrincipal.userEmail,
+        orgId: org?.orgId ?? null,
+      },
     });
-  } catch {
-    // coercion-ok: the persisted remote is durable; false records reload failure.
+  } catch (error) {
+    console.warn("[mcp-client/oauth] saved server did not reconnect:", error);
   }
   const returnPath = resolveMcpOAuthReturnPath(connected, flow);
   return redirectWithStagedCookies(

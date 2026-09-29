@@ -295,6 +295,7 @@ pub fn run() {
             notifications::dismiss_meeting_notification,
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
+            meetings_watcher::meetings_watcher_resume_polling,
             meetings_watcher::meetings_watcher_set_lab_enabled,
             meetings_watcher::meetings_snooze,
             eventkit::eventkit_request_access,

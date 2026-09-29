@@ -1,10 +1,10 @@
 import { rm } from "node:fs/promises";
 import path from "node:path";
 
-import { sentryVitePlugin } from "@sentry/vite-plugin";
 import type { Plugin, ResolvedConfig } from "vite";
 
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 
 function firstNonEmpty(
   ...values: Array<string | undefined>
@@ -110,7 +110,7 @@ export function createSentrySourceMapUploadPlugin(
   const proxyPlugin: Plugin = {
     name: "sentry-vite-plugin",
     enforce: "pre",
-    configResolved(config) {
+    async configResolved(config) {
       if (config.command !== "build") return;
       const buildId = resolvedClientBuildId(config);
       if (!buildId) {
@@ -123,6 +123,10 @@ export function createSentrySourceMapUploadPlugin(
         ...credentials,
         release: `agent-native-client@${buildId}`,
       };
+      const { sentryVitePlugin } = await loadOptionalPeer(
+        "@sentry/vite-plugin",
+        () => import("@sentry/vite-plugin"),
+      );
       const sentryPlugin = sentryVitePlugin({
         org: uploadConfig.org,
         project: uploadConfig.project,

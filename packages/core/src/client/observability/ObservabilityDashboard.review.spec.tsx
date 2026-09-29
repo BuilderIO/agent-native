@@ -17,6 +17,7 @@ const {
   mockOpenThread,
   mockUseActionQuery,
   mockConfirmAgentChat,
+  mockPromoteTraceEval,
 } = vi.hoisted(() => ({
   mockOutputReviews: vi.fn(),
   mockOutputReviewDetail: vi.fn(),
@@ -28,6 +29,7 @@ const {
   mockOpenThread: vi.fn(),
   mockUseActionQuery: vi.fn(),
   mockConfirmAgentChat: vi.fn(),
+  mockPromoteTraceEval: vi.fn(),
 }));
 
 vi.mock("../agent-chat.js", async (importOriginal) => ({
@@ -51,6 +53,7 @@ vi.mock("../use-action.js", async (importOriginal) => ({
 }));
 
 vi.mock("./useObservability.js", () => ({
+  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useObservabilityOverview: () => ({
     data: {
       totalRuns: 1,
@@ -64,6 +67,14 @@ vi.mock("./useObservability.js", () => ({
   }),
   useTraces: (...args: unknown[]) => mockTraces(...args),
   useTraceDetail: (...args: unknown[]) => mockTraceDetail(...args),
+  usePromoteTraceEval: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    data: undefined,
+    isError: false,
+    error: null,
+  }),
   useFeedbackList: vi.fn(),
   useFeedbackStats: vi.fn(),
   useEvalStats: vi.fn(),
@@ -81,6 +92,10 @@ vi.mock("./useObservability.js", () => ({
   useSaveReviewFeedback: () => ({
     mutate: mockSubmitFeedback,
     mutateAsync: mockSubmitFeedback,
+    isPending: false,
+  }),
+  usePromoteTraceEval: () => ({
+    mutate: mockPromoteTraceEval,
     isPending: false,
   }),
 }));

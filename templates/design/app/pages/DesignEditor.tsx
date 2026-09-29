@@ -3983,6 +3983,9 @@ function DesignEditor() {
     design?.visibility === "public";
   const canApplyPendingVisualEditsWithAgent =
     canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+  const canApplyPendingVisualEditsFromToolbar =
+    canApplyPendingVisualEditsWithAgent &&
+    (!isVisualEditSurface || hostEmbeddedEditor);
   const canEditLiveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const creativeContextLab = useCreativeContextLabState();
   const creativeContextEnabled = creativeContextLab.enabled;
@@ -25520,38 +25523,50 @@ function DesignEditor() {
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.signUpToSave")}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            variant="default"
-            size="sm"
-            className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
-            aria-label={t(
-              hasLocalhostScreens
-                ? "designEditor.signUpToShareLiveCanvas"
-                : "designEditor.share",
-            )}
-          >
-            <a href={signInToShareHref}>
-              <span>
-                {t(
-                  hasLocalhostScreens
-                    ? "designEditor.signUpToShareLiveCanvas"
-                    : "designEditor.share",
-                )}
-              </span>
-            </a>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {t(
-            hasLocalhostScreens
-              ? "designEditor.signUpToShareLiveCanvas"
-              : "designEditor.signUpToShare",
-          )}
-        </TooltipContent>
-      </Tooltip>
+      {hasLocalhostScreens ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+              aria-label={t("designEditor.share")}
+            >
+              {t("designEditor.share")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-2">
+            <Button
+              asChild
+              variant="link"
+              size="sm"
+              className="h-auto whitespace-normal px-1 text-left"
+            >
+              <a href={signInToShareHref}>
+                {t("designEditor.signUpToShareLiveCanvas")}
+              </a>
+            </Button>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              asChild
+              variant="default"
+              size="sm"
+              className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+              aria-label={t("designEditor.share")}
+            >
+              <a href={signInToShareHref}>
+                <span>{t("designEditor.share")}</span>
+              </a>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
+        </Tooltip>
+      )}
     </>
   );
 
@@ -26540,7 +26555,7 @@ function DesignEditor() {
             row rather than a second floating control. Not needed for the
             floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
         {responsiveInteractActive && !minimalUi ? (
-          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
+          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
             <ResponsiveInteractExitButton
               onClose={handleExitResponsiveInteract}
               className="pointer-events-auto"
@@ -27003,14 +27018,14 @@ function DesignEditor() {
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
                             "min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
                             (!shellMode ||
-                              !canApplyPendingVisualEditsWithAgent) &&
+                              !canApplyPendingVisualEditsFromToolbar) &&
                               "rounded-r-none",
                           )}
                           aria-label={t(
                             showSharedVisualEditApply &&
-                              canApplyPendingVisualEditsWithAgent
+                              canApplyPendingVisualEditsFromToolbar
                               ? "designEditor.pendingVisualStyles.applySharedEdits"
-                              : canApplyPendingVisualEditsWithAgent
+                              : canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.applyAria"
                                 : "designEditor.pendingVisualStyles.copyPrompt",
                           )}
@@ -27020,7 +27035,7 @@ function DesignEditor() {
                             pendingStructureVerificationBusy
                           }
                           onClick={
-                            canApplyPendingVisualEditsWithAgent
+                            canApplyPendingVisualEditsFromToolbar
                               ? () =>
                                   handleApplyPendingVisualStylesWithAgent(
                                     remoteVisualEditPrompt,
@@ -27036,7 +27051,7 @@ function DesignEditor() {
                           ) : null}
                           <span className="truncate">
                             {t(
-                              !canApplyPendingVisualEditsWithAgent
+                              !canApplyPendingVisualEditsFromToolbar
                                 ? "designEditor.pendingVisualStyles.copyPrompt"
                                 : applyingViaHost
                                   ? "designEditor.pendingVisualStyles.applying"
@@ -27051,9 +27066,9 @@ function DesignEditor() {
                             )}
                           </span>
                         </Button>
-                        {/* Keep explicit copy and cancel available when no in-page agent can receive the handoff. */}
+                        {/* Keep the handoff actions available whenever toolbar Apply is unavailable. */}
                         {shellMode &&
-                        canApplyPendingVisualEditsWithAgent ? null : (
+                        canApplyPendingVisualEditsFromToolbar ? null : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button

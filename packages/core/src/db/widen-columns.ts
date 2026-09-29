@@ -1,4 +1,10 @@
 import { getDbExec, type DbExec } from "./client.js";
+import {
+  isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -32,7 +38,15 @@ export async function widenIntColumnsToBigInt(
   columns: string[],
   injectedClient?: DbExec,
 ): Promise<void> {
-  if (!true || columns.length === 0) return;
+  if (
+    columns.length === 0 ||
+    (!isMigrationExecutingRuntime() &&
+      (isHostedFunctionInvocationRuntime() ||
+        (isProductionServerlessFunctionRuntime() &&
+          !isMigrationAuthorizedRuntime())))
+  ) {
+    return;
+  }
   if (!PLAIN_IDENTIFIER.test(table)) return;
   const client = injectedClient ?? getDbExec();
   let int4Columns: Set<string>;

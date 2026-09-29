@@ -397,6 +397,67 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
 CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
   ON mail_sync_accounts (COALESCE(last_watch_attempted_at, 0), id);`,
     },
+    {
+      version: 33,
+      name: "mail-scheduled-job-processing-leases",
+      sql: `ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_claim_id TEXT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_lease_until BIGINT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS send_started_at BIGINT;
+UPDATE scheduled_jobs
+  SET send_started_at = COALESCE(created_at, run_at, 0)
+  WHERE status = 'processing' AND type = 'send_later' AND send_started_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
+  ON scheduled_jobs(status, processing_lease_until, run_at, id);`,
+    },
+    {
+      version: 34,
+      name: "mail-scheduled-job-uncertain-send-recovery",
+      sql: `ALTER TABLE scheduled_jobs
+  DROP CONSTRAINT IF EXISTS scheduled_jobs_status_check;
+ALTER TABLE scheduled_jobs
+  ADD CONSTRAINT scheduled_jobs_status_check
+  CHECK(status IN ('pending', 'processing', 'done', 'cancelled', 'uncertain', 'retry_queued'));`,
+    },
+    {
+      version: 35,
+      name: "mail-gmail-account-quota-budget",
+      sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    quota_window_started_at BIGINT NOT NULL DEFAULT 0,
+    quota_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_background_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_backfill_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_cooldown_until BIGINT,
+    quota_cooldown_attempts INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
+      ON mail_gmail_quota_budgets(owner_email);`,
+    },
+    {
+      version: 36,
+      name: "mail-inbox-id-reconciliation",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_page_token TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_pending_ids_json TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_passes INTEGER NOT NULL DEFAULT 0;`,
+    },
+    {
+      version: 37,
+      name: "mail-gmail-quota-budget-timestamps-bigint",
+      sql: `-- guard:allow-destructive-ddl — widen quota timestamps so Date.now() values fit without losing existing data.
+ALTER TABLE mail_gmail_quota_budgets
+  ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT;
+ALTER TABLE mail_gmail_quota_budgets
+  ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT;`,
+    },
   ],
   { table: "mail_migrations" },
 );

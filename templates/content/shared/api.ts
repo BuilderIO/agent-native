@@ -192,6 +192,17 @@ export interface ContentNavigationContext {
   workspaceFilesDatabaseId: string | null;
 }
 
+export interface ContentLinkTarget {
+  documentId: string;
+  title: string;
+  icon: string | null;
+}
+
+export interface ContentLinkTargetsResponse {
+  links: Array<ContentLinkTarget & { id: string }>;
+  sources: Array<ContentLinkTarget & { sourcePath: string }>;
+}
+
 export interface DocumentDiscoveryPagination {
   offset: number;
   limit: number;

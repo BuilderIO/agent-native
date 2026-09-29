@@ -7,6 +7,7 @@ import {
 } from "h3";
 import { createError } from "h3";
 
+import { fail, isActionContractError } from "../action.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
 import { uploadFile } from "../file-upload/index.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
@@ -14,10 +15,19 @@ import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import {
   readBody,
+  readBodyWithSizeLimit,
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import {
+  exportResourcePackSchema,
+  default as exportResourcePack,
+} from "./actions/export-resource-pack.js";
+import {
+  importResourcePackSchema,
+  default as importResourcePack,
+} from "./actions/import-resource-pack.js";
 import {
   getResourceKind,
   isRemoteAgentPath,
@@ -28,6 +38,7 @@ import {
   type RemoteAgentManifest,
   type SkillMetadata,
 } from "./metadata.js";
+import { RESOURCE_PACK_MAX_BODY_BYTES } from "./pack.js";
 import {
   resourceGet,
   resourceGetByPath,
@@ -37,6 +48,7 @@ import {
   resourceDeleteIfCurrent,
   resourceList,
   resourceListAccessible,
+  resourceListOrganization,
   resourceMove,
   resourceEffectiveContext,
   ensurePersonalDefaults,
@@ -98,34 +110,6 @@ function resourceDownloadDisposition(path: string): string {
   );
 
   return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
-}
-
-function mergeScopedResources(
-  primary: ResourceMeta[],
-  inherited: ResourceMeta[],
-): ResourceMeta[] {
-  const seen = new Set(primary.map((resource) => resource.path));
-  return [
-    ...primary,
-    ...inherited.filter((resource) => !seen.has(resource.path)),
-  ];
-}
-
-async function listSharedResources(
-  orgId: string | null,
-  prefix?: string,
-  options?: Parameters<typeof resourceList>[2],
-): Promise<ResourceMeta[]> {
-  const organizationOwner = sharedResourceOwner(orgId);
-  const scopedOptions = { ...options, orgId };
-  if (organizationOwner === SHARED_OWNER) {
-    return resourceList(SHARED_OWNER, prefix, scopedOptions);
-  }
-  const [organization, legacyAppDefaults] = await Promise.all([
-    resourceList(organizationOwner, prefix, scopedOptions),
-    resourceList(SHARED_OWNER, prefix, scopedOptions),
-  ]);
-  return mergeScopedResources(organization, legacyAppDefaults);
 }
 
 async function resolveEmail(event: any): Promise<string> {
@@ -263,7 +247,7 @@ export async function handleListResources(event: any) {
   } else if (scope === "workspace") {
     resources = await resourceList(WORKSPACE_OWNER, prefix, scopedListOptions);
   } else if (scope === "shared") {
-    resources = await listSharedResources(orgId, prefix, localListOptions);
+    resources = await resourceListOrganization(orgId, prefix, localListOptions);
   } else {
     resources = await resourceListAccessible(email, prefix, scopedListOptions);
   }
@@ -299,7 +283,11 @@ export async function handleGetResourceTree(event: any) {
       scopedListOptions,
     );
   } else if (scope === "shared") {
-    resources = await listSharedResources(orgId, undefined, localListOptions);
+    resources = await resourceListOrganization(
+      orgId,
+      undefined,
+      localListOptions,
+    );
   } else {
     resources = await resourceListAccessible(
       email,
@@ -793,4 +781,71 @@ export async function handleUploadResource(event: any) {
 
   setResponseStatus(event, 201);
   return resource;
+}
+
+function packHandlerError(event: any, err: unknown) {
+  if (isActionContractError(err)) {
+    setResponseStatus(event, err.statusCode);
+    return {
+      error: err.message,
+      errorCode: err.errorCode,
+      ...(err.details ? { details: err.details } : {}),
+    };
+  }
+  throw err;
+}
+
+/** GET /_agent-native/resources/export-pack — same pack as export-resource-pack. */
+export async function handleExportResourcePack(event: any) {
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  try {
+    const parsed = exportResourcePackSchema.safeParse(getQuery(event));
+    if (!parsed.success) {
+      fail("Invalid resource pack export request.", {
+        errorCode: "invalid_action_request_body",
+        statusCode: 400,
+      });
+    }
+    return await exportResourcePack.run(parsed.data, {
+      userEmail: email,
+      orgId,
+      caller: "http",
+    });
+  } catch (err) {
+    return packHandlerError(event, err);
+  }
+}
+
+/** POST /_agent-native/resources/import-pack — same pack as import-resource-pack. */
+export async function handleImportResourcePack(event: any) {
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  try {
+    const body = await readBodyWithSizeLimit(
+      event,
+      RESOURCE_PACK_MAX_BODY_BYTES,
+    );
+    const parsed = importResourcePackSchema.safeParse(body);
+    if (!parsed.success) {
+      fail("Invalid resource pack import request.", {
+        errorCode: "invalid_action_request_body",
+        statusCode: 400,
+      });
+    }
+    return await importResourcePack.run(parsed.data, {
+      userEmail: email,
+      orgId,
+      caller: "http",
+    });
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      setResponseStatus(event, 400);
+      return {
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      };
+    }
+    return packHandlerError(event, err);
+  }
 }

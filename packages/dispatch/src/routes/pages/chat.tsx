@@ -354,7 +354,7 @@ export default function ChatRoute() {
             <div className="dispatch-chat-intro">
               <h1>
                 {t("dispatch.pages.chatHomeTitle", {
-                  defaultValue: "What should we do?",
+                  defaultValue: "What should we do today?",
                 })}
               </h1>
             </div>

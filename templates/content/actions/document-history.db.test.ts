@@ -18,9 +18,16 @@ import { recordDocumentHistoryTransition } from "../server/lib/document-history.
 import { serializeRegistryBlockToMdx } from "../shared/nfm-registry.js";
 
 const writeAppStateMock = vi.hoisted(() => vi.fn(async () => undefined));
+const listContentOrganizationMembershipsMock = vi.hoisted(() =>
+  vi.fn(async () => [] as { orgId: string }[]),
+);
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal()),
   writeAppState: writeAppStateMock,
+}));
+vi.mock("./_content-space-access.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  listContentOrganizationMemberships: listContentOrganizationMembershipsMock,
 }));
 
 const TEST_DB_PATH = join(
@@ -65,6 +72,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   editorTestRun += 1;
   editorGenerations.clear();
+  listContentOrganizationMembershipsMock.mockClear();
+  listContentOrganizationMembershipsMock.mockResolvedValue([]);
   writeAppStateMock.mockReset();
   writeAppStateMock.mockResolvedValue(undefined);
   await getDb().delete(schema.documentVersions);
@@ -707,6 +716,53 @@ describe("grouped document history", () => {
         .where(eq(schema.contentDatabases.id, databaseId));
     }
   });
+
+  it.each(["title edit", "version restore"] as const)(
+    "runs organization-membership preflight before the %s write transaction",
+    async (operation) => {
+      const current = await currentDocument();
+      const transaction = vi.spyOn(getDb(), "transaction");
+      listContentOrganizationMembershipsMock.mockImplementation(async () => {
+        expect(transaction).not.toHaveBeenCalled();
+        return [];
+      });
+
+      try {
+        if (operation === "title edit") {
+          await asOwner(() =>
+            updateDocument.run(
+              { id: DOCUMENT_ID, title: "Updated title" },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          );
+        } else {
+          await getDb().insert(schema.documentVersions).values({
+            id: "membership-preflight-restore",
+            ownerEmail: OWNER,
+            documentId: DOCUMENT_ID,
+            title: "Restored title",
+            content: current.content,
+            createdAt: new Date().toISOString(),
+          });
+          await asOwner(() =>
+            restoreDocumentVersion.run(
+              {
+                documentId: DOCUMENT_ID,
+                versionId: "membership-preflight-restore",
+                expectedUpdatedAt: current.updatedAt,
+              },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          );
+        }
+
+        expect(listContentOrganizationMembershipsMock).toHaveBeenCalledOnce();
+        expect(transaction).toHaveBeenCalled();
+      } finally {
+        transaction.mockRestore();
+      }
+    },
+  );
 
   it("soft-deletes only active owned inline databases removed by restore", async () => {
     const current = await currentDocument();

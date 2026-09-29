@@ -1301,10 +1301,6 @@ const overrides = {
   },
   settings: {
     title: "設定",
-    description: "Content の言語とワークスペース設定。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのドキュメントにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
     notificationsEmail: "メール",
     commentsRepliesMentions: "コメント、返信、メンション",
@@ -1313,10 +1309,6 @@ const overrides = {
     retry: "再試行",
     mcpAbout:
       "Content を Claude、ChatGPT、Cursor など MCP に対応した AI アプリに接続します。接続したアプリは、ドキュメントの検索、作成、編集など、Content での作業を代わりに行えます。アプリが見られるのは、あなたが見られるものだけです。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "共同編集者と共有ドキュメントのアクセスを管理します。",

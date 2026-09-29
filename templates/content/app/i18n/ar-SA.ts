@@ -1290,10 +1290,6 @@ const overrides = {
   },
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل في Content.",
-    emailNotifications: "إشعارات البريد الإلكتروني",
-    emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص على مستندك أو يرد أو يذكرك.",
     saveFailed: "فشل الحفظ",
     notificationsEmail: "البريد الإلكتروني",
     commentsRepliesMentions: "التعليقات والردود والإشارات",
@@ -1302,9 +1298,6 @@ const overrides = {
     retry: "إعادة المحاولة",
     mcpAbout:
       "اربط Content بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Content نيابةً عنك: البحث في المستندات وكتابتها وتحريرها. ولا يرى إلا ما يمكنك رؤيته.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription: "إدارة المتعاونين ووصول المستندات المشتركة.",
     openTeamSettings: "فتح وصول مساحة العمل",

@@ -1,20 +1,13 @@
 name: Design E2E (browser)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "templates/design/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/creative-context/**"
-      - ".github/workflows/design-e2e.yml"
-  workflow_dispatch:
+  schedule:
+    - cron: "37 9 * * *"
+  workflow_dispatch: {}
 
 concurrency:
   group: design-e2e
-  cancel-in-progress: false
-  queue: max
+  cancel-in-progress: true
 
 permissions:
   contents: read

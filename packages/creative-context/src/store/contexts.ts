@@ -786,11 +786,15 @@ export async function updateCreativeContext(
   await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
   const values = { ...patch, updatedAt: nowIso() };
+  const contextAccess = accessFilter(
+    schema.creativeContexts,
+    schema.creativeContextShares,
+  );
   await getDb().transaction(async (tx: any) => {
     await tx
       .update(schema.creativeContexts)
       .set(values)
-      .where(eq(schema.creativeContexts.id, contextId));
+      .where(and(eq(schema.creativeContexts.id, contextId), contextAccess));
     await appendAudit(tx, contextId, "update", { fields: Object.keys(patch) });
   });
   return getCreativeContextById(contextId);
@@ -799,17 +803,21 @@ export async function updateCreativeContext(
 export async function archiveCreativeContext(contextId: string) {
   await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
+  const contextAccess = accessFilter(
+    schema.creativeContexts,
+    schema.creativeContextShares,
+  );
   const [context] = await getDb()
     .select({ kind: schema.creativeContexts.kind })
     .from(schema.creativeContexts)
-    .where(eq(schema.creativeContexts.id, contextId))
+    .where(and(eq(schema.creativeContexts.id, contextId), contextAccess))
     .limit(1);
   if (context?.kind === "default")
     throw new Error("The Default Creative Context cannot be archived");
   await getDb()
     .update(schema.creativeContexts)
     .set({ archivedAt: nowIso(), updatedAt: nowIso() })
-    .where(eq(schema.creativeContexts.id, contextId));
+    .where(and(eq(schema.creativeContexts.id, contextId), contextAccess));
   return getCreativeContextById(contextId);
 }
 

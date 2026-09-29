@@ -167,12 +167,6 @@ export default {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Design.",
-    languageLabel: "Langue de l'interface",
-    labs: "Labs",
-    labsIntro:
-      "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
     mcpAbout:
@@ -227,6 +221,7 @@ export default {
     },
   },
   common: {
+    loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
   },
   editPanel: {
@@ -324,6 +319,8 @@ export default {
       bottomLeft: "BG",
       bottomRight: "BD",
       blend: "Fusion",
+      blendMode: "Mode de fusion",
+      removeBlendMode: "Supprimer le mode de fusion",
       border: "Bordure",
       outline: "Contour",
       inside: "Intérieur",
@@ -1507,11 +1504,6 @@ export default {
       permissionPromptNoPrompt: "Aucune invite Chrome ?",
       permissionPromptSettingsInstructions:
         "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis autorisez l’accès aux applications sur votre appareil.",
-      permissionCloseTitle: "Fermer la configuration ?",
-      permissionCloseDescription:
-        "La modification en direct ne fonctionnera pas tant que vous n’aurez pas autorisé l’accès dans Chrome.",
-      permissionCloseStay: "Garder la configuration ouverte",
-      permissionCloseAnyway: "Fermer quand même",
       permissionPromptRetry: "Réessayer la connexion",
     },
   },

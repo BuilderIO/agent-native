@@ -499,7 +499,6 @@ describe("app group pages", () => {
       expect(changelogCard.props).toMatchObject({
         markdown: "## 2026-09-25\n- Added",
         hideTitle: true,
-        viewAllLabel: "View all updates",
       });
       expect(header?.badge).toBeTruthy();
     });

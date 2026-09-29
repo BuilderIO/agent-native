@@ -1,5 +1,5 @@
 import { emailToName } from "@agent-native/core/client/collab";
-import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
@@ -86,7 +86,6 @@ import {
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -138,7 +137,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useContentActionMutation } from "@/hooks/use-content-action-mutation";
 import {
+  contentDatabaseConstrainedQueryFilter,
   useAddContentDatabaseSourceFieldProperty,
   useAddDatabaseItem,
   useContentDatabases,
@@ -1275,23 +1276,16 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
   );
-  const bindQueryClient = useQueryClient();
-  const bindSourceField = useActionMutation<
+  const bindSourceField = useContentActionMutation<
     ContentDatabaseResponse,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
-    onSuccess: () => {
-      void bindQueryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void bindQueryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId, databaseId },
-        ],
-      });
-    },
+    invalidates: [
+      ["action", "get-content-database"],
+      ["action", "list-document-properties", { documentId, databaseId }],
+      ["action", "get-content-database-source"],
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    ],
   });
   const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
     src.fields.map((field) => ({ source: src, field })),

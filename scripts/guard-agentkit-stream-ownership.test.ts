@@ -95,11 +95,11 @@ test("allows either owner on its own", () => {
   );
 });
 
-test("flags a compatibility shell that still mounts the legacy transcript", () => {
+test("flags a file that still defines a legacy AssistantChat controller", () => {
   assert.equal(
     findLegacyChatOwnerViolations(
       "packages/core/src/client/MultiTabAssistantChat.tsx",
-      `import { AssistantChat } from "./AssistantChat.js";\n\nreturn <AssistantChat />;`,
+      `export function AssistantChat() { return null; }`,
     ).length,
     1,
   );
@@ -111,25 +111,46 @@ test("flags legacy assistant-ui chat adapters even without a mounted surface", (
     "createCodeAgentChatAdapter",
     "createAgentChatRuntimeAdapter",
     "codeAgentTranscriptEventsToContent",
+    "AssistantMessageActionBar",
   ]) {
     assert.equal(
       findLegacyChatOwnerViolations(
         "packages/core/src/client/chat/legacy.ts",
-        `export { ${symbol} };`,
+        `import { ${symbol} } from "@agent-native/core/client/chat";`,
       ).length,
       1,
     );
   }
 });
 
-test("flags legacy component imports from public chat barrels", () => {
-  assert.equal(
+test("allows the supported AssistantChat alias from the public chat barrel", () => {
+  assert.deepEqual(
     findLegacyChatOwnerViolations(
       "templates/example/app/Layout.tsx",
-      `import { AssistantChat } from "@agent-native/core/client/agent-chat";`,
-    ).length,
-    1,
+      `import { AssistantChat } from "@agent-native/core/client/agent-chat";\nreturn <AssistantChat />;`,
+    ),
+    [],
   );
+});
+
+test("allows code-agent APIs with similar names outside Core chat imports", () => {
+  assert.deepEqual(
+    findLegacyChatOwnerViolations(
+      "packages/code-agents-ui/src/code-agent-agentkit-runtime.ts",
+      `export interface CodeAgentChatController {\n  sendMessage(): void;\n}`,
+    ),
+    [],
+  );
+});
+
+test("flags use of the removed createAdapter prop with a migration link", () => {
+  const [violation] = findLegacyChatOwnerViolations(
+    "templates/example/app/Layout.tsx",
+    `<AssistantChat createAdapter={createAdapter} />`,
+  );
+
+  assert.match(violation?.reason ?? "", /migration steps/u);
+  assert.match(violation?.reason ?? "", /agentkit-chat\.md/u);
 });
 
 test("allows compatibility types and sidebar/thread shells", () => {

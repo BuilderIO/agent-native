@@ -3,7 +3,6 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -16,10 +15,10 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
+  IconPhoto,
   IconArchive,
   IconCalendar,
   IconMicrophone2,
@@ -74,6 +73,7 @@ import {
   clipsChromeExtensionUrl,
   useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
+import { useRecordingSection } from "@/lib/recording-section";
 import { cn } from "@/lib/utils";
 
 import { FolderTree, type FolderNode } from "./folder-tree";
@@ -192,6 +192,8 @@ function ExpandedSidebarNavGroup({
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  // A recording page says which section it belongs to; see recording-section.
+  const recordingSection = useRecordingSection();
   const navigate = useNavigate();
   const t = useT();
   const isRecordingRoute = location.pathname.startsWith("/r/");
@@ -232,7 +234,18 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  const { data: libraryCount } = useRecordingsCount({ view: "library" });
+  // Clip count for the "Library" nav item — count-only, no row payload or
+  // title polling across the app shell.
+  // Counts match what each section actually lists: clips in Library,
+  // screenshots in Screenshots.
+  const { data: libraryCount } = useRecordingsCount({
+    view: "library",
+    kind: "video",
+  });
+  const { data: screenshotCount } = useRecordingsCount({
+    view: "library",
+    kind: "image",
+  });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
   const libFolderList: FolderNode[] = useMemo(
@@ -335,14 +348,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  // The redesigned Settings shell brings its own navigation, header, and
-  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
-  // so the app chrome stays out then too instead of appearing and vanishing.
+  // The Settings shell brings its own navigation, header, and agent toggle.
   const settingsOwnsChrome =
-    (location.pathname === "/settings" ||
-      location.pathname.startsWith("/settings/")) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -431,9 +440,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       match: (p) =>
         p === "/home" ||
         p.startsWith("/library") ||
-        p.startsWith("/r/") ||
+        (p.startsWith("/r/") &&
+          (recordingSection ?? "library") === "library") ||
         p.startsWith("/share/"),
       count: libraryCount,
+    },
+    {
+      to: "/screenshots",
+      label: t("navigation.screenshots"),
+      icon: IconPhoto,
+      match: (p) =>
+        p.startsWith("/screenshots") ||
+        (p.startsWith("/r/") && recordingSection === "screenshots"),
+      count: screenshotCount,
     },
     {
       to: "/shared",
@@ -446,7 +465,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       to: "/spaces",
       label: t("navigation.spaces"),
       icon: IconUsersGroup,
-      match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
+      match: (p) =>
+        p === "/spaces" ||
+        p.startsWith("/spaces/") ||
+        (p.startsWith("/r/") && recordingSection === "spaces"),
     },
     ...(meetingsLabEnabled
       ? [

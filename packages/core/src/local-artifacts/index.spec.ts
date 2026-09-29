@@ -480,6 +480,14 @@ describe("local artifact helpers", () => {
       ]),
     );
     expect(resources).toHaveLength(5);
+
+    const limited = await listLocalWorkspaceResources({
+      manifestPath,
+      maxResults: 1,
+      pathPrefix: "skills/review/",
+    });
+    expect(limited).toHaveLength(1);
+    expect(limited[0]?.path).toMatch(/^skills\/review\//);
   });
 
   it("reads and writes local workspace resources through resource paths", async () => {

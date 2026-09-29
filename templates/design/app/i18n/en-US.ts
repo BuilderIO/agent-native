@@ -165,12 +165,6 @@ export default {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    languageTitle: "Language",
-    languageDescription: "Choose the interface language for Design.",
-    languageLabel: "Interface language",
-    labs: "Labs",
-    labsIntro:
-      "These are new, unstable features and may have bugs. We value your feedback.",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
     mcpAbout:
@@ -225,6 +219,7 @@ export default {
     },
   },
   common: {
+    loading: "Loading...",
     genericError: "Something went wrong",
   },
   editPanel: {
@@ -322,6 +317,8 @@ export default {
       bottomLeft: "BL",
       bottomRight: "BR",
       blend: "Blend",
+      blendMode: "Blend mode",
+      removeBlendMode: "Remove blend mode",
       border: "Border",
       outline: "Outline",
       inside: "Inside",
@@ -1479,11 +1476,6 @@ export default {
       permissionPromptNoPrompt: "No Chrome prompt?",
       permissionPromptSettingsInstructions:
         "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
-      permissionCloseTitle: "Close setup?",
-      permissionCloseDescription:
-        "Live editing won't work until you allow access in Chrome.",
-      permissionCloseStay: "Keep setup open",
-      permissionCloseAnyway: "Close anyway",
       permissionPromptRetry: "Retry connection",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",

@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "無法載入內容脈絡。",
   "composer.contextLinkRequired": "請輸入連結。",
   "composer.submitFailed": "無法提交。請重試。",
+  "composer.attachmentsRemainAfterSubmit":
+    "訊息已送出，但仍有附件。請先移除附件再傳送下一則訊息。",
   "composer.addContext": "新增上下文",
   "composer.contextActionFailed": "無法新增上下文。",
   "composer.contextBack": "返回",
@@ -71,6 +73,11 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及檔案、代理或資源",
   "commands.new": "與 /clear 相同",
   "commands.plan": "切換到唯讀規劃模式",
+  "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
+  "observability.promoteMustContainLabel": "升級後的評估回覆必須包含的文字",
+  "observability.promoteNeedsContains":
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.viewDetails": "查看詳細資料",
   "observability.hideDetails": "隱藏詳細資料",
   "observability.input": "輸入",
@@ -607,6 +614,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推薦",
   "integrations.subtitle": "連線您的代理可以使用的工具。",
   "mcpIntegrations.menuLabel": "整合",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 應用需要 {{packageName}}。請使用 {{installCommand}} 安裝。",
   "mcpIntegrations.menuDescription": "將工具和服務連線至代理",
   "mcpIntegrations.title": "連線整合",
   "mcpIntegrations.description": "瀏覽 {{count}} 個代理整合，或新增自訂整合。",
@@ -1237,6 +1246,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新電子郵件",
   "settings.emailNewPlaceholder": "輸入新電子郵件",
   "usage.builderCredits": "Builder 點數",
+  "featureFlags.builderCreditReferrals.name": "Builder 點數推薦",
+  "featureFlags.builderCreditReferrals.description":
+    "在使用量中顯示已連結 Builder 工作區的推薦詳情。",
   "usage.inviteFriends": "邀請朋友",
   "usage.inviteCredits": "朋友訂閱後可獲得 {{amount}} 點 Builder 點數。",
   "usage.copyInviteLink": "複製邀請連結",
