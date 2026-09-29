@@ -129,7 +129,6 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: async () => ({}),
   getOrgSetting: async () => null,
   getUserSetting: async (_email: string, key: string) =>
     key === "sql-dashboard-dashboard-a" ? state.legacyDashboard : null,

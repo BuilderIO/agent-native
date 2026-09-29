@@ -48,12 +48,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
-import {
-  CrmSettingsPanelHeader,
-  crmSettingsPanelClassName,
-  type CrmSettingsPanelProps,
-} from "./SettingsPanelHeader";
-
 interface CrmListRow {
   id: string;
   connectionId: string;
@@ -74,7 +68,7 @@ interface CrmConnectionSummary {
 const LISTS_PARAMS = { limit: 100 } as const;
 const LISTS_KEY = ["action", "list-crm-lists", LISTS_PARAMS];
 
-export function ListsSettings({ embedded }: CrmSettingsPanelProps = {}) {
+export function ListsSettings() {
   const t = useT();
   const queryClient = useQueryClient();
   const listsQuery = useActionQuery<{ lists: CrmListRow[] }>(
@@ -110,23 +104,17 @@ export function ListsSettings({ embedded }: CrmSettingsPanelProps = {}) {
   }
 
   return (
-    <div className={crmSettingsPanelClassName(embedded)}>
-      <CrmSettingsPanelHeader
-        embedded={embedded}
-        title={t("lists.title")}
-        description={t("lists.description")}
-        descriptionClassName="max-w-xl"
-        action={
-          <CreateListDialog
-            connections={connectionsQuery.data?.connections ?? []}
-            onCreated={() =>
-              void queryClient.invalidateQueries({
-                queryKey: ["action", "list-crm-lists"],
-              })
-            }
-          />
-        }
-      />
+    <div className="w-full">
+      <div className="flex justify-end">
+        <CreateListDialog
+          connections={connectionsQuery.data?.connections ?? []}
+          onCreated={() =>
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "list-crm-lists"],
+            })
+          }
+        />
+      </div>
 
       {listsQuery.isError ? (
         <div className="mt-6 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">

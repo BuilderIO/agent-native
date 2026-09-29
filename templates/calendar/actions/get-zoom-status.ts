@@ -9,6 +9,7 @@ export default defineAction({
     "Get Zoom OAuth status for the current user. Use before creating Zoom meetings or when helping the user connect Zoom.",
   schema: z.object({}),
   http: { method: "GET" },
+  dedupe: false,
   run: async () => {
     const email = getRequestUserEmail();
     return getZoomStatus(email);

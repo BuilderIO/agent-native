@@ -14,6 +14,7 @@ import {
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
+  workspaceAppDirectLaunchHref,
   workspaceAppHref,
   workspaceAppRoute,
 } from "./workspace-apps";
@@ -33,10 +34,108 @@ describe("workspace app routes", () => {
     ).toBe("https://workspace.example.test/feedback-leaderboard/leaderboard");
   });
 
+  it("opens grant-only apps directly at their registered URL", () => {
+    expect(
+      workspaceAppDirectLaunchHref({
+        path: "",
+        url: "https://sales.example.test/sales",
+      }),
+    ).toBe("https://sales.example.test/sales");
+    expect(
+      workspaceAppDirectLaunchHref({
+        path: "/sales",
+        url: "https://sales.example.test/sales",
+      }),
+    ).toBeNull();
+  });
+
   it("round-trips encoded app ids", () => {
     const route = workspaceAppRoute("sales ops");
     expect(route).toBe("/apps/sales%20ops");
     expect(workspaceAppIdFromRoute(route)).toBe("sales ops");
+  });
+
+  it("marks fallback app descriptions for localization but preserves custom copy", () => {
+    const calendar = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "calendar",
+          name: "Calendar",
+          description:
+            "Agent-Native Google Calendar — manage events, sync, and public booking",
+          path: "/calendar",
+        },
+      ],
+      [],
+    ).find((app) => app.id === "calendar");
+    expect(calendar).toMatchObject({
+      description:
+        "Agent-Native Google Calendar — manage events, sync, and public booking",
+      defaultDescriptionKey:
+        "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+    });
+
+    const mail = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "mail",
+          name: "Mail",
+          description: "A workspace-specific description",
+          path: "/mail",
+        },
+      ],
+      [],
+    ).find((app) => app.id === "mail");
+    expect(mail).toMatchObject({
+      description: "A workspace-specific description",
+      defaultDescriptionKey: undefined,
+    });
+
+    const emptyDescription = mergeChatFirstWorkspaceApps(
+      [{ id: "mail", name: "Mail", description: "", path: "/mail" }],
+      [],
+    ).find((app) => app.id === "mail");
+    expect(emptyDescription).toMatchObject({
+      description: "",
+      defaultDescriptionKey: undefined,
+    });
+  });
+
+  it("includes granted-only apps without replacing registered app summaries", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "Calendar", name: "Workspace Calendar", path: "/calendar" }],
+      [],
+      [
+        {
+          id: "calendar",
+          name: "Granted Calendar",
+          url: "https://calendar.example.test",
+        },
+        {
+          id: "sales-tools",
+          name: "Sales Tools",
+          description: "Sales workspace tools",
+          url: "https://sales.example.test",
+        },
+      ],
+    );
+
+    const calendarApps = apps.filter(
+      (app) => app.id.toLowerCase() === "calendar",
+    );
+    expect(calendarApps).toHaveLength(1);
+    expect(calendarApps[0]).toMatchObject({
+      id: "calendar",
+      name: "Workspace Calendar",
+      path: "/calendar",
+    });
+    expect(apps.find((app) => app.id === "sales-tools")).toMatchObject({
+      name: "Sales Tools",
+      description: "Sales workspace tools",
+      path: "",
+      url: "https://sales.example.test",
+      status: "ready",
+    });
   });
 
   it("does not mark app paths or the apps index as an active app route", () => {
@@ -201,6 +300,7 @@ describe("workspace app routes", () => {
       undefined,
       ALL_CHAT_FIRST_DEFAULTS,
     );
+    expect(apps.find((app) => app.id === "content")?.description).toBeTruthy();
     expect(apps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -270,6 +370,7 @@ describe("workspace app routes", () => {
       path: "/internal-mail",
       url: null,
       source: "workspace",
+      description: expect.any(String),
     });
   });
 

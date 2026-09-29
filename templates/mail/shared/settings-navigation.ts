@@ -1,7 +1,7 @@
 /**
  * Where each Mail setting lives. The agent's `navigate` action, in-app links,
- * and both Settings pages (the redesigned shell and today's tabs) read this
- * one map, so a section id means the same place everywhere.
+ * and the Settings page read this one map, so a section id means the same
+ * place everywhere.
  */
 
 import {
@@ -50,20 +50,6 @@ const SECTION_BY_ALIAS: Readonly<Record<string, MailSettingsSection>> = {
   team: "members",
 };
 
-// Where each section lives in today's tabbed Settings.
-const LEGACY_TAB_BY_SECTION: Readonly<Record<MailSettingsSection, string>> = {
-  general: "general",
-  drafting: "drafting",
-  snippets: "snippets",
-  rules: "automations",
-  "ai-filter": "ai-filter",
-  "gmail-filters": "gmail-filters",
-  aliases: "aliases",
-  tracking: "tracking",
-  slack: "slack",
-  members: "organization",
-};
-
 const AREA_IDS: ReadonlySet<string> = new Set(MAIL_SETTINGS_AREA_IDS);
 
 export function isMailSettingsArea(id: string): id is MailSettingsAreaId {
@@ -92,7 +78,7 @@ export function mailSettingsRoute(section: string): string {
 }
 
 /**
- * Where a `?section=` link goes in the redesigned Settings, or null when it
+ * Where a `?section=` link goes in Settings, or null when it
  * isn't one of Mail's (the shell resolves core ids itself).
  */
 export function mailSettingsRedirect(
@@ -108,7 +94,7 @@ function settingsSegments(pathname: string): string[] | null {
   return pathname.slice(prefix.length).split("/").filter(Boolean);
 }
 
-/** The Mail section a redesigned Settings path shows, if any. */
+/** The Mail section a Settings path shows, if any. */
 export function mailSettingsSectionFromPath(
   pathname: string,
 ): MailSettingsSection | undefined {
@@ -122,22 +108,4 @@ export function mailSettingsSectionFromPath(
   if (page === "channels" && sub === "slack") return "slack";
   if (page === "members") return "members";
   return undefined;
-}
-
-/**
- * Today's tab for a path the redesigned routes use, when today's tabs can't
- * resolve that path themselves (`/settings/app/rules` would open General).
- */
-export function legacyMailSettingsTabForPath(pathname: string): string | null {
-  const section = mailSettingsSectionFromPath(pathname);
-  if (!section || section === "general" || section === "members") return null;
-  return LEGACY_TAB_BY_SECTION[section];
-}
-
-/** Today's tab id for a `?section=` value, or null when Mail doesn't know it. */
-export function legacyMailSettingsTab(
-  section: string | null | undefined,
-): string | null {
-  const resolved = mailSettingsSectionFor(section);
-  return resolved ? LEGACY_TAB_BY_SECTION[resolved] : null;
 }

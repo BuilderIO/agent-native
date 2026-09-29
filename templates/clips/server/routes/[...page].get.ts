@@ -4,7 +4,7 @@ import {
   injectDocumentMarkup,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
@@ -82,6 +82,7 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   const recordingId = clipIdFromPath(requestUrl.pathname);
   if (!recordingId) return null;
 
+  // guard:allow-unscoped — the cached anonymous shell preloads only public, password-free clip metadata; tokenized records never enter SSR discovery.
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
@@ -96,7 +97,13 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
       trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        eq(schema.recordings.visibility, "public"),
+        isNull(schema.recordings.password),
+      ),
+    )
     .limit(1);
 
   if (

@@ -1,3 +1,4 @@
+import { getUserLabs } from "../labs/store.js";
 import {
   DEFAULT_SKILL_SCOPE,
   isRuntimeVisibleScope,
@@ -16,6 +17,7 @@ export interface SkillMeta {
   name: string;
   description: string;
   scope: SkillScope;
+  requiresLab?: string;
 }
 
 export interface Skill {
@@ -104,6 +106,7 @@ export function parseSkillFrontmatter(
     else if (key === "description" && value) result.description = value;
     else if (key === "scope" && value)
       result.scope = normalizeSkillScope(value, sourceLabel ?? result.name);
+    else if (key === "requires-lab" && value) result.requiresLab = value;
   }
 
   return result;
@@ -211,6 +214,7 @@ function readSkillsDir(
           name,
           description: meta.description ?? "",
           scope: meta.scope ?? DEFAULT_SKILL_SCOPE,
+          ...(meta.requiresLab ? { requiresLab: meta.requiresLab } : {}),
         },
         content,
         dir: path.relative(rootForRelative, skillDirAbs).replace(/\\/g, "/"),
@@ -361,6 +365,36 @@ export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
   );
 }
 
+export async function getRuntimeSkillsForUser(
+  bundle: AgentsBundle,
+  userEmail?: string | null,
+): Promise<Skill[]> {
+  const skills = getRuntimeSkills(bundle);
+  const requiredLabs = new Set(
+    skills
+      .map((skill) => skill.meta.requiresLab)
+      .filter((key): key is string => Boolean(key)),
+  );
+  if (requiredLabs.size === 0) return skills;
+  const enabledLabs = await getEnabledSkillLabsForUser(requiredLabs, userEmail);
+  return skills.filter(
+    (skill) =>
+      !skill.meta.requiresLab || enabledLabs.has(skill.meta.requiresLab),
+  );
+}
+
+export async function getEnabledSkillLabsForUser(
+  requiredLabs: Iterable<string>,
+  userEmail?: string | null,
+): Promise<ReadonlySet<string>> {
+  const keys = [...new Set(requiredLabs)];
+  if (keys.length === 0 || !userEmail?.trim()) return new Set();
+
+  // Lab state is account-specific; never put it on the process-cached bundle.
+  const labs = await getUserLabs(userEmail.trim());
+  return new Set(keys.filter((key) => labs[key] === true));
+}
+
 export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter(
     (skill) => skill.meta.scope !== "runtime",
@@ -443,11 +477,11 @@ ${lines.join("\n")}
 </skills>`;
 }
 
-export function generateSkillsPromptBlock(bundle: AgentsBundle): string {
-  return generateSkillsPromptBlockForEntries(
-    getRuntimeSkills(bundle),
-    "runtime",
-  );
+export function generateSkillsPromptBlock(
+  bundle: AgentsBundle,
+  runtimeSkills = getRuntimeSkills(bundle),
+): string {
+  return generateSkillsPromptBlockForEntries(runtimeSkills, "runtime");
 }
 
 export function generateDevelopmentSkillsPromptBlock(

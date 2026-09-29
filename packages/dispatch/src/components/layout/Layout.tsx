@@ -58,10 +58,6 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import {
-  useFeatureFlagState,
-  type FeatureFlagState,
-} from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
@@ -73,7 +69,6 @@ import {
   AppSidebarHeader,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -112,6 +107,7 @@ import { toast } from "sonner";
 
 import { useIsMobile } from "../../hooks/use-mobile";
 import { cn } from "../../lib/utils";
+import { normalizeWorkspaceAppLayout } from "../../lib/workspace-app-layout";
 import {
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
@@ -123,6 +119,7 @@ import {
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
+  workspaceAppDirectLaunchHref,
   workspaceAppRoute,
   workspaceAppTargetPath,
   type WorkspaceAppSummary,
@@ -267,6 +264,7 @@ interface DispatchChatFirstPane {
 interface ChatFirstConnectedAppSummary {
   id: string;
   name: string;
+  description?: string | null;
   url?: string | null;
   homeUrl?: string | null;
   source?: string;
@@ -289,6 +287,7 @@ const DispatchExtensionsContext = createContext<
 >(undefined);
 interface DispatchWorkspaceAppLauncher {
   apps: readonly ChatFirstAppItem[];
+  workspaceApps: readonly WorkspaceAppSummary[];
   isLoading: boolean;
   error?: unknown;
   openApp: (app: ChatFirstAppItem) => void;
@@ -362,18 +361,11 @@ export function shouldQueryChatFirstApps(
 }
 
 /**
- * The redesigned Settings brings its own navigation, header, and agent
- * toggle, so it renders full width. While the flag loads it shows the
- * shell's skeleton, which needs the same frame.
+ * Settings brings its own navigation, header, and agent toggle, so it renders
+ * full width.
  */
-export function isRedesignedSettingsPath(
-  pathname: string,
-  settingsRedesign: FeatureFlagState,
-): boolean {
-  return (
-    isSettingsPathname(localDispatchPath(pathname)) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading")
-  );
+export function isSettingsShellPath(pathname: string): boolean {
+  return isSettingsPathname(localDispatchPath(pathname));
 }
 
 function chatFirstPrimaryTabForPath(
@@ -401,7 +393,7 @@ function chatFirstPrimaryTabForPath(
   return undefined;
 }
 
-function dispatchNavLinkTarget(path: string): string {
+export function dispatchNavLinkTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
   if (!basePath) return path;
@@ -1399,10 +1391,7 @@ export function Layout({
   );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
-  const isRedesignedSettingsRoute = isRedesignedSettingsPath(
-    location.pathname,
-    useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
-  );
+  const isSettingsShellRoute = isSettingsShellPath(location.pathname);
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
@@ -1436,7 +1425,9 @@ export function Layout({
     );
   }, [electronEmbedded, location.pathname, location.search]);
   const [chatFirstAppLayout, setChatFirstAppLayout] =
-    useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
+    useState<ChatFirstAppLayoutPreference>(() =>
+      normalizeWorkspaceAppLayout(readChatFirstAppLayout()),
+    );
   const chatFirstAppLayoutHydratedRef = useRef(false);
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
@@ -1444,7 +1435,7 @@ export function Layout({
     { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
   // Not list_apps: MCP app access restricts routing, not what the workspace
-  // shows. list-connected-agents already applies both built-in app layers.
+  // shows. list-connected-agents already applies the built-in app config.
   const chatFirstConnectedAppsQuery = useActionQuery<
     ChatFirstConnectedAppSummary[]
   >(
@@ -1467,6 +1458,30 @@ export function Layout({
       ),
     [chatFirstAppsQuery.data, chatFirstEnabledBuiltinAppIds],
   );
+  const chatHomeWorkspaceApps = useMemo(
+    () =>
+      mergeChatFirstWorkspaceApps(
+        chatFirstWorkspaceApps,
+        chatFirstEnabledBuiltinAppIds,
+        chatFirstConnectedAppsQuery.data?.map((app) => ({
+          id: app.id,
+          name: app.name,
+          description: app.description,
+          url: app.homeUrl?.trim() || app.url,
+          source: workspaceAppSourceFromConnected(app.source),
+        })),
+      ).filter(
+        (app) =>
+          app.status !== "pending" &&
+          app.archived !== true &&
+          isWorkspaceAppVisibleInDefaultLaunchers(app),
+      ),
+    [
+      chatFirstConnectedAppsQuery.data,
+      chatFirstEnabledBuiltinAppIds,
+      chatFirstWorkspaceApps,
+    ],
+  );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
     const registrations = new Map<string, ChatFirstAppRegistration>();
     for (const app of chatFirstWorkspaceApps) {
@@ -1481,9 +1496,9 @@ export function Layout({
       });
     }
     for (const app of chatFirstConnectedAppsQuery.data ?? []) {
-      const id = app.id.trim();
-      if (!id || registrations.has(id.toLowerCase())) continue;
-      registrations.set(id.toLowerCase(), {
+      const id = app.id.trim().toLowerCase();
+      if (!id || registrations.has(id)) continue;
+      registrations.set(id, {
         id,
         name: app.name,
         source: workspaceAppSourceFromConnected(app.source),
@@ -1512,6 +1527,14 @@ export function Layout({
       const registration = chatFirstAppRegistrations.find(
         (candidate) => candidate.id.toLowerCase() === app.id.toLowerCase(),
       );
+      const hasWorkspaceRoute = Boolean(registration?.path?.trim());
+      if (!hasWorkspaceRoute) {
+        if (registration) {
+          const directHref = workspaceAppDirectLaunchHref(registration);
+          if (directHref) navigateToWorkspaceApp(directHref);
+        }
+        return;
+      }
       const directHref =
         registration &&
         !isWorkspaceSsoApp(registration) &&
@@ -1531,6 +1554,7 @@ export function Layout({
   const chatHomeAppLauncher = useMemo<DispatchWorkspaceAppLauncher>(
     () => ({
       apps: chatFirstAppItems,
+      workspaceApps: chatHomeWorkspaceApps,
       isLoading:
         chatFirstAppsQuery.isLoading || chatFirstConnectedAppsQuery.isLoading,
       error: chatFirstAppsQuery.isError
@@ -1554,6 +1578,7 @@ export function Layout({
       chatFirstConnectedAppsQuery.isLoading,
       chatFirstConnectedAppsQuery.refetch,
       chatFirstAppItems,
+      chatHomeWorkspaceApps,
       openChatFirstApp,
     ],
   );
@@ -1845,18 +1870,7 @@ export function Layout({
     void readClientAppState<unknown>("chat-first-app-layout")
       .then((value) => {
         if (!value || typeof value !== "object") return;
-        const candidate = value as Partial<ChatFirstAppLayoutPreference>;
-        const ids = (input: unknown) =>
-          Array.isArray(input)
-            ? input.filter(
-                (id): id is string =>
-                  typeof id === "string" && id.trim().length > 0,
-              )
-            : [];
-        setChatFirstAppLayout({
-          pinnedIds: [...new Set(ids(candidate.pinnedIds))],
-          orderedIds: [...new Set(ids(candidate.orderedIds))],
-        });
+        setChatFirstAppLayout(normalizeWorkspaceAppLayout(value));
       })
       .catch(() => {
         // Device-local layout remains the fallback when workspace state is unavailable.
@@ -1865,12 +1879,15 @@ export function Layout({
 
   const persistChatFirstAppLayout = useCallback(
     (layout: ChatFirstAppLayoutPreference) => {
-      setChatFirstAppLayout(layout);
-      void writeClientAppState("chat-first-app-layout", layout).catch(() => {
-        setChatFirstNotice(
-          "App order changed locally, but workspace state could not be synced.",
-        );
-      });
+      const normalizedLayout = normalizeWorkspaceAppLayout(layout);
+      setChatFirstAppLayout(normalizedLayout);
+      void writeClientAppState("chat-first-app-layout", normalizedLayout).catch(
+        () => {
+          setChatFirstNotice(
+            "App order changed locally, but workspace state could not be synced.",
+          );
+        },
+      );
     },
     [],
   );
@@ -2332,9 +2349,7 @@ export function Layout({
   }
 
   const showAgentControls =
-    !isChatRoute &&
-    !isRedesignedSettingsRoute &&
-    !pageOwnsToolbar(localPathname);
+    !isChatRoute && !isSettingsShellRoute && !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2557,7 +2572,7 @@ export function Layout({
       <DispatchWorkspaceAppLauncherContext.Provider value={chatHomeAppLauncher}>
         <HeaderActionsProvider>
           <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-            {isRedesignedSettingsRoute ? null : (
+            {isSettingsShellRoute ? null : (
               <aside
                 data-collapsed={sidebarCollapsed ? "true" : "false"}
                 className={cn(

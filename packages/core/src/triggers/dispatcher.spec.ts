@@ -12,7 +12,10 @@ import {
   initTriggerDispatcher,
   refreshEventSubscriptions,
 } from "./dispatcher.js";
-import { MAX_AUTOMATION_TRIGGER_EVENT_FAILURES } from "./event-queue.js";
+import {
+  expireAutomationTriggerEvent,
+  MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
+} from "./event-queue.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
@@ -66,6 +69,15 @@ const triggerQueueMocks = vi.hoisted(() => {
       }
       return Math.min(staleRows.length, input.limit ?? 1_000);
     }),
+    hasPendingStale: vi.fn(async (input: Record<string, any>) =>
+      rows.some(
+        (row) =>
+          row.appId === input.appId &&
+          row.eventName === input.eventName &&
+          row.status === "pending" &&
+          Date.parse(row.emittedAt) < Date.parse(input.emittedBefore),
+      ),
+    ),
     enqueue: vi.fn(async (input: Record<string, any>) => {
       const existing = rows.find(
         (row) =>
@@ -90,8 +102,42 @@ const triggerQueueMocks = vi.hoisted(() => {
         appId?: string | null,
         limit = 100,
         cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
-      ) =>
-        [
+        options: {
+          excludeStaleEventBefore?: {
+            eventName: string;
+            emittedBefore: string;
+          };
+        } = {},
+      ) => {
+        const excludedStaleHeads = new Set(
+          options.excludeStaleEventBefore
+            ? rows
+                .filter(
+                  (row) =>
+                    row.appId === (appId ?? null) &&
+                    row.status === "pending" &&
+                    row.eventName ===
+                      options.excludeStaleEventBefore?.eventName &&
+                    Date.parse(row.emittedAt) <
+                      Date.parse(
+                        options.excludeStaleEventBefore?.emittedBefore ?? "",
+                      ),
+                )
+                .filter(
+                  (row) =>
+                    !rows.some(
+                      (earlier) =>
+                        earlier.appId === row.appId &&
+                        earlier.triggerId === row.triggerId &&
+                        earlier.sequenceId < row.sequenceId &&
+                        (earlier.status === "pending" ||
+                          earlier.status === "processing"),
+                    ),
+                )
+                .map((row) => row.triggerId)
+            : [],
+        );
+        return [
           ...new Set(
             rows
               .filter(
@@ -106,12 +152,14 @@ const triggerQueueMocks = vi.hoisted(() => {
         ]
           .filter(
             (triggerId) =>
+              !excludedStaleHeads.has(triggerId) &&
               (cursor.afterTriggerId === undefined ||
                 triggerId > cursor.afterTriggerId) &&
               (cursor.throughTriggerId === undefined ||
                 triggerId <= cursor.throughTriggerId),
           )
-          .slice(0, limit),
+          .slice(0, limit);
+      },
     ),
     getSweepCursor: vi.fn(async () => sweepCursor),
     setSweepCursor: vi.fn(
@@ -137,16 +185,23 @@ const triggerQueueMocks = vi.hoisted(() => {
       row.claimedAt = Date.now();
       return { ...row };
     }),
-    complete: vi.fn(async (id: string, claimedAt: number, attempts: number) => {
-      const row = rows.find((candidate) => candidate.id === id);
-      if (
-        row?.status === "processing" &&
-        row.claimedAt === claimedAt &&
-        row.attempts === attempts
-      ) {
-        row.status = "completed";
-      }
-    }),
+    complete: vi.fn(
+      async (
+        id: string,
+        claimedAt: number,
+        attempts: number,
+        _options: { timeoutMs?: number } = {},
+      ) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        if (
+          row?.status === "processing" &&
+          row.claimedAt === claimedAt &&
+          row.attempts === attempts
+        ) {
+          row.status = "completed";
+        }
+      },
+    ),
     retry: vi.fn(
       async (
         id: string,
@@ -154,7 +209,7 @@ const triggerQueueMocks = vi.hoisted(() => {
         attempts: number,
         failureAttempts: number,
         error: unknown,
-        options: { countFailure?: boolean } = {},
+        options: { countFailure?: boolean; timeoutMs?: number } = {},
       ) => {
         const row = rows.find((candidate) => candidate.id === id);
         if (
@@ -177,6 +232,7 @@ const triggerQueueMocks = vi.hoisted(() => {
         attempts: number,
         failureAttempts: number,
         error: unknown,
+        _options: { timeoutMs?: number } = {},
       ) => {
         const row = rows.find((candidate) => candidate.id === id);
         if (
@@ -253,6 +309,7 @@ vi.mock("./event-queue.js", () => ({
     },
   ),
   expireStaleAutomationTriggerEvents: triggerQueueMocks.expire,
+  hasPendingStaleAutomationTriggerEvents: triggerQueueMocks.hasPendingStale,
   getAutomationTriggerSweepCursor: triggerQueueMocks.getSweepCursor,
   listReadyAutomationTriggerIds: triggerQueueMocks.ready,
   purgeExpiredAutomationTriggerEvents: triggerQueueMocks.purge,
@@ -455,6 +512,82 @@ Respond to the event.`,
     });
   }
 
+  it("stops the durable drain after a claim returns no claimable head", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    triggerQueueMocks.rows.push({
+      id: "queue-blocked-head",
+      triggerId: "resource-1",
+      appId: "mail",
+      eventName: "test.event.fired",
+      eventId: "blocked-head-event",
+      payload: {},
+      emittedAt: new Date().toISOString(),
+      sequenceId: 1,
+      status: "pending",
+      attempts: 0,
+      failureAttempts: 0,
+      availableAt: Date.now(),
+    });
+    triggerQueueMocks.claim.mockResolvedValueOnce(null);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.retry).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.fail).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.rows[0]).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      failureAttempts: 0,
+    });
+
+    const readyScans = triggerQueueMocks.ready.mock.calls.length;
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(readyScans);
+    expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+  });
+
+  it("backs off the interval worker when no trigger is claimable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+
+    try {
+      await initTriggerDispatcher({
+        appId: "mail",
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+
+      const worker = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      expect(worker).toBeTypeOf("function");
+      const signal = new AbortController().signal;
+
+      await worker?.(signal);
+      expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(1);
+
+      await worker?.(signal);
+      expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await worker?.(signal);
+      expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drains queued events within the durable sweep without starting request intervals", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "serverless.event.fired";
@@ -510,10 +643,17 @@ Respond to the event.`,
         "mail",
         100,
         expect.any(Object),
+        expect.objectContaining({ timeoutMs: 5_000 }),
       );
       expect(
         triggerQueueMocks.rows.every((row) => row.status === "completed"),
       ).toBe(true);
+      expect(triggerQueueMocks.complete).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Number),
+        expect.any(Number),
+        { timeoutMs: 5_000 },
+      );
       expect(runAgentLoopMock).toHaveBeenCalledTimes(6);
       expect(runSpy).toHaveBeenCalledTimes(6);
       for (const [options] of runSpy.mock.calls) {
@@ -524,6 +664,147 @@ Respond to the event.`,
     } finally {
       runSpy.mockRestore();
     }
+  });
+
+  it("skips the durable cursor query when aborted or out of query budget", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as
+      | ((context: {
+          deadlineAt: number;
+          signal?: AbortSignal;
+        }) => Promise<void>)
+      | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    await sweep?.({ deadlineAt: Date.now() + 1 });
+    const controller = new AbortController();
+    controller.abort();
+    await sweep?.({
+      deadlineAt: Date.now() + 90_000,
+      signal: controller.signal,
+    });
+
+    expect(triggerQueueMocks.getSweepCursor).not.toHaveBeenCalled();
+  });
+
+  it("bounds retry and terminal-failure writes in durable drains", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "serverless.bounded-queue-write";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const eventHandler = subscribeMock.mock.calls.find(
+      ([name]) => name === eventName,
+    )?.[1];
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    expect(eventHandler).toBeTypeOf("function");
+    expect(sweep).toBeTypeOf("function");
+
+    await eventHandler?.(
+      { messageId: "retry-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "retry-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    const runError = new Error("resource read failed");
+    resourceGetByPathMock.mockRejectedValueOnce(runError);
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.retry).toHaveBeenCalledWith(
+      "queue-1",
+      expect.any(Number),
+      1,
+      0,
+      runError,
+      { timeoutMs: 5_000 },
+    );
+
+    await triggerQueueMocks.enqueue({
+      appId: "mail",
+      triggerId: "z-terminal-trigger",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName,
+      eventId: "terminal-event",
+      payload: { messageId: "terminal-message" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date().toISOString(),
+    });
+    triggerQueueMocks.rows.at(-1)!.failureAttempts =
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES;
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.fail).toHaveBeenCalledWith(
+      "queue-2",
+      expect.any(Number),
+      1,
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
+      expect.any(Error),
+      { timeoutMs: 5_000 },
+    );
+  });
+
+  it("does not write the durable cursor when aborted during the ready scan", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    let resolveReady: ((triggerIds: string[]) => void) | undefined;
+    triggerQueueMocks.ready.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReady = resolve;
+        }),
+    );
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as
+      | ((context: {
+          deadlineAt: number;
+          signal?: AbortSignal;
+        }) => Promise<void>)
+      | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    const controller = new AbortController();
+    const sweepPromise = sweep?.({
+      deadlineAt: Date.now() + 90_000,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() =>
+      expect(triggerQueueMocks.ready).toHaveBeenCalledOnce(),
+    );
+    controller.abort();
+    resolveReady?.(["trigger-1"]);
+    await sweepPromise;
+
+    expect(triggerQueueMocks.setSweepCursor).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.claim).not.toHaveBeenCalled();
   });
 
   it("keeps five rolling workers busy fairly across five FIFO trigger queues", async () => {
@@ -845,15 +1126,31 @@ Respond to the event.`,
 
     triggerQueueMocks.reset();
     isProductionServerlessRuntimeMock.mockReturnValue(true);
-    await eventHandler?.(
-      { messageId: "stale-serverless-message" },
-      {
-        owner: "alice+triggers@agent-native.test",
-        eventId: "stale-serverless-event",
-        emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
-      },
-    );
-    expect(triggerQueueMocks.rows[0]?.status).toBe("pending");
+    triggerQueueMocks.rows.push({
+      appId: "mail",
+      id: "queue-1",
+      sequenceId: 1,
+      triggerId: "resource-1",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName: "mail.message.received",
+      eventId: "stale-serverless-event",
+      payload: { messageId: "stale-serverless-message" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      status: "processing",
+      attempts: 0,
+      failureAttempts: 0,
+      claimedAt: Date.now() - 20 * 60_000,
+      availableAt: 0,
+    });
+    triggerQueueMocks.ready.mockResolvedValueOnce(["resource-1"]);
+    triggerQueueMocks.claim.mockImplementationOnce(async () => {
+      const row = triggerQueueMocks.rows[0]!;
+      row.attempts += 1;
+      row.claimedAt = Date.now();
+      return { ...row };
+    });
 
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
@@ -864,6 +1161,13 @@ Respond to the event.`,
       status: "completed",
       lastError: "Expired because the mail event was older than 60 minutes.",
     });
+    expect(expireAutomationTriggerEvent).toHaveBeenLastCalledWith(
+      "queue-1",
+      expect.any(Number),
+      1,
+      "Expired because the mail event was older than 60 minutes.",
+      { timeoutMs: 5_000 },
+    );
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledWith(
       "[triggers] Expired 1 stale mail.message.received events during durable queue drain.",
@@ -871,7 +1175,179 @@ Respond to the event.`,
     info.mockRestore();
   });
 
-  it("drains stale mail events inline while fresh triggers run in the same sweep", async () => {
+  it("continues through multiple stale-mail expiry batches", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    const expireImplementation =
+      triggerQueueMocks.expire.getMockImplementation();
+    if (!expireImplementation) {
+      throw new Error("Expected trigger queue mock implementation.");
+    }
+
+    let expiryBatchCalls = 0;
+    triggerQueueMocks.expire.mockImplementation(async (input) => {
+      const expired = await expireImplementation(input);
+      expiryBatchCalls += 1;
+      return expiryBatchCalls === 1 ? input.limit : expired;
+    });
+    try {
+      await sweep?.({ deadlineAt: Date.now() + 90_000 });
+    } finally {
+      triggerQueueMocks.expire.mockImplementation(expireImplementation);
+    }
+
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps stale-head exclusion when partial expiry skips locked rows", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const eventName = "mail.message.received";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "z-fresh-trigger",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/z-fresh-trigger.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    await triggerQueueMocks.enqueue({
+      appId: "mail",
+      triggerId: "z-fresh-trigger",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/z-fresh-trigger.md",
+      eventName,
+      eventId: "fresh-event",
+      payload: { messageId: "fresh-message" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date().toISOString(),
+    });
+    const staleEmittedAt = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    triggerQueueMocks.rows.push(
+      ...[0, 1].map((index) => ({
+        appId: "mail",
+        id: `locked-stale-${index}`,
+        sequenceId: index + 2,
+        triggerId: "a-stale-trigger",
+        triggerOwner: "alice+triggers@agent-native.test",
+        triggerPath: "jobs/a-stale-trigger.md",
+        eventName,
+        eventId: `stale-event-${index}`,
+        payload: {},
+        eventOwner: "alice+triggers@agent-native.test",
+        emittedAt: staleEmittedAt,
+        status: "pending",
+        attempts: 0,
+        failureAttempts: 0,
+        availableAt: 0,
+      })),
+    );
+    triggerQueueMocks.expire.mockImplementationOnce(async () => {
+      const unlocked = triggerQueueMocks.rows.find(
+        (row) =>
+          row.triggerId === "a-stale-trigger" && row.status === "pending",
+      );
+      if (!unlocked) return 0;
+      unlocked.status = "completed";
+      return 1;
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    await sweep?.({ deadlineAt: Date.now() + 90_000 });
+
+    expect(triggerQueueMocks.hasPendingStale).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "mail",
+        eventName,
+        timeoutMs: 5_000,
+      }),
+    );
+    expect(triggerQueueMocks.ready).toHaveBeenCalledWith(
+      "mail",
+      100,
+      expect.any(Object),
+      expect.objectContaining({
+        excludeStaleEventBefore: expect.objectContaining({ eventName }),
+      }),
+    );
+    expect(triggerQueueMocks.claim).not.toHaveBeenCalledWith(
+      "a-stale-trigger",
+      "mail",
+      expect.any(Object),
+    );
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    expect(
+      triggerQueueMocks.rows.filter(
+        (row) =>
+          row.triggerId === "a-stale-trigger" && row.status === "pending",
+      ),
+    ).toHaveLength(1);
+    expect(
+      triggerQueueMocks.rows.find((row) => row.eventId === "fresh-event")
+        ?.status,
+    ).toBe("completed");
+  });
+
+  it("leaves a claim for lease recovery when dispatch leaves no write budget", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    await triggerQueueMocks.enqueue({
+      appId: "mail",
+      triggerId: "resource-1",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName: "test.event.fired",
+      eventId: "slow-resource-event",
+      payload: { messageId: "slow-resource-message" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date().toISOString(),
+    });
+
+    let now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const deadlineAt = now + 90_000;
+    resourceGetByPathMock.mockImplementationOnce(async () => {
+      now = deadlineAt - 4_000;
+      return undefined;
+    });
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    try {
+      await sweep?.({ deadlineAt });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+    expect(
+      triggerQueueMocks.rows.find(
+        (row) => row.eventId === "slow-resource-event",
+      )?.status,
+    ).toBe("processing");
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("runs fresh triggers while stale mail remains after bounded expiry", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "mail.message.received";
     resourceListAllOwnersMock.mockResolvedValue([
@@ -903,14 +1379,20 @@ Respond to the event.`,
     });
 
     const staleEmittedAt = new Date(now - 2 * 60 * 60_000).toISOString();
-    for (let index = 0; index < 2_000; index += 1) {
+    const staleEventCount = 5_001;
+    const staleTriggerIds = Array.from(
+      { length: 1 },
+      (_, index) => `a-stale-trigger-${String(index).padStart(3, "0")}`,
+    );
+    for (let index = 0; index < staleEventCount; index += 1) {
+      const triggerId = staleTriggerIds[index % staleTriggerIds.length]!;
       triggerQueueMocks.rows.push({
         appId: "mail",
         id: `stale-${index}`,
         sequenceId: index + 2,
-        triggerId: "a-stale-trigger",
+        triggerId,
         triggerOwner: "alice+triggers@agent-native.test",
-        triggerPath: "jobs/a-stale-trigger.md",
+        triggerPath: `jobs/${triggerId}.md`,
         eventName,
         eventId: `stale-event-${index}`,
         payload: {},
@@ -926,9 +1408,63 @@ Respond to the event.`,
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
-    await sweep?.({ deadlineAt: now + 90_000 });
+    const expireImplementation =
+      triggerQueueMocks.expire.getMockImplementation();
+    const readyImplementation = triggerQueueMocks.ready.getMockImplementation();
+    const getCursorImplementation =
+      triggerQueueMocks.getSweepCursor.getMockImplementation();
+    const setCursorImplementation =
+      triggerQueueMocks.setSweepCursor.getMockImplementation();
+    const claimImplementation = triggerQueueMocks.claim.getMockImplementation();
+    if (
+      !expireImplementation ||
+      !readyImplementation ||
+      !getCursorImplementation ||
+      !setCursorImplementation ||
+      !claimImplementation
+    ) {
+      throw new Error("Expected trigger queue mock implementations.");
+    }
+    let simulatedNow = now;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => simulatedNow);
+    const simulateSlowQueueQuery = async <T>(query: () => Promise<T>) => {
+      simulatedNow += 5_000;
+      return query();
+    };
+    triggerQueueMocks.expire.mockImplementation(async (input) => {
+      return simulateSlowQueueQuery(() => expireImplementation(input));
+    });
+    triggerQueueMocks.ready.mockImplementation((...args) =>
+      simulateSlowQueueQuery(() => readyImplementation(...args)),
+    );
+    triggerQueueMocks.getSweepCursor.mockImplementation(() =>
+      simulateSlowQueueQuery(() => getCursorImplementation()),
+    );
+    triggerQueueMocks.setSweepCursor.mockImplementation((...args) =>
+      simulateSlowQueueQuery(() => setCursorImplementation(...args)),
+    );
+    triggerQueueMocks.claim.mockImplementation((...args) =>
+      simulateSlowQueueQuery(() => claimImplementation(...args)),
+    );
+    try {
+      await sweep?.({ deadlineAt: now + 90_000 });
+    } finally {
+      nowSpy.mockRestore();
+      triggerQueueMocks.expire.mockImplementation(expireImplementation);
+      triggerQueueMocks.ready.mockImplementation(readyImplementation);
+      triggerQueueMocks.getSweepCursor.mockImplementation(
+        getCursorImplementation,
+      );
+      triggerQueueMocks.setSweepCursor.mockImplementation(
+        setCursorImplementation,
+      );
+      triggerQueueMocks.claim.mockImplementation(claimImplementation);
+    }
 
-    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(3);
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(4);
+    expect(
+      triggerQueueMocks.expire.mock.invocationCallOrder.at(-1),
+    ).toBeLessThan(triggerQueueMocks.ready.mock.invocationCallOrder[0]!);
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
     const prompt =
       runAgentLoopMock.mock.calls[0]?.[0].messages[0]?.content[0]?.text;
@@ -941,7 +1477,7 @@ Respond to the event.`,
     expect(
       triggerQueueMocks.rows.some(
         (row) =>
-          row.triggerId === "a-stale-trigger" &&
+          row.triggerId.startsWith("a-stale-trigger-") &&
           row.status === "completed" &&
           row.lastError ===
             "Expired because the mail event was older than 60 minutes.",
@@ -950,9 +1486,17 @@ Respond to the event.`,
     expect(
       triggerQueueMocks.rows.filter(
         (row) =>
-          row.triggerId === "a-stale-trigger" && row.status === "completed",
+          row.triggerId.startsWith("a-stale-trigger-") &&
+          row.status === "completed",
       ),
-    ).toHaveLength(2_000);
+    ).toHaveLength(4_000);
+    expect(
+      triggerQueueMocks.rows.filter(
+        (row) =>
+          row.triggerId.startsWith("a-stale-trigger-") &&
+          row.status === "pending",
+      ),
+    ).toHaveLength(1_001);
   });
 
   it("skips queue purging when the sweep has less than three query budgets left", async () => {

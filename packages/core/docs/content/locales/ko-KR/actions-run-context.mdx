@@ -97,6 +97,13 @@ export default defineAction({
             "호출되는 action의 레지스트리 키입니다(예: `delete-recording`). 각 디스패치 지점에서 설정되어, 감사 로그 같은 여러 표면을 아우르는 관심사가 이 호출의 주체를 알 수 있게 합니다. 디스패처를 우회하는 직접적인 프로그래밍 방식 `run()` 호출에서는 `undefined`입니다.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "이 호출에 해당하는 모델 도구 호출 ID(`toolCall.id`)입니다. 에이전트 루프가 설정하며 `defineAction()` 래퍼를 거쳐도 유지됩니다. 같은 액션이 여러 번 실행될 때 이벤트를 연결하는 데 사용합니다. 액션 입력이 아니며 모델 도구 호출이 없는 호출자에서는 `undefined`입니다.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

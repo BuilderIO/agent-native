@@ -38,6 +38,45 @@ Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路
 
 如果需要魔法链接、邮箱验证、密码重置、邀请或共享通知，请在部署前连接 Resend 或 SendGrid。在部署环境中设置 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 还需要 `EMAIL_FROM`。有关身份验证模式，请参阅[身份验证](/docs/authentication)。
 
+### 自定义框架邮件 {#email-templates}
+
+框架发送的每封邮件都有默认模板。要使用你自己的设计，请在服务器插件中注册一个 override。收件人、发件人和投递仍由框架负责；邮件内容和外观由你的 override 决定。
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| 邮件 ID                          | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+每个 override 还会收到 `app`（`name`、`logoUrl`）。第二个参数是默认渲染结果，便于复用其主题或文本。
+
+- Props 是未转义的原始值。放入 HTML 字符串前，请用 `escapeEmailHtml` 转义。
+- 返回带 React 元素的 `react`（而不是 `html`）即可渲染组件。React 会自动转义 props。
+- 省略 `subject` 会保留默认主题。省略 `text` 会从你的 HTML 生成纯文本正文。
+- 如果 override 抛出错误，发送会失败。框架不会回退到默认设计。事务邮件预览会渲染你的 override，请在那里检查。
+
 ## 支持的部署目标
 
 Agent-Native 支持 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。

@@ -30,12 +30,6 @@ const messages = {
     pageExtension: "Erweiterung",
     pageExtensions: "Erweiterungen",
   },
-  settings: {
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
-  },
   agent: {
     emptyState: "Bitte den Agenten, diese App zu prüfen oder zu ändern.",
     suggestionCalendar:

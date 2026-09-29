@@ -119,6 +119,7 @@ describe("automation notification action", () => {
         _messageId: string,
         _addLabelIds: string[] | undefined,
         _removeLabelIds: string[] | undefined,
+        _lane?: unknown,
         signal?: AbortSignal,
       ) => {
         expect(signal).toBe(controller.signal);

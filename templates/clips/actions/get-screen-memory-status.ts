@@ -8,6 +8,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  dedupe: false,
   run: async () => {
     const status = await readScreenMemoryStatus();
     return {

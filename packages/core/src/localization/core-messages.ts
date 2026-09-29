@@ -151,7 +151,7 @@ function nestAgentChatMessages(
   return messages;
 }
 
-function observabilitySummaryMessages(messages: AgentChatTranslation) {
+function observabilityMessages(messages: AgentChatTranslation) {
   return {
     summarizeWithAgent: messages["observability.summarizeWithAgent"],
     regenerateSummary: messages["observability.regenerateSummary"],
@@ -162,9 +162,9 @@ function observabilitySummaryMessages(messages: AgentChatTranslation) {
     summaryFailed: messages["observability.summaryFailed"],
     summaryExpired: messages["observability.summaryExpired"],
     promoteMustContain: messages["observability.promoteMustContain"],
-    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
     promoteMustContainOptional:
       messages["observability.promoteMustContainOptional"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
     promoteNeedsContains: messages["observability.promoteNeedsContains"],
   };
 }
@@ -225,7 +225,7 @@ export async function loadCoreMessagesForLocale(
   return {
     ...nestAgentChatMessages(agentChatMessages),
     agentResources: agentResourcePackMessagesForLocale(locale),
-    observability: observabilitySummaryMessages(agentChatMessages),
+    observability: observabilityMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
     iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
@@ -238,7 +238,7 @@ export async function loadCoreMessagesForLocale(
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
   agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
-  observability: observabilitySummaryMessages(englishAgentChatMessages),
+  observability: observabilityMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {

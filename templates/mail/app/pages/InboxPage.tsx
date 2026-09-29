@@ -23,7 +23,7 @@ import {
   EMPTY_LABELS,
   useEmails,
   useLabels,
-  useMarkRead,
+  useMarkThreadRead,
   useSettings,
 } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -65,10 +65,12 @@ function ContactPanel({
   emailId,
   contactEmail,
   emails,
+  allowEmailSearch,
 }: {
   emailId: string | undefined;
   contactEmail?: string;
   emails: EmailMessage[];
+  allowEmailSearch: boolean;
 }) {
   const t = useT();
   const email = useMemo(
@@ -89,7 +91,7 @@ function ContactPanel({
     isFetchingNextPage,
     isFetchNextPageError,
   } = useEmails("all", normalizedDisplayEmail || undefined, undefined, {
-    enabled: Boolean(normalizedDisplayEmail),
+    enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch,
   });
   const contactPageFetchesRef = useRef(0);
   const contactGenerationRef = useRef(0);
@@ -199,7 +201,7 @@ function ThreadListSidebar({
   onNavigateThread: (threadId: string) => void;
 }) {
   const navigate = useNavigate();
-  const markRead = useMarkRead();
+  const markThreadRead = useMarkThreadRead();
   const threads = useMemo(() => groupIntoThreads(emails), [emails]);
   const selectAllThreads = useCallback(() => {
     if (threads.length === 0) return;
@@ -228,12 +230,10 @@ function ThreadListSidebar({
               key={email.id}
               onClick={() => {
                 setSelectedIds(new Set());
-                if (!email.isRead)
-                  markRead.mutate({
-                    id: email.id,
-                    isRead: true,
+                if (thread.hasUnread)
+                  markThreadRead.mutate({
+                    threadId: threadKey,
                     accountEmail: email.accountEmail,
-                    threadId: email.threadId || email.id,
                   });
                 onNavigateThread(threadKey);
                 void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
@@ -527,15 +527,27 @@ export function InboxPage() {
     { enabled: isInboxView && inboxExtraOffsets.length > 0 },
   );
   const inboxItems = useMemo(
-    () => [
-      ...(inboxThreads.data?.items ?? []),
-      ...mergeInboxThreadPages(inboxExtraPages.map((page) => page.data)),
-    ],
+    () =>
+      mergeInboxThreadPages([
+        inboxThreads.data,
+        ...inboxExtraPages.map((page) => page.data),
+      ]),
     [inboxThreads.data?.items, inboxExtraPages],
   );
   const inboxHasNextPage =
     isInboxView && inboxThreads.data !== undefined
-      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)
+      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total, {
+          complete:
+            inboxExtraPages[inboxExtraPages.length - 1]?.data?.complete ??
+            inboxThreads.data.complete,
+          lastPageLength:
+            inboxExtraPages[inboxExtraPages.length - 1]?.data?.items.length ??
+            inboxThreads.data.items.length,
+          pageSize: INBOX_PAGE_SIZE,
+          totalIsLowerBound: inboxThreads.data.tabs.find(
+            (tab) => tab.id === inboxThreads.data.activeTabId,
+          )?.totalIsLowerBound,
+        })
       : false;
   const inboxIsFetchingNextPage = inboxExtraPages.some(
     (page) => page.isFetching,
@@ -1079,6 +1091,7 @@ export function InboxPage() {
             onNavigateThread={handleOptimisticThreadNavigation}
             isLoading={emailListLoading}
             isFetching={isFetching}
+            isSyncing={isInboxView && inboxMetadata?.syncing === true}
             emailsError={emailsError}
             accountErrors={accountErrors}
             labels={
@@ -1110,6 +1123,9 @@ export function InboxPage() {
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}
             emails={emails}
+            allowEmailSearch={
+              !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
+            }
           />
         </div>
       )}

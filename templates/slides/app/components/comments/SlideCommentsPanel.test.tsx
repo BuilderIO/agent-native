@@ -9,7 +9,7 @@ import {
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SlideCommentsPanel } from "./SlideCommentsPanel";
+import { ReplyInput, SlideCommentsPanel } from "./SlideCommentsPanel";
 
 const refetch = vi.fn();
 const {
@@ -41,6 +41,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "comments.loadFailed": "Couldn't load comments",
       "comments.retry": "Retry",
       "comments.addCommentPlaceholder": "Add a comment...",
+      "comments.replyPlaceholder": "Write a reply...",
       "comments.cancel": "Cancel",
       "comments.saving": "Saving...",
       "comments.comment": "Comment",
@@ -499,5 +500,114 @@ describe("SlideCommentsPanel", () => {
         content: "Updated wording",
       }),
     );
+  });
+
+  it("keeps a pending comment open while IME keys are composing", () => {
+    const onPendingDone = vi.fn();
+    createComment.mockReset();
+    commentQueryState = { data: [], isError: false };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment
+        canEdit
+        currentUserEmail="writer@example.com"
+        pendingComment={{ slideId: "slide-1", quotedText: "" }}
+        onPendingDone={onPendingDone}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("Add a comment...");
+    fireEvent.change(input, { target: { value: "candidate" } });
+    fireEvent.keyDown(input, {
+      key: "Enter",
+      ctrlKey: true,
+      isComposing: true,
+    });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
+    expect(onPendingDone).not.toHaveBeenCalled();
+    expect(createComment).not.toHaveBeenCalled();
+  });
+
+  it("keeps a reply open while IME keys are composing", () => {
+    const onDone = vi.fn();
+    createComment.mockReset();
+
+    render(
+      <ReplyInput
+        deckId="deck-1"
+        slideId="slide-1"
+        threadId="thread-1"
+        parentId="comment-1"
+        onDone={onDone}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("Write a reply...");
+    fireEvent.change(input, { target: { value: "candidate" } });
+    fireEvent.keyDown(input, {
+      key: "Enter",
+      ctrlKey: true,
+      isComposing: true,
+    });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(screen.getByPlaceholderText("Write a reply...")).toBeTruthy();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(createComment).not.toHaveBeenCalled();
+  });
+
+  it("keeps a comment edit open while IME keys are composing", () => {
+    const onPendingDone = vi.fn();
+    updateComment.mockReset();
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Original wording",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment
+        canEdit={false}
+        currentUserEmail="writer@example.com"
+        pendingComment={null}
+        onPendingDone={onPendingDone}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
+    const input = screen.getByRole("textbox", { name: "Edit comment" });
+    fireEvent.keyDown(input, {
+      key: "Enter",
+      ctrlKey: true,
+      isComposing: true,
+    });
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+
+    expect(screen.getByRole("textbox", { name: "Edit comment" })).toBeTruthy();
+    expect(updateComment).not.toHaveBeenCalled();
   });
 });

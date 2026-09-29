@@ -216,8 +216,9 @@ export async function repairLegacyChatThreadMessageCounts(
   let scanned = 0;
   let updated = 0;
   while (true) {
+    // guard:allow-unscoped — operator-invoked legacy repair scans all threads by explicit maintenance contract
     const { rows } = await client.execute({
-      sql: `SELECT id, thread_data, message_count FROM chat_threads
+      sql: `SELECT id, owner_email, thread_data, message_count FROM chat_threads
             WHERE message_count = 0
               AND thread_data LIKE '%"messages"%'
               AND id > ?
@@ -232,8 +233,8 @@ export async function repairLegacyChatThreadMessageCounts(
       const count = deriveMessageCount(row.thread_data, 0);
       if (count <= 0) continue;
       const result = await client.execute({
-        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0`,
-        args: [count, afterId],
+        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0 AND LOWER(owner_email) = LOWER(?)`,
+        args: [count, afterId, row.owner_email],
       });
       if (result.rowsAffected > 0) updated++;
     }
@@ -847,6 +848,7 @@ export async function resolveThreadsAccess(
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
   const client = getDbExec();
+  // guard:allow-unscoped — internal lookup; request handlers validate owner/share access before returning or mutating data
   const { rows } = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id = ?`,
     args: [id],
@@ -862,6 +864,7 @@ export async function getThread(id: string): Promise<ChatThread | null> {
  */
 export async function setThreadSourceIfMissing(
   id: string,
+  ownerEmail: string,
   source: ChatThreadSource | null | undefined,
 ): Promise<boolean> {
   if (!source || (!source.platform && !source.appId && !source.url)) {
@@ -870,12 +873,13 @@ export async function setThreadSourceIfMissing(
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ?`,
+    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
     args: [
       source.platform ?? null,
       source.appId ?? null,
       source.url ?? null,
       id,
+      ownerEmail,
     ],
   });
   return result.rowsAffected > 0;
@@ -913,7 +917,10 @@ export async function forkThread(
           snapshot.messageCount,
         );
         if (Object.prototype.hasOwnProperty.call(snapshot, "scope")) {
-          await setThreadScope(sourceId, snapshot.scope ?? null);
+          if (snapshot.scope === undefined) {
+            throw new Error("Normalized fork source scope must be explicit");
+          }
+          await setThreadScope(sourceId, ownerEmail, snapshot.scope);
         }
         source = await getThread(sourceId);
       }
@@ -1174,18 +1181,20 @@ export function resolveRunThreadScope(
  */
 export async function adoptThreadScopeIfUnscoped(
   id: string,
+  ownerEmail: string,
   scope: ChatThreadScope,
 ): Promise<ChatThreadScope | null> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND scope_type IS NULL`,
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?) AND scope_type IS NULL`,
     args: [
       scope.type,
       scope.id,
       scope.label ?? null,
       Math.max(Date.now(), 1),
       id,
+      ownerEmail,
     ],
   });
   if (result.rowsAffected > 0) {
@@ -1202,18 +1211,20 @@ export async function adoptThreadScopeIfUnscoped(
  */
 export async function setThreadScope(
   id: string,
+  ownerEmail: string,
   scope: ChatThreadScope | null,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ?`,
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
     args: [
       scope?.type ?? null,
       scope?.id ?? null,
       scope?.label ?? null,
       Math.max(Date.now(), 1),
       id,
+      ownerEmail,
     ],
   });
   emitChatThreadChange(id);
@@ -1370,7 +1381,7 @@ export async function updateThreadData(
         ? current.preview
         : preview;
       const result = await client.execute({
-        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ?`,
+        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [
           nextThreadData,
           nextTitle,
@@ -1379,6 +1390,7 @@ export async function updateThreadData(
           nextUpdatedAt,
           id,
           current.updatedAt,
+          current.ownerEmail,
         ],
       });
 
@@ -1720,7 +1732,7 @@ export async function createThreadShareLink(
     // Mirror the hash into the indexed column so getThreadByShareToken
     // resolves via an equality lookup instead of a LIKE scan over every
     // thread's blob. thread_data stays the source of truth for validation.
-    await setThreadShareTokenHashColumn(threadId, tokenHash);
+    await setThreadShareTokenHashColumn(threadId, thread.ownerEmail, tokenHash);
 
     return {
       enabled: true,
@@ -1734,12 +1746,13 @@ export async function createThreadShareLink(
 
 async function setThreadShareTokenHashColumn(
   threadId: string,
+  ownerEmail: string,
   tokenHash: string | null,
 ): Promise<void> {
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ?`,
-    args: [tokenHash, threadId],
+    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [tokenHash, threadId, ownerEmail],
   });
 }
 
@@ -1770,7 +1783,7 @@ export async function revokeThreadShareLink(
       thread.preview,
       thread.messageCount,
     );
-    await setThreadShareTokenHashColumn(threadId, null);
+    await setThreadShareTokenHashColumn(threadId, thread.ownerEmail, null);
 
     return {
       enabled: false,
@@ -1801,6 +1814,7 @@ export async function getThreadByShareToken(
   };
 
   // Fast path: indexed equality lookup on the mirrored hash column.
+  // guard:allow-unscoped — public bearer-token lookup; stored hash and revocation state are validated before returning the thread
   const indexed = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash = ? LIMIT 10`,
     args: [tokenHash],
@@ -1813,6 +1827,7 @@ export async function getThreadByShareToken(
   // Legacy fallback: shares created before the share_token_hash column
   // existed only carry the hash inside the thread_data blob. Backfill the
   // column on hit so the next lookup takes the indexed path.
+  // guard:allow-unscoped — public bearer-token lookup; each candidate is validated against stored hash and revocation state
   const legacy = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash IS NULL AND thread_data LIKE ? LIMIT 10`,
     args: [`%${tokenHash}%`],
@@ -1820,7 +1835,11 @@ export async function getThreadByShareToken(
   for (const row of legacy.rows) {
     const thread = validate(row);
     if (thread) {
-      await setThreadShareTokenHashColumn(thread.id, tokenHash).catch(() => {});
+      await setThreadShareTokenHashColumn(
+        thread.id,
+        thread.ownerEmail,
+        tokenHash,
+      ).catch(() => {});
       return thread;
     }
   }
@@ -1872,12 +1891,15 @@ export async function grantThreadUserShare(
   });
 }
 
-export async function deleteThread(id: string): Promise<boolean> {
+export async function deleteThread(
+  id: string,
+  ownerEmail: string,
+): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `DELETE FROM chat_threads WHERE id = ?`,
-    args: [id],
+    sql: `DELETE FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [id, ownerEmail],
   });
   if (result.rowsAffected > 0) {
     await client

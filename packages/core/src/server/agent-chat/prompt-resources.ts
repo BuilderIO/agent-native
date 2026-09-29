@@ -34,7 +34,11 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
-import { getRequestOrgId, getRequestRunContext } from "../request-context.js";
+import {
+  getRequestOrgId,
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../request-context.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
@@ -707,6 +711,13 @@ interface ResourceSkillPromptEntry {
   scope: string;
 }
 
+class RequiredSkillLabsReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RequiredSkillLabsReadError";
+  }
+}
+
 async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
@@ -755,13 +766,35 @@ async function loadResourceSkillPromptEntries(
         full: await resourceGet(resource.id, { orgId }).catch(() => null),
       })),
     );
+    const parsed = loaded.map(({ resource, full }) => ({
+      resource,
+      full,
+      meta: full?.content ? parseSkillFrontmatter(full.content) : null,
+    }));
+    const requiredLabs = parsed.flatMap(({ meta }) =>
+      meta?.requiresLab ? [meta.requiresLab] : [],
+    );
+    const enabledLabs = requiredLabs.length
+      ? await import("../agents-bundle.js")
+          .then(({ getEnabledSkillLabsForUser }) =>
+            getEnabledSkillLabsForUser(
+              requiredLabs,
+              owner === SHARED_OWNER
+                ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+                : owner,
+            ),
+          )
+          .catch((error) => {
+            throw new RequiredSkillLabsReadError(error);
+          })
+      : new Set<string>();
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
-    for (const { resource, full } of loaded) {
-      if (!full?.content) continue;
-      const meta = parseSkillFrontmatter(full.content);
+    for (const { resource, full, meta } of parsed) {
+      if (!full?.content || !meta) continue;
       if (meta.userInvocable === false) continue;
       if (!isRuntimeVisibleScope(meta.scope)) continue;
+      if (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -773,7 +806,8 @@ async function loadResourceSkillPromptEntries(
       entries.push({ resource, full, name, description, scope });
     }
     return { entries, total: sorted.length, metadataRead: loaded.length };
-  } catch {
+  } catch (error) {
+    if (error instanceof RequiredSkillLabsReadError) throw error;
     return { entries: [], total: 0, metadataRead: 0 };
   }
 }
@@ -852,6 +886,7 @@ async function loadResourceIndexForPrompt(
 
 async function collectJevPromptCandidates(
   signal: AbortSignal,
+  userEmail?: string,
 ): Promise<JevPromptCandidate[]> {
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
@@ -878,11 +913,11 @@ async function collectJevPromptCandidates(
   };
 
   try {
-    const { getRuntimeSkills, loadAgentsBundle } =
+    const { getRuntimeSkillsForUser, loadAgentsBundle } =
       await import("../agents-bundle.js");
     signal.throwIfAborted();
     const bundle = await loadAgentsBundle();
-    for (const skill of getRuntimeSkills(bundle)) {
+    for (const skill of await getRuntimeSkillsForUser(bundle, userEmail)) {
       signal.throwIfAborted();
       add({
         kind: "skill",
@@ -1227,7 +1262,14 @@ export async function preloadJevContextForPrompt(options: {
     const collection = await withinPromptBudget(
       (signal) =>
         Promise.all([
-          hasJev ? collectJevPromptCandidates(signal) : Promise.resolve([]),
+          hasJev
+            ? collectJevPromptCandidates(
+                signal,
+                options.owner ??
+                  getRequestUserEmail() ??
+                  getRequestRunContext()?.owner,
+              )
+            : Promise.resolve([]),
           collectJevMemoryPromptCandidates({
             owner: options.owner,
             orgId: options.orgId,
@@ -1530,60 +1572,66 @@ export async function loadResourcesForPrompt(
     ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
     : SHARED_PROMPT_RESOURCE_MAX_CHARS;
 
-  try {
-    const { loadAgentsBundle, generateSkillsPromptBlock, getRuntimeSkills } =
-      await import("../agents-bundle.js");
-    const bundle = await loadAgentsBundle();
+  const {
+    loadAgentsBundle,
+    generateSkillsPromptBlock,
+    getRuntimeSkillsForUser,
+  } = await import("../agents-bundle.js");
+  const bundle = await loadAgentsBundle();
 
-    if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "workspace",
-        path: "AGENTS.md",
-        content: bundle.workspaceAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
-      });
-      addSection(block, "required");
-    }
+  if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
+    const block = promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "workspace",
+      path: "AGENTS.md",
+      content: bundle.workspaceAgentsMd,
+      maxChars: promptResourceMaxChars,
+      readHint:
+        'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
+    });
+    addSection(block, "required");
+  }
 
-    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
-    if (runtimeAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "template",
-        path: "AGENTS.md",
-        content: runtimeAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
-      });
-      addSection(block);
-    }
+  const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+  if (runtimeAgentsMd.trim()) {
+    const block = promptResourceBlock({
+      name: "AGENTS.md",
+      scope: "template",
+      path: "AGENTS.md",
+      content: runtimeAgentsMd,
+      maxChars: promptResourceMaxChars,
+      readHint:
+        'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
+    });
+    addSection(block);
+  }
 
-    const runtimeSkills = getRuntimeSkills(bundle);
-    if (!compact) {
-      const skillsBlock = generateSkillsPromptBlock(bundle);
-      addSection(skillsBlock);
-    } else if (runtimeSkills.length > 0) {
-      const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
-      const lines = listedSkills.map((s) => {
-        const description = s.meta.description?.trim()
-          ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
-          : "";
-        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
-      });
-      if (runtimeSkills.length > listedSkills.length) {
-        lines.push(
-          `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
-        );
-      }
-      addSection(
-        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
+  const runtimeSkills = await getRuntimeSkillsForUser(
+    bundle,
+    owner === SHARED_OWNER
+      ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
+      : owner,
+  );
+  if (!compact) {
+    const skillsBlock = generateSkillsPromptBlock(bundle, runtimeSkills);
+    addSection(skillsBlock);
+  } else if (runtimeSkills.length > 0) {
+    const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+    const lines = listedSkills.map((s) => {
+      const description = s.meta.description?.trim()
+        ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
+        : "";
+      return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+    });
+    if (runtimeSkills.length > listedSkills.length) {
+      lines.push(
+        `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
       );
     }
-  } catch {}
+    addSection(
+      `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
+    );
+  }
 
   const workspaceOwner = workspaceResourceOwner(orgId);
   const workspaceAgents = await loadAgentsResourceForPrompt(
