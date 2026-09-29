@@ -24,8 +24,9 @@ import {
 } from "../server/lib/local-email-store.js";
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
+import type { ComposeState } from "../shared/types.js";
 
-function composeDeepLink(draft: Record<string, string>): string {
+function composeDeepLink(draft: Pick<ComposeState, "id">): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
@@ -36,7 +37,7 @@ function composeDeepLink(draft: Record<string, string>): string {
 
 function draftChange(
   verb: "created" | "updated",
-  draft: Record<string, string>,
+  draft: Pick<ComposeState, "id" | "subject" | "to">,
   url: string,
 ) {
   const subject = draft.subject.trim();
@@ -285,7 +286,7 @@ export default defineAction({
             replyToThreadId: args.replyToThreadId,
           })
         : null;
-      const draft: Record<string, string> = {
+      const draft: ComposeState = {
         id,
         to: args.to || "",
         subject: args.subject || "",
@@ -344,14 +345,27 @@ export default defineAction({
       if (typeof storedDraft !== "object" || Array.isArray(storedDraft)) {
         throw new Error(`Draft "${safeId}" has invalid stored data`);
       }
-      const draft = Object.fromEntries(
-        Object.entries(storedDraft).map(([key, value]) => {
-          if (typeof value !== "string") {
-            throw new Error(`Draft "${safeId}" has invalid ${key}`);
-          }
-          return [key, value];
-        }),
-      ) as Record<string, string>;
+      const draft = { ...storedDraft } as unknown as ComposeState;
+      for (const key of [
+        "id",
+        "to",
+        "cc",
+        "bcc",
+        "subject",
+        "body",
+        "mode",
+        "replyToId",
+        "replyToThreadId",
+        "savedDraftId",
+        "savedDraftBackend",
+        "savedDraftAccountEmail",
+        "accountEmail",
+      ] as const) {
+        const value = draft[key];
+        if (value !== undefined && typeof value !== "string") {
+          throw new Error(`Draft "${safeId}" has invalid ${key}`);
+        }
+      }
       const ownerEmail = getRequestUserEmail();
       const savedDraftBackend = draft.savedDraftBackend;
       if (
@@ -436,6 +450,7 @@ export default defineAction({
                 bcc: draft.bcc,
                 subject: draft.subject || "",
                 body: draft.body || "",
+                attachments: draft.attachments,
                 replyToId: draft.replyToId,
                 replyToThreadId: draft.replyToThreadId,
               })
@@ -467,7 +482,7 @@ export default defineAction({
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const draft = (result as { draft?: Record<string, string> }).draft;
+    const draft = (result as { draft?: ComposeState }).draft;
     const id = (result as { id?: string }).id;
     if (!draft || !id) return null;
     return {

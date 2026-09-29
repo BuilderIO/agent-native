@@ -270,12 +270,24 @@ describe("manage-draft saved mailbox deletion", () => {
 
 describe("manage-draft local fallback", () => {
   it("updates a compose draft already in app state without a create call", async () => {
+    const attachments = [
+      {
+        id: "attachment-1",
+        filename: "brief.pdf",
+        originalName: "brief.pdf",
+        mimeType: "application/pdf",
+        size: 128,
+        url: "/uploads/brief.pdf",
+      },
+    ];
     appState.set("compose-ui-draft", {
       id: "ui-draft",
       to: "recipient@example.com",
       subject: "Hello",
       body: "Original draft",
       mode: "compose",
+      attachments,
+      inline: true,
     });
 
     const updated = await action.run({
@@ -286,9 +298,18 @@ describe("manage-draft local fallback", () => {
 
     expect(mocks.readAppState).toHaveBeenCalledWith("compose-ui-draft");
     expect(updated.draft.body).toBe("Updated draft");
+    expect(updated.draft.attachments).toEqual(attachments);
+    expect(updated.draft.inline).toBe(true);
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments }),
+    );
     expect(mocks.writeAppState).toHaveBeenCalledWith(
       "compose-ui-draft",
-      expect.objectContaining({ body: "Updated draft" }),
+      expect.objectContaining({
+        body: "Updated draft",
+        attachments,
+        inline: true,
+      }),
     );
   });
 
