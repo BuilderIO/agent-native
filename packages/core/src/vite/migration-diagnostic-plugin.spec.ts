@@ -304,6 +304,12 @@ describe("Agent-Native migration Vite diagnostic", () => {
     expect((buildError as Error).message).toContain(
       AGENT_NATIVE_MIGRATION_GUIDE_URL,
     );
+    expect((buildError as Error).message).toContain(
+      "Removed exports need app-level changes",
+    );
+    expect((buildError as Error).message).not.toContain(
+      `Run \`${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}\` to update supported moved imports.`,
+    );
   });
 
   it("reports a deprecated import added after dev startup through Vite's error hook", async () => {
@@ -356,6 +362,16 @@ describe("Agent-Native migration Vite diagnostic", () => {
         "utf8",
       ),
     ) as MigrationManifest;
+    expect(
+      manifest.moves["@agent-native/core/client/host"]?.symbols,
+    ).toMatchObject({
+      buildAgentNativeExtensionHtml: {
+        to: "@agent-native/toolkit/app/extensions/portable-extension",
+      },
+      normalizeAgentNativeExtensionSandbox: {
+        to: "@agent-native/toolkit/app/extensions/portable-extension",
+      },
+    });
     const symbolsBySpecifier = new Map<string, Set<string>>();
     const expected = new Set<string>();
 

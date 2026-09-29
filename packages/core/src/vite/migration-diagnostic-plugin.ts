@@ -58,7 +58,15 @@ export function migrationDiagnosticPlugin(): Plugin {
     const details = findings
       .map((finding) => formatImportDiagnostic(projectRoot, finding, moves))
       .join("\n\n");
-    return `Agent-Native found imports moved from Core:\n\n${details}\n\nRun \`${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}\` to update these imports. See the 0.197 migration runbook: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`;
+    const actions = [
+      findings.some((finding) => finding.status === "active")
+        ? `Run \`${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}\` to update supported moved imports.`
+        : "",
+      findings.some((finding) => finding.status === "removed")
+        ? "Removed exports need app-level changes; follow the migration guide."
+        : "",
+    ].filter(Boolean);
+    return `Agent-Native found imports moved from Core:\n\n${details}\n\n${actions.join("\n")}\nSee the 0.197 migration runbook: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`;
   };
 
   return {

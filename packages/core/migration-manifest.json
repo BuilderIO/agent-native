@@ -1783,7 +1783,13 @@
         "BuildAgentNativeExtensionHtmlOptions": {
           "to": "@agent-native/toolkit/app/extensions/portable-extension"
         },
+        "buildAgentNativeExtensionHtml": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
         "CreateHttpAgentNativeExtensionStorageOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "normalizeAgentNativeExtensionSandbox": {
           "to": "@agent-native/toolkit/app/extensions/portable-extension"
         },
         "AgentNativeWebMcpRegistrationState": {
@@ -5637,7 +5643,13 @@
         "BuildAgentNativeExtensionHtmlOptions": {
           "to": "@agent-native/toolkit/app/extensions/portable-extension"
         },
+        "buildAgentNativeExtensionHtml": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
         "CreateHttpAgentNativeExtensionStorageOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "normalizeAgentNativeExtensionSandbox": {
           "to": "@agent-native/toolkit/app/extensions/portable-extension"
         },
         "IframeEmbed": {

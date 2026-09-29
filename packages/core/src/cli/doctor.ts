@@ -18,6 +18,7 @@ import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
   AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  resolveMigrationSymbolMove,
   scanDeprecatedImports,
   type MigrationManifest,
 } from "../package-lifecycle/index.js";
@@ -191,7 +192,7 @@ function runGuard(
                 {
                   file: "package.json",
                   line: 1,
-                  message: `Configured ${dependency.when} feature requires optional peer ${dependency.name}@${dependency.version}, which is not resolvable. Run \`agent-native upgrade\` to add it.`,
+                  message: `Configured ${dependency.when} feature requires optional peer ${dependency.name}@${dependency.version}, which is not resolvable. Run \`agent-native upgrade\` to add it. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
                 },
               ],
         ),
@@ -209,14 +210,29 @@ function runGuard(
             (finding) =>
               finding.status === "active" || finding.status === "removed",
           )
-          .map((finding) => ({
-            file: path.relative(root, finding.file),
-            line: finding.line,
-            message:
-              finding.status === "removed"
-                ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${resolveRemovedExportMigrationGuide(finding.migrationGuide)}`
-                : `${finding.from}${finding.symbols.length > 0 ? ` (${finding.symbols.join(", ")})` : ""} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
-          })),
+          .map((finding) => {
+            const move = migrationManifests
+              ?.map((manifest) => manifest.moves[finding.from])
+              .find(Boolean);
+            const destinations = finding.symbols.length
+              ? finding.symbols
+                  .map((symbol) => {
+                    const destination = move
+                      ? resolveMigrationSymbolMove(move, symbol)?.to
+                      : undefined;
+                    return `${symbol} → ${destination ?? finding.to.join(", ")}`;
+                  })
+                  .join(", ")
+              : finding.to.join(", ");
+            return {
+              file: path.relative(root, finding.file),
+              line: finding.line,
+              message:
+                finding.status === "removed"
+                  ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${resolveRemovedExportMigrationGuide(finding.migrationGuide)}`
+                  : `${finding.from}${finding.symbols.length > 0 ? ` (${finding.symbols.join(", ")})` : ""} moves to ${destinations}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
+            };
+          }),
         warnings: imports
           .filter((finding) => finding.status === "planned")
           .map((finding) => ({

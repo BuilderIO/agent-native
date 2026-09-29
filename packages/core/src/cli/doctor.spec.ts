@@ -269,9 +269,47 @@ describe("runDoctorScan", () => {
         guard: "migration-manifest",
         file: "app/root.tsx",
         message:
-          "@agent-native/core/client (PromptComposer) moves to @agent-native/toolkit/app/chat. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+          "@agent-native/core/client (PromptComposer) moves to PromptComposer → @agent-native/toolkit/app/chat. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
       }),
     ]);
+  });
+
+  it("pairs symbols with their destinations for mixed imports", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx": [
+        'import { AgentChatHome, GuidedQuestion } from "@agent-native/core/client/agent-chat";',
+        "void AgentChatHome; void GuidedQuestion;",
+        "",
+      ].join("\n"),
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["migration-manifest"],
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {
+            "@agent-native/core/client/agent-chat": {
+              to: "@agent-native/toolkit/app/chat",
+              symbols: {
+                AgentChatHome: { to: "@agent-native/toolkit/app/chat" },
+                GuidedQuestion: {
+                  to: "@agent-native/toolkit/app/chat/agentkit-chat",
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.findings[0]?.message).toContain(
+      "AgentChatHome → @agent-native/toolkit/app/chat",
+    );
+    expect(report.findings[0]?.message).toContain(
+      "GuidedQuestion → @agent-native/toolkit/app/chat/agentkit-chat",
+    );
   });
 
   it("reports a missing optional peer when its feature is configured", () => {
@@ -301,6 +339,9 @@ describe("runDoctorScan", () => {
         message: expect.stringContaining("@better-auth/sso@1.7.4"),
       }),
     ]);
+    expect(report.findings[0]?.message).toContain(
+      "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+    );
   });
 
   it("does not report optional peers for an unconfigured feature", () => {
