@@ -19,6 +19,11 @@ const METRIC_NAMES = [
   "db-catalog",
   "db-migrations",
 ] as const;
+const BUDGETED_METRICS = [
+  "queries",
+  "rowsReturned",
+  "poolAcquisitions",
+] as const;
 const PGLITE_DATABASE_URL = "pglite:memory";
 const SERVERLESS_ENV_KEYS = [
   "NETLIFY",
@@ -65,6 +70,12 @@ export interface QueryBudgetMetrics {
 export interface TemplateQueryBudget {
   action: string | null;
   budget?: {
+    page: Partial<QueryBudgetMetrics>;
+    listAction: Partial<QueryBudgetMetrics> | null;
+    idlePoll: Partial<QueryBudgetMetrics>;
+    pollRequests: number;
+  };
+  observed?: {
     page: QueryBudgetMetrics;
     listAction: QueryBudgetMetrics | null;
     idlePoll: QueryBudgetMetrics;
@@ -434,16 +445,18 @@ export function compareQueryBudget(
       }
       return;
     }
-    for (const key of Object.keys(expected) as (keyof QueryBudgetMetrics)[]) {
+    for (const key of BUDGETED_METRICS) {
+      const expectedValue = expected[key];
+      if (expectedValue === undefined) continue;
       const allowed =
-        expected[key] +
+        expectedValue +
         Math.max(
           tolerance.absolute,
-          Math.ceil(expected[key] * tolerance.percent),
+          Math.ceil(expectedValue * tolerance.percent),
         );
       if (measured[key] > allowed) {
         errors.push(
-          `${report.template} ${pathName}.${key}: measured ${measured[key]}, budget ${allowed} (baseline ${expected[key]})`,
+          `${report.template} ${pathName}.${key}: measured ${measured[key]}, budget ${allowed} (baseline ${expectedValue})`,
         );
       }
     }

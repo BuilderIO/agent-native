@@ -616,7 +616,7 @@ jobs:
             app_dir="templates/$app"
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
             NITRO_PRESET=netlify pnpm --filter "$app" build
-            pnpm ops:neon-query-budget --app "$app" --mode measure
+            pnpm ops:neon-query-budget --app "$app" --mode check
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
           done
 

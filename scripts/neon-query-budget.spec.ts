@@ -124,14 +124,47 @@ describe("Neon cold-request query budgets", () => {
     const baseline = {
       action: "list-forms",
       budget: {
-        page: privateMetrics,
-        listAction: privateMetrics,
-        idlePoll: privateMetrics,
+        page: {
+          queries: privateMetrics.queries,
+          rowsReturned: privateMetrics.rowsReturned,
+          catalogQueries: 0,
+          migrationTableQueries: 0,
+          poolAcquisitions: privateMetrics.poolAcquisitions,
+        },
+        listAction: {
+          queries: privateMetrics.queries,
+          rowsReturned: privateMetrics.rowsReturned,
+          catalogQueries: 0,
+          migrationTableQueries: 0,
+          poolAcquisitions: privateMetrics.poolAcquisitions,
+        },
+        idlePoll: {
+          queries: privateMetrics.queries,
+          rowsReturned: privateMetrics.rowsReturned,
+          catalogQueries: 0,
+          migrationTableQueries: 0,
+          poolAcquisitions: privateMetrics.poolAcquisitions,
+        },
         pollRequests: 1,
       },
     };
     assert.deepEqual(
       compareQueryBudget(report, baseline, { absolute: 1, percent: 0.1 }),
+      [],
+    );
+    assert.deepEqual(
+      compareQueryBudget(
+        {
+          ...report,
+          page: {
+            ...privateMetrics,
+            catalogQueries: 99,
+            migrationTableQueries: 99,
+          },
+        },
+        baseline,
+        { absolute: 1, percent: 0.1 },
+      ),
       [],
     );
     assert.ok(
