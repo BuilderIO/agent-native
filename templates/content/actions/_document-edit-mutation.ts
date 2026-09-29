@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
@@ -30,6 +29,7 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { transactionAccessExecutor } from "./_transaction-access-executor.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -360,7 +360,7 @@ export async function mutateDocumentBody(
       await assertAccess("document", args.documentId, "editor", {
         userEmail: args.ctx.userEmail,
         orgId: args.ctx.orgId ?? undefined,
-        transaction: getDbExec(),
+        transaction: transactionAccessExecutor(transaction),
       });
 
       const [document] = await tx
