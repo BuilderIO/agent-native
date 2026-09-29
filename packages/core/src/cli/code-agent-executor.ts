@@ -680,8 +680,8 @@ async function executeClaudeCliRun(options: {
 
   let mcpConfigDir: string | undefined;
   let followUpInput!: Parameters<typeof executeCodeAgentRun>[0];
-  // Cleanup never decides the run's outcome: a delete failure is recorded in
-  // the transcript, and the run still completes or starts its follow-up.
+  // A delete failure is recorded in the transcript. It only fails the run when
+  // a follow-up is waiting, which then stays queued (see below).
   const removeMcpConfig = () => {
     if (!mcpConfigDir) return;
     try {
@@ -761,6 +761,21 @@ async function executeClaudeCliRun(options: {
       },
     });
 
+    // A follow-up starts a new CLI run, so it must not start while the
+    // credential-bearing config is still on disk. Leave it queued and fail
+    // this run instead.
+    if (mcpConfigDir) removeMcpConfig();
+    const followUpsQueued = getCodeAgentRunRecord(options.run.id)?.metadata
+      ?.pendingFollowUps;
+    if (
+      mcpConfigDir &&
+      Array.isArray(followUpsQueued) &&
+      followUpsQueued.length > 0
+    ) {
+      throw new Error(
+        `Could not remove the temporary Claude MCP config at ${mcpConfigDir}; the queued follow-up was not started.`,
+      );
+    }
     const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
     if (pendingFollowUp) {
       const message =
@@ -871,8 +886,6 @@ async function executeClaudeCliRun(options: {
   } finally {
     removeMcpConfig();
   }
-  // Only after the `finally` cleanup, so a failed delete is retried before the
-  // next CLI run starts.
   return executeCodeAgentRun(followUpInput);
 }
 

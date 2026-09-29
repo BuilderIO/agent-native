@@ -609,6 +609,92 @@ describe("executeCodeAgentRun", () => {
     }
   });
 
+  it("keeps the follow-up queued when MCP config cleanup keeps failing", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    const logPath = path.join(root, "claude-runs.log");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.appendFileSync(${JSON.stringify(logPath)}, 'run\\n');`,
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+    const realRmSync = fs.rmSync;
+    const lockedDirs = new Set<string>();
+    const rmSync = vi
+      .spyOn(fs, "rmSync")
+      .mockImplementation((target, options) => {
+        const dir = String(target);
+        if (dir.includes("agent-native-code-claude-")) {
+          lockedDirs.add(dir);
+          throw new Error("EBUSY: resource busy or locked");
+        }
+        return realRmSync(target, options);
+      });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      const record = getCodeAgentRunRecord(run.id);
+      expect(record?.status).toBe("errored");
+      expect(record?.metadata?.pendingFollowUps).toHaveLength(1);
+      expect(fs.readFileSync(logPath, "utf8")).toBe("run\n");
+    } finally {
+      rmSync.mockRestore();
+      for (const dir of lockedDirs) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
   it("shows friendly Claude auth errors while retaining raw execution metadata", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
