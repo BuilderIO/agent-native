@@ -61,6 +61,43 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
     );
   });
 
+  it("preserves pending parallel calls across successful-write resets", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      { event: "start", name: "write-a", input: { id: "a" } },
+      { event: "start", name: "write-b", input: { id: "b" } },
+      { event: "start", name: "write-c", input: { id: "c" } },
+      {
+        event: "done",
+        name: "write-a",
+        input: { id: "a" },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "write-b",
+        input: { id: "b" },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "write-c",
+        input: { id: "c" },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: true,
+      },
+    ];
+
+    expect(seed(calls)).toEqual(new Map([[`write-c:{"id":"c"}`, 1]]));
+  });
+
   it("keeps counts for eight identical successful writes", () => {
     const calls: PriorTurnToolCallSequenceEntry[] = [];
     for (let i = 0; i < 8; i++) {
@@ -186,7 +223,12 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
       },
     ];
 
-    expect(seed(calls)).toEqual(new Map([[`write:{"id":1}`, 1]]));
+    expect(seed(calls)).toEqual(
+      new Map([
+        [`read:{"id":1}`, 1],
+        [`write:{"id":1}`, 1],
+      ]),
+    );
   });
 });
 

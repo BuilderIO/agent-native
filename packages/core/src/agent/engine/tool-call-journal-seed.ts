@@ -203,11 +203,29 @@ export function seedRepeatedToolCallCountsFromJournal(
   isResurfacedReadOnlyDuplicate: (name: string, result: string) => boolean,
 ): Map<string, number> {
   const counts = new Map<string, number>();
+  const pendingStarts = new Map<string, number>();
+  const resetOtherCountsAfterWrite = (successfulWriteKey: string) => {
+    for (const otherKey of counts.keys()) {
+      if (
+        otherKey !== successfulWriteKey &&
+        (pendingStarts.get(otherKey) ?? 0) === 0
+      ) {
+        counts.delete(otherKey);
+      }
+    }
+  };
   for (const call of calls) {
     const key = keyForCall(call.name, call.input);
     if (call.event === "start") {
       counts.set(key, (counts.get(key) ?? 0) + 1);
+      pendingStarts.set(key, (pendingStarts.get(key) ?? 0) + 1);
       continue;
+    }
+
+    if (call.matchedStart) {
+      const pending = pendingStarts.get(key) ?? 0;
+      if (pending > 1) pendingStarts.set(key, pending - 1);
+      else pendingStarts.delete(key);
     }
 
     const replayed = call.replayed === true;
@@ -218,18 +236,14 @@ export function seedRepeatedToolCallCountsFromJournal(
         else counts.delete(key);
       }
       if (replayed && !call.isError && call.completedSideEffect === true) {
-        for (const otherKey of counts.keys()) {
-          if (otherKey !== key) counts.delete(otherKey);
-        }
+        resetOtherCountsAfterWrite(key);
       }
       continue;
     }
 
     if (call.isError || call.completedSideEffect !== true) continue;
     if (!call.matchedStart) counts.set(key, (counts.get(key) ?? 0) + 1);
-    for (const otherKey of counts.keys()) {
-      if (otherKey !== key) counts.delete(otherKey);
-    }
+    resetOtherCountsAfterWrite(key);
   }
   return counts;
 }

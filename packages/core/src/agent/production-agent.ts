@@ -4759,10 +4759,17 @@ export async function runAgentLoop(opts: {
     (name, result) =>
       result.startsWith(resurfacedDuplicateReadOnlyToolResultPrefix(name)),
   );
+  const inFlightRepeatToolCalls = new Map<
+    string,
+    { key: string; counted: boolean; countOnCompletion: boolean }
+  >();
   const resetAfterSuccessfulWrite = (name: string, input: unknown) => {
     readOnlyToolResultCache.clear();
     duplicateReadOnlyToolCalls.clear();
     const successfulWriteKey = toolCallCacheKey(name, input);
+    for (const call of inFlightRepeatToolCalls.values()) {
+      if (call.key !== successfulWriteKey) call.counted = false;
+    }
     for (const key of repeatedToolCalls.keys()) {
       if (key !== successfulWriteKey) repeatedToolCalls.delete(key);
     }
@@ -4774,6 +4781,17 @@ export async function runAgentLoop(opts: {
     for (const key of repeatedToolErrorsAnyArgs.keys()) {
       if (!key.startsWith(`${name}:`)) repeatedToolErrorsAnyArgs.delete(key);
     }
+  };
+  const settleRepeatedToolCall = (callId: string) => {
+    const call = inFlightRepeatToolCalls.get(callId);
+    if (!call) return;
+    if (call.countOnCompletion && !call.counted) {
+      repeatedToolCalls.set(
+        call.key,
+        (repeatedToolCalls.get(call.key) ?? 0) + 1,
+      );
+    }
+    inFlightRepeatToolCalls.delete(callId);
   };
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
@@ -5553,10 +5571,16 @@ export async function runAgentLoop(opts: {
     const noteRepeatedToolCall = (
       toolName: string,
       input: unknown,
+      callId: string,
     ): TerminalActionStop | null => {
       const key = toolCallCacheKey(toolName, input);
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
+      inFlightRepeatToolCalls.set(callId, {
+        key,
+        counted: true,
+        countOnCompletion: true,
+      });
       if (count < MAX_IDENTICAL_TOOL_CALLS) return null;
       const stop: TerminalActionStop = {
         message:
@@ -5599,16 +5623,23 @@ export async function runAgentLoop(opts: {
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
         toolCall.input,
+        toolCall.id,
       );
       const rollbackRepeatedToolCall = () => {
         const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
-        const repeatCount = repeatedToolCalls.get(repeatKey) ?? 0;
-        const repeatCountAfterRollback = Math.max(0, repeatCount - 1);
-        if (repeatCountAfterRollback > 0) {
-          repeatedToolCalls.set(repeatKey, repeatCountAfterRollback);
-        } else {
-          repeatedToolCalls.delete(repeatKey);
+        const repeatCall = inFlightRepeatToolCalls.get(toolCall.id);
+        if (repeatCall?.counted) {
+          const repeatCount = repeatedToolCalls.get(repeatKey) ?? 0;
+          const repeatCountAfterRollback = Math.max(0, repeatCount - 1);
+          if (repeatCountAfterRollback > 0) {
+            repeatedToolCalls.set(repeatKey, repeatCountAfterRollback);
+          } else {
+            repeatedToolCalls.delete(repeatKey);
+          }
+          repeatCall.counted = false;
         }
+        if (repeatCall) repeatCall.countOnCompletion = false;
+        const repeatCountAfterRollback = repeatedToolCalls.get(repeatKey) ?? 0;
         if (
           repeatGuardStopFromThisCall &&
           requestedActionStop === repeatGuardStopFromThisCall &&
@@ -6642,6 +6673,16 @@ export async function runAgentLoop(opts: {
       }
     };
 
+    const runTrackedToolCall = async (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ) => {
+      try {
+        return await runToolCall(toolCall);
+      } finally {
+        settleRepeatedToolCall(toolCall.id);
+      }
+    };
+
     type ParallelBatchKind = "read" | "parallel-write";
     const getParallelBatchKind = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
@@ -6664,7 +6705,9 @@ export async function runAgentLoop(opts: {
       const batch = parallelBatch;
       parallelBatch = [];
       parallelBatchKind = null;
-      toolResultParts.push(...(await Promise.all(batch.map(runToolCall))));
+      toolResultParts.push(
+        ...(await Promise.all(batch.map(runTrackedToolCall))),
+      );
     };
 
     const skipToolCallAfterStop = (
@@ -6723,7 +6766,7 @@ export async function runAgentLoop(opts: {
           toolResultParts.push(skipToolCallAfterStop(toolCall));
           continue;
         }
-        toolResultParts.push(await runToolCall(toolCall));
+        toolResultParts.push(await runTrackedToolCall(toolCall));
       }
     }
     await flushParallelBatch();

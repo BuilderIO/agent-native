@@ -6945,6 +6945,108 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("keeps pending parallel-call counts after another write resets repeats", async () => {
+    let streamCalls = 0;
+    let releaseSecondWrite: (() => void) | undefined;
+    const secondWriteGate = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    const writeA = vi.fn(async () => "write A completed");
+    const writeB = vi.fn(async () => {
+      await secondWriteGate;
+      return "write B completed";
+    });
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "Both writes completed." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            streamCalls === 1
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    id: "write-a",
+                    name: "parallel-write-a",
+                    input: { id: "a" },
+                  },
+                  {
+                    type: "tool-call" as const,
+                    id: "write-b",
+                    name: "parallel-write-b",
+                    input: { id: "b" },
+                  },
+                ]
+              : [
+                  {
+                    type: "tool-call" as const,
+                    id: `repeat-b-${streamCalls}`,
+                    name: "parallel-write-b",
+                    input: { id: "b" },
+                  },
+                ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "parallel-write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeA,
+        },
+        "parallel-write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeB,
+        },
+      },
+      send: (event) => {
+        events.push(event);
+        if (event.type === "tool_done" && event.tool === "parallel-write-a") {
+          releaseSecondWrite?.();
+        }
+      },
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
+    });
+
+    expect(writeA).toHaveBeenCalledTimes(1);
+    expect(writeB).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
   it("does not retry a timed-out call classified as a write by its arguments", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => new Promise<never>(() => {}));
