@@ -934,9 +934,43 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   margin-inline-start: auto;
 }
 
+.agentkit-message-actions[data-role="user"] {
+  min-inline-size: 0;
+  justify-content: flex-end;
+}
+
+.agentkit-message-actions[data-role="user"] .agentkit-message-actions-leading {
+  flex-shrink: 0;
+}
+
+.agentkit-message-actions[data-role="user"] .agentkit-message-actions-trailing {
+  max-inline-size: 100%;
+  margin-inline-start: 0;
+}
+
+.agentkit-message-actions[data-role="user"] time {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
+.agentkit-message-actions[data-role="user"] .agentkit-command-error {
+  flex-basis: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
 .agentkit-message:hover .agentkit-message-actions,
 .agentkit-message:focus-within .agentkit-message-actions {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .agentkit-message-actions[data-role="user"] {
+    opacity: 1;
+  }
 }
 
 .agentkit-message-actions button {

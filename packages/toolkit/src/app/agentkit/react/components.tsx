@@ -2290,7 +2290,7 @@ export function AgentMessageActions({
     forkAction.error ??
     regenerateAction.error;
   return (
-    <div className="agentkit-message-actions">
+    <div className="agentkit-message-actions" data-role={message.role}>
       {message.role === "assistant" ? (
         <>
           <div className="agentkit-message-actions-leading">
