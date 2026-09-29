@@ -76,10 +76,7 @@ undo, and reload persistence.
 The `journeys` project includes `specs/apps/settings-navigation.spec.ts`: in
 Analytics, Brain, Clips, Design, Dispatch, and Slides it opens Settings from
 the account menu, with ⌘, and with ⌘K › Settings, and follows three legacy
-Settings links. Each check reads the account's `settings-redesign` flag and
-holds the page to that state (new pages with the flag on, today's routes with
-it off), and records the state it saw as an annotation. An unreadable flag
-fails the test rather than reading as off.
+Settings links, each of which must land on its new page.
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
