@@ -324,7 +324,7 @@ export function useSetOrgVisualIdentity() {
 export function useSwitchOrg() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (orgId: string | null) =>
+    mutationFn: (orgId: string) =>
       apiFetch(`${ORG_BASE}/switch`, {
         method: "PUT",
         body: JSON.stringify({ orgId }),
