@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "../package-lifecycle/index.js";
 import {
   ALL_GUARD_NAMES,
   checkDisk,
@@ -262,6 +263,39 @@ describe("runDoctorScan", () => {
     expect(report.findings[0]?.message).toContain(
       "https://example.test/agentkit-chat.md",
     );
+  });
+
+  it("uses the installed Core package's matching chat migration guide", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx":
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["migration-manifest"],
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          removedExports: {
+            "@agent-native/core/client/agent-chat": {
+              symbols: ["createAgentChatAdapter"],
+              migrationGuide:
+                "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.findings[0]?.message).toContain(
+      AGENTKIT_CHAT_MIGRATION_GUIDE_URL,
+    );
+    expect(report.findings[0]?.message).not.toContain("blob/main");
+    expect(
+      fs.existsSync(fileURLToPath(AGENTKIT_CHAT_MIGRATION_GUIDE_URL)),
+    ).toBe(true);
   });
 });
 

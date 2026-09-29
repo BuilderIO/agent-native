@@ -17,8 +17,8 @@ import {
 import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
   AGENT_NATIVE_MIGRATION_GUIDE_URL,
-  AGENTKIT_CHAT_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  resolveRemovedExportMigrationGuide,
   scanDeprecatedImports,
   type MigrationManifest,
 } from "../package-lifecycle/index.js";
@@ -168,7 +168,7 @@ function runGuard(
             line: finding.line,
             message:
               finding.status === "removed"
-                ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${finding.migrationGuide ?? AGENTKIT_CHAT_MIGRATION_GUIDE_URL}`
+                ? `${finding.symbols.join(", ")} was removed from ${finding.from}. See the migration guide: ${resolveRemovedExportMigrationGuide(finding.migrationGuide)}`
                 : `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}. Migration guide: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`,
           })),
         warnings: imports
