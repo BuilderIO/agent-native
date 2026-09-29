@@ -214,6 +214,10 @@ describe("retention-over-time panel SQL", () => {
     for (const userKey of ["c4", "c5"]) {
       await seedFirstSeenEvent(client, userKey, returnDay10);
     }
+    for (const userKey of ["r1", "r2", "r3", "r4", "r5"]) {
+      await seedFirstSeenEvent(client, userKey, offsetDate(start, 100));
+      await seedFirstSeenEvent(client, userKey, start);
+    }
 
     const panel = buildPanel("retention-over-time")!;
     const sql = interpolateDashboardPanelSql(

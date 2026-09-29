@@ -6,6 +6,8 @@ import {
   firstPartyTemplateFilter,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
+  PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL,
+  PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
   SIGNUPS_OVER_TIME_SQL,
   type ExactFirstPartyPanelReplacement,
   repairFirstPartyObservedRetentionPanels,
@@ -341,8 +343,14 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
       legacySql: [
         LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
         LEGACY_SIGNUPS_OVER_TIME_SQL,
+        PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
       ],
       sql: SIGNUPS_OVER_TIME_SQL,
+    },
+    {
+      id: "retention-over-time",
+      legacySql: [PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL],
+      sql: buildPanel("retention-over-time")!.sql,
     },
     {
       id: "new-vs-recurring-users",

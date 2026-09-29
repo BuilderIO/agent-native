@@ -377,20 +377,19 @@ describe("dashboard catalog", () => {
     expect(sql).not.toContain("JOIN base");
   });
 
-  it("uses a fixed 800-day generator for signup date fill in catalog and seed", () => {
+  it("uses the selected custom range as its signup date spine", () => {
     const catalogPanel = requiredFirstPartyPanel("signups-over-time");
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     const seedPanel = (
       seed?.panels as Array<{ id?: string; sql?: string }>
     ).find((panel) => panel.id === "signups-over-time");
 
-    expect(catalogPanel.sql).toContain("WITH digits AS");
-    expect(catalogPanel.sql).toContain(
-      "SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n",
-    );
-    expect(catalogPanel.sql).toContain("WHERE hundreds.n < 8");
-    expect(catalogPanel.sql).not.toContain("ROW_NUMBER() OVER");
-    expect(catalogPanel.sql).not.toContain("FROM analytics_events LIMIT 800");
+    expect(catalogPanel.sql).toContain("'{{timeRange}}' = 'custom'");
+    expect(catalogPanel.sql).toContain("'{{timeRangeStart}}'");
+    expect(catalogPanel.sql).toContain("'{{timeRangeEnd}}'");
+    expect(catalogPanel.sql).toContain("generate_series(bounds.start_date");
+    expect(catalogPanel.sql).toContain("SELECT 'unknown' WHERE NOT EXISTS");
+    expect(catalogPanel.sql).not.toContain("WITH digits AS");
     expect(seedPanel?.sql).toBe(catalogPanel.sql);
     expect(() =>
       validateFirstPartyAnalyticsSql(catalogPanel.sql),
