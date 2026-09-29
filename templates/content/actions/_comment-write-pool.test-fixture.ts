@@ -26,9 +26,9 @@ import {
   vi,
 } from "vitest";
 
-// Not exported from @agent-native/core/db, which resolves to this same dist
-// module, so the check reads the pool config the app actually uses.
-import { pgPoolOptions } from "../../../packages/core/dist/db/client.js";
+// Not exported from @agent-native/core/db; the source module computes the same
+// pool options from the environment as the built one the app loads.
+import { pgPoolOptions } from "../../../packages/core/src/db/client.js";
 import { transactionAccessExecutor } from "./_transaction-access-executor.js";
 
 const OWNER = "pool-owner@example.test";
