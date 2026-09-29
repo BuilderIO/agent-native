@@ -541,8 +541,8 @@ export async function mutateDocumentBody(
         }
         await syncPrivateCalloutReferences(tx, {
           documentId: document.id,
-          before: beforeContent,
-          after: resolved.content,
+          before: document.content,
+          after: merged.content,
           userEmail: actor,
           ownerEmail: document.ownerEmail,
           orgId: document.orgId,

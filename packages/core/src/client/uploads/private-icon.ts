@@ -37,7 +37,11 @@ export async function uploadWorkspacePrivateIcon(
     },
   );
   if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null);
+    const body: unknown = response.headers
+      .get("content-type")
+      ?.includes("application/json")
+      ? await response.json()
+      : null;
     const message =
       body &&
       typeof body === "object" &&

@@ -79,20 +79,17 @@ function sha256(value: string | Uint8Array): string {
 }
 
 export function normalizedBuilderAssetUrl(raw: string): string | null {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:" || url.hostname !== "cdn.builder.io")
-      return null;
-    if (
-      !url.pathname.startsWith("/api/v1/image/") &&
-      !url.pathname.startsWith("/api/v1/file/")
-    )
-      return null;
-    if (url.search || url.hash) return null;
-    return url.toString();
-  } catch {
+  if (!URL.canParse(raw)) return null;
+  const url = new URL(raw);
+  if (url.protocol !== "https:" || url.hostname !== "cdn.builder.io")
     return null;
-  }
+  if (
+    !url.pathname.startsWith("/api/v1/image/") &&
+    !url.pathname.startsWith("/api/v1/file/")
+  )
+    return null;
+  if (url.search || url.hash) return null;
+  return url.toString();
 }
 
 function referenceKey(reference: IconReference): string {

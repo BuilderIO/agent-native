@@ -1,3 +1,4 @@
+import { resolveOrgDirectoryOrigin } from "@agent-native/core/mcp";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { createError, defineEventHandler, setResponseHeader } from "h3";
 
@@ -26,12 +27,20 @@ export default defineEventHandler(async (event) => {
         orgId: session?.orgId,
       });
       if (!reference && session?.email) {
-        const owned = await ownsPrivateIcon({
-          assetId: id,
-          ownerEmail: session.email,
-          orgId: session.orgId ?? null,
-        });
-        if (owned) reference = { orgId: session.orgId ?? null };
+        const scopes = [session.orgId ?? null];
+        if (session.orgId && !resolveOrgDirectoryOrigin()) scopes.push(null);
+        for (const orgId of scopes) {
+          if (
+            await ownsPrivateIcon({
+              assetId: id,
+              ownerEmail: session.email,
+              orgId,
+            })
+          ) {
+            reference = { orgId };
+            break;
+          }
+        }
       }
       if (!reference)
         throw createError({ statusCode: 404, statusMessage: "Icon not found" });

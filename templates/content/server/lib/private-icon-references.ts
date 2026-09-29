@@ -72,12 +72,8 @@ export function calloutPrivateIconAssetIds(content: string): Set<string> {
     content?: unknown[];
   }) => {
     if (node.type === "notionCallout") {
-      try {
-        const assetId = privateIconAssetId(node.attrs?.icon);
-        if (assetId) found.add(assetId);
-      } catch {
-        // An invalid icon is not a private asset reference.
-      }
+      const assetId = privateIconAssetId(node.attrs?.icon);
+      if (assetId) found.add(assetId);
     }
     for (const child of node.content ?? []) {
       if (child && typeof child === "object") visit(child as typeof node);
@@ -297,13 +293,7 @@ async function isLiveReference(
       )
       .limit(1);
     if (!document) return false;
-    try {
-      return calloutPrivateIconAssetIds(document.content).has(
-        reference.assetId,
-      );
-    } catch {
-      return false;
-    }
+    return calloutPrivateIconAssetIds(document.content).has(reference.assetId);
   }
   return false;
 }
