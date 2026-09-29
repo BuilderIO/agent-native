@@ -231,6 +231,9 @@ const messages = {
       noErrorMessage: "(sin mensaje de error)",
     },
   },
+  settingsShortcut: {
+    command: "Ajustes",
+  },
   agentPanel: {
     useBuilder: "Usar constructor",
     openDesktopToEditCode: "Abra el escritorio para editar el código",
@@ -246,6 +249,7 @@ const messages = {
     newChat: "Nuevo chat",
     newTerminal: "Nueva terminal",
     panelOptions: "Opciones del panel de agentes",
+    integrations: "Integraciones",
     collapseSidebar: "Contraer barra lateral",
     widenChat: "Ampliar el chat",
     returnChatToLayout: "Devolver el chat al diseño",
@@ -271,6 +275,8 @@ const messages = {
     sharedKeyInEffect: "Se está usando una clave compartida.",
     useOrganizationKey: "Usar clave de la organización",
     keyStatusUnavailable: "No se pudo consultar el estado de la clave.",
+    saveScopeRoleUnavailable:
+      "No se pudo cargar tu rol en la organización, así que aún no se pueden guardar claves.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -667,6 +673,12 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "volver a la lista",
+    promoteMustContain: "La respuesta debe incluir…",
+    promoteMustContainOptional: "La respuesta debe incluir (opcional)",
+    promoteMustContainLabel:
+      "Texto que debe incluir la respuesta de evaluación promovida",
+    promoteNeedsContains:
+      "Esta ejecución no tiene ninguna llamada de herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla a evaluación.",
     spans: "Spans",
     type: "Tipo",
     name: "Nombre",

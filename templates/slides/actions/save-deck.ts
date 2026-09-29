@@ -30,6 +30,9 @@ import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
   assertDeckWriteApplied,
+  assertDeckClientWriteCurrent,
+  deckClientWriteFields,
+  deckClientWriteSchema,
   deckDesignSystemId,
   deckHttpError,
   deckTitle,
@@ -58,13 +61,13 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().min(1).describe("Deck ID"),
     deck: z.record(z.string(), z.unknown()).describe("Full deck JSON payload"),
+    clientWrite: deckClientWriteSchema.optional(),
   }),
   http: { method: "PUT" },
   agentTool: false,
-  run: async (args) =>
-    withDeckLock(args.deckId, async () => {
-      const deckId = args.deckId;
-      const deck = args.deck as DeckPayload;
+  run: async ({ deckId, deck: inputDeck, clientWrite }) =>
+    withDeckLock(deckId, async () => {
+      const deck = inputDeck as DeckPayload;
       if (Array.isArray(deck.slides)) {
         const normalized = ensureUniqueSlideIds(
           deck.slides as Array<{ id?: unknown }>,
@@ -91,6 +94,20 @@ export default defineAction({
       const requestedTitle = deckTitle(deck);
 
       const access = await resolveAccess("deck", deckId);
+      if (access) {
+        const writeDisposition = assertDeckClientWriteCurrent(
+          access.resource,
+          deckId,
+          clientWrite,
+        );
+        if (writeDisposition === "already-applied") {
+          return {
+            ...(JSON.parse(access.resource.data) as DeckPayload),
+            updatedAt: access.resource.updatedAt,
+            appUrl: getDeckUrl(deckId),
+          };
+        }
+      }
       stampChangedSlideRevisions(access?.resource.data, deck);
 
       if (!access) {
@@ -111,6 +128,7 @@ export default defineAction({
             title,
             data: JSON.stringify(deck),
             designSystemId: deckDesignSystemId(deck),
+            ...deckClientWriteFields(clientWrite, now),
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             createdAt: now,
@@ -140,6 +158,21 @@ export default defineAction({
         await assertDesignSystemReadable(nextDesignSystemId);
         assertNoDeckRenderArtifacts(access.resource.data, deck);
         if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          if (clientWrite) {
+            const updateResult = await db
+              .update(schema.decks)
+              .set(
+                deckClientWriteFields(clientWrite, access.resource.updatedAt),
+              )
+              .where(
+                deckRevisionWhere(
+                  schema.decks,
+                  deckId,
+                  access.resource.updatedAt,
+                ),
+              );
+            assertDeckWriteApplied(updateResult, deckId, "deck save replay");
+          }
           return { ...deck, updatedAt: access.resource.updatedAt };
         }
         await db.transaction(async (tx: any) => {
@@ -161,6 +194,7 @@ export default defineAction({
               data: JSON.stringify(deck),
               designSystemId: nextDesignSystemId,
               updatedAt,
+              ...deckClientWriteFields(clientWrite, updatedAt),
             })
             .where(
               deckRevisionWhere(

@@ -74,9 +74,11 @@ function ChatFirstRailAppIcon({
   app,
   surface,
   renderIcon,
+  grayscaleInactiveIcons,
 }: {
   app: ChatFirstAppItem;
   surface: ChatFirstActiveSurface | undefined;
+  grayscaleInactiveIcons: boolean;
   renderIcon: (
     app: ChatFirstAppItem,
     options?: ChatFirstAppIconRenderOptions,
@@ -87,7 +89,10 @@ function ChatFirstRailAppIcon({
   return (
     <span
       data-chat-first-app-icon
-      className={cn("transition-[filter]", state.isInactive && "grayscale")}
+      className={cn(
+        "transition-[filter]",
+        grayscaleInactiveIcons && state.isInactive && "grayscale",
+      )}
     >
       {renderIcon(app, state)}
     </span>
@@ -172,6 +177,7 @@ function AppRows({
   onTogglePinned,
   onMove,
   renderIcon,
+  grayscaleInactiveIcons,
   copy,
 }: {
   apps: ChatFirstAppItem[];
@@ -190,6 +196,7 @@ function AppRows({
     app: ChatFirstAppItem,
     options?: ChatFirstAppIconRenderOptions,
   ) => ReactNode;
+  grayscaleInactiveIcons: boolean;
   copy: ChatFirstCopy;
 }) {
   const orderedIds = orderChatFirstAppIds(
@@ -250,6 +257,7 @@ function AppRows({
                     app={app}
                     surface={surface}
                     renderIcon={renderIcon}
+                    grayscaleInactiveIcons={grayscaleInactiveIcons}
                   />
                   <span className="truncate">{app.name}</span>
                 </button>
@@ -302,6 +310,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   loading = false,
   error,
   collapsed = false,
+  grayscaleInactiveIcons = true,
   layout: controlledLayout,
   onLayoutChange,
   onLayoutError,
@@ -451,6 +460,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                             app={app}
                             surface={surface}
                             renderIcon={renderIcon}
+                            grayscaleInactiveIcons={grayscaleInactiveIcons}
                           />
                         </button>
                       </ContextMenuTrigger>
@@ -549,6 +559,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           onTogglePinned={togglePinned}
           onMove={moveApp}
           renderIcon={renderIcon}
+          grayscaleInactiveIcons={grayscaleInactiveIcons}
           copy={copy}
         />
       )}

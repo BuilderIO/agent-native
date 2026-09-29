@@ -12,6 +12,7 @@ import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppStatus } from "../shared/app-status.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
@@ -825,7 +826,10 @@ export async function renderAgentNativeOgImagePng(
       ? process.env.AGENT_NATIVE_RESVG_PACKAGE
       : undefined;
   const resvgPackage = overridePackage || "@resvg/resvg-js";
-  const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
+  const { Resvg } = await loadOptionalPeer(
+    resvgPackage,
+    () => import(/* @vite-ignore */ resvgPackage),
+  );
   const configuredLogoUrl =
     input.logoUrl !== undefined
       ? input.logoUrl

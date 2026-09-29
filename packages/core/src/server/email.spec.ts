@@ -106,6 +106,167 @@ describe("sendEmail", () => {
     });
   });
 
+  it.each(["resend", "sendgrid"] as const)(
+    "passes custom message headers through %s",
+    async (provider) => {
+      vi.stubEnv(
+        "RESEND_API_KEY",
+        provider === "resend" ? "resend-example-key" : "",
+      );
+      vi.stubEnv(
+        "SENDGRID_API_KEY",
+        provider === "sendgrid" ? "sendgrid-example-key" : "",
+      );
+      vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+      const fetchMock = vi.fn(async () =>
+        provider === "resend"
+          ? Response.json({ id: "email_123" })
+          : new Response(null, { status: 202 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await sendEmail({
+        to: "reader@example.com",
+        subject: "Automation failure",
+        html: "<p>Failure</p>",
+        headers: {
+          "List-Unsubscribe":
+            "<https://factory.example/unsubscribe/opaque-capability>",
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+        inReplyTo: "<parent@example.com>",
+        references: "<thread@example.com>",
+      });
+
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.headers).toEqual({
+        "List-Unsubscribe":
+          "<https://factory.example/unsubscribe/opaque-capability>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        "In-Reply-To": "<parent@example.com>",
+        References: "<thread@example.com>",
+      });
+    },
+  );
+
+  it.each(["resend", "sendgrid"] as const)(
+    "uses provider idempotency for %s only when supported",
+    async (provider) => {
+      vi.stubEnv(
+        "RESEND_API_KEY",
+        provider === "resend" ? "resend-example-key" : "",
+      );
+      vi.stubEnv(
+        "SENDGRID_API_KEY",
+        provider === "sendgrid" ? "sendgrid-example-key" : "",
+      );
+      vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+      const fetchMock = vi.fn(async () =>
+        provider === "resend"
+          ? Response.json({ id: "email_123" })
+          : new Response(null, { status: 202 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await sendEmail({
+        to: "reader@example.com",
+        subject: "Automation failure",
+        html: "<p>Failure</p>",
+        idempotencyKey: "automation-failure:run-1",
+      });
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as
+        | Record<string, string>
+        | undefined;
+      if (provider === "resend") {
+        expect(headers?.["Idempotency-Key"]).toBe("automation-failure:run-1");
+      } else {
+        expect(headers?.["Idempotency-Key"]).toBeUndefined();
+      }
+    },
+  );
+
+  it.each(["resend", "sendgrid"] as const)(
+    "redacts the List-Unsubscribe capability from %s request logs",
+    async (provider) => {
+      const capabilityUrl =
+        "https://factory.example/unsubscribe/opaque-capability-secret";
+      vi.stubEnv(
+        "RESEND_API_KEY",
+        provider === "resend" ? "resend-example-key" : "",
+      );
+      vi.stubEnv(
+        "SENDGRID_API_KEY",
+        provider === "sendgrid" ? "sendgrid-example-key" : "",
+      );
+      vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+      const fetchMock = vi.fn(async () =>
+        provider === "resend"
+          ? Response.json({ id: "email_123" })
+          : new Response(null, { status: 202 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await sendEmail({
+        to: "reader@example.com",
+        subject: "Automation failure",
+        html: "<p>Failure</p>",
+        headers: {
+          "list-unsubscribe": `<${capabilityUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+      });
+
+      const providerPayload = JSON.parse(
+        String(fetchMock.mock.calls[0]?.[1]?.body),
+      );
+      const recorded: any = recordEmailSend.mock.calls[0]?.[0];
+      expect(providerPayload.headers["list-unsubscribe"]).toBe(
+        `<${capabilityUrl}>`,
+      );
+      expect(recorded.requestPayload).not.toContain(capabilityUrl);
+      expect(recorded.requestPayload).toContain(
+        '"list-unsubscribe":"[REDACTED]"',
+      );
+      expect(recorded.requestPayload).toContain(
+        '"List-Unsubscribe-Post":"List-Unsubscribe=One-Click"',
+      );
+    },
+  );
+
+  it("rejects custom header names or values with line breaks", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      sendEmail({
+        to: "reader@example.com",
+        subject: "Automation failure",
+        html: "<p>Failure</p>",
+        headers: { "List-Unsubscribe\r\nBcc": "attacker@example.com" },
+      }),
+    ).rejects.toThrow(
+      "Email headers must have valid names and single-line values",
+    );
+    await expect(
+      sendEmail({
+        to: "reader@example.com",
+        subject: "Automation failure",
+        html: "<p>Failure</p>",
+        headers: {
+          "List-Unsubscribe":
+            "<https://example.com/>\r\nBcc: attacker@example.com",
+        },
+      }),
+    ).rejects.toThrow(
+      "Email headers must have valid names and single-line values",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("applies per-app sender branding on agent-native.com deployments", async () => {
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent-Native <noreply@agent-native.com>");

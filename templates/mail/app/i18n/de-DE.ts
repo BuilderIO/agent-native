@@ -45,9 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
-      aiSetupImportantHeadline: "Was ist wichtig?",
-      aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
-      aiSetupTagsHeadline: "Tabs auswählen",
+      aiSetupImportantHeadline: "Was ist dir wichtig?",
+      aiSetupSkipInboxHeadline: "Was darf deinen Posteingang überspringen?",
+      aiSetupTagsHeadline: "E-Mails in Tabs sortieren",
       aiSetupArchiveSpamHeadline: "Posteingang überspringen und Spam",
       aiSetupTagReceipts: "Belege",
       aiSetupTagUpdates: "Produktupdates",
@@ -62,6 +62,16 @@ const messages = {
         "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
       aiSetupCustomTag: "Benutzerdefiniert",
       aiSetupDone: "Fertig",
+      aiSetupConnectGmailHeadline:
+        "Verbinde Gmail, um deinen Posteingang zu sortieren",
+      aiSetupConnectGmailDescription:
+        "Verbinde Google, um deine Regeln auf aktuelle E-Mails anzuwenden.",
+      aiSetupConnectJevHeadline:
+        "Verbinde Jev, um deinen Posteingang zu sortieren",
+      aiSetupConnectJevDescription:
+        "Verbinde Jev, um deine Regeln auf aktuelle E-Mails anzuwenden.",
+      aiSetupCustomTabName: "Tab-Name",
+      aiSetupCustomTabExample: "z. B. Rechnungen von Lieferanten",
       aiSetupRunAgain: "Einrichtung erneut starten",
       aiSetupTagCalendar: "Kalender",
       aiSetupPromptCalendar:
@@ -76,14 +86,27 @@ const messages = {
       aiSetupFilteredExample:
         "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
       aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupSortingDescription:
+        "Das haben deine Regeln in aktuellen E-Mails gefunden.",
       aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
+      aiSetupRetry: "Erneut versuchen",
+      aiSetupGmailStatusFailed:
+        "Die Gmail-Verbindung konnte nicht geprüft werden",
+      aiSetupAutomationSettingsFailed:
+        "Die Einstellungen für das KI-Modell konnten nicht geprüft werden",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupUndoBeforeRetry:
+        "Mache die Teiländerungen rückgängig, bevor du es erneut versuchst.",
       aiSetupSortingFailed:
         "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
       aiSetupUndoComplete:
         "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupUndoFailed:
+        "Diese Änderungen im Posteingang konnten nicht rückgängig gemacht werden. Versuche es erneut.",
+      aiSetupUndoStatusFailed:
+        "Der Rückgängig-Vorgang wurde gesendet, aber die neuesten Ergebnisse konnten nicht geladen werden.",
       aiSetupRuleCount: "{{count}} Treffer",
       aiSetupNoMatches:
         "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",
@@ -94,7 +117,29 @@ const messages = {
       aiSetupPartialFailure:
         "{{count}} Nachrichten konnten nicht aktualisiert werden.",
       aiSetupSortInbox: "Posteingang sortieren",
-      aiSetupImportantExample: "Alles von meiner Führungskraft Priya…",
+      aiSetupImportantExample:
+        "Alles von meinem Chef, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "Die KI versieht passende E-Mails mit Tags und erstellt für jeden Tag einen eigenen Tab neben deinem Posteingang.",
+      aiSetupImportantDescription:
+        "Die KI versieht passende E-Mails mit dem Label Wichtig, damit sie im Tab Wichtig erscheinen.",
+      aiSetupSkipInboxDescription:
+        "Die KI archiviert passende E-Mails, sodass sie nicht im Posteingang landen. Sie bleiben unter Alle Nachrichten und in der Suche verfügbar.",
+      aiSetupAddTab: "Tab hinzufügen",
+      aiSetupAdjustRules: "Regeln anpassen",
+      aiSetupImportantBoss: "Nachrichten von meinem Chef, ",
+      aiSetupImportantBossChip: "Nachrichten von meinem Chef",
+      aiSetupImportantReply: "Antwort nötig",
+      aiSetupImportantDeadlines: "Fristen",
+      aiSetupImportantCustomers: "Kunden",
+      aiSetupImportantGitHub: "Menschen auf GitHub",
+      aiSetupImportantCalendar: "Kalendereinladungen",
+      aiSetupSkipNewsletters: "Newsletter",
+      aiSetupSkipPromotions: "Angebote",
+      aiSetupSkipBots: "Bot- und CI-Alarme",
+      aiSetupSkipColdSales: "Kalte Vertriebsanfragen",
+      aiSetupSkipRecruiters: "Recruiter",
+      aiSetupSkipSocial: "Social-Media-Alarme",
       priorityFeedbackLabel: "Feedback zur Wichtigkeit",
       priorityScoreHigh: "Hohe Wichtigkeit",
       priorityScoreMedium: "Mittlere Wichtigkeit",
@@ -296,6 +341,16 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Geplanten Versand abbrechen",
+      deliveryUnknownWarning:
+        "Zustellstatus unbekannt; prüfe vor der Klärung den Gmail-Ordner „Gesendet“.",
+      markSentAfterChecking:
+        "Ich habe „Gesendet“ geprüft; als gesendet markieren",
+      sendNewCopy: "Neue Kopie senden",
+      sendingStatus:
+        "Geplanter Versand wird verarbeitet. Aktionen sind vorübergehend nicht verfügbar.",
+      confirmSendNewCopyTitle: "Eine weitere Kopie senden?",
+      confirmSendNewCopyDescription:
+        "Die ursprüngliche Nachricht wurde möglicherweise bereits zugestellt. Prüfe zuerst den Gmail-Ordner „Gesendet“. Beim erneuten Senden kann eine doppelte E-Mail entstehen.",
       dateInput: "Datum und Uhrzeit",
       noDateMatch: "Keine passende zukünftige Zeit",
       inputPlaceholder: "Versuche: 8 Uhr, 3 Tage, 7. Aug.",
@@ -407,6 +462,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
       scheduledSendFailed: "Geplante E-Mail konnte nicht gesendet werden",
+      uncertainScheduledMarkedSent: "Geplante E-Mail als gesendet markiert.",
+      uncertainScheduledResolveFailed:
+        "Geplante E-Mail konnte nicht geklärt werden.",
+      uncertainScheduledRetryStarted: "Eine neue Kopie wird gesendet.",
+      uncertainScheduledRetryFailed: "Neue Kopie konnte nicht gesendet werden.",
       scheduledCancelled: "Geplante E-Mail abgebrochen.",
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -456,6 +516,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
+      connectionNotConfigured:
+        "Die Gmail-Verbindung ist für diese App nicht konfiguriert. Bitte wende dich an die Administration, um sie zu aktivieren, oder überspringe diesen Schritt vorerst.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -629,6 +691,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} Nachrichten wiederhergestellt",
       ruleBackfillReview: "Treffer prüfen",
       importantMode: "Wichtig",
+      notifyMode: "Benachrichtigen",
+      notifyModeHelp:
+        "Markiert passende E-Mails als wichtig und zeigt ein Browser-Popup, wenn Mail geöffnet und die Glocke aktiviert ist. Die mobile App folgt in Kürze.",
+      manageAutomationsLink: "Weitere Automatisierungsaktionen",
       notImportantMode: "Nicht wichtig",
       importantLabel: "KI-Wichtig",
       reviewImportant: "Wichtige anzeigen",
@@ -765,6 +831,7 @@ const messages = {
     markRead: "Als gelesen markieren",
     star: "Markieren",
     trash: "Papierkorb",
+    notify: "Benachrichtigen",
     labelName: "Labelname",
     addAction: "+ Aktion hinzufügen",
     ruleName: "Regelname",
@@ -844,8 +911,6 @@ const messages = {
     slackPostEndpoint: "Slack-POST-Endpunkt",
     slackPostEndpointHelp:
       "In Slack Event Subscriptions verwenden. Browser-GET kann Not Found anzeigen.",
-    teamDescription:
-      "Richte ein Team ein, um E-Mail-Automatisierungen und Einstellungen mit Kollegen zu teilen.",
     title: "Einstellungen",
     general: "Allgemein",
     generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
@@ -872,12 +937,19 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
+    rules: "Regeln",
+    rulesModel: "Modell für Regeln",
+    rulesModelDescription: "Gleicht eingehende E-Mails mit deinen Regeln ab.",
+    slackDraftRequests: "Entwurfsanfragen",
+    slackDraftQueue: "Entwürfe aus Slack einreihen",
+    slackDraftQueueDescription:
+      "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Entwürfe warten in deiner Entwurfswarteschlange auf Prüfung.",
+    openDraftQueue: "Entwurfswarteschlange öffnen",
     aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

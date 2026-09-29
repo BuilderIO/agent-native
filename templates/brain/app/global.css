@@ -119,14 +119,18 @@
 }
 
 .brain-chat-intro {
-  display: none;
-}
-
-.brain-chat-panel [data-agent-empty-state="centered"] .brain-chat-intro {
   display: grid;
   width: 100%;
   max-width: min(684px, 90%);
-  gap: 0.5rem;
+  margin: 0 auto 1rem;
+  text-align: center;
+}
+
+.brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .brain-chat-intro {
+  display: grid;
+  width: 100%;
+  max-width: min(684px, 90%);
   margin: 0 auto 1rem;
   text-align: center;
 }
@@ -140,26 +144,22 @@
   line-height: 1.12;
 }
 
-.brain-chat-intro p {
-  margin: 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.9375rem;
-  line-height: 1.5;
-}
-
-.brain-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+.brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
 }
 
-.brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+.brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-composer-area {
   width: 100%;
   max-width: min(750px, 100%);
   padding: 0;
 }
 
-.brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+.brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-composer-root {
   min-height: 7.875rem;
   border-color: hsl(var(--border));
   border-radius: 1rem;
@@ -168,14 +168,12 @@
 }
 
 .dark
-  .brain-chat-panel
-  [data-agent-empty-state="centered"]
+  .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-root {
   box-shadow: none;
 }
 
-.brain-chat-panel
-  [data-agent-empty-state="centered"]
+.brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-prosemirror {
   min-height: 5.0625rem;
   font-size: 1rem;
@@ -183,12 +181,13 @@
 }
 
 @media (max-width: 767px) {
-  .brain-chat-panel [data-agent-empty-state="centered"] {
+  .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
     padding: 1rem;
     padding-bottom: 5rem;
   }
 
-  .brain-chat-panel [data-agent-empty-state="centered"] .brain-chat-intro {
+  .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .brain-chat-intro {
     width: 100%;
     margin-bottom: 0.875rem;
   }
@@ -197,11 +196,13 @@
     font-size: 1.75rem;
   }
 
-  .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+  .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .agent-composer-area {
     width: 100%;
   }
 
-  .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+  .brain-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+    .agent-composer-root {
     min-height: 6.75rem;
   }
 }

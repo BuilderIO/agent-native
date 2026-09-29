@@ -10,7 +10,15 @@ export interface SecretStatus {
   scope: "user" | "workspace" | "org";
   kind: "api-key" | "oauth";
   required: boolean;
+  /**
+   * "set" = a value is in effect; "unset" = not configured; "invalid" = the
+   * provider rejected the value in effect, which is still rendered like a set
+   * one so it can be rotated or removed; "unknown" = the credential store
+   * could not be read.
+   */
   status: "set" | "unset" | "invalid" | "unknown";
+  /** When the provider last rejected the value in effect (ms). */
+  rejectedAt?: number;
   source?: SecretSource;
   managedHere?: boolean;
   overrides?: "vault" | "workspace";

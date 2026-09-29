@@ -28,6 +28,43 @@ function safeToolName(request: AgentApprovalRequest): string | undefined {
   return value.replace(/[._:-]+/g, " ");
 }
 
+function safeTarget(value: unknown): string | undefined {
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function safeReleaseSummary(
+  request: AgentApprovalRequest,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  const toolName = safeToolName(request);
+  const metadataInput = request.metadata?.input;
+  if (
+    !toolName?.includes("release") ||
+    !metadataInput ||
+    typeof metadataInput !== "object" ||
+    Array.isArray(metadataInput)
+  ) {
+    return undefined;
+  }
+
+  const input = metadataInput as Record<string, unknown>;
+  const release = safeTarget(input.release);
+  if (!release) return undefined;
+
+  const environment =
+    input.environment === undefined ? undefined : safeTarget(input.environment);
+  if (input.environment !== undefined && !environment) return undefined;
+  return environment
+    ? t("agentChat.approval.releaseSummary", { release, environment })
+    : t("agentChat.approval.releaseSummaryWithoutEnvironment", { release });
+}
+
 function SimpleToolApproval({
   request,
   threadId,
@@ -69,9 +106,11 @@ function SimpleToolApproval({
       });
     },
   );
-  const question = t("agentChat.approval.question", {
-    tool: toolName ?? t("agentChat.approval.action"),
-  });
+  const question =
+    safeReleaseSummary(request, t) ??
+    t("agentChat.approval.question", {
+      tool: toolName ?? t("agentChat.approval.action"),
+    });
   const resolve = (decision: "approve" | "deny", requestRevision = false) =>
     void resolution
       .execute({ decision, requestRevision })

@@ -31,12 +31,16 @@ import {
   getRequestContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
-import { getSetting } from "../../settings/store.js";
+import {
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+} from "../../server/secret-key-aliases.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   CHATGPT_SUBSCRIPTION_ENGINE_NAME,
   CHATGPT_SUBSCRIPTION_LAB_KEY,
 } from "../chatgpt-subscription-contract.js";
+import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   OLLAMA_DEFAULT_BASE_URL,
@@ -612,7 +616,7 @@ export async function detectEngineFromUserSecrets(
             (entry) =>
               entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
           )
-          .flatMap((entry) => entry.requiredEnvVars),
+          .flatMap((entry) => entry.requiredEnvVars.flatMap(secretKeyNames)),
       ),
     ]);
   };
@@ -810,7 +814,7 @@ async function resolveUsableProviderSecret(
 async function resolveUsableProviderSecretDetailed(
   key: string,
 ): Promise<{ value: string; provenance: CredentialProvenance } | null> {
-  const resolved = await resolveSecretDetailed(key);
+  const resolved = await resolveSecretWithAliasesDetailed(key);
   const value = resolved.value;
   if (!value) {
     assertCredentialStoreReadable(resolved);
@@ -1184,7 +1188,7 @@ export async function getConfiguredEngineNameForRequest(
 
   let stored: { engine?: unknown; config?: unknown } | null = null;
   try {
-    stored = (await getSetting("agent-engine")) as {
+    stored = (await readDefaultAgentEngineSetting()) as {
       engine?: unknown;
       config?: unknown;
     } | null;
@@ -1321,7 +1325,7 @@ export async function resolveEngine(
 
   let stored: { engine?: unknown; config?: unknown } | null = null;
   try {
-    stored = (await getSetting("agent-engine")) as typeof stored;
+    stored = (await readDefaultAgentEngineSetting()) as typeof stored;
   } catch {
     // Settings not available — fall through
   }
@@ -1425,7 +1429,7 @@ export async function getStoredModelForEngine(
   }
 
   try {
-    const stored = await getSetting("agent-engine");
+    const stored = await readDefaultAgentEngineSetting();
     if (
       stored &&
       typeof stored.engine === "string" &&

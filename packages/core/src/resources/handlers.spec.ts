@@ -9,6 +9,7 @@ const mockResourceDeleteIfCurrent = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
+const mockResourceListOrganization = vi.fn();
 const mockResourceMove = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
@@ -53,6 +54,8 @@ vi.mock("./store.js", () => ({
   resourceList: (...args: any[]) => mockResourceList(...args),
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
+  resourceListOrganization: (...args: any[]) =>
+    mockResourceListOrganization(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
   resourceEffectiveContext: (...args: any[]) =>
     mockResourceEffectiveContext(...args),
@@ -95,11 +98,40 @@ vi.mock("h3", () => ({
   setResponseStatus: (_event: any, code: number) => {
     lastStatus = code;
   },
+  getHeader: (event: any, name: string) => {
+    const headers = event?._headers ?? {};
+    const target = String(name).toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() === target) return value;
+    }
+    return undefined;
+  },
   setResponseHeader: vi.fn(),
   getMethod: (event: any) => event._method || "GET",
   readMultipartFormData: (event: any) =>
     Promise.resolve(event._multipart || null),
 }));
+
+const mockExportResourcePackRun = vi.fn();
+const mockImportResourcePackRun = vi.fn();
+
+vi.mock("./actions/export-resource-pack.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./actions/export-resource-pack.js")>();
+  return {
+    ...actual,
+    default: { run: (...args: any[]) => mockExportResourcePackRun(...args) },
+  };
+});
+
+vi.mock("./actions/import-resource-pack.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./actions/import-resource-pack.js")>();
+  return {
+    ...actual,
+    default: { run: (...args: any[]) => mockImportResourcePackRun(...args) },
+  };
+});
 
 import { getSession } from "../server/auth.js";
 import {
@@ -111,6 +143,8 @@ import {
   handleUpdateResource,
   handleDeleteResource,
   handleUploadResource,
+  handleExportResourcePack,
+  handleImportResourcePack,
 } from "./handlers.js";
 
 describe("resource handlers", () => {
@@ -126,6 +160,8 @@ describe("resource handlers", () => {
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
     mockUploadFile.mockResolvedValue(null);
     mockCanUpdateAutomationResource.mockResolvedValue(false);
+    mockExportResourcePackRun.mockReset();
+    mockImportResourcePackRun.mockReset();
     vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
     mockGetOrgContext.mockResolvedValue({
       email: "test@test.com",
@@ -170,9 +206,11 @@ describe("resource handlers", () => {
       const event = { _query: { scope: "shared" } };
       await handleListResources(event);
 
-      expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined, {
-        orgId: null,
-      });
+      expect(mockResourceListOrganization).toHaveBeenCalledWith(
+        null,
+        undefined,
+        undefined,
+      );
     });
 
     it("lists only workspace resources when scope=workspace", async () => {
@@ -1349,6 +1387,120 @@ Legacy webhook.`,
       await handleGetResourceTree({ _query: {} });
 
       expect(mockResourceGet).toHaveBeenCalledWith("r1", { orgId: "org-1" });
+    });
+  });
+
+  describe("handleExportResourcePack", () => {
+    it("delegates to export-resource-pack with the caller identity", async () => {
+      mockExportResourcePackRun.mockResolvedValue({
+        pack: { version: 1, resources: [] },
+      });
+
+      const result = await handleExportResourcePack({
+        _query: { scope: "personal", prefix: "memory/" },
+      });
+
+      expect(mockExportResourcePackRun).toHaveBeenCalledWith(
+        { scope: "personal", prefix: "memory/" },
+        { userEmail: "test@test.com", orgId: null, caller: "http" },
+      );
+      expect(result).toEqual({ pack: { version: 1, resources: [] } });
+    });
+
+    it("maps a typed pack failure onto the HTTP response", async () => {
+      mockExportResourcePackRun.mockRejectedValue({
+        actionContractError: true,
+        errorCode: "too_large",
+        statusCode: 400,
+        message: "Resource pack exceeds the export cap.",
+        details: { fileCount: 201 },
+      });
+
+      const result = await handleExportResourcePack({ _query: {} });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({
+        error: "Resource pack exceeds the export cap.",
+        errorCode: "too_large",
+        details: { fileCount: 201 },
+      });
+    });
+  });
+
+  describe("handleImportResourcePack", () => {
+    it("delegates to import-resource-pack", async () => {
+      mockImportResourcePackRun.mockResolvedValue({
+        imported: 1,
+        skipped: 0,
+        redacted: 0,
+        errors: [],
+      });
+
+      const result = await handleImportResourcePack({
+        _body: { pack: { version: 1 }, onConflict: "overwrite" },
+      });
+
+      expect(mockImportResourcePackRun).toHaveBeenCalledWith(
+        {
+          pack: { version: 1 },
+          targetScope: "personal",
+          onConflict: "overwrite",
+        },
+        { userEmail: "test@test.com", orgId: null, caller: "http" },
+      );
+      expect(result).toEqual({
+        imported: 1,
+        skipped: 0,
+        redacted: 0,
+        errors: [],
+      });
+    });
+
+    it("rejects an oversized body before running the import action", async () => {
+      const { RESOURCE_PACK_MAX_BODY_BYTES } = await import("./pack.js");
+
+      await expect(
+        handleImportResourcePack({
+          _headers: {
+            "content-length": String(RESOURCE_PACK_MAX_BODY_BYTES + 1),
+          },
+          _body: { pack: { version: 1, resources: [] } },
+        }),
+      ).rejects.toMatchObject({ statusCode: 413 });
+
+      expect(lastStatus).toBe(413);
+      expect(mockImportResourcePackRun).not.toHaveBeenCalled();
+    });
+
+    it("returns a validation error for malformed JSON", async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("{"));
+          controller.close();
+        },
+      });
+
+      const result = await handleImportResourcePack({ req: { body } });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      });
+      expect(mockImportResourcePackRun).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid target scope before running the import action", async () => {
+      const result = await handleImportResourcePack({
+        _body: { pack: {}, targetScope: "other" },
+      });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      });
+      expect(mockImportResourcePackRun).not.toHaveBeenCalled();
     });
   });
 });

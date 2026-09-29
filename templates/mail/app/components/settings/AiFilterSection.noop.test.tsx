@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   jevAvailabilityError: false,
   jevConfigured: true,
   automationsError: false,
+  automationsLoading: false,
   automationsHasData: true,
   triageEnabled: true,
   updateAiFilterSettings: vi.fn(),
@@ -107,7 +108,7 @@ vi.mock("@/hooks/use-ai-filter", () => ({
 vi.mock("@/hooks/use-automations", () => ({
   useAutomations: () => ({
     data: mocks.automationsHasData ? mocks.rules : undefined,
-    isLoading: false,
+    isLoading: mocks.automationsLoading,
     isError: mocks.automationsError,
     isFetching: false,
     refetch: mocks.refetchAutomations,
@@ -151,27 +152,36 @@ const importantRule = () => ({
   updatedAt: "2026-09-25T00:00:00.000Z",
 });
 
-function TestProviders({ children }: PropsWithChildren) {
+function TestProviders({
+  children,
+  initialEntry = "/",
+}: PropsWithChildren<{ initialEntry?: string }>) {
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <TooltipProvider>{children}</TooltipProvider>
     </MemoryRouter>
   );
 }
 
-function renderSection() {
-  return render(<AiFilterSection />, { wrapper: TestProviders });
+function renderSection(initialEntry = "/", embedded = false) {
+  const Wrapper = ({ children }: PropsWithChildren) => (
+    <TestProviders initialEntry={initialEntry}>{children}</TestProviders>
+  );
+  return render(<AiFilterSection embedded={embedded} />, { wrapper: Wrapper });
 }
 
 describe("AiFilterSection", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
     mocks.rules = [];
     mocks.decisions = [];
     mocks.jevAvailabilityError = false;
     mocks.jevConfigured = true;
     mocks.automationsError = false;
+    mocks.automationsLoading = false;
     mocks.automationsHasData = true;
     mocks.triageEnabled = true;
     mocks.accounts = [];
@@ -229,6 +239,75 @@ describe("AiFilterSection", () => {
       ),
     ).toBe("Receipts");
     expect(normalizedAiFilterLabelId("Work_Updates")).toBe("work updates");
+  });
+
+  it("disconnects the hash observer when rules fail to load", () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    class MutationObserverMock {
+      observe = observe;
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("MutationObserver", MutationObserverMock);
+    mocks.automationsLoading = true;
+    mocks.automationsHasData = false;
+
+    const view = renderSection("/settings#tags");
+
+    expect(observe).toHaveBeenCalledOnce();
+    mocks.automationsLoading = false;
+    mocks.automationsError = true;
+    view.rerender(<AiFilterSection />);
+
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("keeps AI tags and Important settings anchors available when empty", () => {
+    renderSection();
+
+    expect(document.getElementById("tags")).not.toBeNull();
+    expect(document.getElementById("importance-rules")).not.toBeNull();
+  });
+
+  it("scrolls to a deep-linked rule group after automation rules load", async () => {
+    const scrollIntoView = vi.fn();
+    let targetAvailable = false;
+    vi.spyOn(document, "getElementById").mockImplementation((id) =>
+      id === "tags" && targetAvailable
+        ? ({
+            getClientRects: () => [{}],
+            scrollIntoView,
+          } as unknown as HTMLElement)
+        : null,
+    );
+    mocks.automationsHasData = false;
+    mocks.automationsLoading = true;
+
+    const view = renderSection("/settings#tags", true);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    targetAvailable = true;
+    mocks.automationsHasData = true;
+    mocks.automationsLoading = false;
+    view.rerender(<AiFilterSection embedded />);
+
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      }),
+    );
+  });
+
+  it("disables every add-rule entry point until Jev is connected", () => {
+    mocks.jevConfigured = false;
+    renderSection();
+
+    expect(
+      screen
+        .getAllByRole("button", { name: "mail.aiFilter.newRule" })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
   });
 
   it("groups important, tag, filtered, and auto-archive rules in one editor", () => {
@@ -295,6 +374,23 @@ describe("AiFilterSection", () => {
     ).toBe("true");
   });
 
+  it("links to general automations and explains browser notifications", () => {
+    renderSection();
+
+    expect(
+      screen
+        .getByRole("link", {
+          name: "mail.aiFilter.manageAutomationsLink",
+        })
+        .getAttribute("href"),
+    ).toBe("/settings/agent/automations");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain("browser popup");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain("Mail is open");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain(
+      "Mobile app coming soon",
+    );
+  });
+
   it("uses a styled Filtered disclosure button and wraps rule sentences", () => {
     const condition =
       "Unsolicited promotional offers from senders I have never replied to";
@@ -337,6 +433,7 @@ describe("AiFilterSection", () => {
 
   it.each([
     ["importantMode", "importantRuleHelp"],
+    ["notifyMode", "notifyModeHelp"],
     ["aiTagsTitle", "aiTagRuleHelp"],
     ["filteredMode", "spamRuleHelp"],
     ["autoArchiveMode", "skipInboxRuleHelp"],
@@ -394,6 +491,43 @@ describe("AiFilterSection", () => {
       expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
         operation: "start",
         ruleIds: ["filtered-rule"],
+      });
+    });
+  });
+
+  it("creates a notify rule that highlights and queues recent mail", async () => {
+    mocks.createRule.mockResolvedValue({ id: "notify-rule" });
+    renderSection();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.notifyMode" }),
+    );
+    expect(screen.getByText("mail.aiFilter.notifyModeHelp")).not.toBeNull();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Emails from the school" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.addInstruction" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.createRule).toHaveBeenCalledWith({
+        name: "AI notify: Emails from the school",
+        condition: "Emails from the school",
+        actions: [
+          { type: "label", labelName: "agent-native-important" },
+          { type: "notify" },
+        ],
+        kind: "ai-filter",
+        domain: "mail",
+      });
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["notify-rule"],
       });
     });
   });

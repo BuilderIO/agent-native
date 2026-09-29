@@ -37,6 +37,7 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import "@/components/onboarding/register-first-run";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";

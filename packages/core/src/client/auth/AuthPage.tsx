@@ -1,14 +1,22 @@
 /** @jsxRuntime classic */
 
 import { AuthForm } from "@agent-native/toolkit/onboarding";
+import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
 import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
+import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
+import type {
+  AuthLocaleOption,
+  AuthPageProps,
+  AuthView,
+} from "../../shared/auth-page-types.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
+  isVerificationLinkInvalid,
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
@@ -16,70 +24,13 @@ import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
 import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
 
-export type AuthView =
-  | "signup"
-  | "login"
-  | "forgot"
-  | "twoFactor"
-  | "verification"
-  | "magicLink"
-  | "magicLinkSent"
-  | "googleOnly";
-
-export interface AuthLocaleOption {
-  value: string;
-  label: string;
-}
-
-export interface AuthLegalNotice {
-  termsUrl: string;
-  privacyUrl: string;
-  termsLabel?: string;
-  privacyLabel?: string;
-  prefix?: string;
-  connector?: string;
-  suffix?: string;
-}
-
-export interface AuthPageProps {
-  authMode: "magic-link" | "password";
-  googleOnly: boolean;
-  initialPrompt: boolean;
-  initialView: AuthView;
-  appBasePath: string;
-  homePath: string;
-  initialResumeHref?: string;
-  workspaceRuntime: boolean;
-  trackingApp: string;
-  defaultLocale: string;
-  localeStorageKey: string;
-  locales: Record<string, Record<string, string>>;
-  localeMetadata: Record<string, { dir?: string }>;
-  localeOptions: AuthLocaleOption[];
-  appName?: string;
-  showGoogle: boolean;
-  organizationSsoEnabled?: boolean;
-  identitySsoEnabled?: boolean;
-  googleViaIdentitySso?: boolean;
-  /** @deprecated Automatic browser SSO handoff was removed. */
-  identitySsoAuto?: boolean;
-  signupLegalNotice?: AuthLegalNotice;
-  signupLocalModeNote?: { text: string; command: string };
-  docsAuthUrl: string;
-  publicOAuthOrigin: string;
-  workspaceGatewayReturnOrigin: string;
-  googleAuthMode: "popup" | "redirect" | "auto";
-  builderPreviewLocalDevEnabled: boolean;
-  environmentBetaHosts: Record<string, string>;
-  betaForceQueryParam: string;
-  betaForceSessionStorageKey: string;
-  betaOptOutQueryParam: string;
-  betaOptOutStorageKey: string;
-  betaOptOutDurationMs: number;
-  passwordMinLength: number;
-  passwordMaxLength: number;
-  passwordMaxCopy: string;
-}
+export type {
+  AuthLegalNotice,
+  AuthLocaleOption,
+  AuthMarketingProps,
+  AuthPageProps,
+  AuthView,
+} from "../../shared/auth-page-types.js";
 
 type Notice = { kind: "error" | "success"; text: string } | null;
 type AuthRequestResult = {
@@ -100,9 +51,7 @@ const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
-export function isVerificationLinkInvalid(error: string | null): boolean {
-  return error === "verification_link_invalid" || error === "INVALID_TOKEN";
-}
+export { isVerificationLinkInvalid };
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -693,10 +642,21 @@ export function shouldStartWithLocalDev(
   );
 }
 
+function AuthMarketingBackground() {
+  return (
+    <div
+      aria-hidden="true"
+      className="auth-marketing-screenshot"
+      data-agent-native-marketing-background
+    />
+  );
+}
+
 export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
     googleOnly,
+    initialPrompt,
     appBasePath,
     homePath,
     initialResumeHref,
@@ -707,6 +667,11 @@ export function AuthPage(props: AuthPageProps) {
     locales,
     localeMetadata,
     localeOptions,
+    marketing,
+    marketingLocales,
+    brandMarkSrc,
+    brandMarkLightSrc,
+    githubUrl,
     appName,
     showGoogle,
     organizationSsoEnabled = false,
@@ -2354,6 +2319,21 @@ export function AuthPage(props: AuthPageProps) {
   }, [signupLocalModeNote]);
 
   const keys = headingKeys(view);
+  const localizedMarketing = marketingLocales[locale];
+  const marketingCopy = marketing
+    ? localizedMarketing?.authHeadline && localizedMarketing.authDescription
+      ? { ...marketing, ...localizedMarketing }
+      : marketing
+    : undefined;
+  const marketingAppName =
+    marketingCopy?.appName.replace(/^Agent-Native\s+/i, "") ?? "";
+  const marketingStatus = getAppStatus(trackingApp || marketingAppName);
+  const usesMarketingWelcome =
+    !!marketingCopy &&
+    (view === "signup" ||
+      view === "login" ||
+      view === "magicLink" ||
+      view === "googleOnly");
   const cardClassName = [
     "card",
     localDevAvailable ? "local-dev-available" : "",
@@ -2486,16 +2466,27 @@ export function AuthPage(props: AuthPageProps) {
   );
   const authCard = (
     <div className={cardClassName}>
-      <h1 id="heading" data-i18n={keys.heading}>
-        {t(keys.heading)}
+      <h1
+        id="heading"
+        data-i18n={usesMarketingWelcome ? "welcomeToApp" : keys.heading}
+        data-auth-marketing-title={usesMarketingWelcome ? "true" : undefined}
+      >
+        {usesMarketingWelcome
+          ? t("welcomeToApp").replace("{appName}", marketingAppName)
+          : t(keys.heading)}
       </h1>
       <p
         id="subtitle"
         className="subtitle"
-        data-i18n={keys.subtitle}
-        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
+        data-i18n={usesMarketingWelcome ? undefined : keys.subtitle}
+        data-auth-marketing-subtitle={usesMarketingWelcome ? "true" : undefined}
+        hidden={
+          usesMarketingWelcome
+            ? false
+            : shouldHideAuthSubtitle(view, localDevAvailable)
+        }
       >
-        {t(keys.subtitle)}
+        {usesMarketingWelcome ? t("welcomeSubtitle") : t(keys.subtitle)}
       </p>
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
@@ -2505,7 +2496,7 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled && !googleOnly ? (
+      {identitySsoEnabled && !identitySsoAuto && !googleOnly ? (
         <div className="identity-sso-entry" id="identity-sso-entry">
           <a
             className="btn-primary btn-identity-sso"
@@ -2607,9 +2598,14 @@ export function AuthPage(props: AuthPageProps) {
               id="google-btn"
               type="button"
               disabled={googleBusy}
+              aria-busy={googleBusy}
               onClick={() => void startGoogle()}
             >
-              {googleSvg()}
+              {googleBusy ? (
+                <IconLoader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                googleSvg()
+              )}
               <span data-i18n="googleButton">{t("googleButton")}</span>
             </button>
             {notice("google")}
@@ -3008,6 +3004,99 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
+  const marketingContent = marketingCopy ? (
+    <div className="marketing-content">
+      <h2 className="app-name">
+        <picture>
+          {brandMarkLightSrc ? (
+            <source
+              media="(prefers-color-scheme: light)"
+              srcSet={brandMarkLightSrc}
+            />
+          ) : null}
+          <img
+            className="brand-mark"
+            src={brandMarkSrc}
+            alt=""
+            aria-hidden="true"
+          />
+        </picture>
+        <span className="app-name-label">{marketingAppName}</span>
+        <span className="app-status-badge">{marketingStatus}</span>
+      </h2>
+      <div className="marketing-copy">
+        <p className="auth-marketing-headline" data-marketing-field="headline">
+          {marketingCopy.authHeadline ?? marketingCopy.tagline}
+        </p>
+        {(marketingCopy.authDescription ?? marketingCopy.description) ||
+        marketingCopy.learnMoreUrl ? (
+          <p
+            className="auth-marketing-description"
+            data-marketing-field="description"
+          >
+            {marketingCopy.authDescription ?? marketingCopy.description}
+            {marketingCopy.learnMoreUrl ? (
+              <>
+                {" "}
+                <a
+                  className="auth-marketing-description-link"
+                  href={marketingCopy.learnMoreUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("learnMore")}
+                </a>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        <div className="marketing-actions">
+          <a
+            className="oss-badge"
+            href={githubUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              width={16}
+              height={16}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 19c-4.3 1.4 -4.3 -2.5 -6 -3m12 5v-3.5c0 -1 .1 -1.4 -.5 -2c2.8 -.3 5.5 -1.4 5.5 -6a4.6 4.6 0 0 0 -1.3 -3.2a4.2 4.2 0 0 0 -.1 -3.2s-1.1 -.3 -3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4 -1.6 -3.5 -1.3 -3.5 -1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6 .6 -.6 1.2 -.5 2v3.5" />
+            </svg>
+            <span data-i18n="openSource">{t("openSource")}</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  ) : null;
+  const marketingSurface = marketingCopy ? (
+    <main className="auth-marketing-home" data-agent-native-marketing-home>
+      <div className="auth-marketing-shell">
+        <div className="split auth-marketing-layout">
+          <aside className="form-panel w-full max-w-md justify-self-end">
+            {authCard}
+          </aside>
+          <section className="marketing-panel">
+            <div className="auth-marketing-visual">
+              <div className="auth-marketing-screenshot-wrap">
+                <AuthMarketingBackground />
+              </div>
+              {marketingContent}
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  ) : (
+    <div className="auth-centered">{authCard}</div>
+  );
   const localePicker = (
     <div className="locale-picker">
       <button
@@ -3074,7 +3163,11 @@ export function AuthPage(props: AuthPageProps) {
   return (
     <>
       {localePicker}
-      <div className="auth-centered">{authCard}</div>
+      {initialPrompt ? (
+        <div className="auth-centered">{authCard}</div>
+      ) : (
+        marketingSurface
+      )}
     </>
   );
 }

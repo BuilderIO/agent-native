@@ -101,6 +101,10 @@ import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import type {
+  AuthPageProps,
+  ResetPasswordPageProps,
+} from "../shared/auth-page-types.js";
 import {
   resolveSsrCacheHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -247,13 +251,6 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
-import {
-  forgetCachedSessionEmail,
-  getCachedSessionEmail,
-  getSessionEmailCacheGeneration,
-  invalidateSessionEmailCache,
-  setCachedSessionEmail,
-} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 function stripAppBasePath(pathname: string): string {
@@ -337,6 +334,8 @@ export interface AuthOptions {
   workspaceAppPublicPaths?: string[];
   workspaceAppProtectedPaths?: string[];
   loginHtml?: string;
+  renderSignInPage?: (props: AuthPageProps) => string;
+  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string;
   rootAuth?: boolean;
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
@@ -1798,7 +1797,6 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 async function replaceSession(
@@ -1823,7 +1821,6 @@ async function replaceSession(
       });
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1849,7 +1846,6 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 /**
@@ -1907,7 +1903,6 @@ async function performLogout(
       candidates,
       Boolean(auth || revocationFailed),
     );
-    invalidateSessionEmailCache();
     await ensureSessionTable();
     await revokeEmbedSessionsForOwners([...identities], async (tx) => {
       const canRevokeBetterAuth = auth
@@ -1927,12 +1922,9 @@ async function performLogout(
       }
     });
   } catch (error) {
-    invalidateSessionEmailCache();
     captureAuthError(error, { route: "logout" });
     setResponseStatus(event, 503);
     return { error: "Unable to revoke session" };
-  } finally {
-    invalidateSessionEmailCache();
   }
 
   if (!revocationFailed) {
@@ -1976,9 +1968,6 @@ export async function logout(
 }
 
 export async function getSessionEmail(token: string): Promise<string | null> {
-  const cached = getCachedSessionEmail(token);
-  if (cached !== undefined) return cached;
-  const cacheGeneration = getSessionEmailCacheGeneration();
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1994,11 +1983,9 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
-    forgetCachedSessionEmail(token);
     return null;
   }
   const email = (rows[0].email as string) ?? null;
-  if (email) setCachedSessionEmail(token, email, cacheGeneration);
   return email;
 }
 
@@ -2205,6 +2192,7 @@ function getOnboardingHtmlOptions(
     marketing: options.marketing,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
+    renderSignInPage: options.renderSignInPage,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
@@ -2720,7 +2708,6 @@ async function consumeDesktopExchangeFromDB(
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS, packed],
     });
     if (deleted.rows.length === 0) return { status: "missing" };
-    forgetCachedSessionEmail(`dex:${flowId}`);
     return { status: "entry", entry };
   } catch {
     // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
@@ -3588,7 +3575,7 @@ function createAuthGuardFn(
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
     const requestPath = queryStart >= 0 ? url : rawPath;
-    const p = stripAppBasePath(rawPath);
+    const p = stripAppBasePath(canonicalFrameworkPathname(rawPath));
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const previewCallbackRelay =
       await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
@@ -6151,7 +6138,6 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
-              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -6477,36 +6463,31 @@ async function mountBetterAuthRoutes(
         );
         const sessionEmail = normalizeAuthEmail(session.email);
         if (sessionEmail) identities.add(sessionEmail);
-        invalidateSessionEmailCache();
         await ensureSessionTable();
-        try {
-          await revokeEmbedSessionsForOwners([...identities], async (tx) => {
-            const canRevokeBetterAuth = await betterAuthTablesAvailable(tx);
-            for (const email of identities) {
-              if (canRevokeBetterAuth) {
-                const { rows } = await tx.execute({
-                  sql: 'SELECT id FROM "user" WHERE email = ?',
-                  args: [email],
-                });
-                const userId = (rows[0]?.id ?? rows[0]?.[0]) as
-                  | string
-                  | undefined;
-                if (userId) {
-                  await tx.execute({
-                    sql: 'DELETE FROM "session" WHERE user_id = ?',
-                    args: [userId],
-                  });
-                }
-              }
-              await tx.execute({
-                sql: "DELETE FROM sessions WHERE email = ?",
+        await revokeEmbedSessionsForOwners([...identities], async (tx) => {
+          const canRevokeBetterAuth = await betterAuthTablesAvailable(tx);
+          for (const email of identities) {
+            if (canRevokeBetterAuth) {
+              const { rows } = await tx.execute({
+                sql: 'SELECT id FROM "user" WHERE email = ?',
                 args: [email],
               });
+              const userId = (rows[0]?.id ?? rows[0]?.[0]) as
+                | string
+                | undefined;
+              if (userId) {
+                await tx.execute({
+                  sql: 'DELETE FROM "session" WHERE user_id = ?',
+                  args: [userId],
+                });
+              }
             }
-          });
-        } finally {
-          invalidateSessionEmailCache();
-        }
+            await tx.execute({
+              sql: "DELETE FROM sessions WHERE email = ?",
+              args: [email],
+            });
+          }
+        });
         clearFrameworkSessionCookies(event);
         clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
@@ -6532,6 +6513,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
+      setResponseHeader(event, "Cache-Control", "no-store");
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -6564,9 +6546,12 @@ async function mountBetterAuthRoutes(
         event.node?.req?.url ??
         event.path ??
         "/";
-      return new Response(getResetPasswordHtml(requestPath), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return new Response(
+        getResetPasswordHtml(requestPath, options.renderResetPasswordPage),
+        {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
     }),
   );
 
@@ -6729,6 +6714,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
+      setResponseHeader(event, "Cache-Control", "no-store");
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -6764,7 +6750,12 @@ export async function autoMountAuth(
         options.trustCustomEmailVerification === true;
     }
     if (_authGuardConfig) {
-      if (options.googleOnly || options.loginHtml || options.marketing) {
+      if (
+        options.googleOnly ||
+        options.loginHtml ||
+        options.marketing ||
+        options.renderSignInPage
+      ) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,
@@ -6841,6 +6832,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
+        setResponseHeader(event, "Cache-Control", "no-store");
         if (!isReadMethod(event)) {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };

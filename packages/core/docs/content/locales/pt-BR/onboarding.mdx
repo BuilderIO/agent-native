@@ -237,12 +237,13 @@ Consulte a documentação do [Workspace Connections](/docs/workspace-connections
 
 ### Tipos de métodos
 
-| Gentil             | Carga útil                                            | Usar para                                                    |
-| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------ |
-| `link`             | `{ url, external? }`                                  | Enviar o usuário para um fluxo OAuth ou página de documentos |
-| `form`             | `{ fields, writeScope? }`                             | Colete variáveis de ambiente (chaves, segredos, URLs)        |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                       |
-| `agent-task`       | `{ prompt }`                                          | Envie uma solicitação ao chat do agente para tratar          |
+| Gentil             | Carga útil                                            | Usar para                                                             |
+| ------------------ | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | Enviar o usuário para um fluxo OAuth ou página de documentos          |
+| `form`             | `{ fields, writeScope? }`                             | Colete variáveis de ambiente (chaves, segredos, URLs)                 |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                                |
+| `agent-task`       | `{ prompt }`                                          | Envie uma solicitação ao chat do agente para tratar                   |
+| `file-storage`     | -                                                     | Mostrar o formulário compartilhado de armazenamento compatível com S3 |
 
 O sinalizador `primary: true` marca um método como o grande CTA para sua etapa.
 Use `badge: "soon"` mais `disabled: true` quando um caminho de configuração estiver visível

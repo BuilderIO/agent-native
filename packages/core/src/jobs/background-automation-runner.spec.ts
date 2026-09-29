@@ -132,6 +132,55 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
   });
 
+  it("counts setup time against an absolute event deadline", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          {
+            automation: {
+              name: "deadline-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/deadline-digest.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: deadline-digest",
+            runIdPrefix: "job-deadline-digest",
+            usageLabel: "recurring-job:deadline-digest",
+            hardDeadlineAt: now + 100,
+          },
+          {
+            getActions: async () => {
+              dateNow.mockReturnValue(now + 101);
+              return {};
+            },
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+      });
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it("runs scheduled work under the background timeout regime, not the interactive clamp", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -178,6 +227,47 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
     expect(call?.[3]).toBeDefined();
     expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
+  });
+
+  it("records unavailable configured MCP tools with a specific failure code", async () => {
+    const automationName = "missing-mcp-tool-check";
+    await expect(
+      runBackgroundAutomation(
+        {
+          automation: {
+            name: automationName,
+            meta: {
+              schedule: "* * * * *",
+              enabled: true,
+              mcpTools: ["mcp__linear__search_issues"],
+            },
+            body: "Check Linear.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: `jobs/${automationName}.md`,
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Check Linear.",
+          threadTitle: "Job: missing MCP tool check",
+          runIdPrefix: "job-missing-mcp-tool-check",
+          usageLabel: "recurring-job:missing-mcp-tool-check",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+          appId: "calendar",
+        },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_mcp_tools_unavailable",
+    });
+
+    const run = (await pglite
+      .prepare(`SELECT error_code FROM automation_runs WHERE automation = ?`)
+      .get(automationName)) as { error_code: string } | undefined;
+    expect(run?.error_code).toBe("background_automation_mcp_tools_unavailable");
   });
 
   it("forwards the automation's configured reasoningEffort into the agent loop", async () => {
@@ -548,7 +638,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
         delay?: number,
         ...args: unknown[]
       ) => {
-        if (delay === BACKGROUND_RUN_HARD_TIMEOUT_MS) {
+        if (delay === 120_000) {
           pendingHardTimeouts.push(() => {
             if (typeof handler === "function") handler(...args);
           });
@@ -582,6 +672,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
           runIdPrefix: "job-hard-timeout-digest",
           usageLabel: "recurring-job:hard-timeout-digest",
+          hardTimeoutMs: 120_000,
         },
         {
           getActions: () => ({}),
@@ -595,7 +686,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
       });
       pendingHardTimeouts[0]!();
 
-      await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
       const hardTimedOutRunId = (await pglite
         .prepare(
           `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
@@ -621,7 +712,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           expect.objectContaining({
             type: "text",
             text: expect.stringMatching(
-              /Still working\.[\s\S]*timed out after 10 minutes/,
+              /Still working\.[\s\S]*timed out after 2 minutes/,
             ),
           }),
         ]),

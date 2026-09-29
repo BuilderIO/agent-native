@@ -59,7 +59,11 @@ export type {
 export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
 export {
+  AccountMenu,
+  BuilderCreditNotice,
   OrgSwitcher,
+  type AccountMenuProps,
+  type AccountMenuUtilityLink,
   type OrgSwitcherProps,
   type OrgSwitcherUtilityLink,
 } from "./OrgSwitcher.js";
@@ -69,6 +73,19 @@ export {
 } from "./InvitationBanner.js";
 export { WorkspaceNotice } from "./WorkspaceNotice.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
+export { OrgGeneralSection } from "./OrgGeneralSection.js";
+export { MembersSection } from "./MembersSection.js";
+export {
+  GroupsSection,
+  useWorkspaceGroupEditor,
+  type WorkspaceGroupEditorController,
+} from "./GroupsSection.js";
+export { AuthenticationSection } from "./AuthenticationSection.js";
+export { AppsAccessSection } from "./AppsAccessSection.js";
+export { OrgGeneralPage } from "./pages/OrgGeneralPage.js";
+export { OrgMembersPage } from "./pages/OrgMembersPage.js";
+export { OrgAuthenticationPage } from "./pages/OrgAuthenticationPage.js";
+export { OrgAppsPage } from "./pages/OrgAppsPage.js";
 export {
   RequireActiveOrg,
   type RequireActiveOrgProps,
@@ -89,6 +106,7 @@ export {
 export {
   canInviteOrgMembers,
   canManageOrg,
+  canManageOrgA2ASecret,
   canManageOrgDomain,
   orgRoleAtLeast,
   orgRoleRank,
@@ -103,3 +121,8 @@ export type {
   OrgInvitationSummary,
   DomainMatchOrg,
 } from "../../org/types.js";
+export {
+  SIGN_IN_METHOD_ENV_VARS,
+  type OrgSignInMethods,
+  type SocialSignInMethod,
+} from "../../org/sign-in-methods.js";

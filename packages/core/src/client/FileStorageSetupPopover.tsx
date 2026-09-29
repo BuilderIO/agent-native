@@ -140,7 +140,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
 
               return (
                 <div className={viewModel.error ? "grid gap-1.5" : undefined}>
-                  <div className="flex gap-1.5">
+                  <div className="mt-2 flex gap-1.5">
                     {flow ? (
                       <BuilderConnectPopover
                         flow={flow}

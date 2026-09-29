@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import { mailLabelMatches } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -14,10 +15,19 @@ import {
   IconSquareCheck,
   IconSend,
   IconX,
+  IconAlertCircle,
+  IconThumbDown,
+  IconThumbUp,
 } from "@tabler/icons-react";
-import { memo, useRef, useState, useCallback } from "react";
+import { memo, useRef, useState, useCallback, type CSSProperties } from "react";
+import { Link } from "react-router";
 
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +41,7 @@ import { cn, formatEmailDate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
+  importanceScore?: number;
   labelNames?: ReadonlyMap<string, string>;
   thread?: ThreadSummary;
   isSelected: boolean;
@@ -50,6 +61,14 @@ interface EmailListItemProps {
   onImportanceFeedback?: (decision: "important" | "not-important") => void;
   onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onConfirmUncertainScheduled?: (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => void;
+  onRetryUncertainScheduled?: (
+    e: React.MouseEvent,
+    thread: ThreadSummary,
+  ) => void;
   onHover: (thread: ThreadSummary) => void;
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
@@ -109,6 +128,7 @@ function getAccountColor(
 
 export const EmailListItem = memo(function EmailListItem({
   email,
+  importanceScore,
   labelNames,
   thread,
   isSelected,
@@ -128,6 +148,8 @@ export const EmailListItem = memo(function EmailListItem({
   onImportanceFeedback,
   onSendNow,
   onCancelSchedule,
+  onConfirmUncertainScheduled,
+  onRetryUncertainScheduled,
   onHover,
   onSwipeArchive,
   onSwipeSnooze,
@@ -140,11 +162,28 @@ export const EmailListItem = memo(function EmailListItem({
   const showArchive = Boolean(onArchive && canArchive);
   const showSnooze = Boolean(onSnooze && canSnooze);
   const showTrash = Boolean(onTrash && canTrash);
-  const showSendNow = Boolean(onSendNow && scheduledJobId);
-  const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
+  const scheduledJobStatus = email.scheduledJobStatus;
+  const isUncertainScheduled =
+    Boolean(scheduledJobId) && scheduledJobStatus === "uncertain";
+  const isProcessingScheduled =
+    Boolean(scheduledJobId) && scheduledJobStatus === "processing";
+  const showSendNow = Boolean(
+    onSendNow &&
+    scheduledJobId &&
+    !isUncertainScheduled &&
+    !isProcessingScheduled,
+  );
+  const showCancelSchedule = Boolean(
+    onCancelSchedule &&
+    scheduledJobId &&
+    !isUncertainScheduled &&
+    !isProcessingScheduled,
+  );
 
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [priorityScorePopoverOpen, setPriorityScorePopoverOpen] =
+    useState(false);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
@@ -358,6 +397,22 @@ export const EmailListItem = memo(function EmailListItem({
     [onCancelSchedule, thread],
   );
 
+  const handleConfirmUncertainScheduledClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (thread) onConfirmUncertainScheduled?.(e, thread);
+    },
+    [onConfirmUncertainScheduled, thread],
+  );
+
+  const handleRetryUncertainScheduledClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (thread) onRetryUncertainScheduled?.(e, thread);
+    },
+    [onRetryUncertainScheduled, thread],
+  );
+
   const isThread = thread && thread.messageCount > 1;
   const senderName = isThread
     ? formatParticipants(thread.participants)
@@ -482,7 +537,14 @@ export const EmailListItem = memo(function EmailListItem({
             : undefined
         }
         className={cn(
-          "email-list-row group relative flex cursor-pointer items-center h-[48px] sm:h-[38px] px-3 transition-colors",
+          "email-list-row group relative flex cursor-pointer items-center px-3 transition-colors",
+          !isUncertainScheduled &&
+            !isProcessingScheduled &&
+            "h-[48px] sm:h-[38px]",
+          isUncertainScheduled &&
+            "h-auto min-h-[96px] items-start py-2 sm:min-h-[88px]",
+          isProcessingScheduled &&
+            "h-auto min-h-[56px] items-start py-2 sm:min-h-[50px]",
           isSelected && "selected",
           isFocused && !isSelected && "focused",
           isMultiSelected && "multi-selected",
@@ -593,20 +655,65 @@ export const EmailListItem = memo(function EmailListItem({
         )}
 
         {/* Subject + snippet — fills remaining space */}
-        <div className="row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
-          <span
-            className={cn(
-              "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",
-              isUnread
-                ? "font-medium text-foreground"
-                : "font-normal text-foreground/90",
-            )}
-          >
-            {renderWithHighlight(email.subject, highlight)}
-          </span>
-          <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
-            {renderWithHighlight(email.snippet, highlight)}
-          </span>
+        <div
+          className={cn(
+            "row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden",
+            (isUncertainScheduled || isProcessingScheduled) &&
+              "flex-col items-start justify-center gap-1 overflow-visible",
+          )}
+        >
+          <div className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
+            <span
+              className={cn(
+                "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",
+                isUnread
+                  ? "font-medium text-foreground"
+                  : "font-normal text-foreground/90",
+              )}
+            >
+              {renderWithHighlight(email.subject, highlight)}
+            </span>
+            <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
+              {renderWithHighlight(email.snippet, highlight)}
+            </span>
+          </div>
+          {isUncertainScheduled && (
+            <>
+              <p
+                role="alert"
+                className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+              >
+                <IconAlertCircle
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+                <span>{t("mail.sendLater.deliveryUnknownWarning")}</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleConfirmUncertainScheduledClick}
+                  aria-label={t("mail.sendLater.markSentAfterChecking")}
+                  className="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+                >
+                  {t("mail.sendLater.markSentAfterChecking")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRetryUncertainScheduledClick}
+                  aria-label={t("mail.sendLater.sendNewCopy")}
+                  className="rounded border border-amber-600/50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-500/10 dark:text-amber-200"
+                >
+                  {t("mail.sendLater.sendNewCopy")}
+                </button>
+              </div>
+            </>
+          )}
+          {isProcessingScheduled && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {t("mail.sendLater.sendingStatus")}
+            </p>
+          )}
         </div>
 
         <div className="row-action-rail">
@@ -614,8 +721,78 @@ export const EmailListItem = memo(function EmailListItem({
           <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
             {formatEmailDate(email.date)}
           </span>
+          {importanceScore !== undefined && (
+            <Popover
+              open={priorityScorePopoverOpen}
+              onOpenChange={setPriorityScorePopoverOpen}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
+                  className="email-importance-score mx-1 inline-flex h-6 w-10 shrink-0 items-center justify-end rounded px-1 text-[11px] font-medium tabular-nums hover:bg-accent"
+                  style={
+                    {
+                      "--mail-importance-weight": `${Math.round(importanceScore * 100)}%`,
+                    } as CSSProperties
+                  }
+                >
+                  {importanceScore.toFixed(2)}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-56 p-2"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <div className="mb-1 text-xs font-medium">
+                  {t("mail.sort.priority")} · {importanceScore.toFixed(2)}
+                </div>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {t("mail.sort.priorityScoreHelp")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("important");
+                  }}
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <IconThumbUp aria-hidden="true" className="size-3.5" />
+                  {t("mail.aiFilter.importantMode")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("not-important");
+                  }}
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <IconThumbDown aria-hidden="true" className="size-3.5" />
+                  {t("mail.aiFilter.notImportantMode")}
+                </button>
+                <Link
+                  to={`${mailSettingsRoute("ai-filter")}#importance-rules`}
+                  className="mt-1 block border-t border-border/40 px-2 pt-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {t("mail.sort.priorityEditRules")}
+                </Link>
+              </PopoverContent>
+            </Popover>
+          )}
           {/* Hover actions overlay the preview while the time stays fixed. */}
-          <div className="hover-actions gap-0.5">
+          <div
+            className={cn(
+              "hover-actions gap-0.5",
+              (isUncertainScheduled || isProcessingScheduled) && "hidden",
+            )}
+          >
             {onToggleRead && (
               <Tooltip>
                 <TooltipTrigger asChild>

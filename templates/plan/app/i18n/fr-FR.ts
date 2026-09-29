@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
+    editorGroupTitle: "Éditeur",
     editorTitle: "Extension VS Code",
     editorDescription:
       "Ouvrez et examinez les plans dans un panneau latéral de VS Code plutôt que dans un onglet de navigateur séparé.",

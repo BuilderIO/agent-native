@@ -232,6 +232,9 @@ const messages = {
       noErrorMessage: "(aucun message d’erreur)",
     },
   },
+  settingsShortcut: {
+    command: "Paramètres",
+  },
   agentPanel: {
     useBuilder: "Utiliser le générateur",
     openDesktopToEditCode: "Ouvrir le bureau pour modifier le code",
@@ -247,6 +250,7 @@ const messages = {
     newChat: "Nouveau chat",
     newTerminal: "Nouvelle borne",
     panelOptions: "Options du panneau d'agent",
+    integrations: "Intégrations",
     collapseSidebar: "Réduire la barre latérale",
     widenChat: "Élargir le chat",
     returnChatToLayout: "Remettre le chat dans la mise en page",
@@ -272,6 +276,8 @@ const messages = {
     sharedKeyInEffect: "Une clé partagée est utilisée.",
     useOrganizationKey: "Utiliser la clé de l’organisation",
     keyStatusUnavailable: "L’état de la clé est indisponible.",
+    saveScopeRoleUnavailable:
+      "Impossible de charger votre rôle dans l’organisation. Les clés ne peuvent pas encore être enregistrées.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -664,6 +670,12 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Retour à la liste",
+    promoteMustContain: "La réponse doit contenir…",
+    promoteMustContainOptional: "La réponse doit contenir (facultatif)",
+    promoteMustContainLabel:
+      "Texte que la réponse d’évaluation promue doit contenir",
+    promoteNeedsContains:
+      "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de la promouvoir en évaluation.",
     spans: "Spans",
     type: "Taper",
     name: "Nom",

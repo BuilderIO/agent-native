@@ -1141,7 +1141,7 @@ export function BrandKitDetailRoute({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("library.searchAssets")}
-              className="h-9 w-full pl-8 pr-8 sm:w-64"
+              className="w-full pl-8 pr-8 sm:w-64"
             />
             {search && (
               <button
@@ -1160,7 +1160,7 @@ export function BrandKitDetailRoute({
               setMediaFilter(value as "all" | "image" | "video")
             }
           >
-            <SelectTrigger className="h-9 w-full sm:w-32">
+            <SelectTrigger className="w-full sm:w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1324,8 +1324,8 @@ export function BrandKitDetailRoute({
                 <Badge variant="outline">{library.visibility}</Badge>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground"
                   asChild
                   aria-label={t("library.editBrandKit")}
                 >
@@ -2498,7 +2498,7 @@ function AssetSwimlaneBoard({
             {onSave ? (
               <Button
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={onSave}
                 disabled={busy}
               >
@@ -3085,9 +3085,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
-                          size="icon"
+                          size="icon-sm"
                           variant="secondary"
-                          className="size-8 border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                          className="border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -3466,8 +3466,8 @@ function AssetActionsMenu({
           <Button
             type="button"
             variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm"
+            size="icon-sm"
+            className="shadow-sm"
             aria-label={t("library.assetActions")}
             disabled={busy}
           >
@@ -3706,9 +3706,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-8 w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="w-full justify-center px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3721,7 +3721,7 @@ export function LiveCandidatesStage({
         {onUseCandidate ? (
           <Button
             size="sm"
-            className="h-8 min-w-0 justify-center px-2 text-xs"
+            className="min-w-0 justify-center px-2 text-xs"
             onClick={onUseCandidate}
             disabled={busy}
           >
@@ -3743,7 +3743,7 @@ export function LiveCandidatesStage({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 min-w-0 px-2 text-xs"
+              className="min-w-0 px-2 text-xs"
               onClick={onAddToReferences}
               disabled={busy}
             >
@@ -3758,7 +3758,7 @@ export function LiveCandidatesStage({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3795,9 +3795,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-7 px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -4284,7 +4284,7 @@ function CandidateSaveMenu({
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
-            className="h-8 min-w-0 px-2 text-xs"
+            className="min-w-0 px-2 text-xs"
             disabled={disabled}
           >
             {pending ? (
@@ -4522,8 +4522,7 @@ function LiveCandidatesActions({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             aria-label={t("library.candidateActions")}
             title={t("library.candidateActions")}
             disabled={isClearing}

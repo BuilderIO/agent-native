@@ -88,6 +88,19 @@ describe("webhook notification channel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("passes cancellation to the webhook request", async () => {
+    const controller = new AbortController();
+    const channel = (await loadWebhookChannel())!;
+
+    await channel.deliver(
+      { severity: "info", title: "Mail arrived" },
+      { owner: "alice@example.com" },
+      { signal: controller.signal },
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1].signal).toBe(controller.signal);
+  });
+
   it("prefers metadata.webhookUrl over the env default", async () => {
     const channel = (await loadWebhookChannel())!;
     await channel.deliver(
@@ -409,6 +422,7 @@ describe("Slack notification channel", () => {
       "https://hooks.slack.example.com/services/T/B/C";
     const channels = await loadChannels();
     const channel = channels.find((c) => c.name === "slack")!;
+    const controller = new AbortController();
 
     await channel.deliver(
       {
@@ -418,6 +432,7 @@ describe("Slack notification channel", () => {
         metadata: { ruleId: "alert_1" },
       },
       { owner: "alice@example.com" },
+      { signal: controller.signal },
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -425,6 +440,8 @@ describe("Slack notification channel", () => {
     expect(url).toBe("https://hooks.slack.example.com/services/T/B/C");
     expect(init.method).toBe("POST");
     expect(init.signal).toBeInstanceOf(AbortSignal);
+    controller.abort();
+    expect(init.signal.aborted).toBe(true);
     const payload = JSON.parse(init.body);
     expect(payload.text).toContain("[critical] Clip uploads failing");
     expect(payload.blocks[0].text.text).toBe("*Clip uploads failing*");
@@ -491,6 +508,7 @@ describe("email notification channel", () => {
       "ops@example.com, Alice@Example.com";
     const channels = await loadChannels();
     const channel = channels.find((c) => c.name === "email")!;
+    const controller = new AbortController();
 
     await channel.deliver(
       {
@@ -502,8 +520,10 @@ describe("email notification channel", () => {
           emailSubject: "Custom subject",
           ruleId: "rule_1",
         },
+        idempotencyKey: "mail-rule:rule-1:mailbox@example.com:message-1",
       },
       { owner: "alice@example.com" },
+      { signal: controller.signal },
     );
 
     expect(sendEmail).toHaveBeenCalledTimes(3);
@@ -519,6 +539,14 @@ describe("email notification channel", () => {
     expect(sent.text).not.toContain('"ruleId": "rule_1"');
     expect(sent.text).not.toContain("Metadata:");
     expect(sent.html).not.toContain("<pre>");
+    expect(sendEmail.mock.calls.map(([args]) => args.signal)).toEqual([
+      controller.signal,
+      controller.signal,
+      controller.signal,
+    ]);
+    expect(
+      new Set(sendEmail.mock.calls.map(([args]) => args.idempotencyKey)).size,
+    ).toBe(3);
   });
 
   it("does nothing when email has no recipients", async () => {

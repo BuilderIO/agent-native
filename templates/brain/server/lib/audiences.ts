@@ -465,6 +465,63 @@ export function assertSingleEvidenceTenant(
   return Array.from(tenantKeys)[0]!;
 }
 
+export async function refreshSlackPrivateChannelAudience(input: {
+  source: typeof schema.brainSources.$inferSelect;
+  channelId: string;
+  memberEmails: string[];
+}) {
+  const members =
+    input.source.visibility === "private" && input.memberEmails.length
+      ? [normalizeEmail(input.source.ownerEmail)]
+      : Array.from(new Set(input.memberEmails.map(normalizeEmail))).sort();
+  const upstreamRefHash = await sha256(input.channelId);
+  const aclHash = await computeAudienceAclHash(
+    "slack-private-channel",
+    members,
+  );
+  const audienceId = await computeCaptureAudienceId({
+    sourceId: input.source.id,
+    kind: "slack-private-channel",
+    upstreamRefHash,
+    aclHash,
+  });
+  const db = getDb();
+  const [audience] = await db
+    .select({
+      aclHash: schema.brainAudiences.aclHash,
+      membershipState: schema.brainAudiences.membershipState,
+    })
+    .from(schema.brainAudiences)
+    .where(
+      and(
+        eq(schema.brainAudiences.id, audienceId),
+        eq(schema.brainAudiences.sourceId, input.source.id),
+        eq(schema.brainAudiences.kind, "slack-private-channel"),
+        eq(schema.brainAudiences.upstreamRefHash, upstreamRefHash),
+      ),
+    )
+    .limit(1);
+  if (!audience) return;
+
+  if (audience.aclHash !== aclHash || audience.membershipState !== "current") {
+    await replaceAudienceUserMembers(
+      audienceId,
+      members.map((email) => ({ email })),
+    );
+    return;
+  }
+  const now = nowIso();
+  await db
+    .update(schema.brainAudiences)
+    .set({ lastSyncedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(schema.brainAudiences.id, audienceId),
+        eq(schema.brainAudiences.aclHash, aclHash),
+      ),
+    );
+}
+
 export async function replaceAudienceUserMembers(
   audienceId: string,
   members: Array<{ email: string; upstreamPrincipalHash?: string }>,

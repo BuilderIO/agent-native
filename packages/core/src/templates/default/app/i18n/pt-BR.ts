@@ -230,6 +230,9 @@ const messages = {
       noErrorMessage: "(sem mensagem de erro)",
     },
   },
+  settingsShortcut: {
+    command: "Configurações",
+  },
   agentPanel: {
     useBuilder: "Usar o Construtor",
     openDesktopToEditCode: "Abra o Desktop para editar o código",
@@ -245,6 +248,7 @@ const messages = {
     newChat: "Novo chat",
     newTerminal: "Novo terminal",
     panelOptions: "Opções do painel do agente",
+    integrations: "Integrações",
     collapseSidebar: "Recolher barra lateral",
     widenChat: "Ampliar o chat",
     returnChatToLayout: "Retornar o chat ao layout",
@@ -270,6 +274,8 @@ const messages = {
     sharedKeyInEffect: "Uma chave compartilhada está em uso.",
     useOrganizationKey: "Usar chave da organização",
     keyStatusUnavailable: "Não foi possível consultar o status da chave.",
+    saveScopeRoleUnavailable:
+      "Não foi possível carregar sua função na organização, então ainda não é possível salvar chaves.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -660,6 +666,12 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Voltar à lista",
+    promoteMustContain: "A resposta deve conter…",
+    promoteMustContainOptional: "A resposta deve conter (opcional)",
+    promoteMustContainLabel:
+      "Texto que a resposta da avaliação promovida deve conter",
+    promoteNeedsContains:
+      "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",
     type: "Tipo",
     name: "Nome",

@@ -44,12 +44,20 @@ whether `loadMessages` can actually resolve it.
 
 - Wrap apps with `AppProviders i18n={{ catalog: i18nCatalog }}`.
 - Read strings with `useT()` and keep keys stable.
-- Sidebar apps should expose a `/settings` route in the app sidebar. Put
-  `<LanguagePicker />` in that settings page, usually in a Language or General
-  section, and keep the header language icon only as a quick-access shortcut.
-- Settings pages should include an "Agent settings" row/card that calls
-  `openAgentSettings()` from `@agent-native/core/client` to open the right
-  agent sidebar's Settings tab. Localize the title, description, and button.
+- Apps expose a `/settings` route without a sidebar item for it: Settings
+  opens from the account menu in the sidebar footer and from ⌘, (Ctrl+,
+  elsewhere). Put `<LanguagePicker />` in that settings page, usually in a
+  Language or General section, and keep the header language icon only as a
+  quick-access shortcut. With the `settings-redesign` flag on, core's
+  Account › Preferences page already renders the Interface language row
+  (with Timezone; both are the per-user `localization` record, so a change
+  applies in every app); don't add a second picker to a redesigned page.
+- Don't add an "Agent settings" row to an app's settings page: the Agent
+  group's pages are part of Settings. Link to a page with
+  `buildSettingsRoute(page, sub?)`, and localize the link's label.
+- Settings copy follows the same rules: page and group labels are core
+  `agentChat.settingsShell.*` keys, and an app's own rows, areas, and search
+  entries take already translated strings from the app catalog.
 - Use `useFormatters()` for dates, numbers, relative time, and lists instead
   of embedding formatted values in translation strings.
 - Do not translate stable identifiers: action names, route names, enum values,

@@ -2,6 +2,7 @@ import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import type {
   CalendarEvent,
   CalendarEventDraft,
@@ -107,6 +108,11 @@ import {
 } from "@/lib/calendar-event-identity";
 import { navigateCalendarDate } from "@/lib/calendar-navigation";
 import {
+  calendarSlotDraftId,
+  createOrLoadCalendarSlotDraft,
+  type CalendarSlotPrefill,
+} from "@/lib/calendar-slot-prefill";
+import {
   addCalendarDays,
   dateKeyToDate,
   dateToCalendarDateKey,
@@ -166,7 +172,7 @@ type DraftEventPatch = Partial<CalendarEvent> & {
 };
 
 function safeCalendarDraftId(id: string | undefined): string | null {
-  return id && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+  return id && /^[a-zA-Z0-9_-]{1,96}$/.test(id) ? id : null;
 }
 
 function calendarDraftEventId(id: string) {
@@ -427,7 +433,11 @@ function deletePersistedCalendarDraft(id: string) {
   ).catch(() => {});
 }
 
-export default function CalendarView() {
+export default function CalendarView({
+  slotPrefill,
+}: {
+  slotPrefill: CalendarSlotPrefill | null;
+}) {
   const t = useT();
   const isMobile = useIsMobile();
   const {
@@ -460,6 +470,7 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
+  const appliedSlotPrefillRef = useRef<string | null>(null);
   const preserveDraftViewRef = useRef(false);
   const committingDraftIdsRef = useRef<Set<string>>(new Set());
   const discardedCommittingDraftsRef = useRef<Map<string, CalendarEventDraft>>(
@@ -481,6 +492,41 @@ export default function CalendarView() {
   }, [commandPaletteOpen]);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
+
+  useEffect(() => {
+    if (!slotPrefill) {
+      appliedSlotPrefillRef.current = null;
+      return;
+    }
+
+    const prefillKey = `${slotPrefill.start}|${slotPrefill.end}|${slotPrefill.timezone}`;
+    if (appliedSlotPrefillRef.current === prefillKey) return;
+    let cancelled = false;
+    const draftAtStart = eventDraft;
+    const draftId = calendarSlotDraftId(slotPrefill);
+    appliedSlotPrefillRef.current = prefillKey;
+    void createOrLoadCalendarSlotDraft(slotPrefill, draftId)
+      .then((draft) => {
+        if (cancelled || eventDraft !== draftAtStart) return;
+        setEventDraft(draft);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          appliedSlotPrefillRef.current = null;
+          toast.error(t("common.loadFailed"));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    setEventDraft,
+    eventDraft,
+    slotPrefill?.end,
+    slotPrefill?.start,
+    slotPrefill?.timezone,
+    t,
+  ]);
 
   useEffect(() => {
     trackEvent("calendar_viewed", {
@@ -2011,8 +2057,8 @@ export default function CalendarView() {
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 lg:hidden"
+                    size="icon-sm"
+                    className="lg:hidden"
                     onClick={openSidebar}
                     aria-label={t("calendarView.openNavigation")}
                   >
@@ -2028,7 +2074,7 @@ export default function CalendarView() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 gap-1 px-2 text-sm font-semibold sm:px-2.5"
+                    className="gap-1 px-2 text-sm font-semibold sm:px-2.5"
                   >
                     {viewModeLabels[viewMode]}
                     <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2123,7 +2169,7 @@ export default function CalendarView() {
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild>
                         <Link
-                          to="/settings"
+                          to={buildSettingsRoute("app")}
                           className="flex w-full items-center"
                         >
                           {t("calendarView.generalSettings")}
@@ -2160,18 +2206,18 @@ export default function CalendarView() {
 
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 onClick={() => handleNavigate("prev")}
-                className="h-8 w-8 sm:h-7 sm:w-7"
+                className="sm:h-7 sm:w-7"
               >
                 <IconChevronLeft className="h-4 w-4" />
               </Button>
 
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 onClick={() => handleNavigate("next")}
-                className="h-8 w-8 sm:h-7 sm:w-7"
+                className="sm:h-7 sm:w-7"
               >
                 <IconChevronRight className="h-4 w-4" />
               </Button>
@@ -2195,8 +2241,8 @@ export default function CalendarView() {
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 sm:h-7 sm:w-7"
+                      size="icon-sm"
+                      className="sm:h-7 sm:w-7"
                       asChild
                     >
                       <Link to="/booking-links?tab=shared">
@@ -2214,8 +2260,8 @@ export default function CalendarView() {
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 sm:h-7 sm:w-7"
+                    size="icon-sm"
+                    className="sm:h-7 sm:w-7"
                     onClick={openCommandPalette}
                   >
                     <IconSearch className="h-4 w-4" />
@@ -2490,7 +2536,7 @@ function AccountAvatars() {
     <Tooltip>
       <TooltipTrigger asChild>
         <Link
-          to="/settings"
+          to={buildSettingsRoute("app", "calendars")}
           className="flex items-center hover:opacity-90 ml-1"
           aria-label={t("calendarView.manageAccounts")}
         >

@@ -126,8 +126,19 @@ describe("agent chat startup", () => {
     );
 
     expect(sweepRoute).toContain("runRecurringSweepHandlers");
+    expect(sweepRoute).toContain("RECURRING_SWEEP_BUDGET_MS");
+    expect(sweepRoute).toContain("runRecurringSweepHandlers(sweepContext)");
     expect(sweepRoute).toContain("appSweepHandlers.failed.length > 0");
     expect(sweepRoute).toContain("setResponseStatus(event, 500)");
+    expect(sweepRoute.indexOf("const staleRunsReaped")).toBeLessThan(
+      sweepRoute.indexOf("const sweepContext"),
+    );
+    expect(sweepRoute.indexOf("const sweepContext")).toBeLessThan(
+      sweepRoute.indexOf("runRecurringSweepHandlers(sweepContext)"),
+    );
+    expect(
+      sweepRoute.indexOf("runRecurringSweepHandlers(sweepContext)"),
+    ).toBeLessThan(sweepRoute.indexOf("processFailureAlertRetries()"));
   });
 
   it("does not swallow the in-process stale reap either", () => {

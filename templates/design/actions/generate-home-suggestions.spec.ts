@@ -58,6 +58,28 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("accepts the JSON array when the model adds bracketed prose", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: `Here are [three] ideas:\n${JSON.stringify(suggestions)}\nSee [1] for details.`,
+    });
+
+    const result = await action.run({}, {
+      userEmail: "user@example.test",
+    } as never);
+
+    expect(result).toEqual({ suggestions });
+  });
+
+  it("rejects a JSON object containing a nested suggestions array", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify({ suggestions }),
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toThrow("invalid shape");
+  });
+
   it("uses generic design context when the role was skipped", async () => {
     mocks.getUserProfile.mockResolvedValue({
       email: "user@example.test",

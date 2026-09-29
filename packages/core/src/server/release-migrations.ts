@@ -34,6 +34,7 @@ import {
   OBSERVABILITY_MIGRATIONS_TABLE,
 } from "../observability/migrations.js";
 import { ORG_MIGRATIONS } from "../org/migrations.js";
+import { runAutomationTriggerEventMigrations } from "../triggers/event-queue.js";
 import {
   USAGE_ALERT_MIGRATIONS,
   USAGE_ALERT_MIGRATIONS_TABLE,
@@ -135,5 +136,6 @@ export async function runFrameworkReleaseMigrations(
     table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
   })(nitroApp);
   await runAutomationRunMigrations(nitroApp);
+  await runAutomationTriggerEventMigrations(nitroApp);
   await runAutomationSchedulerHealthMigrations(nitroApp);
 }

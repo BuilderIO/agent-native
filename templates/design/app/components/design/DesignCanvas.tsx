@@ -7057,6 +7057,9 @@ export function DesignCanvas({
           data-scaled-iframe-paint-ignore
           aria-hidden="true"
           tabIndex={-1}
+          // scaled-iframe-paint-ignore -- parked off-viewport and never
+          // painted, so promoting it to its own composited layer would only
+          // cost memory.
           className="pointer-events-none fixed border-0 opacity-0"
           style={{
             left: -100_000,

@@ -118,6 +118,10 @@ import {
 } from "./integration-memory.js";
 import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
 import {
+  setMountedChannels,
+  type MountedChannels,
+} from "./mounted-channels.js";
+import {
   retryStuckPendingTasks,
   startPendingTasksRetryJob,
 } from "./pending-tasks-retry-job.js";
@@ -830,14 +834,16 @@ export function createIntegrationsPlugin(
     const localActions = options?.actions ?? {};
     let callAgentEntry: Record<string, unknown> = {};
     try {
-      const mod = await import("../scripts/call-agent.js");
-      callAgentEntry = {
-        "call-agent": {
-          tool: mod.tool,
-          run: (args: Record<string, string>, context: unknown) =>
-            mod.run(args, context as any, options?.appId),
-        },
-      };
+      if (options?.callAgent !== false) {
+        const mod = await import("../scripts/call-agent.js");
+        callAgentEntry = {
+          "call-agent": {
+            tool: mod.tool,
+            run: (args: Record<string, string>, context: unknown) =>
+              mod.run(args, context as any, options?.appId),
+          },
+        };
+      }
     } catch {
       // call-agent script not available — skip
     }
@@ -864,10 +870,9 @@ export function createIntegrationsPlugin(
         .then(operation)
         .finally(release);
     };
-    const createGoogleDocsPollerOptions = (event?: any) => {
+    const createGoogleDocsPollerOptions = (requestBaseUrl?: string) => {
       const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
-      const baseUrl =
-        configuredBaseUrl || (event ? getBaseUrl(event) : undefined);
+      const baseUrl = configuredBaseUrl || requestBaseUrl;
       const webhookUrl = baseUrl
         ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
         : undefined;
@@ -882,6 +887,82 @@ export function createIntegrationsPlugin(
         webhookUrl,
       };
     };
+
+    const channels: MountedChannels = {
+      adapters,
+      webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
+      async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        await saveIntegrationConfig(
+          platform,
+          { enabled },
+          "default",
+          actorEmail,
+        );
+        if (platform !== "google-docs") return;
+        await runGoogleDocsPollerTransition(
+          enabled
+            ? () =>
+                startGoogleDocsPoller(createGoogleDocsPollerOptions(baseUrl))
+            : stopGoogleDocsPoller,
+        );
+      },
+      async registerWebhook(platform, baseUrl) {
+        if (platform !== "telegram") {
+          return { ok: true, message: "No setup required" };
+        }
+        const webhookUrl = channels.webhookUrl(baseUrl, "telegram");
+        const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
+        const webhookSecret = await resolveSecret("TELEGRAM_WEBHOOK_SECRET");
+        if (!token || !webhookSecret) {
+          return {
+            ok: false,
+            statusCode: 400,
+            error:
+              "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
+          };
+        }
+        try {
+          const res = await fetch(
+            `https://api.telegram.org/bot${token}/setWebhook`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url: webhookUrl,
+                secret_token: webhookSecret,
+              }),
+            },
+          );
+          const body = await res.text();
+          type TelegramSetWebhookResponse = {
+            ok?: boolean;
+            description?: string;
+            [key: string]: unknown;
+          };
+          let data: TelegramSetWebhookResponse | null = null;
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed && typeof parsed === "object") {
+              data = parsed as TelegramSetWebhookResponse;
+            }
+          } catch {
+            // Keep provider and proxy failures distinguishable from a successful setup.
+            data = null;
+          }
+          if (!res.ok || data?.ok !== true) {
+            return {
+              ok: false,
+              statusCode: 502,
+              error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
+            };
+          }
+          return { ok: true, webhookUrl, result: data };
+        } catch (err: any) {
+          return { ok: false, statusCode: 500, error: err.message };
+        }
+      },
+    };
+    setMountedChannels(channels);
 
     const allowedPlatforms = getAppConfig().integrations.platforms;
     const mountForPlatform = (
@@ -3383,103 +3464,36 @@ export function createIntegrationsPlugin(
           return result.body;
         }
 
-        if (action === "enable" && method === "POST") {
+        // ─── POST /:platform/enable|disable ────────────────────
+        if (
+          (action === "enable" || action === "disable") &&
+          method === "POST"
+        ) {
           const adminCheck = await checkOrgAdmin(event);
           if (adminCheck.ok === false) return { error: adminCheck.error };
           const session = await getSession(event).catch(() => null);
-          await saveIntegrationConfig(
-            platform,
-            { enabled: true },
-            "default",
-            session?.email,
-          );
-          if (platform === "google-docs") {
-            await runGoogleDocsPollerTransition(() =>
-              startGoogleDocsPoller(createGoogleDocsPollerOptions(event)),
-            );
-          }
-          return { ok: true, platform, enabled: true };
-        }
-
-        if (action === "disable" && method === "POST") {
-          const adminCheck = await checkOrgAdmin(event);
-          if (adminCheck.ok === false) return { error: adminCheck.error };
-          const session = await getSession(event).catch(() => null);
-          await saveIntegrationConfig(
-            platform,
-            { enabled: false },
-            "default",
-            session?.email,
-          );
-          if (platform === "google-docs") {
-            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
-          }
-          return { ok: true, platform, enabled: false };
+          const enabled = action === "enable";
+          await channels.setEnabled(platform, enabled, {
+            actorEmail: session?.email,
+            baseUrl: getBaseUrl(event),
+          });
+          return { ok: true, platform, enabled };
         }
 
         if (action === "setup" && method === "POST") {
           const adminCheck = await checkOrgAdmin(event);
           if (adminCheck.ok === false) return { error: adminCheck.error };
-          if (platform === "telegram") {
-            const baseUrl = getBaseUrl(event);
-            const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
-            const ctx = await requireSessionContext(event);
-            if (!ctx) return { error: "unauthorized" };
-            const token = await withCredentialContext(
-              toCredentialContext(ctx),
-              () => resolveSecret("TELEGRAM_BOT_TOKEN"),
-            );
-            const webhookSecret = await withCredentialContext(
-              toCredentialContext(ctx),
-              () => resolveSecret("TELEGRAM_WEBHOOK_SECRET"),
-            );
-            if (!token || !webhookSecret) {
-              setResponseStatus(event, 400);
-              return {
-                error:
-                  "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
-              };
-            }
-            try {
-              const res = await fetch(
-                `https://api.telegram.org/bot${token}/setWebhook`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    url: webhookUrl,
-                    secret_token: webhookSecret,
-                  }),
-                },
-              );
-              const body = await res.text();
-              type TelegramSetWebhookResponse = {
-                ok?: boolean;
-                description?: string;
-                [key: string]: unknown;
-              };
-              let data: TelegramSetWebhookResponse | null = null;
-              try {
-                const parsed = JSON.parse(body);
-                if (parsed && typeof parsed === "object") {
-                  data = parsed as TelegramSetWebhookResponse;
-                }
-              } catch {
-                data = null;
-              }
-              if (!res.ok || data?.ok !== true) {
-                setResponseStatus(event, 502);
-                return {
-                  error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
-                };
-              }
-              return { ok: true, platform, webhookUrl, result: data };
-            } catch (err: any) {
-              setResponseStatus(event, 500);
-              return { error: err.message };
-            }
+          const ctx = await requireSessionContext(event);
+          if (!ctx) return { error: "unauthorized" };
+          const registration = await withCredentialContext(
+            toCredentialContext(ctx),
+            () => channels.registerWebhook(platform, getBaseUrl(event)),
+          );
+          if (registration.ok === false) {
+            setResponseStatus(event, registration.statusCode);
+            return { error: registration.error };
           }
-          return { ok: true, platform, message: "No setup required" };
+          return { platform, ...registration };
         }
 
         setResponseStatus(event, 404);

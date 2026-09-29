@@ -48,7 +48,13 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
   const suggestionSequenceByRun = new Map<string, number>();
   const originalStartRun = transport.startRun.bind(transport);
   const originalSubscribeToRun = transport.subscribeToRun.bind(transport);
+  const originalQueueMessage = transport.queueMessage?.bind(transport);
+  const originalSteerQueuedMessage =
+    transport.steerQueuedMessage?.bind(transport);
+  const originalListQueuedMessages =
+    transport.listQueuedMessages?.bind(transport);
   let rejectSteerOnce = true;
+  let rejectedSteerMessageId: string | undefined;
 
   transport.startRun = async (input, context) => {
     const prompt = latestUserPrompt(input);
@@ -60,6 +66,38 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
     promptByRun.set(result.runId, prompt);
     return result;
   };
+
+  if (originalQueueMessage) {
+    transport.queueMessage = async (input, context) => {
+      const result = await originalQueueMessage(input, context);
+      if (input.text === acceptanceRejectedSteerPrompt) {
+        rejectedSteerMessageId = result.message.id;
+      }
+      return result;
+    };
+  }
+
+  if (originalSteerQueuedMessage && originalListQueuedMessages) {
+    transport.steerQueuedMessage = async (input, context) => {
+      if (rejectSteerOnce && input.messageId === rejectedSteerMessageId) {
+        rejectSteerOnce = false;
+        throw new Error("Deterministic queue steering rejection");
+      }
+      const queued = await originalListQueuedMessages(input, context);
+      if (
+        rejectSteerOnce &&
+        queued.some(
+          (message) =>
+            message.id === input.messageId &&
+            message.text === acceptanceRejectedSteerPrompt,
+        )
+      ) {
+        rejectSteerOnce = false;
+        throw new Error("Deterministic queue steering rejection");
+      }
+      return originalSteerQueuedMessage(input, context);
+    };
+  }
 
   transport.subscribeToRun = async function* (input, context) {
     const prompt = promptByRun.get(input.runId);

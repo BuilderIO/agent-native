@@ -72,13 +72,20 @@ export function createOAuth2Client(
           grant_type: "refresh_token",
         }),
       });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (error) {
+        if (res.ok) throw error;
+      }
       if (!res.ok) {
-        const code = (data as any).error;
-        const desc = (data as any).error_description;
+        const code = data?.error;
+        const desc = data?.error_description;
         const detail =
           code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
-        throw new Error(`OAuth token refresh failed: ${detail}`);
+        const error = new Error(`OAuth token refresh failed: ${detail}`);
+        Object.assign(error, { status: res.status });
+        throw error;
       }
       const typed = data as {
         access_token: string;
@@ -173,7 +180,7 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
 
 function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
   const seconds = Math.ceil(cooldownMs / 1000);
-  return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
+  return `Email service is briefly busy and will be ready again in about ${seconds}s.`;
 }
 
 /**
@@ -271,12 +278,15 @@ function refillBucket(b: Bucket): void {
 export async function acquireQuota(
   accessToken: string,
   cost: number,
+  signal?: AbortSignal,
 ): Promise<void> {
   const b = getBucket(accessToken);
   let remaining = Math.max(0, cost);
   while (remaining > 0) {
+    signal?.throwIfAborted();
     const want = Math.min(remaining, BUCKET_CAPACITY);
     while (true) {
+      signal?.throwIfAborted();
       refillBucket(b);
       if (b.tokens >= want) {
         b.tokens -= want;
@@ -285,16 +295,55 @@ export async function acquireQuota(
       }
       const deficit = want - b.tokens;
       const waitMs = Math.ceil((deficit / BUCKET_REFILL_PER_SEC) * 1000);
-      await new Promise((r) => setTimeout(r, Math.max(waitMs, 10)));
+      await waitWithSignal(Math.max(waitMs, 10), signal);
     }
   }
+}
+
+function waitWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+type GoogleFetchOptions = RequestInit & {
+  onRequestStart?: () => Promise<void>;
+  onRequestCancelled?: () => Promise<void>;
+};
+
+function makeGoogleRequestAggregateError(
+  errors: Iterable<unknown>,
+  message: string,
+): Error {
+  const NativeAggregateError = (
+    globalThis as unknown as {
+      AggregateError: new (errors: Iterable<unknown>, message: string) => Error;
+    }
+  ).AggregateError;
+  return new NativeAggregateError(errors, message);
 }
 
 export async function googleFetch(
   url: string,
   accessToken: string,
-  opts?: RequestInit,
+  opts?: GoogleFetchOptions,
 ): Promise<any> {
+  const { onRequestStart, onRequestCancelled, ...requestOptions } = opts ?? {};
+  const signal = requestOptions.signal ?? undefined;
+  signal?.throwIfAborted();
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
     throw new GmailQuotaCooldownError(
@@ -310,13 +359,29 @@ export async function googleFetch(
   await acquireQuota(
     accessToken,
     estimateRequestCost(url, opts?.method || "GET"),
+    signal,
   );
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const headers = new Headers(opts?.headers);
+    signal?.throwIfAborted();
+    if (onRequestStart) {
+      await onRequestStart();
+      if (signal?.aborted) {
+        try {
+          await onRequestCancelled?.();
+        } catch (releaseError) {
+          throw makeGoogleRequestAggregateError(
+            [signal.reason, releaseError],
+            "Google request was cancelled before dispatch and its claim could not be released.",
+          );
+        }
+        signal.throwIfAborted();
+      }
+    }
+    const headers = new Headers(requestOptions.headers);
     headers.set("Authorization", `Bearer ${accessToken}`);
 
-    const res = await fetch(url, { ...opts, headers });
+    const res = await fetch(url, { ...requestOptions, headers });
 
     if (res.status === 204) return null;
 
@@ -326,7 +391,7 @@ export async function googleFetch(
       attempt < maxRetries
     ) {
       const delay = Math.min(1000 * 2 ** attempt, 8000);
-      await new Promise((r) => setTimeout(r, delay));
+      await waitWithSignal(delay, signal);
       continue;
     }
 
@@ -373,15 +438,18 @@ function qs(params: Record<string, string | number | undefined>): string {
   return str ? `?${str}` : "";
 }
 
-export function gmailGetProfile(accessToken: string) {
-  return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
+export function gmailGetProfile(accessToken: string, signal?: AbortSignal) {
+  return googleFetch(`${GMAIL_BASE}/profile`, accessToken, { signal });
 }
 
 export function gmailListMessages(
   accessToken: string,
   params: { q?: string; maxResults?: number; pageToken?: string } = {},
+  signal?: AbortSignal,
 ) {
-  return googleFetch(`${GMAIL_BASE}/messages${qs(params)}`, accessToken);
+  return googleFetch(`${GMAIL_BASE}/messages${qs(params)}`, accessToken, {
+    signal,
+  });
 }
 
 export function gmailListThreads(
@@ -395,10 +463,12 @@ export function gmailGetMessage(
   accessToken: string,
   id: string,
   format?: "full" | "metadata" | "minimal",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/messages/${id}${qs({ format })}`,
     accessToken,
+    { signal },
   );
 }
 
@@ -421,11 +491,13 @@ export function gmailModifyMessage(
   id: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  signal?: AbortSignal,
 ) {
   return googleFetch(`${GMAIL_BASE}/messages/${id}/modify`, accessToken, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    signal,
   });
 }
 
@@ -434,17 +506,24 @@ export function gmailModifyThread(
   threadId: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  signal?: AbortSignal,
 ) {
   return googleFetch(`${GMAIL_BASE}/threads/${threadId}/modify`, accessToken, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    signal,
   });
 }
 
-export function gmailTrashMessage(accessToken: string, id: string) {
+export function gmailTrashMessage(
+  accessToken: string,
+  id: string,
+  signal?: AbortSignal,
+) {
   return googleFetch(`${GMAIL_BASE}/messages/${id}/trash`, accessToken, {
     method: "POST",
+    signal,
   });
 }
 
@@ -490,15 +569,17 @@ export function gmailGetThread(
   id: string,
   format?: string,
   metadataHeaders?: string[],
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
+    { signal },
   );
 }
 
-export function gmailListLabels(accessToken: string) {
-  return googleFetch(`${GMAIL_BASE}/labels`, accessToken);
+export function gmailListLabels(accessToken: string, signal?: AbortSignal) {
+  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, { signal });
 }
 
 export function gmailCreateLabel(
@@ -508,6 +589,7 @@ export function gmailCreateLabel(
     labelListVisibility?: string;
     messageListVisibility?: string;
   },
+  signal?: AbortSignal,
 ) {
   return googleFetch(`${GMAIL_BASE}/labels`, accessToken, {
     method: "POST",
@@ -517,6 +599,7 @@ export function gmailCreateLabel(
       labelListVisibility: opts?.labelListVisibility ?? "labelShow",
       messageListVisibility: opts?.messageListVisibility ?? "show",
     }),
+    signal,
   });
 }
 
@@ -591,6 +674,7 @@ export function gmailListHistory(
     maxResults?: number;
     pageToken?: string;
   },
+  signal?: AbortSignal,
 ) {
   const sp = new URLSearchParams();
   sp.set("startHistoryId", params.startHistoryId);
@@ -600,13 +684,19 @@ export function gmailListHistory(
   }
   if (params.pageToken) sp.set("pageToken", params.pageToken);
   for (const t of params.historyTypes || []) sp.append("historyTypes", t);
-  return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken);
+  return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken, {
+    signal,
+  });
 }
 
 export function gmailWatch(
   accessToken: string,
   topicName: string,
-  opts?: { labelIds?: string[]; labelFilterBehavior?: "include" | "exclude" },
+  opts?: {
+    labelIds?: string[];
+    labelFilterBehavior?: "include" | "exclude";
+    signal?: AbortSignal;
+  },
 ): Promise<{ historyId: string; expiration: string }> {
   return googleFetch(`${GMAIL_BASE}/watch`, accessToken, {
     method: "POST",
@@ -616,6 +706,7 @@ export function gmailWatch(
       labelIds: opts?.labelIds ?? ["INBOX"],
       labelFilterBehavior: opts?.labelFilterBehavior ?? "include",
     }),
+    signal: opts?.signal,
   });
 }
 
@@ -630,7 +721,9 @@ async function gmailBatchGet(
   ids: string[],
   costPerItem: number,
   buildPath: (id: string) => string,
+  signal?: AbortSignal,
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
+  signal?.throwIfAborted();
   if (ids.length === 0) return [];
 
   const maxIdsPerBatch = Math.max(
@@ -649,6 +742,7 @@ async function gmailBatchGet(
         chunk,
         costPerItem,
         buildPath,
+        signal,
       );
       results.push(...part);
     }
@@ -663,7 +757,7 @@ async function gmailBatchGet(
     );
   }
 
-  await acquireQuota(accessToken, ids.length * costPerItem);
+  await acquireQuota(accessToken, ids.length * costPerItem, signal);
 
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const CRLF = "\r\n";
@@ -687,6 +781,7 @@ async function gmailBatchGet(
       "Content-Type": `multipart/mixed; boundary=${boundary}`,
     },
     body,
+    signal,
   });
 
   if (!res.ok) {
@@ -737,6 +832,7 @@ export async function gmailBatchGetMessages(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
+  signal?: AbortSignal,
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
@@ -744,6 +840,7 @@ export async function gmailBatchGetMessages(
     ids,
     5,
     (id) => `/gmail/v1/users/me/messages/${encodeURIComponent(id)}${formatQs}`,
+    signal,
   );
 }
 

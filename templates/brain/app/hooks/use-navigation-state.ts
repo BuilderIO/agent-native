@@ -2,6 +2,7 @@ import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 import { pathFromView, viewFromPath, type BrainView } from "@/lib/brain";
+import { brainSettingsSectionFromPath } from "@/lib/settings-navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -53,7 +54,8 @@ export function useNavigationState() {
         sourceId: params.get("sourceId") || undefined,
         selectedKnowledgeId: params.get("knowledgeId") || undefined,
         reviewItemId: params.get("reviewItemId") || undefined,
-        settingsSection: params.get("section") || undefined,
+        settingsSection:
+          params.get("section") || brainSettingsSectionFromPath(localPathname),
         extensionId: extensionIdFromPath(localPathname),
       };
     },

@@ -55,6 +55,17 @@ vi.mock("./builder-oauth.js", () => ({
     mockGetBuilderOAuthSession(
       ...(args as [string, string | null | undefined, string | undefined]),
     ),
+  // Same as the real helper: the member's role, read through the mocked DB.
+  isBuilderOrgManager: async (orgId: string, email: string) => {
+    try {
+      const { readOrgMemberRole } =
+        await import("./personal-provider-key-policy.js");
+      const role = await readOrgMemberRole(orgId, email);
+      return role === "owner" || role === "admin";
+    } catch {
+      return false;
+    }
+  },
 }));
 vi.mock("./request-context.js", () => ({
   getRequestContext: () => mockGetRequestContext(),
@@ -69,7 +80,8 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   isLocalDatabase: () => mockIsLocalDatabase(),
   getDbExec: () => mockGetDbExec(),
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: any[]) => mockGetSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
@@ -86,6 +98,7 @@ import {
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
   getBuilderCredentialAuthFailure,
+  getBuilderKeyConnections,
   gatewayLaneUnavailableMessage,
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
@@ -707,6 +720,74 @@ describe("deleteBuilderCredentials", () => {
       role: "member",
     });
     expect(target).toEqual({ scope: "user", scopeId: "member@b.com" });
+  });
+});
+
+describe("getBuilderKeyConnections", () => {
+  function storeKeys(
+    rows: Record<string, Record<string, { value: string; updatedAt: number }>>,
+  ) {
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) =>
+        rows[`${scope}:${scopeId}`]?.[key] ?? null,
+    );
+  }
+
+  it("reports the org's pair and the caller's own pair separately", async () => {
+    storeKeys({
+      "user:member@b.com": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-personal", updatedAt: 2_000 },
+        BUILDER_PUBLIC_KEY: { value: "pub-personal", updatedAt: 2_000 },
+      },
+      "org:builder_io": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-org", updatedAt: 1_000 },
+        BUILDER_PUBLIC_KEY: { value: "pub-org", updatedAt: 1_000 },
+      },
+    });
+
+    await expect(
+      getBuilderKeyConnections("member@b.com", "builder_io"),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: false },
+      personal: { connectedAt: 2_000, needsReconnect: false },
+    });
+  });
+
+  it("reads no org row without an org and reports nothing when none is stored", async () => {
+    await expect(getBuilderKeyConnections("solo@b.com", null)).resolves.toEqual(
+      {},
+    );
+    expect(mockReadAppSecrets.mock.calls.map(([args]) => args.scope)).toEqual([
+      "user",
+    ]);
+  });
+
+  it("marks a pair missing its public key, or rejected by Builder, as needing reconnect", async () => {
+    storeKeys({
+      "user:member@b.com": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-personal", updatedAt: 2_000 },
+      },
+      "org:builder_io": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-org", updatedAt: 1_000 },
+        BUILDER_PUBLIC_KEY: { value: "pub-org", updatedAt: 1_000 },
+      },
+    });
+    mockGetSetting.mockResolvedValue({ at: Date.now(), message: "rejected" });
+
+    await expect(
+      getBuilderKeyConnections("member@b.com", "builder_io"),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: true },
+      personal: { connectedAt: 2_000, needsReconnect: true },
+    });
+  });
+
+  it("throws when the store cannot be read instead of reporting no keys", async () => {
+    mockReadAppSecrets.mockRejectedValueOnce(new Error("store unavailable"));
+
+    await expect(
+      getBuilderKeyConnections("member@b.com", "builder_io"),
+    ).rejects.toThrow("store unavailable");
   });
 });
 
@@ -2631,5 +2712,196 @@ describe("resolveSecretDetailed source/scopeId reporting", () => {
     expect(
       mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
     ).toBe(false);
+  });
+});
+
+describe("Restrict personal API keys", () => {
+  const ORG = "org-restricted";
+  const POLICY_SETTING = `o:${ORG}:restrict-personal-provider-keys`;
+
+  function restrictOrg(role: string, restricted = true) {
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === POLICY_SETTING ? { restricted } : null,
+    );
+    mockGetDbExec.mockReturnValue({
+      execute: vi.fn(async ({ sql }: { sql: string }) => ({
+        rows: sql.includes("org_members") ? [{ role }] : [],
+      })),
+    });
+  }
+
+  function storeRows(rows: Record<string, string>) {
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) => {
+        const value = rows[`${scope}:${scopeId}:${key}`];
+        return value ? { value, last4: value.slice(-4), updatedAt: 1 } : null;
+      },
+    );
+  }
+
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(ORG);
+  });
+
+  it("uses the org key instead of a restricted member's personal key", async () => {
+    restrictOrg("member");
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: "sk-ant-org", source: "org" });
+    expect(
+      mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
+    ).toBe(false);
+    // Stored, not deleted: the restriction only skips the row.
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("finds nothing for a restricted member with only personal keys", async () => {
+    restrictOrg("member");
+    storeRows({
+      "user:member@b.com:OPENAI_API_KEY": "sk-personal",
+      "workspace:solo:member@b.com:OPENAI_API_KEY": "sk-solo",
+    });
+
+    await expect(
+      resolveSecretDetailed("OPENAI_API_KEY"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: false });
+    await expect(resolveSecret("OPENAI_API_KEY")).resolves.toBeNull();
+  });
+
+  it("keeps an owner's or admin's personal key", async () => {
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role);
+      storeRows({
+        "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
+        [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      });
+      await expect(
+        resolveSecretDetailed("ANTHROPIC_API_KEY"),
+      ).resolves.toMatchObject({ value: "sk-ant-personal", source: "user" });
+    }
+  });
+
+  it("uses the member's personal key again once the restriction is off", async () => {
+    restrictOrg("member", false);
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: "sk-ant-personal", source: "user" });
+  });
+
+  it("leaves a member's other personal secrets alone", async () => {
+    restrictOrg("member");
+    storeRows({ "user:member@b.com:NOTION_TOKEN": "notion-personal" });
+
+    await expect(resolveSecretDetailed("NOTION_TOKEN")).resolves.toMatchObject({
+      value: "notion-personal",
+      source: "user",
+    });
+  });
+
+  it("reports an unreadable restriction as a failed lookup, not as unrestricted", async () => {
+    mockGetSetting.mockRejectedValue(
+      new Error("db query timed out after 12000ms"),
+    );
+    storeRows({ "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal" });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    await expect(resolveSecret("ANTHROPIC_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+
+  it("skips a restricted member's personal Builder key pair for the org's", async () => {
+    restrictOrg("member");
+    storeRows({
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+      [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
+      [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
+    });
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "bpk-org",
+      source: "org",
+    });
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "bpk-org",
+    );
+  });
+
+  it("puts the org's Builder key pair ahead of an owner's or admin's own", async () => {
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      storeRows({
+        "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+        "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+        [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
+        [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
+      });
+      await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+        privateKey: "bpk-org",
+        source: "org",
+      });
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).resolves.toBe("bpk-org");
+    }
+
+    // A member keeps their own pair first.
+    restrictOrg("member", false);
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "bpk-personal",
+      source: "user",
+    });
+  });
+
+  it("falls back to an admin's own Builder key pair when the org has none", async () => {
+    restrictOrg("admin", false);
+    storeRows({
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+    });
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "bpk-personal",
+      source: "user",
+    });
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "bpk-personal",
+    );
+  });
+
+  it("applies a background identity's explicit org to the Builder key pair", async () => {
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    restrictOrg("member");
+    storeRows({
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+    });
+
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY", {
+        userEmail: "member@b.com",
+        orgId: ORG,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY", {
+        userEmail: "member@b.com",
+        orgId: null,
+      }),
+    ).resolves.toBe("bpk-personal");
   });
 });
