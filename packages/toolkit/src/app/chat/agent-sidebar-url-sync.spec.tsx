@@ -5,11 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SettingsReturnPathRecorder } from "../../../toolkit/src/app/chat/agent-sidebar-url-sync.js";
 import {
   _resetSettingsReturnPathForTests,
   readSettingsReturnPath,
-} from "../../../toolkit/src/app/settings/shell/return-path.js";
+} from "../settings/shell/return-path.js";
+import { SettingsReturnPathRecorder } from "./agent-sidebar-url-sync.js";
 
 describe("SettingsReturnPathRecorder", () => {
   let container: HTMLDivElement;
