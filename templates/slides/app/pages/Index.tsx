@@ -1414,7 +1414,13 @@ export default function Index({ active = true }: { active?: boolean }) {
           },
           retryContext,
           attachments.attachments,
-          options,
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,
         );
         return "retain" as const;
       }
