@@ -1138,15 +1138,20 @@ export function createAgentChatPlugin(
         job?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
-        if (requested.length === 0) return {};
+        const toolNames = resolveBackgroundMcpToolSelection(
+          requested,
+          options?.backgroundMcpTools === "all",
+        );
+        if (toolNames === null) return {};
         const principal = principalFromRequestContext();
         if (!principal) return {};
         const entries = await getMcpActionEntriesForPrincipal(
           principal.userEmail,
           principal.orgId,
-          requested,
+          toolNames,
         );
-        const missing = requested.filter((toolName) => !entries[toolName]);
+        const missing =
+          toolNames?.filter((toolName) => !entries[toolName]) ?? [];
         if (missing.length > 0) {
           throw new Error(
             `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
@@ -8052,6 +8057,7 @@ export const defaultAgentChatPlugin: NitroPluginDef = createAgentChatPlugin();
 import {
   getMcpManagerForPrincipal,
   invalidateMcpManagersForScope,
+  resolveBackgroundMcpToolSelection,
   stopAllMcpManagers,
   mountMcpHubStatusRoute,
   mountMcpStatusRoute,

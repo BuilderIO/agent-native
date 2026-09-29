@@ -189,5 +189,12 @@ export async function listIntegrationConfigPage(
 export async function listIntegrationConfigs(
   platform?: string,
 ): Promise<IntegrationConfig[]> {
-  return (await listIntegrationConfigPage({ platform })).configs;
+  const configs: IntegrationConfig[] = [];
+  let after: { platform: string; configKey: string } | undefined;
+  do {
+    const page = await listIntegrationConfigPage({ platform, after });
+    configs.push(...page.configs);
+    after = page.nextCursor ?? undefined;
+  } while (after);
+  return configs;
 }

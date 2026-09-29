@@ -143,7 +143,7 @@ export async function createBooking(
 
   const final = await getBookingByUid(booking.uid);
   if (!final) throw new Error("Booking disappeared after creation");
-  return final;
+  return { ...final, teamId: eventType.teamId };
 }
 
 export async function rescheduleBooking(input: {

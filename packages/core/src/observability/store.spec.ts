@@ -1536,7 +1536,7 @@ describe("observability list bounds", () => {
     expect(lastSelect().sql).toContain("user_id, idempotency_key");
   });
 
-  it("bounds the legacy dataset list to its first page", async () => {
+  it("returns the full legacy dataset list through bounded pages", async () => {
     const row = (id: number) => ({
       id: `dataset-${id}`,
       name: `Dataset ${id}`,
@@ -1547,20 +1547,23 @@ describe("observability list bounds", () => {
       user_id: null,
       idempotency_key: null,
     });
-    executeResults.push({
-      rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
-      rowsAffected: 0,
-    });
+    executeResults.push(
+      {
+        rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+        rowsAffected: 0,
+      },
+      { rows: [row(100)], rowsAffected: 0 },
+    );
 
     const datasets = await listEvalDatasets();
 
-    expect(datasets).toHaveLength(100);
+    expect(datasets).toHaveLength(101);
     const selects = execCalls.filter((call) =>
       /FROM agent_eval_datasets/.test(call.sql),
     );
-    expect(selects).toHaveLength(1);
+    expect(selects).toHaveLength(2);
     expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
-    expect(selects[0]?.args).toEqual([100]);
+    expect(selects[1]?.args).toEqual([101, 101, "dataset-101", 100]);
   });
 
   it("filters running experiments in SQL and pages the admin list", async () => {
@@ -1577,7 +1580,7 @@ describe("observability list bounds", () => {
     expect(call.args).toEqual(["running", 30, 30, "experiment-c", 25]);
   });
 
-  it("bounds the legacy experiment list to its first page", async () => {
+  it("returns the full legacy experiment list through bounded pages", async () => {
     const row = (id: number) => ({
       id: `experiment-${id}`,
       name: `Experiment ${id}`,
@@ -1590,18 +1593,22 @@ describe("observability list bounds", () => {
       created_at: id,
       owner_email: null,
     });
-    executeResults.push({
-      rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
-      rowsAffected: 0,
-    });
+    executeResults.push(
+      {
+        rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+        rowsAffected: 0,
+      },
+      { rows: [row(100)], rowsAffected: 0 },
+    );
 
     const experiments = await listExperiments();
 
-    expect(experiments).toHaveLength(100);
+    expect(experiments).toHaveLength(101);
     const selects = execCalls.filter((call) =>
       /FROM agent_experiments/.test(call.sql),
     );
-    expect(selects).toHaveLength(1);
+    expect(selects).toHaveLength(2);
     expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
+    expect(selects[1]?.args).toEqual([101, 101, "experiment-101", 100]);
   });
 });

@@ -532,7 +532,7 @@ describe("task-store (SQL)", () => {
       }
     });
 
-    it("bounds the legacy list to its first page", async () => {
+    it("returns the full legacy list through bounded pages", async () => {
       const { listTasks } = await loadStore();
       tables["a2a_tasks"] = Array.from({ length: 205 }, (_, index) => ({
         id: `task-${String(index).padStart(3, "0")}`,
@@ -555,9 +555,14 @@ describe("task-store (SQL)", () => {
         return sql.includes("FROM a2a_tasks") && sql.includes("LIMIT ?");
       });
 
-      expect(tasks).toHaveLength(100);
+      expect(tasks).toHaveLength(205);
       expect(tasks[0]?.id).toBe("task-204");
-      expect(listCalls).toHaveLength(1);
+      expect(listCalls).toHaveLength(3);
+      expect(
+        listCalls.every(
+          (call) => typeof call[0] !== "string" && call[0].args.at(-1) === 101,
+        ),
+      ).toBe(true);
       expect(listCalls[0]![0]).toMatchObject({
         sql: expect.stringContaining("SELECT id, context_id"),
       });

@@ -873,5 +873,12 @@ export async function listTasksPage(
 }
 
 export async function listTasks(contextId?: string): Promise<Task[]> {
-  return (await listTasksPage(contextId)).tasks;
+  const tasks: Task[] = [];
+  let before: A2ATaskListCursor | undefined;
+  while (true) {
+    const page = await listTasksPage(contextId, { before });
+    tasks.push(...page.tasks);
+    if (!page.nextCursor) return tasks;
+    before = page.nextCursor;
+  }
 }

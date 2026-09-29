@@ -20,12 +20,13 @@ export async function onBookingCreated(booking: Booking): Promise<void> {
 }
 
 export async function onBookingRescheduled(
-  original: Booking,
+  _original: Booking,
   next: Booking,
 ): Promise<void> {
-  const principal = getBookingPrincipal(original);
-  await materializeReminders(next, "reschedule");
-  await enqueueWebhooks(next, "BOOKING_RESCHEDULED", principal);
+  const scopedBooking = await withBookingTeamScope(next);
+  const principal = getBookingPrincipal(scopedBooking);
+  await materializeReminders(scopedBooking, "reschedule");
+  await enqueueWebhooks(scopedBooking, "BOOKING_RESCHEDULED", principal);
 }
 
 export async function onBookingCancelled(booking: Booking): Promise<void> {
@@ -45,9 +46,32 @@ export async function onBookingCancelled(booking: Booking): Promise<void> {
 }
 
 export async function onBookingNoShow(booking: Booking): Promise<void> {
+  const scopedBooking = await withBookingTeamScope(booking);
+  const principal = getBookingPrincipal(scopedBooking);
+  await materializeReminders(scopedBooking, "no-show");
+  await enqueueWebhooks(scopedBooking, "BOOKING_NO_SHOW", principal);
+}
+
+async function withBookingTeamScope(booking: Booking): Promise<Booking> {
+  if (booking.teamId) return booking;
+  const { getDb, schema } = getSchedulingContext();
   const principal = getBookingPrincipal(booking);
-  await materializeReminders(booking, "no-show");
-  await enqueueWebhooks(booking, "BOOKING_NO_SHOW", principal);
+  const [eventType] = await getDb()
+    .select({ teamId: schema.eventTypes.teamId })
+    .from(schema.eventTypes)
+    .where(
+      and(
+        eq(schema.eventTypes.id, booking.eventTypeId),
+        principal.orgId
+          ? or(
+              eq(schema.eventTypes.ownerEmail, principal.ownerEmail),
+              eq(schema.eventTypes.orgId, principal.orgId),
+            )
+          : eq(schema.eventTypes.ownerEmail, principal.ownerEmail),
+      ),
+    )
+    .limit(1);
+  return eventType?.teamId ? { ...booking, teamId: eventType.teamId } : booking;
 }
 
 function getBookingPrincipal(booking: Booking): BookingPrincipal {

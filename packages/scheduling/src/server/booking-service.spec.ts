@@ -15,7 +15,11 @@ import {
 } from "./booking-service.js";
 import { getBookingByUid, insertBooking } from "./bookings-repo.js";
 import { setSchedulingContext } from "./context.js";
-import { onBookingCreated } from "./hooks.js";
+import {
+  onBookingCreated,
+  onBookingNoShow,
+  onBookingRescheduled,
+} from "./hooks.js";
 import {
   registerCalendarProvider,
   registerVideoProvider,
@@ -629,6 +633,89 @@ describe("booking webhook dispatch", () => {
     );
     expect(reminders.map((row) => row.workflow_step_id)).toEqual([
       "workflow-step-user-b",
+    ]);
+  });
+
+  it("keeps team scope when a persisted booking is rescheduled", async () => {
+    const now = new Date().toISOString();
+    const eventType = makeEventType({
+      id: "team-event",
+      orgId: "org-b",
+      teamId: "team-b",
+    });
+    await seedEventType(eventType);
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility, team_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "team-webhook",
+        "https://example.test/webhook",
+        '["BOOKING_RESCHEDULED","BOOKING_NO_SHOW"]',
+        now,
+        now,
+        "team-owner@example.com",
+        "org-b",
+        "org",
+        "team-b",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, disabled, active_on_event_type_ids,
+        created_at, updated_at, owner_email, org_id, team_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "team-no-show-workflow",
+        "Team no-show workflow",
+        "no-show",
+        false,
+        '["team-event"]',
+        now,
+        now,
+        "team-owner@example.com",
+        "org-b",
+        "team-b",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        "team-no-show-step",
+        "team-no-show-workflow",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+    const created = await createBooking({
+      eventType,
+      hostEmail: "user-b@example.com",
+      startTime: "2026-08-03T10:00:00.000Z",
+      endTime: "2026-08-03T10:30:00.000Z",
+      timezone: "UTC",
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    const persisted = await getBookingByUid(created.uid);
+
+    expect(created.teamId).toBe("team-b");
+    expect(persisted?.teamId).toBeUndefined();
+    await onBookingRescheduled(persisted!, created);
+    await onBookingNoShow(persisted!);
+
+    const { rows } = await execute("SELECT webhook_id FROM webhook_deliveries");
+    expect(rows.map((row) => row.webhook_id)).toEqual([
+      "team-webhook",
+      "team-webhook",
+    ]);
+    const { rows: reminders } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders",
+    );
+    expect(reminders.map((row) => row.workflow_step_id)).toEqual([
+      "team-no-show-step",
     ]);
   });
 

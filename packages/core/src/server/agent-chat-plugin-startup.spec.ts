@@ -34,7 +34,7 @@ describe("agent chat startup", () => {
       "utf8",
     );
 
-    expect(source).toContain("if (requested.length === 0) return {};");
+    expect(source).toContain("resolveBackgroundMcpToolSelection(");
     const jobResolver = source.slice(
       source.indexOf("const getJobMcpActionEntries"),
       source.indexOf("// Mount status + management routes"),

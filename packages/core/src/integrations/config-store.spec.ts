@@ -110,24 +110,28 @@ describe("integration config compare-and-swap", () => {
     expect(executeMock.mock.calls.at(-1)?.[0].sql).toContain("LIMIT ?");
   });
 
-  it("bounds the unfiltered legacy list to its first page", async () => {
+  it("returns the full legacy list through bounded pages", async () => {
     const { listIntegrationConfigs } = await import("./config-store.js");
-    executeMock.mockResolvedValueOnce({
-      rows: Array.from({ length: 101 }, (_, index) => ({
-        platform: "platform-a",
-        config_key: `key-${String(index).padStart(3, "0")}`,
-        config_data: "{}",
-        owner: null,
-        updated_at: index,
-      })),
-      rowsAffected: 0,
-    });
+    const rows = Array.from({ length: 101 }, (_, index) => ({
+      platform: "platform-a",
+      config_key: `key-${String(index).padStart(3, "0")}`,
+      config_data: "{}",
+      owner: null,
+      updated_at: index,
+    }));
+    executeMock
+      .mockResolvedValueOnce({ rows, rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [rows[100]!], rowsAffected: 0 });
 
-    await expect(listIntegrationConfigs()).resolves.toHaveLength(100);
-    expect(executeMock).toHaveBeenCalledTimes(1);
+    await expect(listIntegrationConfigs()).resolves.toHaveLength(101);
+    expect(executeMock).toHaveBeenCalledTimes(2);
     expect(executeMock.mock.calls[0]?.[0]).toMatchObject({
       sql: expect.stringContaining("LIMIT ?"),
       args: [101],
+    });
+    expect(executeMock.mock.calls[1]?.[0]).toMatchObject({
+      sql: expect.stringContaining("LIMIT ?"),
+      args: ["platform-a", "platform-a", "key-099", 101],
     });
   });
 });

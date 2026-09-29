@@ -1655,7 +1655,15 @@ export async function listEvalDatasetsPage(
 }
 
 export async function listEvalDatasets(): Promise<EvalDataset[]> {
-  return listEvalDatasetsPage();
+  const datasets: EvalDataset[] = [];
+  let before: { updatedAt: number; id: string } | undefined;
+  while (true) {
+    const page = await listEvalDatasetsPage({ limit: 100, before });
+    datasets.push(...page);
+    if (page.length < 100) return datasets;
+    const last = page.at(-1)!;
+    before = { updatedAt: last.updatedAt, id: last.id };
+  }
 }
 
 export async function getEvalDataset(id: string): Promise<EvalDataset | null> {
@@ -1952,7 +1960,15 @@ export async function listExperimentsPage(
 }
 
 export async function listExperiments(): Promise<Experiment[]> {
-  return listExperimentsPage();
+  const experiments: Experiment[] = [];
+  let before: { createdAt: number; id: string } | undefined;
+  while (true) {
+    const page = await listExperimentsPage({ limit: 100, before });
+    experiments.push(...page);
+    if (page.length < 100) return experiments;
+    const last = page.at(-1)!;
+    before = { createdAt: last.createdAt, id: last.id };
+  }
 }
 
 export async function getExperiment(id: string): Promise<Experiment | null> {

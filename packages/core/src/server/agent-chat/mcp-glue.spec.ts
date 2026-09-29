@@ -51,6 +51,7 @@ import {
   _resetMcpManagerRegistryForTests,
   getMcpManagerForCurrentRequest,
   getMcpManagerForPrincipal,
+  resolveBackgroundMcpToolSelection,
 } from "./mcp-glue.js";
 
 describe("principal-scoped MCP managers", () => {
@@ -160,6 +161,14 @@ describe("principal-scoped MCP managers", () => {
     });
   });
 
+  it("keeps explicit background all-mode while skipping unrequested MCP", () => {
+    expect(resolveBackgroundMcpToolSelection([], true)).toBeUndefined();
+    expect(resolveBackgroundMcpToolSelection([], false)).toBeNull();
+    expect(
+      resolveBackgroundMcpToolSelection(["mcp__mail__read"], false),
+    ).toEqual(["mcp__mail__read"]);
+  });
+
   it("rejects anonymous status requests before hydrating an MCP manager", async () => {
     authMocks.getSession.mockResolvedValue(null);
     const routes: Array<(event: any) => unknown> = [];
@@ -238,5 +247,39 @@ describe("principal-scoped MCP managers", () => {
         orgId: null,
       }),
     ).not.toBe(first);
+  });
+
+  it("does not evict a manager while its first configuration is loading", async () => {
+    let resolveConfig!: (config: unknown) => void;
+    mockedMcp.buildMergedConfig.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveConfig = resolve)),
+    );
+    const pending = getMcpManagerForPrincipal({
+      userEmail: "user-0@example.com",
+      orgId: null,
+    });
+    await Promise.resolve();
+    const first = mockedMcp.managers[0]!;
+
+    for (let i = 1; i < 32; i++) {
+      await getMcpManagerForPrincipal({
+        userEmail: `user-${i}@example.com`,
+        orgId: null,
+      });
+    }
+    await getMcpManagerForPrincipal({
+      userEmail: "user-32@example.com",
+      orgId: null,
+    });
+
+    expect(first.stop).not.toHaveBeenCalled();
+    resolveConfig({ source: "user-0@example.com", servers: {} });
+    await pending;
+    expect(
+      await getMcpManagerForPrincipal({
+        userEmail: "user-0@example.com",
+        orgId: null,
+      }),
+    ).toBe(first);
   });
 });

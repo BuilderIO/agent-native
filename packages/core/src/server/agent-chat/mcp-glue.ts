@@ -47,19 +47,21 @@ async function stopEntry(entry: McpManagerEntry): Promise<void> {
 
 function evictExpiredManagers(now: number): void {
   for (const [key, entry] of managers) {
-    if (now - entry.lastAccessedAt <= MCP_MANAGER_IDLE_TTL_MS) continue;
+    if (entry.ready || now - entry.lastAccessedAt <= MCP_MANAGER_IDLE_TTL_MS)
+      continue;
     managers.delete(key);
     void stopEntry(entry);
   }
 }
 
-function evictLeastRecentlyUsedManager(): void {
-  const oldest = [...managers.entries()].sort(
-    ([, left], [, right]) => left.lastAccessedAt - right.lastAccessedAt,
-  )[0];
-  if (!oldest) return;
+function evictLeastRecentlyUsedManager(): boolean {
+  const oldest = [...managers.entries()]
+    .sort(([, left], [, right]) => left.lastAccessedAt - right.lastAccessedAt)
+    .find(([, entry]) => !entry.ready);
+  if (!oldest) return false;
   managers.delete(oldest[0]);
   void stopEntry(oldest[1]);
+  return true;
 }
 
 async function hydrateEntry(entry: McpManagerEntry): Promise<void> {
@@ -81,7 +83,9 @@ export async function getMcpManagerForPrincipal(
   let entry = managers.get(key);
   if (!entry) {
     while (managers.size >= MCP_MANAGER_CACHE_LIMIT) {
-      evictLeastRecentlyUsedManager();
+      if (!evictLeastRecentlyUsedManager()) {
+        throw new Error("MCP manager capacity is busy hydrating");
+      }
     }
     entry = {
       manager: new McpClientManager(null),
@@ -153,6 +157,14 @@ export async function stopAllMcpManagers(): Promise<void> {
 
 export function _resetMcpManagerRegistryForTests(): Promise<void> {
   return stopAllMcpManagers();
+}
+
+export function resolveBackgroundMcpToolSelection(
+  requested: readonly string[],
+  includeAll: boolean,
+): readonly string[] | null | undefined {
+  if (includeAll) return undefined;
+  return requested.length > 0 ? requested : null;
 }
 
 export function mountMcpHubStatusRoute(nitroApp: any): void {

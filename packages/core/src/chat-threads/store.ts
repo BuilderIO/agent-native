@@ -218,7 +218,7 @@ export async function repairLegacyChatThreadMessageCounts(
   while (true) {
     // guard:allow-unscoped — operator-invoked legacy repair scans all threads by explicit maintenance contract
     const { rows } = await client.execute({
-      sql: `SELECT id, thread_data, message_count FROM chat_threads
+      sql: `SELECT id, owner_email, thread_data, message_count FROM chat_threads
             WHERE message_count = 0
               AND thread_data LIKE '%"messages"%'
               AND id > ?

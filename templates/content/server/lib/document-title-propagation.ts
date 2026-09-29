@@ -1,4 +1,3 @@
-import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -6,7 +5,6 @@ import {
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, or } from "drizzle-orm";
 
-import { listContentOrganizationMemberships } from "../../actions/_content-space-access.js";
 import { getDb, schema } from "../db/index.js";
 
 export async function propagateDocumentTitle(args: {
@@ -14,13 +12,11 @@ export async function propagateDocumentTitle(args: {
   documentId: string;
   title: string;
   updatedAt: string;
+  organizationIds: readonly string[];
 }): Promise<void> {
   const userEmail = getRequestUserEmail();
-  const memberships = userEmail
-    ? await listContentOrganizationMemberships(userEmail, getDbExec())
-    : [];
   const orgIds = new Set([
-    ...memberships.map((membership) => membership.orgId),
+    ...args.organizationIds,
     ...(getRequestOrgId() ? [getRequestOrgId()!] : []),
   ]);
   const documentEditorAccess = or(
