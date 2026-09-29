@@ -189,31 +189,48 @@ function MailLayout() {
         minWidth: 0,
         flex: 1,
         flexDirection: "column",
+        containerName: "agent-native-main",
+        containerType: "inline-size",
       }}
     >
       <header
         aria-hidden="true"
+        data-agent-native-mail-header="true"
         style={{
           display: "flex",
           height: 48,
           flexShrink: 0,
           alignItems: "center",
-          gap: 14,
+          gap: 4,
           borderBottom: BORDER,
-          padding: "0 16px",
+          padding: "0 8px",
+          overflowX: "auto",
+          overflowY: "hidden",
+          overscrollBehaviorX: "contain",
+          scrollbarWidth: "none",
         }}
       >
-        <Block style={{ width: 24, height: 24, borderRadius: 6 }} />
+        <div
+          style={{
+            position: "sticky",
+            insetInlineStart: 0,
+            zIndex: 1,
+            flexShrink: 0,
+            backgroundColor: "hsl(var(--background, 0 0% 100%))",
+          }}
+        >
+          <Block style={{ width: 32, height: 36, borderRadius: 6 }} />
+        </div>
         <div
           style={{
             display: "flex",
-            minWidth: 0,
+            width: "max-content",
+            flexShrink: 0,
             alignItems: "center",
-            gap: 16,
-            overflow: "hidden",
+            gap: 8,
           }}
         >
-          <Block style={{ width: 112, height: 28, borderRadius: 8 }} />
+          <Block style={{ width: 112, height: 32, borderRadius: 8 }} />
           {[96, 128, 98, 72, 84, 62].map((width, index) => (
             <Block
               key={index}
@@ -221,13 +238,25 @@ function MailLayout() {
             />
           ))}
         </div>
-        <div style={{ flex: 1 }} />
-        <Block style={{ width: 16, height: 16, borderRadius: 8 }} />
-        <Block style={{ width: 16, height: 16, borderRadius: 8 }} />
-        <Block style={{ width: 84, height: 32, borderRadius: 8 }} />
-        <Block style={{ width: 26, height: 26, borderRadius: "50%" }} />
-        <Block style={{ width: 16, height: 16, borderRadius: 8 }} />
-        <Block style={{ width: 16, height: 16, borderRadius: 8 }} />
+        <div style={{ flex: 1, minWidth: 16 }} />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 84, height: 32, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
+        <Block
+          style={{ width: 32, height: 36, borderRadius: 8, flexShrink: 0 }}
+        />
       </header>
       <main
         style={{
@@ -273,6 +302,7 @@ function MailLayout() {
                 <Block style={{ width: 7, height: 7, borderRadius: "50%" }} />
               </div>
               <div
+                data-agent-native-mail-sender="true"
                 style={{
                   display: "flex",
                   width: 160,
@@ -286,25 +316,43 @@ function MailLayout() {
                 />
               </div>
               {index % 2 === 1 && (
-                <Block
-                  style={{
-                    width: 58,
-                    height: 16,
-                    borderRadius: 4,
-                    marginRight: 8,
-                  }}
-                />
+                <div data-agent-native-mail-label="true">
+                  <Block
+                    style={{
+                      width: 58,
+                      height: 16,
+                      borderRadius: 4,
+                      marginRight: 8,
+                    }}
+                  />
+                </div>
               )}
-              <Block style={{ width: 164, height: 12, flexShrink: 0 }} />
-              <Block style={{ height: 12, flex: 1 }} />
-              <Block
+              <div
+                style={{
+                  display: "flex",
+                  minWidth: 0,
+                  flex: 1,
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <div style={{ width: 164, maxWidth: "75%", flexShrink: 0 }}>
+                  <Block style={{ width: "100%", height: 12 }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Block style={{ width: "100%", height: 12 }} />
+                </div>
+              </div>
+              <div
+                data-agent-native-mail-time="true"
                 style={{
                   width: 52,
-                  height: 11,
                   flexShrink: 0,
                   marginLeft: 8,
                 }}
-              />
+              >
+                <Block style={{ width: "100%", height: 11 }} />
+              </div>
             </div>
           ))}
         </section>
@@ -1049,13 +1097,18 @@ export function AppShellSkeleton({
             padding: 24px 0 0;
           }
         }
-        @media (max-width: 980px) {
+        @container agent-native-main (max-width: 979px) {
           [data-agent-native-mail-inspector] { display: none !important; }
         }
+        [data-agent-native-mail-header]::-webkit-scrollbar { display: none; }
         @media (max-width: 767px) {
           [data-agent-native-app-skeleton-sidebar] { display: none !important; }
           [data-agent-native-mail-list] { width: 100% !important; }
           [data-agent-native-app-skeleton-layout="mail"] [data-agent-native-mail-list] { flex: 1; }
+        }
+        @media (max-width: 639px) {
+          [data-agent-native-mail-sender] { width: 100px !important; }
+          [data-agent-native-mail-label] { display: none !important; }
         }
         @media (min-width: 640px) {
           [data-agent-native-mail-list] > div { min-height: 38px !important; }
