@@ -803,6 +803,38 @@ describe("AiFilterSection", () => {
     });
   });
 
+  it("does not retry applied changes after the undo token expires", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "Email service is briefly busy.",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
+  });
+
   it("retries a failed backfill when there are no applied changes to undo", async () => {
     mocks.rules = [importantRule()];
     mocks.backfillStatus = {

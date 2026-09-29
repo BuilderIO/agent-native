@@ -1168,8 +1168,7 @@ export function AiFilterSection() {
                                 jevConfigured &&
                                 rule.enabled &&
                                 status?.status === "failed" &&
-                                (!status.undoToken ||
-                                  status.appliedThreads === 0)
+                                status.appliedThreads === 0
                               }
                               onUndo={(runId, undoToken) =>
                                 void undoRuleBackfill(runId, undoToken)
