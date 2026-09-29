@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "无法加载上下文。",
   "composer.contextLinkRequired": "请输入链接。",
   "composer.submitFailed": "无法提交。请重试。",
+  "composer.attachmentsRemainAfterSubmit":
+    "消息已发送，但仍有附件。请先移除附件再发送下一条消息。",
   "composer.addContext": "添加上下文",
   "composer.contextActionFailed": "无法添加上下文。",
   "composer.contextBack": "返回",

@@ -11,6 +11,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
   "composer.contextLinkRequired": "リンクを入力してください。",
   "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.attachmentsRemainAfterSubmit":
+    "メッセージは送信されましたが、添付ファイルが残っています。再送信する前に削除してください。",
   "composer.addContext": "コンテキストを追加",
   "composer.contextActionFailed": "コンテキストを追加できませんでした。",
   "composer.contextBack": "戻る",

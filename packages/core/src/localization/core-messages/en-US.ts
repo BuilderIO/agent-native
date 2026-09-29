@@ -8,6 +8,8 @@ const messages = {
   "composer.contextLoadFailed": "Could not load context.",
   "composer.contextLinkRequired": "Enter a link.",
   "composer.submitFailed": "Could not submit. Try again.",
+  "composer.attachmentsRemainAfterSubmit":
+    "The message was sent, but some attachments remain. Remove them before sending again.",
   "composer.addContext": "Add context",
   "composer.contextActionFailed": "Could not add context.",
   "composer.contextBack": "Back",

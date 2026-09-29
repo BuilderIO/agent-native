@@ -4220,6 +4220,7 @@ export function TiptapComposer({
         const submittedAttachments = [...attachments];
         submitInFlightRef.current = true;
         try {
+          setContextSubmissionError(null);
           try {
             await currentOnSubmit(text, references, submittedAttachments, {
               intent,
@@ -4247,7 +4248,13 @@ export function TiptapComposer({
               for (const attachment of submittedAttachments) {
                 const index = composerRuntime
                   .getState()
-                  .attachments.findIndex((item) => item === attachment);
+                  .attachments.findIndex(
+                    (item) =>
+                      item.id === attachment.id &&
+                      (item === attachment ||
+                        (attachment.file != null &&
+                          item.file === attachment.file)),
+                  );
                 if (index === -1) continue;
                 await composerRuntime.getAttachmentByIndex(index).remove();
               }
@@ -4261,13 +4268,25 @@ export function TiptapComposer({
               );
             },
           );
-          await attachmentCleanupRef.current;
+          if (clearOnSubmit) {
+            cancelActiveVoice();
+            clearSubmittedDraft();
+          }
+          try {
+            await clearSubmittedAttachments;
+          } catch {
+            setContextSubmissionError(
+              t("agentChat.composer.attachmentsRemainAfterSubmit", {
+                defaultValue:
+                  "The message was sent, but some attachments remain. Remove them before sending again.",
+              }),
+            );
+            return true;
+          }
           if (!clearOnSubmit) {
             closePopover();
             return true;
           }
-          cancelActiveVoice();
-          clearSubmittedDraft();
           return true;
         } finally {
           submitInFlightRef.current = false;
