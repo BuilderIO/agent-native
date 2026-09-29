@@ -70,11 +70,8 @@ contract.
 - When shipping from a worktree, commit, push, and open or update the PR there;
   leave the shared checkout untouched.
 - Never push to someone else's PR without explicit authorization for that exact
-  PR in the current request; this does not authorize merging. Before each
-  push, resolve the active GitHub login with `gh api user --jq .login`, include
-  `author` in the live PR query, and compare `author.login` with that login.
-  Verify the head repository, branch, head OID, and base, then recheck the head.
-  See `ship` and `babysit-pr` for the verification gate.
+  PR in this request. This does not authorize merging. See `ship` and
+  `babysit-pr` for the live author/head verification gate.
 - Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
