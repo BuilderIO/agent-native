@@ -324,8 +324,8 @@ Use it only after verifying that missing human approval or
 protections are satisfied, and no merge queue is required. Revalidate the
 exact live head and all requirements immediately before invoking it. If any
 non-review requirement is pending, failed, unknown, or unsatisfied, do not use
-`--admin`; wait for that requirement. When the gate holds, use the guarded
-admin merge:
+`--admin`; wait for that requirement. When no queue is required and the gate
+holds, use the guarded admin merge:
 
 This revalidation is client-side, not atomic with GitHub's admin merge.
 `--match-head-commit` protects the PR head SHA but does not pin status
@@ -340,6 +340,22 @@ non-review requirement.
 gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
   --match-head-commit <verified-head-oid>
 ```
+
+If an applicable ruleset requires a merge queue, do not use `--admin`. After
+the same readiness gate holds, enqueue the exact head through GitHub's queue:
+
+```bash
+gh pr merge <number> --repo BuilderIO/agent-native --auto --squash \
+  --match-head-commit <verified-head-oid>
+```
+
+Verify the queue entry with `pullRequest { mergeQueueEntry { state position
+headCommit { oid } } }` and keep monitoring the queue checks. If GitHub only
+enables auto-merge, keep waiting; do not report the PR merged until its state is
+`MERGED`, then verify the merge commit is an ancestor of `origin/main`. If the
+queue cannot proceed solely because a human approval is required, report that
+queue/approval policy conflict to Steve; do not send the PR to another reviewer
+or bypass the queue.
 
 `REVIEW_REQUIRED` alone is not a reason to wait for another reviewer or ask
 Steve to click Merge. This skill's standing authorization covers that merge.

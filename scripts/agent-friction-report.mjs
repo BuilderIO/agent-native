@@ -675,7 +675,7 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
   String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
 ].join("|");
 const PR_REVIEW_MERGE_GATE_RE =
-  /\b(?:approvals?|approve(?:s|d)?|decision|sign[-\s]+off|checks?|ci|green|deployments?|deploy|(?:test\s+suites?|tests?|builds?)|reviewers?|review\s+threads?|comments?|requested\s+changes?|feedback|branch[-\s]+protections?(?:\s+requirements?)?|rulesets?(?:\s+conditions?)?|merge[-\s]+queues?|security(?:[-\s]team(?:['’]s)?)?|product[-\s]+owners?|ux(?:[-\s]+owners?)?|steve(?:['’]s)?|(?:it|they)\s+(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
+  /\b(?:approvals?|approve(?:s|d)?|decision|sign[-\s]+off|checks?|ci|green|deployments?|deploy|(?:test\s+suites?|tests?|builds?)|reviewers?|review\s+threads?|comments?|conversations?|conversation[-\s]+resolution|requested\s+changes?|feedback|branch[-\s]+protections?(?:\s+requirements?)?|rulesets?(?:\s+conditions?)?|merge[-\s]+queues?|security(?:[-\s]team(?:['’]s)?)?|product[-\s]+owners?|ux(?:[-\s]+owners?)?|steve(?:['’]s)?|(?:it|they)\s+(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
 const PR_REVIEW_MERGE_OBJECT = String.raw`(?:\s+(?:(?:(?:the|a|an|this|that|these|those|my|our)\s+)?(?:PR|pull\s+request|fix|code|change|changes|commit|branch|update)|it|this|that))?`;
 const PR_REVIEW_WITH_MERGE_PREFIX = String.raw`(?:merge${PR_REVIEW_MERGE_OBJECT}(?:\s+only)?|only(?:\s+merge${PR_REVIEW_MERGE_OBJECT})?)`;
 const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
@@ -696,7 +696,7 @@ const PR_REVIEW_GATE_NEGATION_BEFORE_RE =
   /\b(?:no|without)\b(?:\s+[\w’'-]+){0,3}\s*$/i;
 const PR_REVIEW_GATE_WAIVER_RE =
   /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than|without)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
-const PR_REVIEW_GATE_COMPLETION = String.raw`(?:(?:has|have)\s+)?(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|sign(?:s|ed)?[-\s]+off)`;
+const PR_REVIEW_GATE_COMPLETION = String.raw`(?:(?:has|have)\s+)?(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|resolve(?:s|d|ing)?|sign(?:s|ed)?[-\s]+off)`;
 const PR_REVIEW_GATE_CONDITION_AFTER_RE = new RegExp(
   String.raw`^\s*(?:${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\bthen\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,40}\b(?:before|prior\s+to|then)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,20}\bfirst\b|(?:is|are|has\s+been|have\s+been)\s+(?:still\s+)?required\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)`,
   "i",
@@ -708,7 +708,7 @@ const PR_REVIEW_GATE_COMMA_MERGE_RE = new RegExp(
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
   /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
 const PR_REVIEW_GATE_PRECONDITION_RE = new RegExp(
-  String.raw`\b(?:after|once|when|if|unless|provided(?:\s+that)?)\b[^.!?]{0,80}${PR_REVIEW_MERGE_GATE_RE.source}[^.!?]{0,40}\b(?:green|pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|sign(?:s|ed)?[-\s]+off|approve(?:s|d)?|admit(?:s|ted)?|satisf(?:y|ies|ied)|required|needed|necessary)\b`,
+  String.raw`\b(?:after|once|when|if|unless|provided(?:\s+that)?)\b[^.!?]{0,80}${PR_REVIEW_MERGE_GATE_RE.source}[^.!?]{0,40}\b(?:green|pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|resolv(?:e|es|ed|ing)|sign(?:s|ed)?[-\s]+off|approve(?:s|d)?|admit(?:s|ted)?|satisf(?:y|ies|ied)|required|needed|necessary)\b`,
   "i",
 );
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
@@ -1052,9 +1052,18 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   ],
   [
     false,
+    "If no changes are needed, merge once all required conversations are resolved.",
+  ],
+  [
+    false,
+    "Once required conversation resolution is complete, if no changes are needed, merge.",
+  ],
+  [
+    false,
     "If no changes are needed, merge only after the merge queue admits it.",
   ],
   [true, "If no changes are needed, merge the merge-queue fix."],
+  [true, "If no changes are needed, merge the conversation-resolution fix."],
   [
     true,
     "The merge queue is required for deployment. If no changes are needed, merge the deployment fix.",
