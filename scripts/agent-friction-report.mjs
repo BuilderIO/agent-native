@@ -674,7 +674,7 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
   String.raw`(?:forgot|failed)\s+to\s+(?:say|state|report|mention|include|note|ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
   String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
 ].join("|");
-const PR_REVIEW_MERGE_GATES = String.raw`(?:required|approval|approve|review|decision|product|ux|security|checks?|ci|green)`;
+const PR_REVIEW_MERGE_GATES = String.raw`(?:required|approval|approve|decision|checks?|ci|green|(?:test\s+suites?|tests?)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|green|complete(?:d)?)|builds?\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|green|complete(?:d)?)|reviewers?\s+(?:(?:has|have)\s+)?(?:sign(?:s|ed)?\s+off|approve(?:s|d)?))`;
 const PR_REVIEW_MERGE_AFTER = String.raw`(?:with|subject to|contingent upon|only after|after|upon|once|when|unless|until|if)`;
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
@@ -682,7 +682,7 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
     String.raw`\b(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b(?![^.!?]{0,80}\b(?:don't|do not|never)\s+merge\b)(?![^.!?]{0,100}\b${PR_REVIEW_MERGE_GATES}\b[^.!?]{0,100}\bmerge\b)(?![^.!?]{0,40}\bmerge\b[^.!?]{0,80}\b${PR_REVIEW_MERGE_AFTER}\b[^.!?]{0,80}\b${PR_REVIEW_MERGE_GATES}\b)[^.!?]{0,100}\bmerge\b`,
-    String.raw`\bif\s+we\s+(?:are|'re)\s+happy\b(?![^.!?]{0,80}\b${PR_REVIEW_MERGE_GATES}\b[^.!?]{0,80}\bwe\s+merge\b)[^.!?]{0,40}\bwe\s+merge\b(?![^.!?]{0,80}\b${PR_REVIEW_MERGE_AFTER}\b[^.!?]{0,80}\b${PR_REVIEW_MERGE_GATES}\b)`,
+    String.raw`\bif\s+we(?:\s+are|['’]re)\s+happy\b(?![^.!?]{0,80}\b${PR_REVIEW_MERGE_GATES}\b[^.!?]{0,80}\bwe\s+merge\b)[^.!?]{0,40}\bwe\s+merge\b(?![^.!?]{0,80}\b${PR_REVIEW_MERGE_AFTER}\b[^.!?]{0,80}\b${PR_REVIEW_MERGE_GATES}\b)`,
     String.raw`\b(?:stop\s+saying|no\s+saying|don't\s+say|do\s+not\s+say|never\s+say)\s+["'“‘]?(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,40}\b(?:needs?\s+to\s+approve|needs?\s+approval|must\s+approve|approval\s+is\s+required)\b`,
     String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
@@ -701,6 +701,21 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
   ],
   [true, "If we are happy, we merge."],
+  [true, "If we're happy with the PR, we merge."],
+  [true, "If we’re happy with the PR, we merge."],
+  [true, "If we are happy with the product change, we merge."],
+  [
+    true,
+    "If no changes are needed, stop waiting for another review and merge.",
+  ],
+  [
+    true,
+    "If no changes are needed for the product, merge instead of waiting for another reviewer.",
+  ],
+  [
+    true,
+    "If no changes are needed, even if the product owner disagrees, merge it.",
+  ],
   [true, "If no changes are needed, don't wait for another reviewer; merge."],
   [true, "Stop saying someone else needs to approve when the PR is ready."],
   [
@@ -716,6 +731,12 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, wait for the required security approval before merging.",
   ],
   [false, "If no changes are needed, merge only after security approval."],
+  [false, "If no changes are needed, merge only after the test suite passes."],
+  [false, "If no changes are needed, merge when the build succeeds."],
+  [
+    false,
+    "If no changes are needed, merge only when all reviewers have signed off.",
+  ],
   [
     false,
     "If no changes are needed, merge subject to the required security approval.",
