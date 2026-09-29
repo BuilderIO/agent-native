@@ -304,9 +304,11 @@ all the conditions hold, record the live `headRefOid`; they must remain true
 for 10 consecutive minutes on that same head:
 
  - every status context required by branch protection or an applicable
-   repository ruleset reports success on the recorded head, including contexts
-   published by GitHub Actions and other integrations, and every other
-   applicable merge requirement (such as a required deployment) is satisfied;
+   repository ruleset is satisfied on the recorded head according to GitHub's
+   merge rules. Record the actual conclusion; count `neutral` or `skipped` only
+   when GitHub treats that result as satisfied. Pending, failed, and unknown
+   contexts are not satisfied. Every other applicable merge requirement (such
+   as a required deployment) must also be satisfied;
  - every actionable review finding has a verified fix or terminal disposition;
  - the PR is `MERGEABLE` with no conflicts;
  - the same recorded `headRefOid` remains unchanged for the entire 10-minute
@@ -314,11 +316,15 @@ for 10 consecutive minutes on that same head:
 
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. This skill itself authorizes the guarded merge;
-do not hand off to standalone `babysit-pr` or wait for another approval. The
-admin merge may bypass only a missing human PR approval or
-`REVIEW_REQUIRED`; do not use it to bypass any other applicable protection
-requirement. When the gate holds, revalidate the exact live head and use the
-guarded admin merge:
+do not hand off to standalone `babysit-pr` or wait for another approval. GitHub's
+`--admin` merge is a broad protection bypass, not one scoped to human approval.
+Use it only after verifying that missing human approval or
+`REVIEW_REQUIRED` is the sole unsatisfied requirement, all other applicable
+protections are satisfied, and no merge queue is required. Revalidate the
+exact live head and all requirements immediately before invoking it. If any
+non-review requirement is pending, failed, unknown, or unsatisfied, do not use
+`--admin`; wait for that requirement. When the gate holds, use the guarded
+admin merge:
 
 ```bash
 gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
