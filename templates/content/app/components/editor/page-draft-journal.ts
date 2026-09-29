@@ -42,7 +42,8 @@ export class PageDraftJournalError extends Error {
 }
 
 const PREFIX = "content-page-draft-journal-v1:";
-const RETAINED_PREFIX = "content-page-draft-retained-v1:";
+// Retired: these markers kept a permanent "saved to History" banner on screen.
+const LEGACY_RETAINED_PREFIX = "content-page-draft-retained-v1:";
 
 function storage(): Storage {
   try {
@@ -70,10 +71,6 @@ function key(scope: PageDraftJournalScope): string {
   return PREFIX + parts.map(encodeURIComponent).join(":");
 }
 
-function retainedKey(scope: PageDraftJournalScope): string {
-  return RETAINED_PREFIX + key(scope).slice(PREFIX.length);
-}
-
 function partitionPrefix(
   scope: Omit<PageDraftJournalScope, "writerId">,
 ): string {
@@ -84,12 +81,6 @@ function partitionPrefix(
       .join(":") +
     ":"
   );
-}
-
-function retainedPartitionPrefix(
-  scope: Omit<PageDraftJournalScope, "writerId">,
-): string {
-  return RETAINED_PREFIX + partitionPrefix(scope).slice(PREFIX.length);
 }
 
 function validEntry(value: unknown): value is PageDraftJournalEntry {
@@ -167,7 +158,6 @@ export function writePageDraftJournal(input: {
         return current;
     }
     store.setItem(key(scope), JSON.stringify(entry));
-    store.removeItem(retainedKey(scope));
   } catch (cause) {
     if (cause instanceof PageDraftJournalError) throw cause;
     throw new PageDraftJournalError("write_failed", cause);
@@ -211,47 +201,19 @@ export function readPageDraftJournal(
   );
 }
 
-export function hasRetainedPageDraftNotice(
-  scope: Omit<PageDraftJournalScope, "writerId">,
-): boolean {
-  const prefix = retainedPartitionPrefix(scope);
+/** Removes every legacy retained-draft marker. Never throws. */
+export function sweepLegacyRetainedPageDraftMarkers(): void {
   try {
     const store = storage();
+    const keys: string[] = [];
     for (let index = 0; index < store.length; index++) {
-      if (store.key(index)?.startsWith(prefix)) return true;
+      const itemKey = store.key(index);
+      if (itemKey?.startsWith(LEGACY_RETAINED_PREFIX)) keys.push(itemKey);
     }
-    return false;
-  } catch (cause) {
-    if (cause instanceof PageDraftJournalError) throw cause;
-    throw new PageDraftJournalError("read_failed", cause);
-  }
-}
-
-export function markPageDraftJournalRetained(
-  scope: PageDraftJournalScope,
-  acknowledged: Pick<
-    PageDraftJournalSnapshot,
-    "editGeneration" | "title" | "content"
-  >,
-): boolean {
-  const itemKey = key(normalizedScope(scope));
-  try {
-    const store = storage();
-    const raw = store.getItem(itemKey);
-    if (raw === null) return false;
-    const entry = parseEntry(raw, itemKey);
-    if (
-      entry.snapshot.editGeneration !== acknowledged.editGeneration ||
-      entry.snapshot.title !== acknowledged.title ||
-      entry.snapshot.content !== acknowledged.content
-    )
-      return false;
-    store.removeItem(itemKey);
-    store.setItem(retainedKey(entry.scope), String(Date.now()));
-    return true;
-  } catch (cause) {
-    if (cause instanceof PageDraftJournalError) throw cause;
-    throw new PageDraftJournalError("write_failed", cause);
+    for (const itemKey of keys) store.removeItem(itemKey);
+  } catch {
+    // coercion-ok: Only obsolete notice markers are being cleaned up.
+    // The markers only drove a notice, so a failed sweep is harmless.
   }
 }
 
