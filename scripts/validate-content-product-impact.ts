@@ -263,10 +263,24 @@ const CONTENT_ROOT_EXCLUSIONS = new Set([
   "templates/content/DEVELOPING.md",
   "templates/content/README.md",
   "templates/content/_gitignore",
+  "templates/content/vitest.config.ts",
 ]);
+
+// Unit tests change no product behavior. E2E, parity, and conformance suites
+// stay evidence: they are the proof a Feature or Capability cites.
+function isContentUnitTest(normalized: string): boolean {
+  if (!normalized.startsWith("templates/content/")) return false;
+  if (/^templates\/content\/(?:e2e|parity)\//.test(normalized)) return false;
+  if (/parity|conformance/i.test(normalized)) return false;
+  return (
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
+    normalized.includes("/__tests__/")
+  );
+}
 
 export function directContentEvidence(file: string): string | undefined {
   const normalized = file.replaceAll("\\", "/");
+  if (isContentUnitTest(normalized)) return undefined;
   const prefixes = [
     "templates/content/actions/",
     "templates/content/app/",

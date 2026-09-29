@@ -151,7 +151,6 @@ describe("Content impact applicability", () => {
     assert(directContentEvidence("templates/content/parity/contract.test.ts"));
     assert(directContentEvidence("templates/content/vite.config.ts"));
     assert(directContentEvidence("templates/content/tsconfig.json"));
-    assert(directContentEvidence("templates/content/vitest.config.ts"));
     assert(directContentEvidence("templates/content/drizzle/0001_example.sql"));
     assert(directContentEvidence("templates/content/public/example.svg"));
     assert.equal(
@@ -172,6 +171,25 @@ describe("Content impact applicability", () => {
       ),
       undefined,
     );
+  });
+
+  it("ignores unit tests and test-runner config but keeps proof suites", () => {
+    for (const file of [
+      "templates/content/vitest.config.ts",
+      "templates/content/app/lib/document-tree.test.ts",
+      "templates/content/server/lib/share-links.spec.ts",
+      "templates/content/app/components/__tests__/Toolbar.tsx",
+    ]) {
+      assert.equal(directContentEvidence(file), undefined, file);
+    }
+    for (const file of [
+      "templates/content/e2e/editor.spec.ts",
+      "templates/content/parity/contract.test.ts",
+      "templates/content/app/lib/renderer-conformance.test.ts",
+      "templates/content/app/lib/document-tree.ts",
+    ]) {
+      assert(directContentEvidence(file), file);
+    }
   });
 
   it("keeps ordinary shared framework, CI, dependency, and infrastructure changes quiet", () => {
