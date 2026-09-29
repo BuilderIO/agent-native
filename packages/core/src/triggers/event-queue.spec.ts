@@ -409,15 +409,20 @@ describe("automation trigger event queue", () => {
       1234,
       2,
       "Expired stale mail event.",
+      { timeoutMs: 5_000 },
     );
 
     const query = executeMock.mock.calls[0]?.[0] as {
       args: unknown[];
+      maxAttempts?: number;
       sql: string;
+      timeoutMs?: number;
     };
     expect(query.sql).toContain("SET status = 'completed'");
     expect(query.sql).toContain("last_error = ?");
     expect(query.sql).toContain("claimed_at = ? AND attempts = ?");
+    expect(query.timeoutMs).toBe(5_000);
+    expect(query.maxAttempts).toBe(1);
     expect(query.args).toEqual([
       '{"kind":"completed"}',
       expect.any(Number),

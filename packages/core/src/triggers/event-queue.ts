@@ -473,6 +473,7 @@ export async function expireAutomationTriggerEvent(
   claimedAt: number,
   attempts: number,
   reason: string,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   await getDbExec().execute({
@@ -489,6 +490,9 @@ export async function expireAutomationTriggerEvent(
       claimedAt,
       attempts,
     ],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 

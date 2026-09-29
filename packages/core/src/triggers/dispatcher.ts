@@ -262,6 +262,12 @@ async function drainReadyTriggerQueue(
 
   const deadline = context.deadlineAt;
   const sweepStartedAt = Date.now();
+  if (
+    context.signal?.aborted ||
+    Date.now() + DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS >= deadline
+  ) {
+    return;
+  }
   let reclaimedExpiredCount = 0;
   let claimedEventCount = 0;
   let completedEventCount = 0;
@@ -273,6 +279,7 @@ async function drainReadyTriggerQueue(
     deps.appId,
     DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
   );
+  if (context.signal?.aborted) return;
   let cursor = cycleStart;
   let wrapped = false;
   let madeProgress = false;
@@ -697,6 +704,9 @@ async function drainTriggerQueue(
         queued.claimedAt,
         queued.attempts,
         "Expired because the mail event was older than 60 minutes.",
+        queueQueryTimeoutMs === undefined
+          ? undefined
+          : { timeoutMs: queueQueryTimeoutMs },
       );
       onStaleEventExpired?.();
       continue;

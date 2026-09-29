@@ -12,7 +12,10 @@ import {
   initTriggerDispatcher,
   refreshEventSubscriptions,
 } from "./dispatcher.js";
-import { MAX_AUTOMATION_TRIGGER_EVENT_FAILURES } from "./event-queue.js";
+import {
+  expireAutomationTriggerEvent,
+  MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
+} from "./event-queue.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
@@ -527,6 +530,35 @@ Respond to the event.`,
     }
   });
 
+  it("skips the durable cursor query when aborted or out of query budget", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as
+      | ((context: {
+          deadlineAt: number;
+          signal?: AbortSignal;
+        }) => Promise<void>)
+      | undefined;
+    expect(sweep).toBeTypeOf("function");
+
+    await sweep?.({ deadlineAt: Date.now() + 1 });
+    const controller = new AbortController();
+    controller.abort();
+    await sweep?.({
+      deadlineAt: Date.now() + 90_000,
+      signal: controller.signal,
+    });
+
+    expect(triggerQueueMocks.getSweepCursor).not.toHaveBeenCalled();
+  });
+
   it("keeps five rolling workers busy fairly across five FIFO trigger queues", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "serverless.hot.fired";
@@ -855,6 +887,7 @@ Respond to the event.`,
       },
     );
     expect(triggerQueueMocks.rows[0]?.status).toBe("pending");
+    triggerQueueMocks.expire.mockResolvedValueOnce(0);
 
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
@@ -865,11 +898,50 @@ Respond to the event.`,
       status: "completed",
       lastError: "Expired because the mail event was older than 60 minutes.",
     });
+    expect(expireAutomationTriggerEvent).toHaveBeenLastCalledWith(
+      "queue-1",
+      expect.any(Number),
+      1,
+      "Expired because the mail event was older than 60 minutes.",
+      { timeoutMs: 5_000 },
+    );
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledWith(
       "[triggers] Expired 1 stale mail.message.received events during durable queue drain.",
     );
     info.mockRestore();
+  });
+
+  it("continues through multiple stale-mail expiry batches", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    const expireImplementation =
+      triggerQueueMocks.expire.getMockImplementation();
+    if (!expireImplementation) {
+      throw new Error("Expected trigger queue mock implementation.");
+    }
+
+    let expiryBatchCalls = 0;
+    triggerQueueMocks.expire.mockImplementation(async (input) => {
+      const expired = await expireImplementation(input);
+      expiryBatchCalls += 1;
+      return expiryBatchCalls === 1 ? input.limit : expired;
+    });
+    try {
+      await sweep?.({ deadlineAt: Date.now() + 90_000 });
+    } finally {
+      triggerQueueMocks.expire.mockImplementation(expireImplementation);
+    }
+
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(2);
   });
 
   it("reserves fresh-trigger query time while expiring stale mail", async () => {
