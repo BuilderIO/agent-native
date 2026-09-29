@@ -684,8 +684,10 @@ const PR_REVIEW_GATE_MERGE_PREFIX_RE = new RegExp(
 );
 const PR_REVIEW_GATE_WAIT_FOR_RE =
   /\bwait(?:ing)?\s+for\b(?:\s+[\w’'-]+){0,5}\s*$/i;
-const PR_REVIEW_GATE_REQUIRED_BEFORE_MERGE_RE =
-  /\b(?:security\s+)?approval\s+(?:(?:is|are)\s+)?(?:required|mandatory|needed|necessary)\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i;
+const PR_REVIEW_GATE_REQUIRED_FOR_MERGE_RE = new RegExp(
+  String.raw`\b(?:(?:required|mandatory)\s+)?(?:security\s+)?approval\s+(?:(?:(?:is|are)\s+)?(?:required|mandatory|needed|necessary)|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:be\s+)?(?:granted|obtained|received|provided|given))\b[^.!?]{0,40}\b(?:before|prior\s+to|to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b`,
+  "i",
+);
 const PR_REVIEW_GATE_THEN_MERGE_RE =
   /\b(?:then\s+)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i;
 const PR_REVIEW_GATE_WITH_APPROVAL_RE = new RegExp(
@@ -744,7 +746,7 @@ function hasActivePrReviewMergeGate(sentence) {
     [
       PR_REVIEW_GATE_BASE_FRESHNESS_RE,
       PR_REVIEW_GATE_NEGATIVE_STATE_RE,
-      PR_REVIEW_GATE_REQUIRED_BEFORE_MERGE_RE,
+      PR_REVIEW_GATE_REQUIRED_FOR_MERGE_RE,
     ].some((pattern) => hasUnscopedPrReviewGateMatch(sentence, pattern))
   ) {
     return true;
@@ -855,6 +857,9 @@ const PR_REVIEW_DIRECT_READY_MERGE_RE =
 function followingPrReviewMergeRequirement(text, match) {
   const following = text.slice(match.index + match[0].length);
   const nextSentence = following.match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
+  if (PR_REVIEW_GATE_REQUIRED_FOR_MERGE_RE.test(nextSentence)) {
+    return nextSentence;
+  }
   if (/\bwait(?:ing)?\s+for\b/i.test(nextSentence)) {
     const laterMerge =
       following
@@ -1068,6 +1073,18 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "If no changes are needed, this PR is ready to merge. Security approval is still required before we merge.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge it. Required security approval must be granted before we merge.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge it. Security approval is needed to merge.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge it. Security approval is not needed to merge.",
   ],
   [
     false,

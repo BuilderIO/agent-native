@@ -356,10 +356,13 @@ track `mergeQueueEntry.headCommit.oid` separately as the merge-group candidate
 used for queue checks. `--match-head-commit` only gates the enqueue request; it
 does not pin a later auto-merge or queue entry to that SHA.
 
-If the PR head changes before merge, immediately dequeue any active queue entry
-and disable any active auto-merge request. Verify `mergeQueueEntry` and
-`autoMergeRequest` are absent, then review the new head and restart the full
-10-minute gate. Never leave an unreviewed new head queued to merge.
+Whenever a gate reset occurs after a queue entry or auto-merge request is
+active, immediately dequeue any active queue entry and disable any active
+auto-merge request, then verify both `mergeQueueEntry` and `autoMergeRequest`
+are absent. This applies to every reset cause, including a head change, failed
+check, new actionable feedback, new commit, or merge conflict. Re-review the
+changed head or feedback and enqueue again only after the full 10-minute gate
+passes. Never leave a stale readiness decision queued to merge.
 
 ```bash
 gh api graphql -F id='<pull-request-node-id>' -f query='mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { mergeQueueEntry { state } } }'
