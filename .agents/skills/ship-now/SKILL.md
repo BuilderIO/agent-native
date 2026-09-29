@@ -171,10 +171,12 @@ isolated safely, preserve all state and report the exact paths or commits.
    - the PR is not conflicting; and
    - the user has explicitly authorized this `/ship-now` invocation.
 
-   Use the current PR number and no force push:
+   Recheck the active login, PR author, head repository, branch, current head
+   OID, base, and state immediately before merging. Bind the merge to that
+   verified head and do not retry against a changed head without rechecking:
 
    ```bash
-   gh pr merge <number> --squash --admin
+   gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
    ```
 
    Do not wait for remote CI, release checks, or the normal `/ship` soak, and
