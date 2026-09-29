@@ -55,9 +55,8 @@ vi.mock("@/hooks/use-documents", () => ({
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
-  hasRetainedPageDraftNotice: () => false,
+  sweepLegacyRetainedPageDraftMarkers: () => undefined,
   clearPageDraftJournal: () => true,
-  markPageDraftJournalRetained: () => true,
 }));
 vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
@@ -278,7 +277,7 @@ describe("Page draft recovery", () => {
       expectedDocumentUpdatedAt: "v2",
     });
     expect(container.querySelector("textarea")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("keeps a failed legacy draft pending", async () => {

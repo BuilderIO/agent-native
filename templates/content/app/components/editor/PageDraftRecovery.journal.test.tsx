@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { Document } from "@shared/api";
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,8 +35,9 @@ const state = vi.hoisted(() => ({
   upsert: vi.fn(),
   resolve: vi.fn(),
   refetch: vi.fn(),
-  retained: vi.fn(),
-  retainedNotice: false,
+  cleared: vi.fn(),
+  sweep: vi.fn(),
+  draft: null as null | Record<string, unknown>,
   read: vi.fn(),
   verify: vi.fn(),
 }));
@@ -54,6 +55,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+import { toast } from "sonner";
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
   ensurePreviewDocumentDraftRead: (...args: unknown[]) => state.verify(...args),
@@ -65,7 +67,7 @@ vi.mock("@/hooks/use-documents", () => ({
   isDocumentUpdateSuperseded: (result: { superseded?: boolean }) =>
     result.superseded === true,
   usePreviewDocumentDraft: () => ({
-    data: { draft: null },
+    data: { draft: state.draft },
     refetch: state.refetch,
   }),
   useUpdateDocument: () => ({ mutateAsync: state.update }),
@@ -74,7 +76,7 @@ vi.mock("@/hooks/use-documents", () => ({
 }));
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: state.read,
-  hasRetainedPageDraftNotice: () => state.retainedNotice,
+  sweepLegacyRetainedPageDraftMarkers: state.sweep,
   writePageDraftJournal: (input: {
     scope: { writerId: string };
     snapshot: (typeof state.entries)[number]["snapshot"];
@@ -89,18 +91,7 @@ vi.mock("./page-draft-journal", () => ({
     state.entries = state.entries.filter(
       (entry) => entry.scope.writerId !== scope.writerId,
     );
-    return true;
-  },
-  markPageDraftJournalRetained: (scope: { writerId: string }) => {
-    const entry = state.entries.find(
-      (item) => item.scope.writerId === scope.writerId,
-    );
-    if (!entry) return false;
-    state.entries = state.entries.filter(
-      (item) => item.scope.writerId !== scope.writerId,
-    );
-    state.retainedNotice = true;
-    state.retained(scope.writerId);
+    state.cleared(scope.writerId);
     return true;
   },
 }));
@@ -111,6 +102,7 @@ vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
 
+import { useRegisterLiveEditorSession } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 const page = {
@@ -155,7 +147,7 @@ describe("Page browser journal recovery", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     state.entries = [];
-    state.retainedNotice = false;
+    state.draft = null;
     state.read.mockImplementation(
       () => state.entries.find((entry) => !entry.recoveryStatus) ?? null,
     );
@@ -201,8 +193,7 @@ describe("Page browser journal recovery", () => {
     expect(state.rebase).toHaveBeenCalledTimes(1);
     expect(state.update).not.toHaveBeenCalled();
     expect(state.entries).toEqual([]);
-    expect(state.retained).not.toHaveBeenCalled();
-    expect(state.retainedNotice).toBe(false);
+    expect(toast.success).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("editor.previewDraftConflict");
     expect(container.querySelector("textarea")).not.toBeNull();
   });
@@ -299,8 +290,10 @@ describe("Page browser journal recovery", () => {
       "authoredCandidateContent",
     );
     expect(state.entries).toEqual([]);
-    expect(state.retained).toHaveBeenCalledWith("first");
-    expect(state.retainedNotice).toBe(true);
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith(
+      "editor.previewDraftSavedToHistory",
+    );
   });
 
   it("does not clear a newer journal for an older attempt's receipt", async () => {
@@ -383,7 +376,7 @@ describe("Page browser journal recovery", () => {
     expect(state.entries).toEqual([]);
   });
 
-  it("keeps a preservation receipt pending without replaying or clearing its History notice", async () => {
+  it("toasts once for a preservation receipt without replaying it or leaving a banner", async () => {
     state.entries = [
       {
         ...entry("first", "Local"),
@@ -403,10 +396,11 @@ describe("Page browser journal recovery", () => {
     await act(async () => render());
     expect(state.rebase).not.toHaveBeenCalled();
     expect(state.entries).toEqual([]);
-    expect(state.retainedNotice).toBe(true);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith(
       "editor.previewDraftSavedToHistory",
     );
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("keeps an ambiguous edit locally after preserving it in History", async () => {
@@ -416,12 +410,126 @@ describe("Page browser journal recovery", () => {
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({ choice: "use_saved", documentId: "page" }),
     );
-    expect(state.retained).toHaveBeenCalledWith("first");
+    expect(state.cleared).toHaveBeenCalledWith("first");
     expect(state.entries).toEqual([]);
-    expect(state.retainedNotice).toBe(true);
+    expect(toast.success).toHaveBeenCalledOnce();
     expect(container.querySelector("textarea")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "editor.previewDraftSavedToHistory",
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("leaves the mounted editor's journal to its save queue when a save lands", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const renderLive = (document: Document) =>
+      root.render(
+        <PageDraftRecovery document={document}>
+          <LiveEditor onMount={onMount} />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive(page));
+    state.entries = [entry("live-writer", "Saved body\n\nPending")];
+
+    await act(async () =>
+      renderLive({ ...page, content: "Saved body\n\nSaved", updatedAt: "v3" }),
+    );
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.entries).toHaveLength(1);
+    expect(mounts).toBe(1);
+  });
+
+  it("sweeps legacy History markers and never shows a History banner", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+
+    await act(async () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor onMount={onMount} />
+        </PageDraftRecovery>,
+      ),
+    );
+
+    expect(state.sweep).toHaveBeenCalled();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(mounts).toBe(1);
+  });
+
+  it("keeps the editor mounted over a recovery draft its own session wrote", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const renderLive = () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor onMount={onMount} sessionId="live-session" />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive());
+    for (let version = 1; version <= 3; version++) {
+      state.draft = {
+        version,
+        title: "Saved",
+        content: `Saved body ${version}`,
+        baseDocumentUpdatedAt: "v1",
+        editorSessionId: "live-session",
+        editGeneration: version,
+      };
+      await act(async () => renderLive());
+      expect(
+        container.querySelector('[data-testid="editor-skeleton"]'),
+      ).toBeNull();
+    }
+
+    expect(mounts).toBe(1);
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it("still recovers a draft another editor session wrote", async () => {
+    let mounts = 0;
+    const onMount = () => {
+      mounts += 1;
+    };
+    const renderLive = () =>
+      root.render(
+        <PageDraftRecovery document={page}>
+          <LiveEditor onMount={onMount} sessionId="live-session" />
+        </PageDraftRecovery>,
+      );
+    await act(async () => renderLive());
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Other tab body",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "other-session",
+      editGeneration: 4,
+    };
+    await act(async () => renderLive());
+
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
     );
   });
 });
+
+function LiveEditor({
+  onMount,
+  sessionId = "live-writer",
+}: {
+  onMount: () => void;
+  sessionId?: string;
+}) {
+  useRegisterLiveEditorSession(sessionId);
+  useEffect(() => {
+    onMount();
+  }, [onMount]);
+  return <textarea defaultValue="Live editor" />;
+}
