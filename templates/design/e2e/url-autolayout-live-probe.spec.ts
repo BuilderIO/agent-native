@@ -1457,119 +1457,51 @@ test.describe("URL-backed live auto-layout probe", () => {
     expect(unloadGuarded).toBe(true);
     console.log("URL probe pending unload guard", unloadGuarded);
 
-    const applyUpdates = page.getByRole("button", {
-      name: "Apply design updates",
+    const pendingToolbar = page.locator(
+      "[data-design-pending-visual-style-toolbar]",
+    );
+    const copyPrompt = pendingToolbar.getByRole("button", {
+      name: "Copy prompt to your agent",
       exact: true,
     });
-    await expect(applyUpdates).toBeVisible({ timeout: 10_000 });
-    console.log(
-      "URL probe chat frame state",
-      await page.evaluate(() => ({
-        parentIsSelf: window.parent === window,
-        frameElement: Boolean(window.frameElement),
-        search: window.location.search,
-      })),
-    );
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __urlProbeHandoff?: {
-          submitMessageId: string;
-          tabId?: string;
-          message?: string;
-          context?: string;
-        };
-      };
-      window.addEventListener("message", (event) => {
-        const payload = event.data;
-        if (payload?.type) {
-          console.log("URL probe chat message", payload.type);
-        }
-        const submitMessageId = payload?.data?.submitMessageId;
-        if (
-          payload?.type !== "agentNative.submitChat" ||
-          typeof submitMessageId !== "string"
-        ) {
-          return;
-        }
-        state.__urlProbeHandoff = {
-          submitMessageId,
-          tabId:
-            typeof payload.data.tabId === "string"
-              ? payload.data.tabId
-              : undefined,
-          message:
-            typeof payload.data.message === "string"
-              ? payload.data.message
-              : undefined,
-          context:
-            typeof payload.data.context === "string"
-              ? payload.data.context
-              : undefined,
-        };
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatSubmitResult", {
-            detail: { submitMessageId, delivered: true },
-          }),
-        );
+    await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
+    await pendingToolbar
+      .getByRole("button", { name: "Pending visual preview", exact: true })
+      .click();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Copy full prompt",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Abort preview and interact",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
       });
-    });
-    await applyUpdates.click();
-    console.log("URL probe started Apply design updates handoff");
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            document.body.innerText.includes("Verifying source and runtime"),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    console.log(
-      "URL probe apply state after 1s",
-      await page.evaluate(() => ({
-        toolbar: document.querySelector(
-          "[data-design-pending-visual-style-toolbar]",
-        )?.textContent,
-        dialogs: Array.from(document.querySelectorAll('[role="dialog"]')).map(
-          (dialog) => ({
-            text: dialog.textContent,
-            hidden: (dialog as HTMLElement).hidden,
-          }),
-        ),
-        body: document.body.innerText.includes("Verifying source and runtime"),
-      })),
+    await copyPrompt.click();
+    const copiedPrompt = await page.evaluate(() =>
+      navigator.clipboard.readText(),
     );
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            Boolean(
-              (window as typeof window & { __urlProbeHandoff?: unknown })
-                .__urlProbeHandoff,
-            ),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    const sourceHandoff = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __urlProbeHandoff?: {
-              submitMessageId?: string;
-              message?: string;
-              context?: string;
-            };
-          }
-        ).__urlProbeHandoff,
+    expect(copiedPrompt).toContain("get-visual-edit-pending");
+    expect(copiedPrompt).toContain(`{ designId: "${designId}" }`);
+    const pendingHandoffResponse = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
     );
-    expect(sourceHandoff?.submitMessageId).toBeTruthy();
-    expect(sourceHandoff?.message).toContain("source");
-    expect(sourceHandoff?.context).toContain("index.html");
-    expect(sourceHandoff?.context).toContain('"sourceId": "v1"');
-    expect(sourceHandoff?.context).toContain('"anchorSourceId": "v3"');
-    expect(sourceHandoff?.context).toContain('"dropMode": "flow-insert"');
-    console.log("URL probe source handoff acknowledged", sourceHandoff);
+    expect(pendingHandoffResponse.ok()).toBe(true);
+    const pendingHandoff = (await pendingHandoffResponse.json()) as {
+      revision?: number;
+      status?: string;
+    };
+    expect(pendingHandoff.status).toBe("ready");
+    expect(pendingHandoff.revision).toEqual(expect.any(Number));
 
     const readResult = (await call("read-local-file", {
       designId,
@@ -1631,6 +1563,15 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
     console.log("URL probe source write result", JSON.stringify(writeResult));
     expect(writeResult).toMatchObject({ ok: true });
+    const acknowledgementResponse = await page.request.post(
+      `${baseURL}/_agent-native/actions/acknowledge-visual-edit-pending`,
+      { data: { designId, revision: pendingHandoff.revision } },
+    );
+    expect(acknowledgementResponse.ok()).toBe(true);
+    expect(await acknowledgementResponse.json()).toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
 
     const diskAfterApply = fs.readFileSync(
       path.join(rootPath, "index.html"),
@@ -1686,7 +1627,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
   });
 
-  test("holds a URL-backed grouped grid drag as one pending Apply unit", async ({
+  test("keeps a grouped grid drag in one pending visual edit unit", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1800, height: 1000 });
@@ -1937,78 +1878,51 @@ test.describe("URL-backed live auto-layout probe", () => {
         sourceWriteCount += 1;
       }
     });
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __groupedUrlProbeHandoff?: { context?: string; message?: string };
-      };
-      window.addEventListener("message", (event) => {
-        const payload = event.data;
-        const submitMessageId = payload?.data?.submitMessageId;
-        if (
-          payload?.type !== "agentNative.submitChat" ||
-          typeof submitMessageId !== "string"
-        ) {
-          return;
-        }
-        state.__groupedUrlProbeHandoff = {
-          context:
-            typeof payload.data.context === "string"
-              ? payload.data.context
-              : undefined,
-          message:
-            typeof payload.data.message === "string"
-              ? payload.data.message
-              : undefined,
-        };
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatSubmitResult", {
-            detail: { submitMessageId, delivered: true },
-          }),
-        );
-      });
-    });
-    const applyUpdates = page.getByRole("button", {
-      name: "Apply design updates",
+    const pendingToolbar = page.locator(
+      "[data-design-pending-visual-style-toolbar]",
+    );
+    const copyPrompt = pendingToolbar.getByRole("button", {
+      name: "Copy prompt to your agent",
       exact: true,
     });
-    await expect(applyUpdates).toBeVisible({ timeout: 10_000 });
-    await applyUpdates.click();
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            document.body.innerText.includes("Verifying source and runtime"),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() =>
-            Boolean(
-              (window as typeof window & { __groupedUrlProbeHandoff?: unknown })
-                .__groupedUrlProbeHandoff,
-            ),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-    const groupedHandoff = await page.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __groupedUrlProbeHandoff?: {
-              context?: string;
-              message?: string;
-            };
-          }
-        ).__groupedUrlProbeHandoff,
+    await expect(copyPrompt).toBeVisible({ timeout: 10_000 });
+    await pendingToolbar
+      .getByRole("button", { name: "Pending visual preview", exact: true })
+      .click();
+    await expect(
+      page.getByRole("menuitem", {
+        name: "Copy full prompt",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const toolbarScreenshot = path.resolve(
+      import.meta.dirname,
+      "../../../.tmp/design-editor-copy-prompt-signed-in.png",
     );
-    expect(groupedHandoff?.message).toContain("source");
-    expect(groupedHandoff?.context).toContain('"sourceId": "group-a"');
-    expect(groupedHandoff?.context).toContain('"sourceId": "group-b"');
-    expect(groupedHandoff?.context).toContain('"transactionId"');
+    fs.mkdirSync(path.dirname(toolbarScreenshot), { recursive: true });
+    await page.screenshot({ path: toolbarScreenshot });
+    await page.keyboard.press("Escape");
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    await copyPrompt.click();
+    const copiedPrompt = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    expect(copiedPrompt).toContain("get-visual-edit-pending");
+    expect(copiedPrompt).toContain(`{ designId: "${designId}" }`);
+    const pendingHandoffResponse = await page.request.get(
+      `${baseURL}/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
+    );
+    expect(pendingHandoffResponse.ok()).toBe(true);
+    const pendingHandoff = (await pendingHandoffResponse.json()) as {
+      revision?: number;
+      status?: string;
+    };
+    expect(pendingHandoff.status).toBe("ready");
+    expect(pendingHandoff.revision).toEqual(expect.any(Number));
 
     const readResult = (await call("read-local-file", {
       designId,
@@ -2070,6 +1984,15 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
     expect(writeResult).toMatchObject({ ok: true });
     expect(sourceWriteCount).toBe(1);
+    const acknowledgementResponse = await page.request.post(
+      `${baseURL}/_agent-native/actions/acknowledge-visual-edit-pending`,
+      { data: { designId, revision: pendingHandoff.revision } },
+    );
+    expect(acknowledgementResponse.ok()).toBe(true);
+    expect(await acknowledgementResponse.json()).toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
       sourceWithRuntimeState,
     );
@@ -2092,18 +2015,29 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
-    await expect
-      .poll(
-        () =>
-          reloadedFrame
-            .locator("[data-group-card]")
-            .evaluateAll((els) =>
-              Object.fromEntries(
-                els.map((el) => [el.id, el.getAttribute("style") ?? ""]),
-              ),
+    const readReloadedGridStyles = async () => {
+      try {
+        return await reloadedFrame
+          .locator("[data-group-card]")
+          .evaluateAll((els) =>
+            Object.fromEntries(
+              els.map((el) => [el.id, el.getAttribute("style") ?? ""]),
             ),
-        { timeout: 15_000 },
-      )
+          );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          /Execution context was destroyed|Frame was detached/.test(
+            error.message,
+          )
+        ) {
+          return null;
+        }
+        throw error;
+      }
+    };
+    await expect
+      .poll(readReloadedGridStyles, { timeout: 15_000 })
       .toEqual(runtimeStyles);
     await page.screenshot({
       path: path.resolve(
