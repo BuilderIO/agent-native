@@ -23,8 +23,9 @@ PR pushes can fill the pool, so scope is the lever, not faster hardware.
 
 `scripts/ci-change-scope.ts` is the one place that decides what a change runs.
 It classifies the changed paths into a full or targeted run and emits one output
-per check. `ci.yml` jobs gate on those outputs. Any `.github/**` or `scripts/**`
-change, the lockfile, or root config forces a full run.
+per check. `ci.yml` jobs gate on those outputs. A `.github/**` change, the
+lockfile, root config, or a `scripts/**` change other than a guard script or
+root script test forces a full run.
 
 ## Adding a test
 
@@ -48,6 +49,31 @@ change, the lockfile, or root config forces a full run.
   that file changes. Import it, or teach `requiresFullCoreFastTests` in
   `scripts/ci-test-lanes.ts` about the path.
 - Never skip, disable, or quarantine a test to get green.
+
+## Test workers
+
+Fast-test lanes run Vitest with `VITEST_CONCURRENCY=100%`, one worker per
+core. The shared config's 25% default is for laptops, and on CI's 4-vCPU
+runners it meant one worker: a core shard took 542 s at one worker and 201 s
+at four, on the same CPU time. So two lanes at full width replace five
+single-worker ones, and each lane dropped also saves its ~100 s of setup and a
+runner slot. Every core is already busy at 100%, so more workers or lanes buy
+nothing.
+
+- **Let CI override the worker count.** A package that pins `maxWorkers`
+  goes through `resolveMaxWorkers(process.env, fallback)`; a literal
+  overrides the CI setting.
+- **Leave headroom for work inside a test body.** Booting PGlite or
+  importing a server bundle takes several times longer when every core is
+  busy, and a different test crosses the limit each run. The shared config
+  allows 30 s; do not add a stricter per-block timeout.
+- **Give parallel workers separate databases.** A file that opens the
+  database without `DATABASE_URL` gets the default directory, whose lock
+  admits one process at a time. Core's `vitest.setup.ts` gives each worker
+  slot its own; a test that asserts the default URL clears `DATABASE_URL`
+  itself.
+- **Keep the forks pool with isolation.** Threads ran slower and failed 79
+  tests; turning isolation off gained 7% and failed 129.
 
 ## Adding or changing a CI job
 
