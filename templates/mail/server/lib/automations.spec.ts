@@ -151,6 +151,7 @@ vi.mock("../db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/action", () => ({
+  defineAction: (config: unknown) => config,
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },

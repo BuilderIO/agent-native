@@ -10,9 +10,11 @@ import {
   eq,
   exists,
   gt,
+  gte,
   inArray,
   isNull,
   lt,
+  lte,
   or,
   sql,
   type SQL,
@@ -30,7 +32,7 @@ import { favoriteDocumentIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
-const CURSOR_VERSION = 1;
+const CURSOR_VERSION = 2;
 
 type NavigationCursor = {
   version: typeof CURSOR_VERSION;
@@ -154,24 +156,16 @@ function dateFilterSql(
   return undefined;
 }
 
-async function navigationFilterSql(args: {
-  databaseId: string;
-  filters: ContentDatabaseFilter[];
-  filterMode: ContentDatabaseFilterMode;
-  document: {
-    id: SQL<string>;
-    title: SQL<string>;
-    parentId: SQL<string | null>;
-    ownerEmail: SQL<string>;
-    createdAt: SQL<string>;
-    updatedAt: SQL<string>;
-  };
-}) {
-  const filters = args.filters.filter(activeNavigationFilter);
-  if (filters.length === 0) return undefined;
+async function navigationFilterDefinitions(
+  databaseId: string,
+  filters: ContentDatabaseFilter[],
+) {
   const propertyIds = [
     ...new Set(
-      filters.map((filter) => filter.key).filter((key) => key !== "name"),
+      filters
+        .filter(activeNavigationFilter)
+        .map((filter) => filter.key)
+        .filter((key) => key !== "name"),
     ),
   ];
   const definitions = propertyIds.length
@@ -185,14 +179,30 @@ async function navigationFilterSql(args: {
         .from(schema.documentPropertyDefinitions)
         .where(
           and(
-            eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
             inArray(schema.documentPropertyDefinitions.id, propertyIds),
           ),
         )
     : [];
-  const definitionById = new Map(
-    definitions.map((definition) => [definition.id, definition]),
-  );
+  return new Map(definitions.map((definition) => [definition.id, definition]));
+}
+
+function navigationFilterSql(args: {
+  filters: ContentDatabaseFilter[];
+  filterMode: ContentDatabaseFilterMode;
+  definitionById: Awaited<ReturnType<typeof navigationFilterDefinitions>>;
+  document: {
+    id: SQL<string>;
+    title: SQL<string>;
+    parentId: SQL<string | null>;
+    ownerEmail: SQL<string>;
+    createdAt: SQL<string>;
+    updatedAt: SQL<string>;
+  };
+}) {
+  const filters = args.filters.filter(activeNavigationFilter);
+  if (filters.length === 0) return undefined;
+  const definitionById = args.definitionById;
 
   const leaves = filters.map((filter) => {
     let predicate: SQL | undefined;
@@ -290,6 +300,15 @@ async function navigationFilterSql(args: {
   ]);
 }
 
+type NavigationRevision = { count: number; checksum: bigint };
+
+function combineRevisions(parts: NavigationRevision[]) {
+  return `${parts.reduce((total, part) => total + part.count, 0)}:${parts.reduce(
+    (total, part) => total + part.checksum,
+    0n,
+  )}`;
+}
+
 export async function getContentDatabaseNavigationPage(args: {
   database: typeof schema.contentDatabases.$inferSelect;
   userEmail: string;
@@ -307,11 +326,39 @@ export async function getContentDatabaseNavigationPage(args: {
   }
 
   const cursor = args.cursor ? decodeCursor(args.cursor) : null;
+  const db = getDb();
+  const accessContext = {
+    userEmail: args.userEmail,
+    orgId: args.database.orgId ?? undefined,
+  };
+  const [overrides, parentRows] = await Promise.all([
+    readPersonalDatabaseViewOverrides(args.userEmail, args.database.id),
+    args.parentId === null
+      ? null
+      : db
+          .select({ id: schema.documents.id })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.documents,
+            eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+          )
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.databaseId, args.database.id),
+              eq(schema.documents.id, args.parentId),
+              eq(schema.documents.spaceId, args.database.spaceId),
+              isNull(schema.documents.trashedAt),
+              accessFilter(
+                schema.documents,
+                schema.documentShares,
+                accessContext,
+              ),
+              ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+            ),
+          )
+          .limit(1),
+  ]);
   const sharedConfig = parseDatabaseViewConfig(args.database.viewConfigJson);
-  const overrides = await readPersonalDatabaseViewOverrides(
-    args.userEmail,
-    args.database.id,
-  );
   const viewId =
     args.viewId ?? overrides?.activeViewId ?? sharedConfig.activeViewId;
   const sharedView =
@@ -364,43 +411,21 @@ export async function getContentDatabaseNavigationPage(args: {
       descending,
     }),
   ]);
-  const db = getDb();
-  const accessContext = {
-    userEmail: args.userEmail,
-    orgId: args.database.orgId ?? undefined,
-  };
-
-  if (args.parentId !== null) {
-    const [parent] = await db
-      .select({ id: schema.documents.id })
-      .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-      )
-      .where(
-        and(
-          eq(schema.contentDatabaseItems.databaseId, args.database.id),
-          eq(schema.documents.id, args.parentId),
-          eq(schema.documents.spaceId, args.database.spaceId),
-          isNull(schema.documents.trashedAt),
-          accessFilter(schema.documents, schema.documentShares, accessContext),
-          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
-        ),
-      )
-      .limit(1);
-    if (!parent) {
-      fail("The Files navigation parent is unavailable.", {
-        errorCode: "invalid_navigation_parent",
-        statusCode: 400,
-      });
-    }
+  if (parentRows && parentRows.length === 0) {
+    fail("The Files navigation parent is unavailable.", {
+      errorCode: "invalid_navigation_parent",
+      statusCode: 400,
+    });
   }
 
-  const effectiveFilter = await navigationFilterSql({
-    databaseId: args.database.id,
+  const definitionById = await navigationFilterDefinitions(
+    args.database.id,
+    effectiveFilters,
+  );
+  const effectiveFilter = navigationFilterSql({
     filters: effectiveFilters,
     filterMode: effectiveFilterMode,
+    definitionById,
     document: {
       id: sql`${schema.documents.id}`,
       title: sql`${schema.documents.title}`,
@@ -410,6 +435,17 @@ export async function getContentDatabaseNavigationPage(args: {
       updatedAt: sql`${schema.documents.updatedAt}`,
     },
   });
+  if (
+    cursor &&
+    (cursor.databaseId !== args.database.id ||
+      cursor.parentId !== args.parentId ||
+      cursor.sort !== effectiveSort ||
+      cursor.viewId !== viewId ||
+      cursor.orderHash !== orderHash ||
+      cursor.configHash !== configHash)
+  ) {
+    invalidCursor();
+  }
 
   const childDocuments = alias(schema.documents, "navigation_child_documents");
   const childItems = alias(
@@ -437,57 +473,14 @@ export async function getContentDatabaseNavigationPage(args: {
       AND ((ds.principal_type = 'user' AND lower(ds.principal_id) = lower(${args.userEmail}))
         ${args.database.orgId ? sql`OR (ds.principal_type = 'org' AND ds.principal_id = ${args.database.orgId})` : sql``})
   ), '')`;
-  const [revisionState] = await db
-    .select({
-      count: sql<number>`count(*)::int`,
-      checksum: sql<string>`coalesce(sum(hashtextextended(concat_ws('|',
-        ${schema.contentDatabaseItems.id}, ${schema.contentDatabaseItems.position}::text,
-        ${schema.contentDatabaseItems.updatedAt}, ${schema.documents.id},
-        coalesce(${schema.documents.parentId}, ''), ${schema.documents.title},
-        ${schema.documents.createdAt}, ${schema.documents.updatedAt},
-        ${schema.documents.visibility}, coalesce(${schema.documents.trashedAt}, ''),
-        coalesce(${schema.documents.sourceKind}, ''), ${accessRevision}
-      ), 0)::numeric)::text, '0')`,
-    })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(siblingFilter);
-  const revision = `${revisionState.count}:${revisionState.checksum}`;
-  if (
-    cursor &&
-    (cursor.databaseId !== args.database.id ||
-      cursor.parentId !== args.parentId ||
-      cursor.sort !== effectiveSort ||
-      cursor.viewId !== viewId ||
-      cursor.orderHash !== orderHash ||
-      cursor.configHash !== configHash ||
-      cursor.revision !== revision)
-  ) {
-    invalidCursor();
-  }
-  const visibleChild = and(
-    eq(childItems.databaseId, args.database.id),
-    eq(childDocuments.parentId, schema.documents.id),
-    isNull(childDocuments.trashedAt),
-    accessFilter(childDocuments, schema.documentShares, accessContext),
-    ...softDeletedDatabaseDocumentExclusions(childDocuments.id),
-    await navigationFilterSql({
-      databaseId: args.database.id,
-      filters: effectiveFilters,
-      filterMode: effectiveFilterMode,
-      document: {
-        id: sql`${childDocuments.id}`,
-        title: sql`${childDocuments.title}`,
-        parentId: sql`${childDocuments.parentId}`,
-        ownerEmail: sql`${childDocuments.ownerEmail}`,
-        createdAt: sql`${childDocuments.createdAt}`,
-        updatedAt: sql`${childDocuments.updatedAt}`,
-      },
-    }),
-  );
+  const rowHash = sql`hashtextextended(concat_ws('|',
+    ${schema.contentDatabaseItems.id}, ${schema.contentDatabaseItems.position}::text,
+    ${schema.contentDatabaseItems.updatedAt}, ${schema.documents.id},
+    coalesce(${schema.documents.parentId}, ''), ${schema.documents.title},
+    ${schema.documents.createdAt}, ${schema.documents.updatedAt},
+    ${schema.documents.visibility}, coalesce(${schema.documents.trashedAt}, ''),
+    coalesce(${schema.documents.sourceKind}, ''), ${accessRevision}
+  ), 0)`;
   const activeDatabaseDocument = db
     .select({ id: databaseDocuments.id })
     .from(databaseDocuments)
@@ -497,130 +490,309 @@ export async function getContentDatabaseNavigationPage(args: {
         isNull(databaseDocuments.deletedAt),
       ),
     );
-  const customRank =
-    itemIds.length > 0
-      ? sql<number>`COALESCE(array_position(ARRAY[${sql.join(
-          itemIds.map((itemId) => sql`${itemId}`),
-          sql`, `,
-        )}]::text[], ${schema.contentDatabaseItems.id}), ${itemIds.length + 1})`
-      : sql<number>`CAST(1 AS integer)`;
-  const sortValue: SQL<string | number> =
-    effectiveSort === "custom"
-      ? customRank
-      : effectiveSort === "name"
-        ? sql<string>`${schema.documents.title}`
-        : effectiveSort === "created"
-          ? sql<string>`${schema.documents.createdAt}`
-          : sql<string>`${schema.documents.updatedAt}`;
-  const ascending = effectiveSort === "custom" || !descending;
-  const cursorFilter = cursor
-    ? effectiveSort === "custom"
-      ? or(
-          gt(customRank, Number(cursor.sortValue)),
-          and(
-            eq(customRank, Number(cursor.sortValue)),
-            gt(schema.contentDatabaseItems.position, cursor.position!),
-          ),
-          and(
-            eq(customRank, Number(cursor.sortValue)),
-            eq(schema.contentDatabaseItems.position, cursor.position!),
-            gt(schema.contentDatabaseItems.id, cursor.itemId),
-          ),
-        )
-      : or(
-          ascending
-            ? gt(sortValue, cursor.sortValue)
-            : lt(sortValue, cursor.sortValue),
-          and(
-            eq(sortValue, cursor.sortValue),
-            gt(schema.contentDatabaseItems.id, cursor.itemId),
-          ),
-        )
-    : undefined;
+  const rowFields = {
+    membershipId: schema.contentDatabaseItems.id,
+    membershipPosition: schema.contentDatabaseItems.position,
+    documentId: schema.documents.id,
+    parentId: schema.documents.parentId,
+    title: schema.documents.title,
+    icon: schema.documents.icon,
+    spaceId: schema.documents.spaceId,
+    sourceKind: schema.documents.sourceKind,
+    ownerEmail: schema.documents.ownerEmail,
+    createdAt: schema.documents.createdAt,
+    updatedAt: schema.documents.updatedAt,
+    type: sql<"page" | "database">`CASE WHEN ${exists(
+      activeDatabaseDocument,
+    )} THEN 'database' ELSE 'page' END`,
+    rowHash: sql<string>`${rowHash}::text`,
+  };
 
-  const rows = await db
-    .select({
-      membershipId: schema.contentDatabaseItems.id,
-      membershipPosition: schema.contentDatabaseItems.position,
-      documentId: schema.documents.id,
-      parentId: schema.documents.parentId,
-      title: schema.documents.title,
-      icon: schema.documents.icon,
-      spaceId: schema.documents.spaceId,
-      sourceKind: schema.documents.sourceKind,
-      ownerEmail: schema.documents.ownerEmail,
-      createdAt: schema.documents.createdAt,
-      updatedAt: schema.documents.updatedAt,
-      sortValue,
-      type: sql<"page" | "database">`CASE WHEN ${exists(
-        activeDatabaseDocument,
-      )} THEN 'database' ELSE 'page' END`,
-      hasChildren: sql<boolean>`${exists(
-        db
-          .select({ id: childItems.id })
-          .from(childItems)
-          .innerJoin(
-            childDocuments,
-            eq(childDocuments.id, childItems.documentId),
+  // Custom order puts the saved item IDs first, in saved order, and the rest
+  // after them by position. The ranked page walks the saved list in order
+  // through primary-key lookups; the unranked page walks the
+  // (database_id, position, id) index. Neither sorts the whole Files database.
+  const rankById = new Map<string, number>();
+  itemIds.forEach((itemId, index) => {
+    if (!rankById.has(itemId)) rankById.set(itemId, index + 1);
+  });
+  const unrankedValue = itemIds.length + 1;
+  const savedRanks = (ranks: Array<[string, number]>) =>
+    sql`jsonb_to_recordset(${JSON.stringify(
+      ranks.map(([itemId, rank]) => ({ item_id: itemId, rank })),
+    )}::jsonb) as saved_rank(item_id text, rank integer)`;
+  const rankedSource = (ranks: Array<[string, number]>) =>
+    sql`(select item_id, rank from ${savedRanks(ranks)} order by rank) as navigation_rank`;
+  const allRanks = [...rankById];
+  // NOT IN over a subquery is a hashed lookup; NOT EXISTS here would rescan
+  // the saved list for every candidate row.
+  const notRanked = allRanks.length
+    ? sql`${schema.contentDatabaseItems.id} not in (select item_id from ${savedRanks(allRanks)})`
+    : undefined;
+  const rankedRows = (ranks: Array<[string, number]>) =>
+    db
+      .select({ ...rowFields, sortValue: sql<number>`navigation_rank.rank` })
+      .from(rankedSource(ranks))
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.id, sql`navigation_rank.item_id`),
+      )
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      );
+  const unrankedRows = () =>
+    db
+      .select(rowFields)
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      );
+  const sortValue: SQL<string> =
+    effectiveSort === "name"
+      ? sql<string>`${schema.documents.title}`
+      : effectiveSort === "created"
+        ? sql<string>`${schema.documents.createdAt}`
+        : sql<string>`${schema.documents.updatedAt}`;
+  const ascending = !descending;
+  const sortedAfter = (key: { sortValue: string | number; itemId: string }) =>
+    or(
+      ascending ? gt(sortValue, key.sortValue) : lt(sortValue, key.sortValue),
+      and(
+        eq(sortValue, key.sortValue),
+        gt(schema.contentDatabaseItems.id, key.itemId),
+      ),
+    );
+  const positionThrough = (key: { position?: number; itemId: string }) =>
+    sql`(${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id}) <= (${key.position!}, ${key.itemId})`;
+
+  let rows: Array<
+    Awaited<ReturnType<typeof unrankedRows>>[number] & {
+      sortValue: string | number;
+    }
+  >;
+  if (effectiveSort === "custom") {
+    const cursorRank = cursor ? Number(cursor.sortValue) : 0;
+    const rankedAfterCursor = allRanks.filter(([, rank]) => rank > cursorRank);
+    const rankedPage = (ranks: Array<[string, number]>) =>
+      ranks.length
+        ? rankedRows(ranks)
+            .where(siblingFilter)
+            .orderBy(sql`navigation_rank.rank`)
+            .limit(args.limit + 1)
+        : Promise.resolve([]);
+    // A saved order can hold thousands of IDs, but a page usually fills from
+    // the first few, so the whole list is only sent when that window falls
+    // short. Rows past the last saved sibling come from the unranked side.
+    const window = rankedAfterCursor.slice(0, (args.limit + 1) * 4);
+    let ranked = await rankedPage(window);
+    let unranked: Awaited<ReturnType<typeof unrankedRows>> = [];
+    if (ranked.length <= args.limit) {
+      const [rest, tail] = await Promise.all([
+        rankedPage(rankedAfterCursor.slice(window.length)),
+        unrankedRows()
+          .where(
+            and(
+              siblingFilter,
+              notRanked,
+              cursor && cursorRank === unrankedValue
+                ? sql`(${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id}) > (${cursor.position!}, ${cursor.itemId})`
+                : undefined,
+            ),
           )
-          .where(visibleChild),
-      )}`,
-    })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(and(siblingFilter, cursorFilter))
-    .orderBy(
-      ascending ? asc(sortValue) : desc(sortValue),
-      ...(effectiveSort === "custom"
-        ? [asc(schema.contentDatabaseItems.position)]
-        : []),
-      asc(schema.contentDatabaseItems.id),
-    )
-    .limit(args.limit + 1);
+          .orderBy(
+            asc(schema.contentDatabaseItems.position),
+            asc(schema.contentDatabaseItems.id),
+          )
+          .limit(args.limit + 1),
+      ]);
+      ranked = [...ranked, ...rest].slice(0, args.limit + 1);
+      unranked = tail.slice(0, args.limit + 1 - ranked.length);
+    }
+    rows = [
+      ...ranked,
+      ...unranked.map((row) => ({ ...row, sortValue: unrankedValue })),
+    ];
+  } else {
+    rows = await db
+      .select({ ...rowFields, sortValue })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(and(siblingFilter, cursor ? sortedAfter(cursor) : undefined))
+      .orderBy(
+        ascending ? asc(sortValue) : desc(sortValue),
+        asc(schema.contentDatabaseItems.id),
+      )
+      .limit(args.limit + 1);
+  }
 
   const hasMore = rows.length > args.limit;
   const pageRows = rows.slice(0, args.limit);
-  const favoriteIds = await favoriteDocumentIds(
-    db,
-    args.userEmail,
-    pageRows.map((row) => row.documentId),
-  );
-  const shareRows = pageRows.length
-    ? await db
-        .select({
-          resourceId: schema.documentShares.resourceId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(
-          and(
-            inArray(
-              schema.documentShares.resourceId,
-              pageRows.map((row) => row.documentId),
-            ),
-            or(
+  const pageDocumentIds = pageRows.map((row) => row.documentId);
+
+  // A cursor stays valid while every visible sibling up to it is unchanged:
+  // rows after it are read fresh by the next page anyway. The revision is the
+  // count and hash sum of that prefix, so it grows with the pages read, not
+  // with the workspace.
+  const revisionOf = async (
+    query: Promise<Array<{ count: number; checksum: string }>>,
+  ): Promise<NavigationRevision> => {
+    const [row] = await query;
+    return { count: row?.count ?? 0, checksum: BigInt(row?.checksum ?? "0") };
+  };
+  const revisionFields = {
+    count: sql<number>`count(*)::int`,
+    checksum: sql<string>`coalesce(sum((${rowHash})::numeric), 0)::text`,
+  };
+  const cursorPrefixRevision = (): Promise<NavigationRevision[]> => {
+    if (!cursor) return Promise.resolve([]);
+    if (effectiveSort !== "custom") {
+      return Promise.all([
+        revisionOf(
+          db
+            .select(revisionFields)
+            .from(schema.contentDatabaseItems)
+            .innerJoin(
+              schema.documents,
+              eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+            )
+            .where(
               and(
-                eq(schema.documentShares.principalType, "user"),
-                eq(schema.documentShares.principalId, args.userEmail),
+                siblingFilter,
+                ascending
+                  ? lte(sortValue, cursor.sortValue)
+                  : gte(sortValue, cursor.sortValue),
+                sql`not (${sortedAfter(cursor)!})`,
               ),
-              ...(args.database.orgId
-                ? [
-                    and(
-                      eq(schema.documentShares.principalType, "org"),
-                      eq(
-                        schema.documentShares.principalId,
-                        args.database.orgId,
-                      ),
-                    ),
-                  ]
-                : []),
             ),
-          ),
-        )
-    : [];
+        ),
+      ]);
+    }
+    const cursorRank = Number(cursor.sortValue);
+    const ranksThrough = allRanks.filter(([, rank]) => rank <= cursorRank);
+    return Promise.all([
+      ...(ranksThrough.length
+        ? [
+            revisionOf(
+              db
+                .select(revisionFields)
+                .from(rankedSource(ranksThrough))
+                .innerJoin(
+                  schema.contentDatabaseItems,
+                  eq(
+                    schema.contentDatabaseItems.id,
+                    sql`navigation_rank.item_id`,
+                  ),
+                )
+                .innerJoin(
+                  schema.documents,
+                  eq(
+                    schema.documents.id,
+                    schema.contentDatabaseItems.documentId,
+                  ),
+                )
+                .where(siblingFilter),
+            ),
+          ]
+        : []),
+      ...(cursorRank === unrankedValue
+        ? [
+            revisionOf(
+              db
+                .select(revisionFields)
+                .from(schema.contentDatabaseItems)
+                .innerJoin(
+                  schema.documents,
+                  eq(
+                    schema.documents.id,
+                    schema.contentDatabaseItems.documentId,
+                  ),
+                )
+                .where(and(siblingFilter, notRanked, positionThrough(cursor))),
+            ),
+          ]
+        : []),
+    ]);
+  };
+
+  const [favoriteIds, shareRows, parentsWithChildren, prefixRevision] =
+    await Promise.all([
+      favoriteDocumentIds(db, args.userEmail, pageDocumentIds),
+      pageRows.length
+        ? db
+            .select({
+              resourceId: schema.documentShares.resourceId,
+              role: schema.documentShares.role,
+            })
+            .from(schema.documentShares)
+            .where(
+              and(
+                inArray(schema.documentShares.resourceId, pageDocumentIds),
+                or(
+                  and(
+                    eq(schema.documentShares.principalType, "user"),
+                    eq(schema.documentShares.principalId, args.userEmail),
+                  ),
+                  ...(args.database.orgId
+                    ? [
+                        and(
+                          eq(schema.documentShares.principalType, "org"),
+                          eq(
+                            schema.documentShares.principalId,
+                            args.database.orgId,
+                          ),
+                        ),
+                      ]
+                    : []),
+                ),
+              ),
+            )
+        : [],
+      pageRows.length
+        ? db
+            .selectDistinct({ parentId: childDocuments.parentId })
+            .from(childItems)
+            .innerJoin(
+              childDocuments,
+              eq(childDocuments.id, childItems.documentId),
+            )
+            .where(
+              and(
+                eq(childItems.databaseId, args.database.id),
+                inArray(childDocuments.parentId, pageDocumentIds),
+                isNull(childDocuments.trashedAt),
+                accessFilter(
+                  childDocuments,
+                  schema.documentShares,
+                  accessContext,
+                ),
+                ...softDeletedDatabaseDocumentExclusions(childDocuments.id),
+                navigationFilterSql({
+                  filters: effectiveFilters,
+                  filterMode: effectiveFilterMode,
+                  definitionById,
+                  document: {
+                    id: sql`${childDocuments.id}`,
+                    title: sql`${childDocuments.title}`,
+                    parentId: sql`${childDocuments.parentId}`,
+                    ownerEmail: sql`${childDocuments.ownerEmail}`,
+                    createdAt: sql`${childDocuments.createdAt}`,
+                    updatedAt: sql`${childDocuments.updatedAt}`,
+                  },
+                }),
+              ),
+            )
+        : [],
+      cursorPrefixRevision(),
+    ]);
+  if (cursor && combineRevisions(prefixRevision) !== cursor.revision) {
+    invalidCursor();
+  }
+  const withChildren = new Set(parentsWithChildren.map((row) => row.parentId));
   const editableIds = new Set(
     shareRows
       .filter((row) => ["owner", "admin", "editor"].includes(row.role))
@@ -633,15 +805,19 @@ export async function getContentDatabaseNavigationPage(args: {
   );
   const last = pageRows[pageRows.length - 1];
   return {
-    items: pageRows.map(({ sortValue: _sortValue, ownerEmail, ...row }) => {
-      const isOwner = ownerEmail.toLowerCase() === args.userEmail.toLowerCase();
-      return {
-        ...row,
-        isFavorite: favoriteIds.has(row.documentId),
-        canEdit: isOwner || editableIds.has(row.documentId),
-        canManage: isOwner || manageableIds.has(row.documentId),
-      };
-    }),
+    items: pageRows.map(
+      ({ sortValue: _sortValue, rowHash: _rowHash, ownerEmail, ...row }) => {
+        const isOwner =
+          ownerEmail.toLowerCase() === args.userEmail.toLowerCase();
+        return {
+          ...row,
+          hasChildren: withChildren.has(row.documentId),
+          isFavorite: favoriteIds.has(row.documentId),
+          canEdit: isOwner || editableIds.has(row.documentId),
+          canManage: isOwner || manageableIds.has(row.documentId),
+        };
+      },
+    ),
     pagination: {
       limit: args.limit,
       hasMore,
@@ -654,7 +830,16 @@ export async function getContentDatabaseNavigationPage(args: {
               sort: effectiveSort,
               viewId,
               orderHash,
-              revision,
+              revision: combineRevisions([
+                ...prefixRevision,
+                {
+                  count: pageRows.length,
+                  checksum: pageRows.reduce(
+                    (total, row) => total + BigInt(row.rowHash),
+                    0n,
+                  ),
+                },
+              ]),
               configHash,
               sortValue: last.sortValue,
               position:
