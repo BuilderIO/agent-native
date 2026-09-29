@@ -924,6 +924,13 @@ jobs:
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
 
+      - name: Test unbounded read guards
+        run: >-
+          pnpm exec tsx --test
+          scripts/guard-no-unbounded-table-reads.test.ts
+          scripts/guard-no-unscoped-queries.test.ts
+          scripts/guard-no-heavy-dashboard-list-reads.test.ts
+
       - name: Run security guards
         run: pnpm guards
 

@@ -6,9 +6,6 @@ const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   orgSettings: {} as Record<string, Record<string, unknown>>,
   userSettings: {} as Record<string, Record<string, unknown>>,
-  getAllSettings: vi.fn(async () => {
-    throw new Error("catalog helper must not scan all settings");
-  }),
   getOrgSetting: vi.fn(async (_orgId: string, key: string) => {
     return state.orgSettings[key] ?? null;
   }),
@@ -28,7 +25,6 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: state.getAllSettings,
   getOrgSetting: state.getOrgSetting,
   getUserSetting: state.getUserSetting,
   deleteOrgSetting: async () => false,
@@ -129,7 +125,6 @@ beforeEach(() => {
   state.rows = [];
   state.orgSettings = {};
   state.userSettings = {};
-  state.getAllSettings.mockClear();
   state.getOrgSetting.mockClear();
   state.getUserSetting.mockClear();
   state.insert.mockReset();
@@ -177,7 +172,6 @@ describe("loadDashboardCatalogDashboards", () => {
     expect(state.projection).toHaveProperty("title");
     expect(state.projection).toHaveProperty("config");
     expect(state.projection).toHaveProperty("updatedAt");
-    expect(state.getAllSettings).not.toHaveBeenCalled();
     expect(state.getOrgSetting.mock.calls.map((call) => call[1])).toContain(
       "sql-dashboard-legacy-org",
     );

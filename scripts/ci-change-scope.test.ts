@@ -121,6 +121,18 @@ test("runs cold-request query budgets for framework and template changes", () =>
   assert.equal(docs.checks.neon_query_budget, false);
 });
 
+test("skips cold-request query budgets for full tooling and instruction changes", () => {
+  const scope = classifyChangedPaths([
+    "scripts/agent-friction-report.mjs",
+    "AGENTS.md",
+    ".agents/skills/review-latest-feedback/SKILL.md",
+  ]);
+
+  assert.equal(scope.full, true);
+  assert.equal(scope.checks.fast_tests, true);
+  assert.equal(scope.checks.neon_query_budget, false);
+});
+
 test("keeps build dependencies while tests follow changed-package dependents", () => {
   const scope = classifyChangedPaths([
     "templates/calendar/app/components/EventCard.tsx",

@@ -64,6 +64,12 @@ const CHECK_NAMES = [
   "neon_query_budget",
 ] as const;
 
+const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
+  "scripts/agent-friction-report.mjs",
+  "scripts/ci-change-scope.ts",
+  "scripts/ci-change-scope.test.ts",
+]);
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 export type CheckSelection = Record<CheckName, boolean>;
@@ -215,14 +221,30 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized === "AGENTS.md" ||
+    normalized.startsWith(".agents/") ||
+    QUERY_BUDGET_UNRELATED_SCRIPTS.has(normalized)
+  );
+}
+
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
 ): CheckSelection {
   if (full) {
-    return Object.fromEntries(
+    const checks = Object.fromEntries(
       CHECK_NAMES.map((name) => [name, true]),
     ) as CheckSelection;
+    if (
+      changedPaths.length > 0 &&
+      changedPaths.every(isKnownQueryBudgetUnrelatedPath)
+    ) {
+      checks.neon_query_budget = false;
+    }
+    return checks;
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);

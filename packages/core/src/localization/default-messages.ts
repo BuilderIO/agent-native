@@ -897,6 +897,7 @@ const messages = {
   jobs: {
     timezone: "Timezone",
     pageTitle: "Automations",
+    // guard:allow-unscoped — localized user-facing copy mentions webhooks, not SQL
     pageDescription:
       "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
