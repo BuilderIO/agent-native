@@ -136,6 +136,12 @@ export function DeckTemplateLibrary({
             />
           ) : null
         }
+        renderMetadata={(template) =>
+          search.trim() &&
+          template.category.toLowerCase().includes(search.trim().toLowerCase())
+            ? template.category
+            : null
+        }
         renderActions={(template) => (
           <TemplateActions
             title={template.title}

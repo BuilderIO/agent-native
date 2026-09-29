@@ -96,6 +96,8 @@ const messages: AgentChatTranslation = {
   "observability.summaryExpired":
     "Ainda não apareceu um resumo. Você pode tentar novamente, mas o agente ainda pode estar trabalhando.",
   "observability.promoteMustContain": "A resposta deve conter…",
+  "observability.promoteMustContainOptional":
+    "A resposta deve conter (opcional)…",
   "observability.promoteMustContainLabel":
     "Texto que a resposta da avaliação promovida deve conter",
   "observability.promoteNeedsContains":
@@ -1367,8 +1369,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "Copiar link de convite",
   "usage.inviteLinkCopied": "Link de convite copiado",
   "usage.creditBalance": "Saldo do workspace",
-  "usage.monthlyPlan": "Plano mensal",
-  "usage.dailyFreeLimit": "Limite diário gratuito",
+  "usage.monthlyLimit": "Limite mensal",
+  "usage.dailyDefaultLimit": "Limite diário padrão",
   "usage.creditUsedOfLimit": "{{used}} de {{limit}} usados",
   "usage.creditRemaining": "{{amount}} restantes",
   "usage.creditUsageUnavailable":

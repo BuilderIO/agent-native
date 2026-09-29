@@ -160,6 +160,11 @@ function observabilitySummaryMessages(messages: AgentChatTranslation) {
     summaryQueued: messages["observability.summaryQueued"],
     summaryFailed: messages["observability.summaryFailed"],
     summaryExpired: messages["observability.summaryExpired"],
+    promoteMustContain: messages["observability.promoteMustContain"],
+    promoteMustContainOptional:
+      messages["observability.promoteMustContainOptional"],
+    promoteMustContainLabel: messages["observability.promoteMustContainLabel"],
+    promoteNeedsContains: messages["observability.promoteNeedsContains"],
   };
 }
 

@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../db/index.js";
@@ -195,8 +205,12 @@ export type TransactionalEmailConfig = z.infer<
 export type TransactionalEmailJob = z.infer<typeof transactionalEmailJobSchema>;
 export type RecapCopy = z.infer<typeof recapCopySchema>;
 
+const AI_BACKED_TYPES = [
+  "two-clips",
+] as const satisfies readonly TransactionalEmailJob["type"][];
+
 export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
-  return type === "two-clips";
+  return (AI_BACKED_TYPES as readonly string[]).includes(type);
 }
 
 export type TransactionalEmailStoreOptions = {
@@ -349,6 +363,31 @@ export function createTransactionalEmailStore(
           states?.length
             ? inArray(schema.transactionalEmailJobs.state, states)
             : undefined,
+        )
+        .orderBy(asc(schema.transactionalEmailJobs.createdAt))
+    ).map(databaseJobToJob);
+  }
+
+  async function listAiClaimCandidates(
+    claimantEmail: string,
+  ): Promise<TransactionalEmailJob[]> {
+    const claimant = claimantEmail.trim().toLowerCase();
+    return (
+      await getDb()
+        .select()
+        .from(schema.transactionalEmailJobs)
+        .where(
+          and(
+            inArray(schema.transactionalEmailJobs.state, [
+              "awaiting_ai",
+              "ai_dispatched",
+            ]),
+            inArray(schema.transactionalEmailJobs.type, AI_BACKED_TYPES),
+            or(
+              sql`lower(trim(${schema.transactionalEmailJobs.recipient})) = ${claimant}`,
+              sql`lower(trim(${schema.transactionalEmailJobs.requestedBy})) = ${claimant}`,
+            ),
+          ),
         )
         .orderBy(asc(schema.transactionalEmailJobs.createdAt))
     ).map(databaseJobToJob);
@@ -768,6 +807,7 @@ export function createTransactionalEmailStore(
     enqueueOrConvergeFirstImport,
     readJob,
     listJobs,
+    listAiClaimCandidates,
     transition,
     claimAwaitingAi,
     reclaimStaleAiDispatch,

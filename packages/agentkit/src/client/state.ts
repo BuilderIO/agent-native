@@ -120,6 +120,45 @@ export function createAgentThreadState(threadId: ThreadId): AgentThreadState {
   };
 }
 
+export function hasActiveAgentRuns(
+  thread: Pick<AgentThreadState, "activeRunIds"> &
+    Partial<Pick<AgentThreadState, "runs" | "events" | "approvalRunIds">>,
+): boolean {
+  const resolvedApprovalIds = new Set<string>();
+  const requestIdsByRun = new Map<RunId, Set<string>>();
+  for (const event of thread.events ?? []) {
+    if (event.type === "approval.requested") {
+      const requestIds = requestIdsByRun.get(event.runId) ?? new Set<string>();
+      requestIds.add(event.request.id);
+      requestIdsByRun.set(event.runId, requestIds);
+    } else if (event.type === "approval.resolved") {
+      resolvedApprovalIds.add(event.approvalId);
+    }
+  }
+
+  return thread.activeRunIds.some((runId) => {
+    const status = thread.runs?.[runId]?.status;
+    if (
+      status === "completed" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
+      return false;
+    }
+    if (status !== "awaiting_approval") return true;
+    const requestIds = requestIdsByRun.get(runId) ?? new Set<string>();
+    for (const [approvalId, approvalRunId] of Object.entries(
+      thread.approvalRunIds ?? {},
+    )) {
+      if (approvalRunId === runId) requestIds.add(approvalId);
+    }
+    return (
+      requestIds.size === 0 ||
+      [...requestIds].some((approvalId) => !resolvedApprovalIds.has(approvalId))
+    );
+  });
+}
+
 export function selectActiveAgentRoster(
   agents: AgentThreadState["agents"],
 ): AgentParticipant[] {

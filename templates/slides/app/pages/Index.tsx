@@ -1,5 +1,7 @@
 import {
   BuilderSetupCard,
+  fetchAgentEngineConfiguredState,
+  type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
@@ -439,17 +441,47 @@ export default function Index({ active = true }: { active?: boolean }) {
   } = useWorkspaceDefaults(isHome);
   const { session } = useSession();
   const agentEngine = useAgentEngineConfigured();
+  const [preflightAgentEngineState, setPreflightAgentEngineState] =
+    useState<AgentEngineConfiguredState | null>(null);
+  const preflightRequestIdRef = useRef(0);
+  const effectiveAgentEngineState =
+    preflightAgentEngineState ?? agentEngine.state;
+  const agentEngineConfigured = effectiveAgentEngineState === "configured";
+  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const canChatRef = useRef(agentEngineConfigured);
+  canChatRef.current = agentEngineConfigured;
+  useEffect(() => {
+    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
+      preflightRequestIdRef.current += 1;
+      setPreflightAgentEngineState(null);
+    }
+  }, [agentEngine.state]);
+  const ensureAgentEngineConfigured = useCallback(async () => {
+    if (agentEngineConfigured) return true;
+    const requestId = ++preflightRequestIdRef.current;
+    let nextState: AgentEngineConfiguredState;
+    try {
+      nextState = await fetchAgentEngineConfiguredState();
+    } catch {
+      nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+    }
+    if (requestId !== preflightRequestIdRef.current) {
+      return canChatRef.current;
+    }
+    setPreflightAgentEngineState(nextState);
+    canChatRef.current = nextState === "configured";
+    return canChatRef.current;
+  }, [agentEngine.state, agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
-    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+    if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
-  const quickActionsEnabled =
-    agentEngine.state === "configured" && !agentEngine.missing;
-  const agentEngineConfigured =
-    agentEngine.state === "configured" && !agentEngine.missing;
   const retryAgentEngineStatus = useCallback(() => {
+    preflightRequestIdRef.current += 1;
+    setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
+  const quickActionsEnabled = agentEngineConfigured;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -532,10 +564,22 @@ export default function Index({ active = true }: { active?: boolean }) {
   const [deckSearch, setDeckSearch] = useState("");
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const deckFilterWasSelectedRef = useRef(false);
   useEffect(() => {
     if (deckSearch.trim()) setHomeSection("recent");
   }, [deckSearch]);
+  useEffect(() => {
+    if (
+      isHome &&
+      !homeLibraryTabWasSelectedRef.current &&
+      !loading &&
+      !loadError &&
+      decks.length > 0
+    ) {
+      setHomeSection("recent");
+    }
+  }, [decks.length, isHome, loadError, loading]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
@@ -992,7 +1036,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           source: "new_deck_prompt",
         });
       }
-      settlePendingDeckAttachments("discard");
+      settlePendingDeckAttachments("commit");
       if (
         !savePromptForRetry(prompt, {
           context: additionalContext,
@@ -1351,12 +1395,12 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: PromptAttachmentActions,
       options?: SlidesPromptSubmitOptions,
     ) => {
-      if (!agentEngineConfigured) return "retain" as const;
+      if (!canChatRef.current) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
-      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       if (options?.slidesContext) {
         void runPendingDeckGeneration(
           prompt,
@@ -1413,7 +1457,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
-      agentEngineConfigured,
       setNewDeckPromptOpen,
       runPendingDeckGeneration,
     ],
@@ -1423,6 +1466,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryFiles([]);
     setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
@@ -2041,7 +2085,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   return (
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
-      connectionAttached={agentEngine.missing}
+      connectionAttached={agentEngineMissing}
       mobileToolbar={
         isHome ? (
           <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
@@ -2055,7 +2099,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         ) : null
       }
       connection={
-        agentEngine.missing ? (
+        agentEngineMissing ? (
           <BuilderSetupCard
             attached
             fullWidth
@@ -2069,7 +2113,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         <div
           data-slides-home-composer
           className={
-            agentEngine.missing
+            agentEngineMissing
               ? "agent-composer-area--attached-above"
               : undefined
           }
@@ -2079,28 +2123,20 @@ export default function Index({ active = true }: { active?: boolean }) {
           {isHome ? (
             <HomeChrome title={homeTitle} actions={homeHeaderActions} />
           ) : null}
-          {!agentEngine.missing && agentEngine.state !== "configured" ? (
+          {effectiveAgentEngineState === "unavailable" ? (
             <div className="mb-2">
               <div
                 className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
                 role="status"
               >
-                <span>
-                  {t(
-                    agentEngine.state === "unknown"
-                      ? "agentChat.setup.checkingProvider"
-                      : "agentChat.setup.providerStatusUnavailable",
-                  )}
-                </span>
-                {agentEngine.state === "unavailable" ? (
-                  <button
-                    type="button"
-                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={retryAgentEngineStatus}
-                  >
-                    {t("home.retry")}
-                  </button>
-                ) : null}
+                <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={retryAgentEngineStatus}
+                >
+                  {t("home.retry")}
+                </button>
               </div>
             </div>
           ) : null}
@@ -2127,10 +2163,9 @@ export default function Index({ active = true }: { active?: boolean }) {
               presentation="inline"
               context={composerContext}
               controllerRef={homeComposerRef}
-              disabled={!isHome || !agentEngineConfigured}
-              submissionDisabled={!agentEngineConfigured}
+              disabled={!isHome}
               showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={false}
+              modelStatusChecksEnabled={agentEngineConfigured}
               open={showNewDeckPrompt}
               active={isHome}
               onOpenChange={setNewDeckPromptOpen}
@@ -2139,6 +2174,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               onSkip={handlePromptSkip}
               skipLabel={t("home.skipPrompt")}
               onSubmit={handlePromptSubmit}
+              onBeforeSubmit={ensureAgentEngineConfigured}
               onBeforeUpload={(
                 prompt,
                 files,
@@ -2217,7 +2253,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       ) : null}
       <PromptHomeLibrary
         value={homeSection}
-        onValueChange={setHomeSection}
+        onValueChange={(value) => {
+          homeLibraryTabWasSelectedRef.current = true;
+          setHomeSection(value);
+        }}
         labels={{
           templates: t("templatesPage.title"),
           recent: t("home.recent"),
@@ -2313,10 +2352,19 @@ export default function Index({ active = true }: { active?: boolean }) {
         onOpenChange={(open) => {
           if (!open && !pendingDeckGenerationRef.current) {
             const pending = pendingDeck;
-            settlePendingDeckAttachments("discard");
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
             if (pending) {
+              settlePendingDeckAttachments("commit");
+              setNewDeckRetryPrompt(pending.prompt);
+              setNewDeckRetryFiles((files) =>
+                mergeUploadedFilesForRetry(files, pending.files),
+              );
+              setNewDeckRetryReferenceFilePaths(pending.referenceFilePaths);
+              setNewDeckRetryImportedReference(pending.importedReference);
+              setNewDeckRetryContext(pending.context);
+              setNewDeckRetryAttachments(pending.attachments);
+              setNewDeckRetryModelSelection(pending.modelSelection);
               setNewDeckInitialPrompt({
                 text: pending.prompt,
                 key: Date.now(),

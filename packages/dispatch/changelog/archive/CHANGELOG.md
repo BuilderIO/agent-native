@@ -1,3 +1,9 @@
+## 0.24.2
+
+### Patch Changes
+
+- 3eb5bdb: Surface app-creation settings authorization failures as HTTP 403 with the real message instead of a generic internal server error.
+
 ## 0.24.1
 
 ### Patch Changes

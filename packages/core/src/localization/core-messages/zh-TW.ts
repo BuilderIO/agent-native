@@ -93,6 +93,7 @@ const messages: AgentChatTranslation = {
   "observability.summaryExpired":
     "摘要尚未顯示。你可以重試，但代理程式可能仍在處理。",
   "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainOptional": "回覆可包含（選填）…",
   "observability.promoteMustContainLabel": "提升的評估回覆必須包含的文字",
   "observability.promoteNeedsContains":
     "這次執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行提升。",
@@ -1246,8 +1247,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "複製邀請連結",
   "usage.inviteLinkCopied": "邀請連結已複製",
   "usage.creditBalance": "工作區餘額",
-  "usage.monthlyPlan": "月度方案",
-  "usage.dailyFreeLimit": "免費每日上限",
+  "usage.monthlyLimit": "每月上限",
+  "usage.dailyDefaultLimit": "預設每日上限",
   "usage.creditUsedOfLimit": "已使用 {{used}} / {{limit}}",
   "usage.creditRemaining": "剩餘 {{amount}}",
   "usage.creditUsageUnavailable": "無法載入 Builder 點數使用情況。",

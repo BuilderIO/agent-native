@@ -149,6 +149,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "建议处理队列",
+    noQueueMatch: "没有匹配的队列",
+    urgentProbability: "紧急概率 {{percent}}%",
+    applyRoute: "应用队列",
+    routingError: "无法生成队列建议。",
     panelTitle: "字段",
     panelSubtitle: "任务详情",
     closeLabel: "关闭字段面板",

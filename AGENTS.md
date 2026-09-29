@@ -47,9 +47,10 @@ contract.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
-- In task worktrees, make needed safe branch changes without asking. Classify
-  dirty paths first; preserve unrelated work; never move peer/platform branches.
-  Shared checkouts need exact authorization. See `new-branch`.
+- In task worktrees, create safe needed branches without asking. For `/ship`
+  from an unsafe shared checkout, use a managed worktree without asking:
+  fresh `origin/main` for new PRs, the live PR head and its head repository
+  for updates. Carry only task changes; preserve the checkout. See `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Use the current suitable branch. PRs are ready for review unless drafts are
   requested.
@@ -156,10 +157,9 @@ could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
 for a check that inspected nothing; that is the flagship rule above, violated
 inside the thing that enforces it.
 
-Shared edits are visible in Git; read `concurrent-agents`. Batch fixes; publish
-snapshots with `corepack pnpm ship:push -m "<change>"` to
-avoid CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs;
-merge shared branches.
+Shared edits are visible in Git; read `concurrent-agents`. Batch fixes to avoid
+CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs; merge
+shared branches.
 
 **One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the

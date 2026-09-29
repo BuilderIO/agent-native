@@ -48,6 +48,21 @@
   }
 }
 
+@container (max-width: 52rem) {
+  .slides-home-toolbar .slides-home-import-label {
+    display: none;
+  }
+
+  .slides-home-toolbar .slides-home-import-button {
+    width: 2rem;
+    padding-inline: 0;
+  }
+
+  .slides-home-toolbar .slides-home-import-chevron {
+    display: none;
+  }
+}
+
 @container (max-width: 25rem) {
   .slides-home-toolbar {
     height: 7rem;
@@ -139,6 +154,7 @@ button[title="Open agent sidebar"] {
 }
 
 :root {
+  --design-editor-accent-color: #609ff8;
   --background: 0 0% 13%;
   --foreground: 0 0% 93%;
 
@@ -256,7 +272,6 @@ button[title="Open agent sidebar"] {
   --slides-inspector-divider: hsl(var(--border) / 0.7);
   --design-editor-control-bg: var(--slides-inspector-control-background);
   --design-editor-control-border: transparent;
-  --design-editor-accent-color: #609ff8;
 }
 
 .slide-style-inspector > div:first-child {

@@ -41,6 +41,7 @@ interface ComposerStubProps {
     references: unknown[],
     options: Record<string, unknown>,
   ) => void | Promise<void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   submitting?: boolean;
 }
 const mockComposer = vi.hoisted(() => ({
@@ -268,6 +269,33 @@ async function renderPopover(props: Record<string, unknown>) {
 }
 
 describe("PromptPopover inline home", () => {
+  it("renders the composer immediately and shows preflight as submitting", async () => {
+    let resolvePreflight!: (result: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => preflight);
+    const onSubmit = vi.fn();
+    await renderPopover({ inline: true, onBeforeSubmit, onSubmit });
+
+    expect(container?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(mockComposer.current).toBeDefined();
+    let check!: Promise<boolean>;
+    await act(async () => {
+      check = Promise.resolve(mockComposer.current!.onBeforeSubmit!());
+      await Promise.resolve();
+    });
+    expect(mockComposer.current?.submitting).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePreflight(false);
+      expect(await check).toBe(false);
+    });
+    expect(mockComposer.current?.submitting).toBe(false);
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+  });
+
   it.each([false, true])(
     "uses one shared Upload menu and retains an eager batch (inline: %s)",
     async (inline) => {

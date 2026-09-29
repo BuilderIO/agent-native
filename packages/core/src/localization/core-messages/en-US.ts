@@ -93,6 +93,7 @@ const messages = {
   "observability.summaryExpired":
     "No summary has appeared yet. You can retry, but the agent may still be working.",
   "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainOptional": "Reply must contain (optional)…",
   "observability.promoteMustContainLabel":
     "Text the promoted eval reply must contain",
   "observability.promoteNeedsContains":
@@ -1316,8 +1317,8 @@ const messages = {
   "usage.copyInviteLink": "Copy invite link",
   "usage.inviteLinkCopied": "Invite link copied",
   "usage.creditBalance": "Workspace balance",
-  "usage.monthlyPlan": "Monthly plan",
-  "usage.dailyFreeLimit": "Free daily limit",
+  "usage.monthlyLimit": "Monthly limit",
+  "usage.dailyDefaultLimit": "Default daily limit",
   "usage.creditUsedOfLimit": "{{used}} of {{limit}} used",
   "usage.creditRemaining": "{{amount}} remaining",
   "usage.creditUsageUnavailable": "Builder credit usage couldn’t be loaded.",

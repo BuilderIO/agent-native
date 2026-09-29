@@ -96,6 +96,7 @@ const messages: AgentChatTranslation = {
   "observability.summaryExpired":
     "아직 요약이 표시되지 않았습니다. 다시 시도할 수 있지만 에이전트가 계속 작업 중일 수 있습니다.",
   "observability.promoteMustContain": "답변에 포함할 내용…",
+  "observability.promoteMustContainOptional": "답변에 포함할 내용(선택)…",
   "observability.promoteMustContainLabel":
     "승격된 평가의 답변에 포함되어야 하는 텍스트",
   "observability.promoteNeedsContains":
@@ -1310,8 +1311,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "초대 링크 복사",
   "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
   "usage.creditBalance": "워크스페이스 잔액",
-  "usage.monthlyPlan": "월간 플랜",
-  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.monthlyLimit": "월간 한도",
+  "usage.dailyDefaultLimit": "기본 일일 한도",
   "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
   "usage.creditRemaining": "{{amount}} 남음",
   "usage.creditUsageUnavailable":

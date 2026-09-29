@@ -171,6 +171,9 @@ export const recordings = table("recordings", {
   chaptersJson: text("chapters_json").notNull().default("[]"),
 
   password: text("password"),
+  sharePasswordVersion: text("share_password_version")
+    .notNull()
+    .default("initial"),
   expiresAt: text("expires_at"),
 
   enableComments: boolean("enable_comments").notNull().default(true),

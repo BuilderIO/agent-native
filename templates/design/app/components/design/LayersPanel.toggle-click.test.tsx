@@ -139,6 +139,74 @@ describe("LayersPanel lock/hide toggles", () => {
   });
 });
 
+describe("LayersPanel selection scrolling", () => {
+  it("scrolls a deeply nested selected layer name into view", async () => {
+    let scrollTarget: HTMLElement | null = null;
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrollTarget = this;
+    });
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            layers={[
+              {
+                id: "root",
+                name: "Root",
+                type: "frame",
+                children: [
+                  {
+                    id: "child",
+                    name: "Child",
+                    type: "group",
+                    children: [
+                      { id: "leaf", name: "Deep layer name", type: "text" },
+                    ],
+                  },
+                ],
+              },
+            ]}
+            selectedIds={["leaf"]}
+            expandedIds={["root", "child"]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+          />,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(scrollTarget).toBe(
+          host.querySelector(
+            '[data-layer-node-id="leaf"] [data-layer-row-name]',
+          ),
+        );
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
+    } finally {
+      root.unmount();
+      host.remove();
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+});
+
 describe("LayersPanel search affordance", () => {
   it("places the layer search button beside the Layers heading", async () => {
     const host = document.createElement("div");

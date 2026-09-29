@@ -1117,6 +1117,42 @@ export const migrations = runMigrations(
       name: "recording-failure-backfill-completion",
       sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS completed_at TEXT`,
     },
+    {
+      version: 77,
+      name: "recording-share-password-version",
+      // guard:allow-unscoped — initializes each row from its existing token scope.
+      // Keep the DDL atomic; the migration runner splits SQL on semicolons.
+      sql: `
+        DO 'BEGIN
+          EXECUTE ''ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT'';
+          EXECUTE ''UPDATE recordings
+            SET share_password_version = ''''legacy:'''' || updated_at
+            WHERE share_password_version IS NULL'';
+          EXECUTE ''ALTER TABLE recordings ALTER COLUMN share_password_version SET DEFAULT ''''initial'''''';
+          EXECUTE ''ALTER TABLE recordings ALTER COLUMN share_password_version SET NOT NULL'';
+          EXECUTE format(
+            ''CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()
+              RETURNS trigger
+              LANGUAGE plpgsql
+              AS %L'',
+            $function$BEGIN
+              IF NEW.password IS DISTINCT FROM OLD.password THEN
+                NEW.share_password_version := ''password-change:'' || COALESCE(NEW.share_password_version, OLD.share_password_version, ''initial'');
+              END IF;
+              RETURN NEW;
+            END;$function$
+          );
+          BEGIN
+            EXECUTE ''CREATE TRIGGER clips_recordings_rotate_share_password_version
+              BEFORE UPDATE OF password ON public.recordings
+              FOR EACH ROW
+              EXECUTE FUNCTION public.clips_recordings_rotate_share_password_version()'';
+          EXCEPTION WHEN duplicate_object THEN
+            NULL;
+          END;
+        END';
+      `,
+    },
   ],
   { table: "clips_migrations" },
 );

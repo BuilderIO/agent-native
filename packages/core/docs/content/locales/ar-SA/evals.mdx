@@ -249,6 +249,18 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 
 الانحدار الذي يسقط أي مسجل أقل من الحد يفشل في الخطوة ويمنع النشر. يخرج التطبيق الذي لا يحتوي على ملفات تقييم من `0`، لذا فإن اعتماد التقييمات يعد اختيارًا لكل تطبيق.
 
+## من أثر إنتاج {#from-trace}
+
+عندما يفاجئك تشغيل حقيقي — نجح في العرض ثم فشل في الإنتاج، أو استدعى الأداة الخطأ — رقِّ ذلك الأثر المكتمل إلى حالة CI بدل اختراع موجّه.
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+يحفظ الأمر صف `EvalDataset` (نفس المساعد الذي يستخدمه لوحة المراقبة والإجراء `promote-trace-eval`) ويكتب تثبيت `defineEval` تكتشفه بوابة `agent-native eval` أصلًا. المقيّمون الافتراضيون هم `usesTool(...)` لكل أداة ناجحة مع `--must-contain` اختياري. التشغيل المقطوع أو الملغى أو بلا رسالة مستخدم يفشل مغلقًا.
+
+الإجراء المستضاف و`POST /_agent-native/observability/traces/:runId/promote` لا يكتبان شجرة التطبيق. استخدم `--write` لبوابة CI. تفاصيل التتبع في لوحة Observability فيها **Promote to eval**.
+
 ## ما هي الخطوة التالية
 
 - [**Observability**](/docs/observability) — التسجيل اللاحق لعمليات الإنتاج الحقيقية (الطبقة التكميلية)

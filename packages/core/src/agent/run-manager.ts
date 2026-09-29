@@ -61,6 +61,7 @@ export interface ActiveRun {
   threadId: string;
   parentId?: string | null;
   turnId: string;
+  agentKitApprovalContinuation?: boolean;
   events: RunEvent[];
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
@@ -294,6 +295,7 @@ export interface StartRunOptions {
   softTimeoutMs?: number;
   useHostedSoftTimeoutDefault?: boolean;
   turnId?: string;
+  agentKitApprovalContinuation?: boolean;
   parentId?: string | null;
   backgroundFunction?: boolean;
   noProgressTimeoutMs?: number;
@@ -738,6 +740,9 @@ export function startRun(
     threadId,
     ...(options?.parentId !== undefined ? { parentId: options.parentId } : {}),
     turnId: options?.turnId ?? runId,
+    ...(options?.agentKitApprovalContinuation
+      ? { agentKitApprovalContinuation: true }
+      : {}),
     events: [],
     status: "running",
     subscribers: new Set(),
@@ -2339,7 +2344,10 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   if (memRun && (memRun.status === "running" || memRun.events.length > 0)) {
     const sqlSnapshot = await fetchRunThreadSnapshot(memRun.runId, threadId);
 
-    if (!sqlSnapshot && memRun.status !== "running") {
+    if (
+      memRun.status !== "running" &&
+      (!sqlSnapshot || sqlSnapshot.status === "running")
+    ) {
       const successor = await fetchNewerNonTerminalRunForSameTurn(
         threadId,
         memRun,
@@ -2361,7 +2369,11 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       }
     }
 
-    const status = legacyWireRunStatus(sqlSnapshot?.status ?? memRun.status);
+    const sqlStatus =
+      sqlSnapshot?.status === "running" && memRun.status !== "running"
+        ? memRun.status
+        : (sqlSnapshot?.status ?? memRun.status);
+    const status = legacyWireRunStatus(sqlStatus);
     const heartbeatAt =
       status === "running"
         ? Date.now()

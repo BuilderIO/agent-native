@@ -1,6 +1,11 @@
 import { isBoardFile } from "@shared/board-file";
 import { normalizedDesignFileType } from "@shared/design-files";
-import { isClosedPathData } from "@shared/pen-path";
+import {
+  isClosedPathData,
+  serializePenNodes,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
 import {
   vectorEndpointAttributesMarkup,
   vectorEndpointDefsMarkup,
@@ -212,6 +217,37 @@ export function polygonPointsForHtmlShape(
         `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`,
     )
     .join(" ");
+}
+
+export function updateCanvasPolygonSvgGeometry(
+  svg: SVGSVGElement,
+  kind: "polygon" | "star",
+  width: number,
+  height: number,
+): void {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  svg.setAttribute("viewBox", `0 0 ${safeWidth} ${safeHeight}`);
+  const polygon = svg.querySelector<SVGPolygonElement>(":scope > polygon");
+  if (polygon) {
+    polygon.setAttribute(
+      "points",
+      polygonPointsForHtmlShape(kind, safeWidth, safeHeight),
+    );
+    return;
+  }
+
+  const nodes = polygonPointsForHtmlShape(kind, safeWidth, safeHeight)
+    .split(/\s+/)
+    .map((pair) => {
+      const [x, y] = pair!.split(",").map(Number);
+      return { point: { x: x!, y: y! } };
+    });
+  const path: PenPath = { closed: true, nodes };
+  svg.setAttribute("data-an-pen-nodes", serializePenNodes(path));
+  svg
+    .querySelector<SVGPathElement>(":scope > path")
+    ?.setAttribute("d", serializePenPath(path));
 }
 
 function absoluteRect(
@@ -508,13 +544,9 @@ export function appendCanvasPrimitiveToHtml(
 
     if (primitive.kind === "polygon" || primitive.kind === "star") {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const polygon = doc.createElementNS(
+      const shapePath = doc.createElementNS(
         "http://www.w3.org/2000/svg",
-        "polygon",
-      );
-      polygon.setAttribute(
-        "points",
-        polygonPointsForHtmlShape(primitive.kind, width, height),
+        "path",
       );
       const polygonPaint = canvasVectorPaint({
         outline: "shape",
@@ -522,14 +554,13 @@ export function appendCanvasPrimitiveToHtml(
         stroke: primitive.stroke,
         strokeWidth: primitive.strokeWidth,
       });
-      polygon.setAttribute("fill", polygonPaint.fill);
-      polygon.setAttribute("stroke", polygonPaint.stroke);
-      polygon.setAttribute("stroke-width", String(polygonPaint.strokeWidth));
-      polygon.setAttribute("stroke-linejoin", "round");
+      shapePath.setAttribute("fill", polygonPaint.fill);
+      shapePath.setAttribute("stroke", polygonPaint.stroke);
+      shapePath.setAttribute("stroke-width", String(polygonPaint.strokeWidth));
+      shapePath.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
       svg.setAttribute("data-an-primitive", primitive.kind);
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute(
         "style",
@@ -545,7 +576,8 @@ export function appendCanvasPrimitiveToHtml(
           .filter(Boolean)
           .join(";"),
       );
-      svg.appendChild(polygon);
+      svg.appendChild(shapePath);
+      updateCanvasPolygonSvgGeometry(svg, primitive.kind, width, height);
       return finishPrimitive(svg);
     }
 

@@ -41,7 +41,8 @@ const getSettingMock = vi.fn(async (key: string) => {
     : (globalSettings.get(key) ?? null);
 });
 
-vi.mock("../../settings/store.js", () => ({
+vi.mock("../../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../settings/store.js")>()),
   getSetting: (...args: any[]) => getSettingMock(...args),
   getSettings: (...args: any[]) => getSettingsMock(...args),
   mutateSetting: vi.fn(),

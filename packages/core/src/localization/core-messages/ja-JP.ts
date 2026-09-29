@@ -98,6 +98,7 @@ const messages: AgentChatTranslation = {
   "observability.summaryExpired":
     "まだ要約が表示されていません。再試行できますが、エージェントが処理中の可能性があります。",
   "observability.promoteMustContain": "返信に含める内容…",
+  "observability.promoteMustContainOptional": "返信に含める内容（任意）…",
   "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
@@ -1330,8 +1331,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "招待リンクをコピー",
   "usage.inviteLinkCopied": "招待リンクをコピーしました",
   "usage.creditBalance": "ワークスペース残高",
-  "usage.monthlyPlan": "月間プラン",
-  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.monthlyLimit": "月間上限",
+  "usage.dailyDefaultLimit": "デフォルトの日次上限",
   "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
   "usage.creditRemaining": "残り {{amount}}",
   "usage.creditUsageUnavailable":

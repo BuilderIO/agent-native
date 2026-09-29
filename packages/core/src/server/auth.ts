@@ -3568,7 +3568,7 @@ function createAuthGuardFn(
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
     const requestPath = queryStart >= 0 ? url : rawPath;
-    const p = stripAppBasePath(rawPath);
+    const p = stripAppBasePath(canonicalFrameworkPathname(rawPath));
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const previewCallbackRelay =
       await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);

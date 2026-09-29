@@ -95,6 +95,7 @@ const messages: AgentChatTranslation = {
   "observability.summaryExpired":
     "अभी तक कोई सारांश दिखाई नहीं दिया है। आप फिर से कोशिश कर सकते हैं, लेकिन एजेंट अभी भी काम कर रहा हो सकता है।",
   "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainOptional": "जवाब में यह हो सकता है… (वैकल्पिक)",
   "observability.promoteMustContainLabel":
     "वह टेक्स्ट जो प्रमोट किए गए मूल्यांकन के जवाब में होना चाहिए",
   "observability.promoteNeedsContains":
@@ -1296,8 +1297,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "आमंत्रण लिंक कॉपी करें",
   "usage.inviteLinkCopied": "आमंत्रण लिंक कॉपी हो गया",
   "usage.creditBalance": "वर्कस्पेस बैलेंस",
-  "usage.monthlyPlan": "मासिक प्लान",
-  "usage.dailyFreeLimit": "मुफ़्त दैनिक सीमा",
+  "usage.monthlyLimit": "मासिक सीमा",
+  "usage.dailyDefaultLimit": "डिफ़ॉल्ट दैनिक सीमा",
   "usage.creditUsedOfLimit": "{{limit}} में से {{used}} उपयोग किए",
   "usage.creditRemaining": "{{amount}} शेष",
   "usage.creditUsageUnavailable": "Builder क्रेडिट उपयोग लोड नहीं हो सका।",

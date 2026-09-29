@@ -95,6 +95,8 @@ const messages: AgentChatTranslation = {
   "observability.summaryExpired":
     "لم يظهر ملخص بعد. يمكنك إعادة المحاولة، لكن قد يكون الوكيل لا يزال يعمل.",
   "observability.promoteMustContain": "يجب أن يتضمن الرد…",
+  "observability.promoteMustContainOptional":
+    "ما يُفضّل أن يتضمنه الرد (اختياري)…",
   "observability.promoteMustContainLabel":
     "النص الذي يجب أن يتضمنه رد التقييم المُروَّج",
   "observability.promoteNeedsContains":
@@ -1344,8 +1346,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "نسخ رابط الدعوة",
   "usage.inviteLinkCopied": "تم نسخ رابط الدعوة",
   "usage.creditBalance": "رصيد مساحة العمل",
-  "usage.monthlyPlan": "الخطة الشهرية",
-  "usage.dailyFreeLimit": "الحد اليومي المجاني",
+  "usage.monthlyLimit": "الحد الشهري",
+  "usage.dailyDefaultLimit": "الحد اليومي الافتراضي",
   "usage.creditUsedOfLimit": "استخدام {{used}} من {{limit}}",
   "usage.creditRemaining": "المتبقي {{amount}}",
   "usage.creditUsageUnavailable": "تعذّر تحميل استخدام أرصدة Builder.",

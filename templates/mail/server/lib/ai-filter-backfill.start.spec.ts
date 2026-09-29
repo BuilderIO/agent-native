@@ -429,6 +429,20 @@ describe("startMailAiFilterBackfill", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
+  it("does not claim a backfill after the sweep deadline", async () => {
+    database.rows.push({
+      ...runningRow([rule("rule-a")]),
+      status: "queued",
+    });
+
+    await expect(
+      processMailAiFilterBackfills(undefined, undefined, Date.now() - 1),
+    ).rejects.toThrow("Mail AI-filter backfill sweep deadline reached.");
+
+    expect(database.rows[0].claimId).toBeNull();
+    expect(database.rows[0].status).toBe("queued");
+  });
+
   it("queues without synchronously resolving model availability", async () => {
     mocks.rules = [rule("rule-a")];
 
