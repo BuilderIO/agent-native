@@ -123,6 +123,33 @@ describe("principal-scoped MCP managers", () => {
     ).not.toBe(bob);
   });
 
+  it("stops an invalidated manager after its pending hydration settles", async () => {
+    let resolveConfig!: (config: unknown) => void;
+    mockedMcp.buildMergedConfig.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveConfig = resolve)),
+    );
+    const pending = getMcpManagerForPrincipal({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    const result = pending.then(
+      () => null,
+      (error) => error,
+    );
+    await Promise.resolve();
+    const manager = mockedMcp.managers[0]!;
+    const invalidation = invalidateMcpManagersForScope("org", "acme");
+
+    await Promise.resolve();
+    expect(manager.stop).not.toHaveBeenCalled();
+    resolveConfig({ source: "alice@example.com", servers: {} });
+
+    expect(await result).toBeInstanceOf(Error);
+    await invalidation;
+    expect(manager.reconfigure).not.toHaveBeenCalled();
+    expect(manager.stop).toHaveBeenCalledOnce();
+  });
+
   it("refreshes only managers for the changed principal scope", async () => {
     const alice = await getMcpManagerForPrincipal({
       userEmail: "alice@example.com",

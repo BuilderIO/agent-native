@@ -836,6 +836,7 @@ describe("booking webhook dispatch", () => {
 
     await createBooking({
       eventType: makeEventType({ orgId: "org-b", teamId: "team-b" }),
+      orgId: "org-b",
       hostEmail: "user-b@example.com",
       startTime: "2026-08-03T10:00:00.000Z",
       endTime: "2026-08-03T10:30:00.000Z",
@@ -862,6 +863,20 @@ describe("booking webhook dispatch", () => {
 });
 
 describe("createBooking", () => {
+  it("rejects a legacy org id absent from the event type", async () => {
+    await expect(
+      createBooking({
+        eventType: makeEventType(),
+        orgId: "org-b",
+        hostEmail: HOST_EMAIL,
+        startTime: "2026-08-03T10:00:00.000Z",
+        endTime: "2026-08-03T10:30:00.000Z",
+        timezone: "UTC",
+        attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+      }),
+    ).rejects.toThrow("Booking orgId must match the event type organization");
+  });
+
   it("creates a booking with attendees and references on a free slot", async () => {
     const now = new Date().toISOString();
     await execute({

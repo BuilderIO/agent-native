@@ -27,7 +27,7 @@ import {
   getFeedbackStats,
   getSatisfactionScores,
   getEvalStats,
-  listExperimentsPage,
+  listExperimentsPageResult,
   insertExperiment,
   getExperiment,
   updateExperiment,
@@ -402,7 +402,7 @@ export function createObservabilityHandler() {
       const q = getQuery(event);
       const beforeCreatedAt = Number(q.beforeCreatedAt);
       const beforeId = typeof q.beforeId === "string" ? q.beforeId : undefined;
-      return listExperimentsPage({
+      return listExperimentsPageResult({
         limit: parseLimit(q),
         ...(Number.isFinite(beforeCreatedAt) && beforeId
           ? { before: { createdAt: beforeCreatedAt, id: beforeId } }

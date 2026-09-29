@@ -37,6 +37,7 @@ export interface CreateBookingInput {
   customResponses?: Record<string, any>;
   iCalUid?: string;
   iCalSequence?: number;
+  orgId?: string;
   fromReschedule?: string;
   requireZoomMeeting?: boolean;
 }
@@ -58,6 +59,9 @@ export async function createBooking(
   input: CreateBookingInput,
 ): Promise<Booking> {
   const eventType = input.eventType;
+  if (input.orgId !== undefined && input.orgId !== eventType.orgId) {
+    throw new Error("Booking orgId must match the event type organization");
+  }
   const title =
     input.title ??
     eventType.eventName?.replace("{attendeeName}", input.attendee.name) ??

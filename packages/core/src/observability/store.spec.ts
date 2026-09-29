@@ -77,6 +77,7 @@ const {
   listEvalDatasets,
   listExperiments,
   listExperimentsPage,
+  listExperimentsPageResult,
   insertFeedback,
   insertEvalDataset,
   listEvalDatasetsPage,
@@ -1567,17 +1568,48 @@ describe("observability list bounds", () => {
   });
 
   it("filters running experiments in SQL and pages the admin list", async () => {
-    await listExperimentsPage({
-      status: "running",
-      limit: 25,
-      before: { createdAt: 30, id: "experiment-c" },
-    });
+    await expect(
+      listExperimentsPage({
+        status: "running",
+        limit: 25,
+        before: { createdAt: 30, id: "experiment-c" },
+      }),
+    ).resolves.toEqual([]);
     const call = lastSelect();
     expect(call.sql).toContain("status = ?");
     expect(call.sql).toContain("created_at < ? OR (created_at = ? AND id < ?)");
     expect(call.sql).toContain("LIMIT ?");
     expect(call.sql).not.toContain("SELECT *");
-    expect(call.args).toEqual(["running", 30, 30, "experiment-c", 25]);
+    expect(call.args).toEqual(["running", 30, 30, "experiment-c", 26]);
+  });
+
+  it("returns an explicit cursor when another experiment page exists", async () => {
+    const row = (id: number) => ({
+      id: `experiment-${id}`,
+      name: `Experiment ${id}`,
+      status: "paused",
+      variants: "[]",
+      metrics: "[]",
+      assignment_level: "user",
+      started_at: null,
+      ended_at: null,
+      created_at: id,
+      owner_email: null,
+    });
+    executeResults.push({
+      rows: [row(30), row(20), row(10)],
+      rowsAffected: 0,
+    });
+
+    await expect(listExperimentsPageResult({ limit: 2 })).resolves.toEqual({
+      items: [
+        expect.objectContaining({ id: "experiment-30" }),
+        expect.objectContaining({ id: "experiment-20" }),
+      ],
+      nextCursor: { createdAt: 20, id: "experiment-20" },
+      hasMore: true,
+    });
+    expect(lastSelect().args).toEqual([3]);
   });
 
   it("returns the full legacy experiment list through bounded pages", async () => {
@@ -1595,7 +1627,7 @@ describe("observability list bounds", () => {
     });
     executeResults.push(
       {
-        rows: Array.from({ length: 100 }, (_, index) => row(200 - index)),
+        rows: Array.from({ length: 101 }, (_, index) => row(200 - index)),
         rowsAffected: 0,
       },
       { rows: [row(100)], rowsAffected: 0 },
@@ -1609,6 +1641,6 @@ describe("observability list bounds", () => {
     );
     expect(selects).toHaveLength(2);
     expect(selects.every((call) => /LIMIT \?/.test(call.sql))).toBe(true);
-    expect(selects[1]?.args).toEqual([101, 101, "experiment-101", 100]);
+    expect(selects[1]?.args).toEqual([101, 101, "experiment-101", 101]);
   });
 });

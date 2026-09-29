@@ -1922,13 +1922,17 @@ export async function updateExperiment(
   });
 }
 
-export async function listExperimentsPage(
+export async function listExperimentsPageResult(
   options: {
     status?: Experiment["status"];
     limit?: number;
     before?: { createdAt: number; id: string };
   } = {},
-): Promise<Experiment[]> {
+): Promise<{
+  items: Experiment[];
+  nextCursor: { createdAt: number; id: string } | null;
+  hasMore: boolean;
+}> {
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -1954,9 +1958,28 @@ export async function listExperimentsPage(
       FROM agent_experiments ${where}
       ORDER BY created_at DESC, id DESC
       LIMIT ?`,
-    args: [...args, limit],
+    args: [...args, limit + 1],
   });
-  return (rows as any[]).map(rowToExperiment);
+  const experiments = (rows as any[]).map(rowToExperiment);
+  const hasMore = experiments.length > limit;
+  const items = experiments.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    hasMore,
+    nextCursor:
+      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+  };
+}
+
+export async function listExperimentsPage(
+  options: {
+    status?: Experiment["status"];
+    limit?: number;
+    before?: { createdAt: number; id: string };
+  } = {},
+): Promise<Experiment[]> {
+  return (await listExperimentsPageResult(options)).items;
 }
 
 export async function listExperiments(): Promise<Experiment[]> {

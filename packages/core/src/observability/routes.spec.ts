@@ -76,7 +76,8 @@ vi.mock("./store.js", () => ({
   getFeedbackStats: (...args: unknown[]) => mockGetFeedbackStats(...args),
   getSatisfactionScores: vi.fn(),
   getEvalStats: vi.fn(),
-  listExperimentsPage: (...args: unknown[]) => mockListExperimentsPage(...args),
+  listExperimentsPageResult: (...args: unknown[]) =>
+    mockListExperimentsPage(...args),
   insertExperiment: vi.fn(),
   getExperiment: vi.fn(),
   updateExperiment: vi.fn(),
@@ -114,7 +115,11 @@ describe("observability routes", () => {
       model: "gpt-5.6-terra",
     });
     mockInsertFeedback.mockResolvedValue(true);
-    mockListExperimentsPage.mockResolvedValue([]);
+    mockListExperimentsPage.mockResolvedValue({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    });
   });
 
   it("handles HEAD like GET for read endpoints", async () => {
@@ -230,7 +235,11 @@ describe("observability routes", () => {
     const handler = createObservabilityHandler() as any;
     const event = createEvent("/experiments");
 
-    await expect(handler(event)).resolves.toEqual([]);
+    await expect(handler(event)).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    });
     expect(event._status).toBe(200);
   });
 
@@ -238,10 +247,18 @@ describe("observability routes", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS", "alice@example.com");
     const handler = createObservabilityHandler() as any;
+    const page = {
+      items: [{ id: "exp-1" }],
+      nextCursor: { createdAt: 123, id: "exp-1" },
+      hasMore: true,
+    };
+    mockListExperimentsPage.mockResolvedValue(page);
 
-    await handler(
-      createEvent("/experiments?limit=25&beforeCreatedAt=123&beforeId=exp-7"),
-    );
+    await expect(
+      handler(
+        createEvent("/experiments?limit=25&beforeCreatedAt=123&beforeId=exp-7"),
+      ),
+    ).resolves.toEqual(page);
 
     expect(mockListExperimentsPage).toHaveBeenCalledWith({
       limit: 25,

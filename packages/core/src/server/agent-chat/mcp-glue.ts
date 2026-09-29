@@ -45,6 +45,11 @@ async function stopEntry(entry: McpManagerEntry): Promise<void> {
   }
 }
 
+async function stopEntryAfterReady(entry: McpManagerEntry): Promise<void> {
+  await entry.ready?.catch(() => undefined);
+  await stopEntry(entry);
+}
+
 function evictExpiredManagers(now: number): void {
   for (const [key, entry] of managers) {
     if (entry.ready || now - entry.lastAccessedAt <= MCP_MANAGER_IDLE_TTL_MS)
@@ -64,8 +69,12 @@ function evictLeastRecentlyUsedManager(): boolean {
   return true;
 }
 
-async function hydrateEntry(entry: McpManagerEntry): Promise<void> {
+async function hydrateEntry(
+  key: string,
+  entry: McpManagerEntry,
+): Promise<void> {
   const config = await buildMergedConfig(entry.principal);
+  if (managers.get(key) !== entry) return;
   await entry.manager.reconfigure(config);
   entry.configuredAt = Date.now();
 }
@@ -100,9 +109,11 @@ export async function getMcpManagerForPrincipal(
 
   if (forceRefresh || now - entry.configuredAt >= MCP_CONFIG_TTL_MS) {
     if (!entry.ready) {
-      entry.ready = hydrateEntry(entry).catch(async (error) => {
-        if (managers.get(key) === entry) managers.delete(key);
-        await stopEntry(entry!);
+      entry.ready = hydrateEntry(key, entry).catch(async (error) => {
+        if (managers.get(key) === entry) {
+          managers.delete(key);
+          await stopEntry(entry!);
+        }
         throw error;
       });
     }
@@ -164,13 +175,13 @@ export async function invalidateMcpManagersForScope(
     managers.delete(key);
     stale.push(entry);
   }
-  await Promise.all(stale.map(stopEntry));
+  await Promise.all(stale.map(stopEntryAfterReady));
 }
 
 export async function stopAllMcpManagers(): Promise<void> {
   const entries = [...managers.values()];
   managers.clear();
-  await Promise.all(entries.map(stopEntry));
+  await Promise.all(entries.map(stopEntryAfterReady));
 }
 
 export function _resetMcpManagerRegistryForTests(): Promise<void> {

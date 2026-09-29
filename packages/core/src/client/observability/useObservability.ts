@@ -368,13 +368,14 @@ export function useExperiments() {
           query.set("beforeCreatedAt", String(before.createdAt));
           query.set("beforeId", before.id);
         }
-        const page = await fetchJson<Experiment[]>(
-          `${BASE}/experiments?${query}`,
-        );
-        experiments.push(...page);
-        if (page.length < 100) return experiments;
-        const last = page.at(-1)!;
-        const next = { createdAt: last.createdAt, id: last.id };
+        const page = await fetchJson<{
+          items: Experiment[];
+          nextCursor: { createdAt: number; id: string } | null;
+          hasMore: boolean;
+        }>(`${BASE}/experiments?${query}`);
+        experiments.push(...page.items);
+        if (!page.hasMore || !page.nextCursor) return experiments;
+        const next = page.nextCursor;
         if (before?.createdAt === next.createdAt && before.id === next.id) {
           return experiments;
         }
