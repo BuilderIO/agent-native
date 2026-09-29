@@ -2,6 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
+const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(),
+);
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: readDefaultAgentEngineSettingMock,
+}));
+
 // Real in-memory PGlite behind getDbExec so the all-apps and per-app queries
 // run the genuine SQL, including the app-key expression and GROUP BY.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -130,6 +141,8 @@ function sumBuckets(
 
 beforeEach(async () => {
   nextId = 1;
+  readDefaultAgentEngineSettingMock.mockReset();
+  readDefaultAgentEngineSettingMock.mockResolvedValue(null);
   pglite = await createTestPglite();
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
@@ -483,5 +496,24 @@ describe("listAppUsageMetrics all apps billing unit", () => {
         }),
       ]),
     );
+  });
+
+  it("surfaces default-engine setting read failures", async () => {
+    process.env.AGENT_ENGINE = "ai-sdk:openai";
+    resetAppConfigForTests();
+    await insertUsage({ owner: "owner@example.com", app: "clips" });
+    const settingsError = new Error("settings unavailable");
+    readDefaultAgentEngineSettingMock.mockRejectedValueOnce(settingsError);
+
+    await expect(
+      listAppUsageMetrics(
+        { sinceDays: 30, scope: "me", builderCreditsEnabled: true },
+        {
+          ownerEmail: "owner@example.com",
+          orgId: "org-1",
+          app: ALL_USAGE_APPS,
+        },
+      ),
+    ).rejects.toBe(settingsError);
   });
 });

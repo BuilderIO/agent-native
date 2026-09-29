@@ -1142,19 +1142,13 @@ async function hydrateRecentPrompts(
 }
 
 async function detectUsageEngineName(): Promise<string | null> {
-  try {
-    const { readDefaultAgentEngineSetting } =
-      await import("../agent/default-agent-engine.js");
-    const stored = (await readDefaultAgentEngineSetting()) as {
-      engine?: unknown;
-    } | null;
-    if (typeof stored?.engine === "string" && stored.engine.trim()) {
-      return stored.engine;
-    }
-  } catch {
-    // coercion-ok: engine settings are optional; raw usage rows remain authoritative.
-    // The metrics action can still render USD estimates when engine settings
-    // are unavailable; the underlying usage rows remain authoritative.
+  const { readDefaultAgentEngineSetting } =
+    await import("../agent/default-agent-engine.js");
+  const stored = (await readDefaultAgentEngineSetting()) as {
+    engine?: unknown;
+  } | null;
+  if (typeof stored?.engine === "string" && stored.engine.trim()) {
+    return stored.engine;
   }
   return getAppConfig().agent.engine ?? null;
 }
