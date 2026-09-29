@@ -1087,6 +1087,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, merge it. Security approval is not needed to merge.",
   ],
   [
+    true,
+    "If no changes are needed, merge this PR. Required security approval must be granted before merging other PRs.",
+  ],
+  [
+    true,
+    "If no changes are needed, merge it. Security approval is needed before deployment.",
+  ],
+  [
     false,
     "If no changes are needed, this PR is ready to merge. The security team must sign off before we can merge.",
   ],
