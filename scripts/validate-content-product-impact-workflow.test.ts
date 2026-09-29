@@ -155,7 +155,7 @@ describe("Content product conformance workflow boundary", () => {
   it("rejects a candidate-controlled controller or package script", () => {
     const unsafe = workflow
       .replace(
-        "ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c",
+        "ref: 72715043afb74b9e4ab82bdb763f812ce180becd",
         "ref: ${{ github.event.pull_request.head.sha }}",
       )
       .replace(
