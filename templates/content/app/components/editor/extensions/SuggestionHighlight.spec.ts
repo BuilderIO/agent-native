@@ -268,6 +268,60 @@ describe("SuggestionHighlight", () => {
     ).toHaveLength(0);
   });
 
+  it("keeps a replacement preview while the old text starts with the accepted text", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "prefix-replacement",
+      kind: "replace",
+      from: 1,
+      to: 9,
+      insertedText: "New",
+      settling: true,
+      settlingBeforePresentation: { source: "New York", from: 0, to: 8 },
+      insertedPresentation: { source: "New", from: 0, to: 3 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("New York peer"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("New peer"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a repeated-text deletion preview until readback proves settlement", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "repeated-deletion",
+      kind: "delete",
+      from: 1,
+      to: 4,
+      settling: true,
+      settlingBeforePresentation: { source: "foofoo", from: 0, to: 3 },
+      insertedPresentation: { source: "foo", from: 0, to: 0 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("foofoo peer"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("foo peer"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(
+          setSpecs(state("foo peer"), [
+            { ...spec, settlingReadbackContent: "foo peer" },
+          ]),
+        )!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",

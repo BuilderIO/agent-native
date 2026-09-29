@@ -199,9 +199,19 @@ function settledAtOperation(
 ) {
   const presentation = spec.insertedPresentation;
   if (!presentation) return false;
-  if (spec.kind === "insert" || spec.kind === "replace")
+  if (spec.kind === "insert")
     return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
-  if (spec.kind !== "delete") return false;
+  if (spec.kind !== "delete" && spec.kind !== "replace") return false;
+  const before = spec.settlingBeforePresentation;
+  if (!before) return false;
+  const removed = before.source.slice(before.from, before.to);
+  if (
+    removed &&
+    doc.textBetween(spec.from, spec.from + removed.length) === removed
+  )
+    return false;
+  if (spec.kind === "replace")
+    return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
   const right = presentation.source.slice(
     presentation.from,
     presentation.from + 32,
