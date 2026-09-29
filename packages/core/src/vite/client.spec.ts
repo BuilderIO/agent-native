@@ -535,7 +535,12 @@ function flatPlugins(plugins: any[] | undefined): any[] {
 
 describe("dev action bridge origin", () => {
   beforeEach(() => {
+    vi.stubEnv("DATABASE_URL", undefined);
     mockWriteDevActionDiscoveryFile.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   // The recorded origin must BE the URL Vite prints: the browser cookie jar
