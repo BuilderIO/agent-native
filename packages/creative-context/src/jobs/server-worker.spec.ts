@@ -31,6 +31,10 @@ const mocks = vi.hoisted(() => ({
   isProductionServerlessFunctionRuntime: vi.fn(() => false),
   recurringSweepHandlers: new Map<string, () => Promise<void>>(),
   registerRecurringSweepHandler: vi.fn(),
+  scheduledTriggerAvailability: vi.fn(() => ({
+    available: true,
+    driver: "netlify-scheduled-function",
+  })),
 }));
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
@@ -49,6 +53,7 @@ vi.mock("@agent-native/core/server", () => ({
   isInBackgroundFunctionRuntime: mocks.isInBackgroundFunctionRuntime,
   readBody: mocks.readBody,
   registerRecurringSweepHandler: mocks.registerRecurringSweepHandler,
+  scheduledTriggerAvailability: mocks.scheduledTriggerAvailability,
   verifyInternalToken: mocks.verifyInternalToken,
 }));
 
@@ -109,6 +114,11 @@ describe("creative context hosted worker", () => {
         return () => mocks.recurringSweepHandlers.delete(id);
       },
     );
+    mocks.scheduledTriggerAvailability.mockReset();
+    mocks.scheduledTriggerAvailability.mockReturnValue({
+      available: true,
+      driver: "netlify-scheduled-function",
+    });
     mocks.getH3App.mockReturnValue({ use: mocks.h3Use });
     mocks.readBody.mockReset();
     vi.unstubAllEnvs();
@@ -193,6 +203,40 @@ describe("creative context hosted worker", () => {
     expect(mocks.enqueueDailyMaintenance).toHaveBeenCalledWith({
       appId: "serverless",
     });
+  });
+
+  it("scans for daily maintenance only on the hourly sweep tick", async () => {
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+    await createCreativeContextWorkerPlugin({ appId: "serverless-hourly" })({});
+    const sweep = mocks.recurringSweepHandlers.get(
+      "creative-context:serverless-hourly",
+    );
+
+    vi.setSystemTime(new Date("2026-07-16T17:01:00.000Z"));
+    await sweep!();
+    expect(mocks.processDue).toHaveBeenCalledTimes(1);
+    expect(mocks.enqueueDailyMaintenance).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date("2026-07-16T18:00:00.000Z"));
+    await sweep!();
+    expect(mocks.enqueueDailyMaintenance).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns when a serverless runtime has no platform scheduler for the sweep", async () => {
+    mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mocks.scheduledTriggerAvailability.mockReturnValue({
+      available: false,
+      reason: "no-platform-scheduler",
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await createCreativeContextWorkerPlugin({ appId: "serverless-vercel" })({});
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no platform scheduler"),
+    );
+    expect(mocks.processDue).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("fails the scheduled sweep loudly when due jobs cannot be dispatched", async () => {

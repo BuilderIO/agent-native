@@ -11,6 +11,7 @@ import {
   isInBackgroundFunctionRuntime,
   readBody,
   registerRecurringSweepHandler,
+  scheduledTriggerAvailability,
   verifyInternalToken,
   type NitroPluginDef,
 } from "@agent-native/core/server";
@@ -35,6 +36,7 @@ const mountedApps = new WeakSet<object>();
 const delayedDispatches = new Map<string, ReturnType<typeof setTimeout>>();
 const sweepTimers = new Map<string, ReturnType<typeof setInterval>>();
 const recurringSweepRegistrations = new Map<string, () => void>();
+const warnedUnscheduledApps = new Set<string>();
 const maintenanceTimers = new Map<string, ReturnType<typeof setInterval>>();
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60_000;
@@ -62,10 +64,9 @@ export function createCreativeContextWorkerPlugin(input: {
     // every cold request its queries, and the interval only fires while some
     // unrelated request keeps the instance warm. The platform scheduler drives
     // the recurring sweep handler above there instead.
-    if (
-      !isInBackgroundFunctionRuntime() &&
-      !isProductionServerlessFunctionRuntime()
-    ) {
+    if (isProductionServerlessFunctionRuntime()) {
+      warnWithoutPlatformScheduler(appId);
+    } else if (!isInBackgroundFunctionRuntime()) {
       startCreativeContextImportSweep({ appId });
       startCreativeContextDailyMaintenance({ appId });
     }
@@ -178,10 +179,16 @@ export async function runCreativeContextRecurringSweep(input: {
 }): Promise<void> {
   const appId = input.appId.trim();
   if (!appId) throw new Error("appId is required.");
+  // The platform sweep ticks every minute, but maintenance is daily and
+  // deduped per source-day, so scanning for due sources once an hour is
+  // enough and keeps a failing source from re-querying access every tick.
+  const maintenanceDue = new Date().getUTCMinutes() === 0;
   const [imports, background, maintenance] = await Promise.all([
     processDueCreativeContextImportJobs({ appId }),
     processDueCreativeContextBackgroundJobs({ appId }),
-    enqueueCreativeContextDailyMaintenance({ appId }),
+    maintenanceDue
+      ? enqueueCreativeContextDailyMaintenance({ appId })
+      : { discovered: 0, queued: 0, failed: 0 },
   ]);
   const failures = [
     imports.failed ? `${imports.failed} due import dispatch(es)` : null,
@@ -197,6 +204,15 @@ export async function runCreativeContextRecurringSweep(input: {
       `[creative-context] recurring sweep for ${appId} failed: ${failures.join(", ")}.`,
     );
   }
+}
+
+function warnWithoutPlatformScheduler(appId: string): void {
+  const availability = scheduledTriggerAvailability();
+  if (availability.available || warnedUnscheduledApps.has(appId)) return;
+  warnedUnscheduledApps.add(appId);
+  console.warn(
+    `[creative-context] ${appId}: no platform scheduler drives the recurring sweep (${availability.reason}); due imports, background jobs, and daily maintenance will not be redispatched in this runtime.`,
+  );
 }
 
 export function registerCreativeContextRecurringSweep(input: {
