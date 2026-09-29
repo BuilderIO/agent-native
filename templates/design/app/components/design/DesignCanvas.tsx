@@ -491,7 +491,13 @@ type StyleReplayPatch = {
   interactionState?: InteractionState;
 };
 
-type BridgeRegistrationAttemptResult = boolean | "stale-preview-token" | null;
+const LIVE_EDIT_BRIDGE_REGISTRATION_TIMEOUT_MS = 15_000;
+
+type BridgeRegistrationAttemptResult =
+  | boolean
+  | "registration-timeout"
+  | "stale-preview-token"
+  | null;
 
 export type EditorDragStateChange = {
   active: boolean;
@@ -532,6 +538,7 @@ interface DesignCanvasProps {
    */
   sourceType?: "inline" | "localhost" | "fusion";
   bridgeUrl?: string;
+  allowLocalNetworkAccessPrompt?: boolean;
   previewUrlOverride?: string;
   previewUrlSourceKey?: string;
   connectionId?: string;
@@ -1250,6 +1257,7 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  allowLocalNetworkAccessPrompt = true,
   previewUrlOverride,
   previewUrlSourceKey,
   connectionId,
@@ -2279,6 +2287,7 @@ export function DesignCanvas({
   const waitingForLiveEditBridge =
     usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
   const showProactiveLocalNetworkAccessPrompt =
+    allowLocalNetworkAccessPrompt &&
     usesLiveEditInjectedBridge &&
     localNetworkAccessPermissionState === "prompt" &&
     !liveEditBridgeRegistered &&
@@ -2438,21 +2447,36 @@ export function DesignCanvas({
         bridgeRegistrationAttemptGenerationRef.current === generation;
       setBridgeConnectionLostError(null);
       const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
+      const controller = new AbortController();
+      let registrationTimedOut = false;
       try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-design-preview-token": effectivePreviewToken,
-            "x-agent-native-live-edit-registration-capability":
-              effectiveLiveEditRegistrationCapability ??
-              effectiveLiveEditCapability!,
-          },
-          body: JSON.stringify({
-            script: liveEditBridgeScript,
-            bridgeKey: liveEditBridgeKey,
-            designId,
+        let timeoutId: number | undefined;
+        const response = await Promise.race([
+          fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-design-preview-token": effectivePreviewToken,
+              "x-agent-native-live-edit-registration-capability":
+                effectiveLiveEditRegistrationCapability ??
+                effectiveLiveEditCapability!,
+            },
+            body: JSON.stringify({
+              script: liveEditBridgeScript,
+              bridgeKey: liveEditBridgeKey,
+              designId,
+            }),
+            signal: controller.signal,
           }),
+          new Promise<never>((_resolve, reject) => {
+            timeoutId = window.setTimeout(() => {
+              registrationTimedOut = true;
+              controller.abort();
+              reject(new Error("Live editor bridge registration timed out"));
+            }, LIVE_EDIT_BRIDGE_REGISTRATION_TIMEOUT_MS);
+          }),
+        ]).finally(() => {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
         });
         if (isPreviewTokenStaleStatus(response.status)) {
           if (!isCurrent()) return null;
@@ -2577,13 +2601,21 @@ export function DesignCanvas({
         setRegisteredLiveEditBridgeKey(null);
         setBridgeRegistrationError({
           bridgeKey: liveEditBridgeKey,
-          message: error instanceof Error ? error.message : String(error),
+          message: registrationTimedOut
+            ? ""
+            : error instanceof Error
+              ? error.message
+              : String(error),
         });
         setConnectingLocalNetworkAccess(false);
-        void classifyBridgeRegistrationFailure().then((kind) => {
-          if (isCurrent()) setBridgeRegistrationFailureKind(kind);
-        });
-        return false;
+        if (registrationTimedOut) {
+          setBridgeRegistrationFailureKind("maybePermissionBlocked");
+        } else {
+          void classifyBridgeRegistrationFailure().then((kind) => {
+            if (isCurrent()) setBridgeRegistrationFailureKind(kind);
+          });
+        }
+        return registrationTimedOut ? "registration-timeout" : false;
       }
     }, [
       bridgeUrl,

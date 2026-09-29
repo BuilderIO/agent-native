@@ -509,6 +509,14 @@ test.describe.serial("public visual edit", () => {
         );
       }
       if (response.status() === 401 || response.status() === 403) {
+        const requestHeaders = response.request().headers();
+        const embedTarget =
+          requestHeaders["x-agent-native-embed-target"] ?? "<missing>";
+        const requestUrl = new URL(response.url());
+        const targetQuery =
+          requestUrl.searchParams.get("__an_embed_target") ?? "<missing>";
+        const urlHasEmbedToken =
+          requestUrl.searchParams.has("__an_embed_token");
         void response
           .json()
           .then((body: unknown) => {
@@ -518,12 +526,12 @@ test.describe.serial("public visual edit", () => {
                   (body as { hint?: unknown }).hint)
                 : undefined;
             unauthorizedResponses.push(
-              `${response.status()} ${response.request().resourceType()} ${new URL(response.url()).pathname}${details ? ` (${String(details).slice(0, 160)})` : ""}`,
+              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}${details ? ` (${String(details).slice(0, 160)})` : ""}`,
             );
           })
           .catch(() => {
             unauthorizedResponses.push(
-              `${response.status()} ${response.request().resourceType()} ${new URL(response.url()).pathname}`,
+              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}`,
             );
           });
       }
@@ -808,6 +816,10 @@ test.describe.serial("public visual edit", () => {
                 embedded: url.searchParams.get("embedded"),
                 embedChrome: url.searchParams.get("embedChrome"),
                 agentSidebar: url.searchParams.get("agentSidebar"),
+                embedTokenQuery: url.searchParams.has("__an_embed_token"),
+                storedEmbedToken: Boolean(
+                  sessionStorage.getItem("agent-native:embed-auth-token"),
+                ),
               };
             }),
           )}\nRoute responses: ${routeResponses.join(", ")}\nBridge responses: ${bridgeResponses.join(", ")}\nUnauthorized responses: ${unauthorizedResponses.join(", ")}\nPage errors: ${pageErrors.join(" | ")}\nIframes: ${JSON.stringify(iframeDiagnostics)}\nChild frames: ${JSON.stringify(childFrameDiagnostics)}\nPage: ${await signedOut.page

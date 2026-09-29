@@ -20,6 +20,7 @@ import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
 } from "./design-canvas/external-preview";
+import * as externalPreview from "./design-canvas/external-preview";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import { DesignCanvas } from "./DesignCanvas";
 
@@ -178,6 +179,63 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       document.querySelector('[role="dialog"][data-state="open"]'),
     ).not.toBeNull();
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it("shows one proactive permission dialog for the active overview screen", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(
+      externalPreview,
+      "getLocalNetworkAccessPermissionState",
+    ).mockResolvedValue("prompt");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+
+    const canvas = (screenId: string, allowPrompt: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/account"
+        contentKey={screenId}
+        screenId={screenId}
+        sourceType="localhost"
+        bridgeUrl="http://127.0.0.1:7331"
+        previewToken={`preview-${screenId}`}
+        liveEditCapability="test-live-edit-capability"
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        allowLocalNetworkAccessPrompt={allowPrompt}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    try {
+      await act(async () => {
+        root.render(
+          <>
+            {canvas("screen-settings", false)}
+            {canvas("screen-library", true)}
+          </>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(
+        document.querySelectorAll('[role="dialog"][data-state="open"]'),
+      ).toHaveLength(1);
+      expect(
+        document.querySelectorAll('[role="dialog"] button[aria-label="Close"]'),
+      ).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
@@ -472,6 +530,77 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       root.render(renderSnapshotCanvas(true));
     });
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a hung bridge registration spinner with a shielded retry", async () => {
+    vi.useFakeTimers();
+    const registration = { signal: undefined as AbortSignal | undefined };
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          registration.signal = signal ?? undefined;
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/account"
+            contentKey="screen-account"
+            screenId="screen-account"
+            sourceType="localhost"
+            bridgeUrl="http://127.0.0.1:7331"
+            previewToken="registration-preview-token"
+            liveEditCapability="test-live-edit-capability"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("Preparing live editor");
+      expect(fetchMock).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(registration.signal?.aborted).toBe(true);
+      expect(container.textContent).not.toContain("Preparing live editor");
+      expect(container.textContent).toContain(
+        "Live editing is waiting for a connection",
+      );
+      expect(
+        Array.from(container.querySelectorAll("button")).some(
+          (button) => button.textContent?.trim() === "Retry",
+        ),
+      ).toBe(true);
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.style.pointerEvents,
+      ).toBe("none");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for registration without mounting srcdoc, then mounts one real live iframe", async () => {

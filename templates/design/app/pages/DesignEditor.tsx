@@ -24196,6 +24196,7 @@ function DesignEditor() {
           zoom={100}
           deviceFrame="none"
           sourceType={screenSourceType}
+          allowLocalNetworkAccessPrompt={screenIsActive}
           bridgeUrl={screenBridgeUrl}
           connectionId={screenSnapshotOnly ? undefined : screen.connectionId}
           nativePreviewActive={screenIsActive}
