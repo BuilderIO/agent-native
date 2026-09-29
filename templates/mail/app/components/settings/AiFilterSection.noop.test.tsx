@@ -41,12 +41,14 @@ const mocks = vi.hoisted(() => ({
   refetchAutomations: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     values ? `${key} ${Object.values(values).join(" ")}` : key,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   actionErrorMessage: (error: unknown) => String(error),
   useActionQuery: () => ({
     data: mocks.jevAvailabilityError
@@ -59,7 +61,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   sendToAgentChat: mocks.sendToAgentChat,
 }));
 
