@@ -32,7 +32,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
-import { sessionDateBound } from "../../../shared/session-date-bounds";
+import {
+  sessionDateBound,
+  sessionDateForDisplay,
+} from "../../../shared/session-date-bounds";
+import {
+  readSessionPage,
+  SESSION_PAGE_SIZE,
+} from "../../../shared/session-page";
 import {
   EmptySessionsState,
   formatSessionDuration,
@@ -69,7 +76,6 @@ type Page = {
   appCounts: { app: string; count: number }[];
 };
 
-const PAGE_SIZE = 100;
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
@@ -78,18 +84,6 @@ function validRange(value: string | null): Range {
   return value === "custom" || RANGES.includes(value as Range)
     ? (value as Range)
     : "30d";
-}
-
-function startOfDate(value: string | null): string | undefined {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
-}
-
-function endOfDate(value: string | null): string | undefined {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
-  const date = new Date(`${value}T23:59:59.999`);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
 }
 
 function rangeFrom(range: Range): string | undefined {
@@ -113,7 +107,7 @@ export function withCustomDate(
   const next = new URLSearchParams(current);
   next.set("range", "custom");
   const bound = key === "fromDate" ? "from" : "to";
-  const iso = key === "fromDate" ? startOfDate(value) : endOfDate(value);
+  const iso = sessionDateBound(value, key === "toDate");
   if (value && iso) {
     next.set(key, value);
     next.set(bound, iso);
@@ -166,10 +160,27 @@ export function SessionsTriagePage() {
   const minDurationMs = DURATIONS.includes(Number(params.get("minDurationMs")))
     ? Number(params.get("minDurationMs"))
     : 0;
-  const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
-  const fromDate =
-    params.get("fromDate") ?? params.get("from")?.slice(0, 10) ?? "";
-  const toDate = params.get("toDate") ?? params.get("to")?.slice(0, 10) ?? "";
+  const requestedPage = params.get("page");
+  const page = readSessionPage(requestedPage);
+  const fromDate = sessionDateForDisplay(
+    params.get("fromDate"),
+    params.get("from"),
+  );
+  const toDate = sessionDateForDisplay(params.get("toDate"), params.get("to"));
+
+  useEffect(() => {
+    if (requestedPage === null || requestedPage === String(page)) return;
+    setParams(
+      (current) => {
+        if (current.get("page") !== requestedPage) return current;
+        const next = new URLSearchParams(current);
+        if (page === 1) next.delete("page");
+        else next.set("page", String(page));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [requestedPage, page, setParams]);
 
   const setCustomDate = useCallback(
     (key: "fromDate" | "toDate", value: string) => {
@@ -234,14 +245,14 @@ export function SessionsTriagePage() {
       hasNetworkErrors: hasNetworkErrors || undefined,
       hasRageClicks: hasRageClicks || undefined,
       sort,
-      offset: (page - 1) * PAGE_SIZE,
-      limit: PAGE_SIZE,
+      offset: (page - 1) * SESSION_PAGE_SIZE,
+      limit: SESSION_PAGE_SIZE,
     },
     { staleTime: 30_000 },
   );
   const recordings = data?.recordings ?? [];
   const total = data?.total ?? 0;
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const lastPage = Math.max(1, Math.ceil(total / SESSION_PAGE_SIZE));
   useEffect(() => {
     if (!data || isLoading || isFetching || error || page <= lastPage) return;
     setParams(
@@ -334,7 +345,12 @@ export function SessionsTriagePage() {
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72">
             <div className="space-y-3">
-              <Label>{t("sessions.range")}</Label>
+              <div className="flex items-center justify-between">
+                <Label>{t("sessions.range")}</Label>
+                <span className="text-xs text-muted-foreground">
+                  {t("sessions.utc")}
+                </span>
+              </div>
               <Select
                 value={range}
                 onValueChange={(value) => setFilter("range", value)}
@@ -697,7 +713,7 @@ export function SessionsTriagePage() {
                   ))}
                 </div>
               )}
-              {total > PAGE_SIZE && (
+              {total > SESSION_PAGE_SIZE && (
                 <div className="flex items-center justify-between border-t px-4 py-3">
                   <Button
                     variant="outline"

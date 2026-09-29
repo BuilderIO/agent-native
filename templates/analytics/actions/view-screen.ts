@@ -23,6 +23,7 @@ import {
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
+import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 
 const SESSION_FILTER_KEYS = new Set([
   "range",
@@ -54,7 +55,6 @@ const SESSION_SORTS = new Set([
   "rage",
 ]);
 const SESSION_DURATIONS = new Set([0, 60_000, 300_000, 900_000, 1_800_000]);
-const SESSION_PAGE_SIZE = 100;
 const SESSION_EXCERPT_SIZE = 25;
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
@@ -232,12 +232,9 @@ export default defineAction({
           } else {
             const params = url?.searchParams ?? {};
             const customRange = params.range === "custom";
-            const page = Number.parseInt(params.page ?? "1", 10);
+            const page = readSessionPage(params.page);
             const minDurationMs = Number(params.minDurationMs);
-            const offset =
-              Number.isFinite(page) && page > 0
-                ? (page - 1) * SESSION_PAGE_SIZE
-                : 0;
+            const offset = (page - 1) * SESSION_PAGE_SIZE;
             const filters: SessionReplayListFilters = {
               from: customRange
                 ? (params.from ?? sessionDateBound(params.fromDate))

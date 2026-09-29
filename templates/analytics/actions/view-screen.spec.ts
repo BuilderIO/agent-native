@@ -442,4 +442,21 @@ describe("view-screen Sessions context", () => {
       truncated: false,
     });
   });
+
+  it("keeps an unsafe page out of the backend offset and context", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { page: "9007199254740993" },
+      },
+    );
+
+    const out = await runScreen();
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ offset: 0, limit: 25 }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({ page: 1, offset: 0 });
+  });
 });

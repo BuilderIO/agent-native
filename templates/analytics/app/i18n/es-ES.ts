@@ -1353,6 +1353,7 @@ export default {
     searchPlaceholder: "Buscar sesión, visitante, URL, ruta...",
     appPlaceholder: "Aplicación o plantilla",
     range: "Intervalo",
+    utc: "UTC",
     replay: "Reproducción",
     replayAll: "Todas las sesiones",
     replayWith: "Con reproducción",

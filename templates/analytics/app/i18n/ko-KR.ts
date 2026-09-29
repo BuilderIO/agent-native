@@ -1318,6 +1318,7 @@ export default {
     searchPlaceholder: "세션, 방문자, URL, 경로 검색...",
     appPlaceholder: "앱 또는 템플릿",
     range: "기간",
+    utc: "UTC",
     replay: "리플레이",
     replayAll: "모든 세션",
     replayWith: "리플레이 있음",

@@ -1307,6 +1307,7 @@ export default {
     searchPlaceholder: "सत्र, विज़िटर, URL, पथ खोजें...",
     appPlaceholder: "ऐप या टेम्पलेट",
     range: "अवधि",
+    utc: "UTC",
     replay: "रीप्ले",
     replayAll: "सभी सत्र",
     replayWith: "रीप्ले सहित",

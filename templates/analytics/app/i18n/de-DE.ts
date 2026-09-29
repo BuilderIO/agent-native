@@ -1365,6 +1365,7 @@ export default {
     searchPlaceholder: "Sitzung, Besucher, URL oder Pfad suchen...",
     appPlaceholder: "App oder Vorlage",
     range: "Zeitraum",
+    utc: "UTC",
     replay: "Wiedergabe",
     replayAll: "Alle Sitzungen",
     replayWith: "Mit Wiedergabe",

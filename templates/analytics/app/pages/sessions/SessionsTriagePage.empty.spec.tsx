@@ -160,4 +160,29 @@ describe("Sessions empty states", () => {
       expect.anything(),
     );
   });
+
+  it("normalizes an unsafe page before querying any large offset", async () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return <span data-testid="location">{location.search}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?page=9007199254740993"]}>
+          <SessionsTriagePage />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="location"]')?.textContent,
+    ).toBe("");
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-recordings",
+      expect.objectContaining({ offset: 0, limit: 100 }),
+      expect.anything(),
+    );
+  });
 });

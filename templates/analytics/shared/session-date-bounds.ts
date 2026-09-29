@@ -10,3 +10,13 @@ export function sessionDateBound(
     ? date.toISOString()
     : undefined;
 }
+
+export function sessionDateForDisplay(
+  dateOnly: string | null | undefined,
+  bound: string | null | undefined,
+): string {
+  if (dateOnly && sessionDateBound(dateOnly)) return dateOnly;
+  if (!bound) return "";
+  const date = new Date(bound);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
+}

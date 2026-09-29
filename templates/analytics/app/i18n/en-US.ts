@@ -1414,6 +1414,7 @@ export default {
     searchPlaceholder: "Search session, visitor, URL, path...",
     appPlaceholder: "App or template",
     range: "Range",
+    utc: "UTC",
     replay: "Replay",
     replayAll: "All sessions",
     replayWith: "With replay",

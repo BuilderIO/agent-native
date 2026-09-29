@@ -1354,6 +1354,7 @@ export default {
     searchPlaceholder: "搜尋工作階段、訪客、URL、路徑...",
     appPlaceholder: "應用或範本",
     range: "時間範圍",
+    utc: "UTC",
     replay: "回放",
     replayAll: "所有工作階段",
     replayWith: "有回放",

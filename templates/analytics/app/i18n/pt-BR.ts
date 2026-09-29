@@ -1348,6 +1348,7 @@ export default {
     searchPlaceholder: "Buscar sessão, visitante, URL, caminho...",
     appPlaceholder: "App ou template",
     range: "Período",
+    utc: "UTC",
     replay: "Replay",
     replayAll: "Todas as sessões",
     replayWith: "Com replay",

@@ -1271,6 +1271,7 @@ export default {
     searchPlaceholder: "搜索会话、访客、URL、路径...",
     appPlaceholder: "应用或模板",
     range: "时间范围",
+    utc: "UTC",
     replay: "回放",
     replayAll: "所有会话",
     replayWith: "有回放",

@@ -1318,6 +1318,7 @@ export default {
     searchPlaceholder: "ابحث عن جلسة أو زائر أو URL أو مسار...",
     appPlaceholder: "تطبيق أو قالب",
     range: "النطاق",
+    utc: "UTC",
     replay: "إعادة التشغيل",
     replayAll: "كل الجلسات",
     replayWith: "مع إعادة التشغيل",

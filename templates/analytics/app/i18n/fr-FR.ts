@@ -1363,6 +1363,7 @@ export default {
     searchPlaceholder: "Rechercher session, visiteur, URL, chemin...",
     appPlaceholder: "Application ou modèle",
     range: "Période",
+    utc: "UTC",
     replay: "Relecture",
     replayAll: "Toutes les sessions",
     replayWith: "Avec relecture",

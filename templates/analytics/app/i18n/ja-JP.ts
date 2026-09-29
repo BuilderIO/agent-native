@@ -1337,6 +1337,7 @@ export default {
     searchPlaceholder: "セッション、訪問者、URL、パスを検索...",
     appPlaceholder: "アプリまたはテンプレート",
     range: "期間",
+    utc: "UTC",
     replay: "リプレイ",
     replayAll: "すべてのセッション",
     replayWith: "リプレイあり",
