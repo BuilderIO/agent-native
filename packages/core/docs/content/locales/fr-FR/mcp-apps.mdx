@@ -24,7 +24,7 @@ Les extensions de plugins OpenAI ajoutent des points de lancement aux outils MCP
 
 Les boutons des routes d'applications intégrées peuvent appeler `sendToAgentChat(...)` pour poursuivre la conversation. Core envoie l'état sélectionné avec `ui/update-model-context` et `annotations.audience: ["assistant"]`, puis transmet le message visible avec `ui/message`. Les visionneuses de fichiers, les mentions du composeur et les autres extensions spécialisées nécessitent des contrats d'entrée propres à l'application.
 
-Sur les anciens hôtes, Core utilise une invite textuelle avec un contexte texte et JSON. Si le contenu riche ne peut pas être représenté ou si l'hôte refuse la mise à jour du contexte, `sendToAgentChat(...)` renvoie `false`.
+Sur les anciens hôtes, Core ne peut utiliser un repli textuel que si la requête ne contient aucun contexte réservé à l'assistant et peut être représentée en texte. Si un contexte sélectionné ou structuré est présent, si le contenu riche ne peut pas être représenté ou si l'hôte refuse la mise à jour du contexte, `sendToAgentChat(...)` renvoie `false`.
 
 ## Création : applications MCP en option UI {#mcp-apps}
 

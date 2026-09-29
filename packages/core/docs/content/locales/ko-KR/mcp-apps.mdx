@@ -24,7 +24,7 @@ OpenAI Plugin Extensions는 모델이 호출하는 MCP 도구에 앱 실행 진�
 
 임베드된 앱 경로의 버튼은 `sendToAgentChat(...)`를 호출해 대화를 이어갈 수 있습니다. Core는 선택된 상태를 `annotations.audience: ["assistant"]`와 함께 `ui/update-model-context`로 전송한 다음 사용자에게 보이는 프롬프트를 `ui/message`로 보냅니다. 파일 뷰어, 컴포저 멘션 및 기타 특수 확장에는 앱별 입력 계약이 필요합니다.
 
-이전 호스트에서는 Core가 텍스트 및 JSON 컨텍스트를 포함한 텍스트 프롬프트로 대체합니다. 리치 콘텐츠를 표현할 수 없거나 호스트가 컨텍스트 업데이트를 거부하면 `sendToAgentChat(...)`은 `false`를 반환합니다.
+이전 호스트에서는 요청에 assistant 전용 컨텍스트가 없고 텍스트로 표현할 수 있을 때만 Core가 텍스트 폴백을 사용합니다. 선택되었거나 구조화된 컨텍스트가 있거나, 리치 콘텐츠를 표현할 수 없거나, 호스트가 컨텍스트 업데이트를 거부하면 `sendToAgentChat(...)`은 `false`를 반환합니다.
 
 ## 작성: 선택적 MCP 앱 UI {#mcp-apps}
 

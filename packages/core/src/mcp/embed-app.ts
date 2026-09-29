@@ -128,6 +128,7 @@ export function embedApp(
     let openAiBridge = null;
     let lastOpenAiSyncSignature = null;
     let wrapperRequestId = 0;
+    let hostChatQueue = Promise.resolve();
     const wrapperRequests = new Map();
     let toolInput = {};
     let toolResultData = {};
@@ -1417,6 +1418,8 @@ export function embedApp(
     function openAiFollowUpPrompt(chat) {
       const message = typeof chat.message === "string" ? chat.message.trim() : "";
       const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      if (context || chat.structuredContent !== undefined) return null;
+
       const content = Array.isArray(chat.content) ? chat.content : [];
       const extraText = [];
       for (const part of content) {
@@ -1425,21 +1428,8 @@ export function embedApp(
         if (text && text !== message && !extraText.includes(text)) extraText.push(text);
       }
 
-      let structuredContent;
-      if (chat.structuredContent !== undefined) {
-        try {
-          structuredContent = JSON.stringify(chat.structuredContent);
-        } catch (err) {
-          console.warn("[agent-native] Cannot serialize MCP follow-up context", err);
-          return null;
-        }
-        if (structuredContent === undefined) return null;
-      }
-
       const sections = [message];
-      if (context) sections.push("Context:\\n" + context);
       if (extraText.length) sections.push("Additional text:\\n" + extraText.join("\\n\\n"));
-      if (structuredContent !== undefined) sections.push("Structured content:\\n" + structuredContent);
       return sections.filter(Boolean).join("\\n\\n");
     }
 
@@ -1497,7 +1487,13 @@ export function embedApp(
         });
     }
 
-    async function sendHostChat(chat) {
+    function sendHostChat(chat) {
+      const result = hostChatQueue.then(() => sendHostChatNow(chat));
+      hostChatQueue = result.then(() => undefined, () => undefined);
+      return result;
+    }
+
+    async function sendHostChatNow(chat) {
       const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";

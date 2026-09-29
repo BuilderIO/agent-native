@@ -24,7 +24,7 @@ OpenAI Plugin Extensions ergänzen die von Modellen aufgerufenen MCP-Tools um St
 
 Schaltflächen in eingebetteten App-Routen können `sendToAgentChat(...)` aufrufen, um die Unterhaltung fortzusetzen. Core sendet den ausgewählten Zustand mit `ui/update-model-context` und `annotations.audience: ["assistant"]` und übermittelt danach die sichtbare Eingabe mit `ui/message`. Dateivorschauen, Composer-Erwähnungen und andere spezialisierte Erweiterungen benötigen app-spezifische Eingabeverträge.
 
-Bei älteren Hosts verwendet Core eine Texteingabe mit Text- und JSON-Kontext. Lässt sich reichhaltiger Inhalt nicht darstellen oder lehnt der Host die Kontextaktualisierung ab, gibt `sendToAgentChat(...)` `false` zurück.
+Bei älteren Hosts kann Core nur dann auf Text ausweichen, wenn die Anfrage keinen nur für den Assistenten bestimmten Kontext enthält und sich als Text darstellen lässt. Sind ausgewählter oder strukturierter Kontext vorhanden, reichhaltige Inhalte nicht darstellbar oder lehnt der Host die Kontextaktualisierung ab, gibt `sendToAgentChat(...)` `false` zurück.
 
 ## Erstellung: optionale MCP Apps UI {#mcp-apps}
 

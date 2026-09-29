@@ -121,6 +121,7 @@ const listeners = new Set<() => void>();
 const pending = new Map<string, PendingRequest>();
 const jsonRpcPending = new Map<string, PendingJsonRpcRequest>();
 let directMcpAppInit: Promise<boolean> | null = null;
+let directHostChatQueue: Promise<void> = Promise.resolve();
 let listenerInstalled = false;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -427,6 +428,8 @@ function objectValue(value: unknown): Record<string, unknown> {
 }
 
 function openAiFollowUpPrompt(chat: McpAppHostChatMessage): string | null {
+  if (chat.context?.trim() || chat.structuredContent !== undefined) return null;
+
   const content = chat.content ?? [];
   if (content.some((part) => part.type !== "text")) return null;
 
@@ -438,27 +441,9 @@ function openAiFollowUpPrompt(chat: McpAppHostChatMessage): string | null {
     const trimmed = text.trim();
     if (trimmed && trimmed !== message) extraText.add(trimmed);
   }
-  let structuredContent: string | undefined;
-  if (chat.structuredContent !== undefined) {
-    try {
-      structuredContent = JSON.stringify(chat.structuredContent);
-    } catch (error) {
-      console.warn(
-        "[agent-native] Cannot serialize MCP follow-up context",
-        error,
-      );
-      return null;
-    }
-    if (structuredContent === undefined) return null;
-  }
-
   return [
     message,
-    chat.context?.trim() ? `Context:\n${chat.context.trim()}` : "",
     extraText.size ? `Additional text:\n${[...extraText].join("\n\n")}` : "",
-    structuredContent !== undefined
-      ? `Structured content:\n${structuredContent}`
-      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -480,6 +465,17 @@ async function sendOpenAiFollowUpFallback(
     ...requestModePayload,
   });
   return true;
+}
+
+function queueDirectHostChat(
+  operation: () => Promise<boolean>,
+): Promise<boolean> {
+  const result = directHostChatQueue.then(operation, operation);
+  directHostChatQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 function assistantOnlyContent(
@@ -631,7 +627,7 @@ export function sendMcpAppHostMessage(
 
   if (hasWrapperBridge()) return postWrapperHostChat(chat);
 
-  return (async () => {
+  return queueDirectHostChat(async () => {
     const openAiBridge = readOpenAiBridge();
     const context = chat.context?.trim() || null;
     const requestMode = normalizeMcpAppHostRequestMode(
@@ -708,7 +704,10 @@ export function sendMcpAppHostMessage(
       }
     }
     return true;
-  })().catch(() => false);
+  }).catch((error) => {
+    console.warn("[agent-native] MCP App host chat submission failed", error);
+    return false;
+  });
 }
 
 export function getMcpAppHostContext(): McpAppHostContextSnapshot {
@@ -773,6 +772,7 @@ export function _resetMcpAppHostForTests(): void {
   pending.clear();
   jsonRpcPending.clear();
   directMcpAppInit = null;
+  directHostChatQueue = Promise.resolve();
   snapshot = { context: null, capabilities: null, version: null };
   listeners.clear();
 }

@@ -24,7 +24,7 @@ Las extensiones de plugins de OpenAI añaden puntos de acceso junto a las herram
 
 Los botones de las rutas de aplicaciones insertadas pueden llamar a `sendToAgentChat(...)` para continuar la conversación. Core envía el estado seleccionado mediante `ui/update-model-context` con `annotations.audience: ["assistant"]` y luego envía el mensaje visible mediante `ui/message`. Los visores de archivos, las menciones del compositor y otras extensiones especializadas necesitan contratos de entrada específicos de la aplicación.
 
-En hosts antiguos, Core recurre a un mensaje de texto con contexto textual y JSON. Si el contenido enriquecido no se puede representar o el host rechaza la actualización del contexto, `sendToAgentChat(...)` devuelve `false`.
+En hosts antiguos, Core solo puede recurrir al texto si la solicitud no contiene contexto privado para el asistente y se puede representar como texto. Si hay contexto seleccionado o estructurado, no se puede representar el contenido enriquecido o el host rechaza la actualización del contexto, `sendToAgentChat(...)` devuelve `false`.
 
 ## Autoría: aplicaciones MCP opcionales UI {#mcp-apps}
 

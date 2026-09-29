@@ -845,7 +845,7 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(true);
   });
 
-  it("preserves text context through the OpenAI fallback when MCP initialization fails", async () => {
+  it("uses the OpenAI fallback for text-only chat when MCP initialization fails", async () => {
     const parent = parentWindow();
     setDirectParent(parent);
     const sendFollowUpMessage = vi.fn(async () => ({}));
@@ -854,13 +854,11 @@ describe("MCP app host client helpers", () => {
     });
 
     const result = sendMcpAppHostMessage({
-      context: "Selected row: row-123",
       message: "Send a context-free follow-up",
       content: [
         { type: "text", text: "Send a context-free follow-up" },
         { type: "text", text: "Include the row owner" },
       ],
-      structuredContent: { rowId: "row-123" },
       requestMode: "plan",
     });
 
@@ -876,14 +874,14 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(true);
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
       prompt:
-        'Send a context-free follow-up\n\nContext:\nSelected row: row-123\n\nAdditional text:\nInclude the row owner\n\nStructured content:\n{"rowId":"row-123"}',
+        "Send a context-free follow-up\n\nAdditional text:\nInclude the row owner",
       scrollToBottom: true,
       mode: "plan",
       requestMode: "plan",
     });
   });
 
-  it("preserves context through the OpenAI fallback when MCP rejects a message", async () => {
+  it("does not expose assistant-only context through the OpenAI fallback", async () => {
     const parent = parentWindow();
     setDirectParent(parent);
     const sendFollowUpMessage = vi.fn(async () => ({}));
@@ -891,6 +889,50 @@ describe("MCP app host client helpers", () => {
 
     const result = sendMcpAppHostMessage({
       context: "Selected row: row-123",
+      message: "Summarize this row",
+    });
+
+    await flushMicrotasks();
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    const contextCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: contextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    const messageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: messageCall.id,
+      error: { code: -32601, message: "Method not found" },
+    });
+
+    await expect(result).resolves.toBe(false);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not expose structured context through the OpenAI fallback", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    vi.stubGlobal("openai", { sendFollowUpMessage });
+
+    const result = sendMcpAppHostMessage({
       message: "Summarize this row",
       structuredContent: { rowId: "row-123" },
     });
@@ -921,12 +963,8 @@ describe("MCP app host client helpers", () => {
       error: { code: -32601, message: "Method not found" },
     });
 
-    await expect(result).resolves.toBe(true);
-    expect(sendFollowUpMessage).toHaveBeenCalledWith({
-      prompt:
-        'Summarize this row\n\nContext:\nSelected row: row-123\n\nStructured content:\n{"rowId":"row-123"}',
-      scrollToBottom: true,
-    });
+    await expect(result).resolves.toBe(false);
+    expect(sendFollowUpMessage).not.toHaveBeenCalled();
   });
 
   it("reports failure when the OpenAI fallback cannot represent rich content", async () => {
@@ -936,7 +974,6 @@ describe("MCP app host client helpers", () => {
     vi.stubGlobal("openai", { sendFollowUpMessage });
 
     const result = sendMcpAppHostMessage({
-      context: "Selected image: asset-123",
       message: "Describe this image",
       content: [
         { type: "text", text: "Describe this image" },
@@ -1088,6 +1125,101 @@ describe("MCP app host client helpers", () => {
       result: {},
     });
 
+    await expect(secondResult).resolves.toBe(true);
+  });
+
+  it("serializes direct MCP Apps context and message pairs", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+
+    const firstResult = sendMcpAppHostMessage({
+      context: "Context A",
+      message: "Message A",
+    });
+    const secondResult = sendMcpAppHostMessage({
+      context: "Context B",
+      message: "Message B",
+    });
+    await flushMicrotasks();
+
+    const initCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/initialize",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushHostLifecycleTurn();
+
+    let calls = getJsonRpcCalls(parent);
+    const firstContextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(firstContextCall.params).toMatchObject({
+      content: [{ text: "Context A" }],
+    });
+    expect(
+      calls.filter((call) => call.method === "ui/update-model-context"),
+    ).toHaveLength(1);
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: firstContextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const firstMessageCall = calls.find(
+      (call) => call.method === "ui/message",
+    )!;
+    expect(firstMessageCall.params).toMatchObject({
+      content: [{ text: "Message A" }],
+    });
+    expect(calls.filter((call) => call.method === "ui/message")).toHaveLength(
+      1,
+    );
+    expect(
+      calls.filter((call) => call.method === "ui/update-model-context"),
+    ).toHaveLength(1);
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: firstMessageCall.id,
+      result: {},
+    });
+    await flushHostLifecycleTurn();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCalls = calls.filter(
+      (call) => call.method === "ui/update-model-context",
+    );
+    expect(contextCalls).toHaveLength(2);
+    const secondContextCall = contextCalls[1]!;
+    expect(secondContextCall.params).toMatchObject({
+      content: [{ text: "Context B" }],
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: secondContextCall.id,
+      result: {},
+    });
+    await flushHostLifecycleTurn();
+
+    const messageCalls = getJsonRpcCalls(parent).filter(
+      (call) => call.method === "ui/message",
+    );
+    expect(messageCalls).toHaveLength(2);
+    const secondMessageCall = messageCalls[1]!;
+    expect(secondMessageCall.params).toMatchObject({
+      content: [{ text: "Message B" }],
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: secondMessageCall.id,
+      result: {},
+    });
+
+    await expect(firstResult).resolves.toBe(true);
     await expect(secondResult).resolves.toBe(true);
   });
 });

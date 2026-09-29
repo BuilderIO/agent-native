@@ -36,7 +36,15 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("function openAiFollowUpPrompt(chat)");
+    expect(html).toContain(
+      "if (context || chat.structuredContent !== undefined) return null;",
+    );
     expect(html).toContain("prompt: fallbackPrompt");
+    expect(html).toContain("let hostChatQueue = Promise.resolve();");
+    expect(html).toContain(
+      "const result = hostChatQueue.then(() => sendHostChatNow(chat));",
+    );
+    expect(html).toContain("function sendHostChatNow(chat)");
     expect(html).toContain("const modelContext = {");
     expect(html).not.toContain("agentNativeModelContext");
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
@@ -488,7 +496,15 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("openAiBridge.setOpenInAppUrl");
     expect(fixture.html).toContain("openAiBridge.sendFollowUpMessage");
     expect(fixture.html).toContain("function openAiFollowUpPrompt(chat)");
+    expect(fixture.html).toContain(
+      "if (context || chat.structuredContent !== undefined) return null;",
+    );
     expect(fixture.html).toContain("prompt: fallbackPrompt");
+    expect(fixture.html).toContain("let hostChatQueue = Promise.resolve();");
+    expect(fixture.html).toContain(
+      "const result = hostChatQueue.then(() => sendHostChatNow(chat));",
+    );
+    expect(fixture.html).toContain("function sendHostChatNow(chat)");
     expect(fixture.html).toContain("MCP host rejected model context update.");
     expect(fixture.html).not.toContain(
       'context.trim() + "\\\\n\\\\n" + message',

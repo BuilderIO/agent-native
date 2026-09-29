@@ -24,7 +24,7 @@ As OpenAI Plugin Extensions adicionam pontos de entrada às ferramentas MCP cham
 
 Botões nas rotas de apps incorporados podem chamar `sendToAgentChat(...)` para continuar a conversa. O Core envia o estado selecionado por `ui/update-model-context` com `annotations.audience: ["assistant"]` e depois envia o prompt visível por `ui/message`. Visualizadores de arquivos, menções no compositor e outras extensões especializadas precisam de contratos de entrada específicos do app.
 
-Em hosts antigos, o Core usa um prompt de texto com contexto em texto e JSON. Se não for possível representar o conteúdo avançado ou o host rejeitar a atualização do contexto, `sendToAgentChat(...)` retornará `false`.
+Em hosts antigos, o Core só pode usar um fallback de texto quando a solicitação não contém contexto exclusivo do assistente e pode ser representada como texto. Se houver contexto selecionado ou estruturado, não for possível representar o conteúdo avançado ou o host rejeitar a atualização do contexto, `sendToAgentChat(...)` retornará `false`.
 
 ## Autoria: aplicativos MCP opcionais UI {#mcp-apps}
 

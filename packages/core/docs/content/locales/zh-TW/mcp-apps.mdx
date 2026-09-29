@@ -24,7 +24,7 @@ OpenAI 外掛擴充功能會在模型呼叫的 MCP 工具之外新增應用程�
 
 嵌入式應用程式路由中的按鈕可以呼叫 `sendToAgentChat(...)` 以繼續對話。Core 會透過 `ui/update-model-context` 傳送所選狀態，並設定 `annotations.audience: ["assistant"]`，接著透過 `ui/message` 傳送使用者可見的提示。檔案檢視器、撰寫器提及和其他專用擴充功能仍需應用程式專屬的輸入契約。
 
-在舊版主機上，Core 會改用包含文字和 JSON 脈絡的文字提示。如果無法表示豐富內容，或主機拒絕更新脈絡，`sendToAgentChat(...)` 會傳回 `false`。
+在舊版主機上，只有在要求不含僅供助理使用的脈絡且可表示為文字時，Core 才會使用文字備援。如果存在選取或結構化脈絡、無法表示豐富內容，或主機拒絕更新脈絡，`sendToAgentChat(...)` 會傳回 `false`。
 
 ## 創作：可選的 MCP 應用 UI {#mcp-apps}
 
