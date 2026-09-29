@@ -2005,7 +2005,7 @@ async function abortRecordingUpload(
         credentials: "include",
         body: JSON.stringify({ reason, failureCode, failureStage, httpStatus }),
       });
-      const responseText = await res.text().catch(() => "");
+      const responseText = await res.text();
       if (res.ok) return;
       if (
         (res.status !== 404 && res.status < 500) ||
