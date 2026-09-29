@@ -72,7 +72,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
-  it("uses the injected auth renderer and falls back to a plain HTML shell", () => {
+  it("styles the first-paint auth fallback when no renderer is injected", () => {
     const renderSignInPage = vi.fn(
       (props: AuthPageProps) =>
         `<main data-view="${props.initialView}">Custom sign-in</main>`,
@@ -91,6 +91,10 @@ describe("getOnboardingHtml", () => {
     expect(fallback).toContain('data-agent-native-auth-fallback="true"');
     expect(fallback).toContain('<main class="auth-fallback"');
     expect(fallback).toContain('id="agent-native-auth-data"');
+    const fallbackStyles =
+      fallback.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
+    expect(fallbackStyles).toContain(".auth-fallback {");
+    expect(fallbackStyles).toContain("justify-content: center;");
     expect(readAuthPageData(fallback).initialView).toBe("signup");
   });
 
