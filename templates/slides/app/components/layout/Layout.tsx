@@ -34,6 +34,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
+import { SlidesComposerContextProvider } from "../editor/SlidesComposerContextProvider";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
@@ -317,12 +318,15 @@ export function Layout({ children }: LayoutProps) {
     void setSidebarCollapsed((prev) => !prev);
   };
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const deckQuery = deckScope
       ? `?deckId=${encodeURIComponent(deckScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${deckQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${deckQuery}`);
   }
 
   const showMobileNavigation = isChatRoute || !ownToolbar;
@@ -391,6 +395,7 @@ export function Layout({ children }: LayoutProps) {
         shell
       ) : (
         <AgentSidebar
+          composerContextProvider={SlidesComposerContextProvider}
           position="right"
           defaultOpen={false}
           chatViewTransition

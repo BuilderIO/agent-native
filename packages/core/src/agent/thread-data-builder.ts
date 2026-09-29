@@ -1,3 +1,8 @@
+import {
+  parseAgentSuggestion,
+  type AgentRunSnapshot,
+} from "@agent-native/agentkit/protocol";
+
 import type { ActionChatUIConfig } from "../action-ui.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
@@ -17,6 +22,9 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
+import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
+import type { ActiveRun } from "./run-manager.js";
+import { isContinuationTerminalReason } from "./types.js";
 import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
@@ -677,6 +685,29 @@ function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
+  if (existing?.role === "user" && incoming?.role === "user") {
+    const custom = existing.metadata?.custom;
+    if (custom?.submittedRunId) {
+      const message = {
+        ...incoming,
+        metadata: {
+          ...existing.metadata,
+          ...incoming.metadata,
+          custom: {
+            ...custom,
+            ...incoming.metadata?.custom,
+            submittedRunId: custom.submittedRunId,
+            ...(custom.submittedTurnId
+              ? { submittedTurnId: custom.submittedTurnId }
+              : {}),
+          },
+        },
+      };
+      return incomingEntry?.message === undefined
+        ? message
+        : { ...incomingEntry, message };
+    }
+  }
   const existingTurn = turnIdOf(existing);
   const incomingTurn = turnIdOf(incoming);
   if (
@@ -1501,6 +1532,137 @@ function mergeAgentKitHistoryArray(
   return merged;
 }
 
+function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
+  if (!Array.isArray(runs)) return undefined;
+  return runs.reduce<AgentRunSnapshot | undefined>((latest, run) => {
+    if (typeof run?.id !== "string") return latest;
+    if (!latest) return run;
+    const latestTime = latest.startedAt ?? latest.completedAt;
+    const runTime = run.startedAt ?? run.completedAt;
+    return latestTime && runTime && runTime < latestTime ? latest : run;
+  }, undefined);
+}
+
+function latestStoredUser(repo: any): any {
+  return repo?.messages
+    ?.map((entry: any) => getStoredMessage(entry))
+    .findLast((message: any) => message?.role === "user");
+}
+
+function clearThreadSuggestions(repo: any): any {
+  return repo.agentKit
+    ? { ...repo, agentKit: { ...repo.agentKit, suggestions: [] } }
+    : repo;
+}
+
+export type ThreadSuggestionRun = Pick<
+  ActiveRun,
+  | "runId"
+  | "threadId"
+  | "turnId"
+  | "startedAt"
+  | "status"
+  | "events"
+  | "abortReason"
+>;
+
+export function foldThreadRunSuggestions(
+  repo: any,
+  run: ThreadSuggestionRun,
+): any {
+  const user = latestStoredUser(repo);
+  const userContext = user?.metadata?.custom;
+  if (
+    userContext?.submittedTurnId
+      ? userContext.submittedTurnId !== run.turnId
+      : userContext?.submittedRunId !== run.runId &&
+        user?.createdAt &&
+        new Date(user.createdAt).getTime() > run.startedAt
+  ) {
+    return repo;
+  }
+  const previous = repo.agentKit ?? {};
+  const latest = latestSnapshotRun(previous.runs);
+  const startedAt = new Date(run.startedAt).toISOString();
+  if (latest?.startedAt && latest.startedAt > startedAt) return repo;
+
+  const terminal = run.events.at(-1)?.event;
+  const awaitingApproval = run.events.some(
+    ({ event }) => event.type === "approval_required",
+  );
+  const awaitingConnection = run.events.some(
+    ({ event }) => event.type === "connection_required",
+  );
+  const status: AgentRunSnapshot["status"] =
+    run.status === "truncated" ||
+    terminal?.type === "auto_continue" ||
+    isContinuationTerminalReason(run.abortReason)
+      ? "failed"
+      : run.status === "aborted" ||
+          run.abortReason ||
+          (terminal?.type === "done" && terminal.reason === "user")
+        ? "cancelled"
+        : run.status === "errored"
+          ? "failed"
+          : awaitingApproval
+            ? "awaiting_approval"
+            : awaitingConnection
+              ? "awaiting_input"
+              : run.status === "completed" && terminal?.type === "done"
+                ? "completed"
+                : "failed";
+  const published = [...run.events]
+    .reverse()
+    .find(({ event }) => event.type === "suggestions")?.event;
+  let suggestions: Extract<
+    typeof published,
+    { type: "suggestions" }
+  >["suggestions"] = [];
+  if (status === "completed" && published?.type === "suggestions") {
+    const candidates = published.suggestions.map((suggestion) =>
+      parseAgentSuggestion(suggestion),
+    );
+    const parsed = parseFollowUpSuggestions({
+      suggestions: candidates.map(({ label, prompt }) => ({
+        label,
+        prompt: prompt ?? label,
+      })),
+    });
+    if (
+      !parsed.success ||
+      candidates.some((suggestion) => suggestion.runId !== run.runId) ||
+      new Set(candidates.map((suggestion) => suggestion.id)).size !==
+        candidates.length
+    ) {
+      throw new TypeError("Invalid canonical follow-up suggestions.");
+    }
+    suggestions = candidates;
+  }
+  const runs: AgentRunSnapshot[] = Array.isArray(previous.runs)
+    ? previous.runs
+    : [];
+  const oldRun = runs.find((entry) => entry.id === run.runId);
+  const snapshot: AgentRunSnapshot = {
+    ...oldRun,
+    id: run.runId,
+    threadId: run.threadId,
+    status,
+    startedAt,
+    lastSequence: oldRun?.lastSequence ?? 0,
+  };
+  return {
+    ...repo,
+    agentKit: {
+      ...previous,
+      runs: [...runs.filter((entry) => entry.id !== run.runId), snapshot],
+      activeRunIds: (previous.activeRunIds ?? []).filter(
+        (id: string) => id !== run.runId,
+      ),
+      suggestions,
+    },
+  };
+}
+
 function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
   if (
     !existing ||
@@ -1515,6 +1677,55 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
   const previous = existing as Record<string, unknown>;
   const next = incoming as Record<string, unknown>;
   const merged: Record<string, unknown> = { ...previous, ...next };
+  const runs = new Map<string, AgentRunSnapshot>();
+  for (const run of [
+    ...(Array.isArray(next.runs) ? next.runs : []),
+    ...(Array.isArray(previous.runs) ? previous.runs : []),
+  ]) {
+    if (typeof run?.id !== "string") continue;
+    const newer = runs.get(run.id);
+    if (!newer) {
+      runs.set(run.id, run);
+      continue;
+    }
+    const richer = newer.lastSequence >= run.lastSequence ? newer : run;
+    runs.set(run.id, {
+      ...run,
+      ...newer,
+      ...richer,
+      metadata: { ...run.metadata, ...newer.metadata, ...richer.metadata },
+      lastSequence: Math.max(newer.lastSequence, run.lastSequence),
+      status: ["completed", "failed", "cancelled"].includes(run.status)
+        ? run.status
+        : newer.status,
+    });
+  }
+  if (runs.size > 0) {
+    merged.runs = [...runs.values()];
+    const latest = latestSnapshotRun(merged.runs);
+    const previousLatest = latestSnapshotRun(previous.runs);
+    merged.suggestions =
+      latest?.status !== "completed"
+        ? []
+        : latest.id === previousLatest?.id &&
+            previousLatest.status === "completed" &&
+            Array.isArray(previous.suggestions)
+          ? previous.suggestions
+          : next.suggestions;
+    if (Array.isArray(merged.suggestions)) {
+      merged.suggestions = merged.suggestions.filter(
+        (suggestion: any) => suggestion?.runId === latest?.id,
+      );
+    }
+    if (Array.isArray(merged.activeRunIds)) {
+      merged.activeRunIds = merged.activeRunIds.filter(
+        (id: string) =>
+          !["completed", "failed", "cancelled"].includes(
+            runs.get(id)?.status ?? "",
+          ),
+      );
+    }
+  }
   const existingMessageRunIds = snapshotMessageRunIds(previous);
   const incomingMessageRunIds = snapshotMessageRunIds(next);
   for (const [key, kind] of [
@@ -1671,6 +1882,16 @@ export function mergeThreadDataForClientSave(
     incomingNormalized,
     normalizedMerged,
   );
+  const previousUser = latestStoredUser(existingNormalized);
+  const mergedUser = latestStoredUser(normalizedMerged);
+  const previousUserId = messageId(previousUser);
+  if (
+    mergedUser &&
+    messageId(mergedUser) !==
+      (idRewrites.get(previousUserId ?? "") ?? previousUserId)
+  ) {
+    return clearThreadSuggestions(normalizedMerged);
+  }
   return normalizedMerged;
 }
 
@@ -1804,6 +2025,7 @@ export function buildUserMessage(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
   runId?: string;
+  turnId?: string;
   queuedMessageId?: string;
   createdAt?: Date;
 }): {
@@ -1824,6 +2046,7 @@ export function buildUserMessage(opts: {
     metadata: {
       custom: {
         submittedRunId: opts.runId,
+        ...(opts.turnId ? { submittedTurnId: opts.turnId } : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
           : {}),
@@ -1979,12 +2202,25 @@ function stringRecordValue(
 }
 
 export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
-  const nextRepo = normalizeThreadRepository(repo);
+  const nextRepo = clearThreadSuggestions(normalizeThreadRepository(repo));
 
   const lastIndex = nextRepo.messages.length - 1;
   const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
   const lastMsg = getStoredMessage(lastEntry);
   if (lastMsg?.role === "user" && messagesMatch(lastMsg, userMsg)) {
+    nextRepo.messages[lastIndex] = {
+      ...lastEntry,
+      message: {
+        ...lastMsg,
+        metadata: {
+          ...lastMsg.metadata,
+          custom: {
+            ...lastMsg.metadata?.custom,
+            ...(userMsg.metadata.custom as Record<string, unknown>),
+          },
+        },
+      },
+    };
     return nextRepo;
   }
 

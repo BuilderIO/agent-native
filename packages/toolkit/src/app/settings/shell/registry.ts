@@ -9,10 +9,10 @@ export type SettingsPageIcon = ComponentType<{ className?: string }>;
 /** Nav groups, top to bottom. */
 export const SETTINGS_PAGE_GROUPS = [
   "account",
+  "app",
   "connections",
   "agent",
   "organization",
-  "app",
 ] as const;
 
 export type SettingsPageGroup = (typeof SETTINGS_PAGE_GROUPS)[number];

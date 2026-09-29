@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "整合" } },
   creativeContext: {
     title: "資料庫",
     description: "可重複使用的創意脈絡，協助代理在不同工作中保持一致。",
@@ -1712,7 +1713,7 @@ export default {
     layoutLabel: "畫面版面已可儲存",
   },
   homeContext: {
-    websiteReference: "附加網站",
+    websiteReference: "新增網站",
     websiteUrlLabel: "網站 URL",
     websiteUrl: "貼上網站 URL",
     figmaUrlLabel: "Figma 連結",
@@ -1738,7 +1739,7 @@ export default {
     design: "設計",
     slides: "投影片",
     referenceDesign: "參考設計",
-    figmaReference: "附加 Figma",
+    figmaReference: "新增 Figma",
     referenceDeck: "參考簡報",
     quickSaas: "建立 SaaS 登陸頁",
     quickDashboard: "建立儀表板",

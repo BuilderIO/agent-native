@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "التكاملات" } },
   templatesPage: {
     actions: "إجراءات القالب {{title}}",
     previewAction: "معاينة",
@@ -867,7 +868,7 @@ const messages = {
     },
     importDeck: "استيراد عرض",
     context: {
-      websiteReference: "إرفاق موقع ويب",
+      websiteReference: "إضافة موقع ويب",
       websiteUrlLabel: "عنوان URL لموقع الويب",
       websiteUrl: "الصق عنوان URL لموقع ويب",
       figmaUrlLabel: "رابط Figma",
@@ -881,7 +882,7 @@ const messages = {
       searchPresentations: "البحث في العروض التقديمية…",
       menu: {
         system: "استخدام نظام تصميم",
-        figma: "إرفاق Figma",
+        figma: "إضافة Figma",
         design: "الاستعانة بتصميم",
         deck: "الاستعانة بعرض تقديمي",
         searchDesign: "البحث في التصميم…",

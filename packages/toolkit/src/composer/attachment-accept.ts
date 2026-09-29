@@ -1,4 +1,7 @@
-import { SimpleTextAttachmentAdapter } from "@assistant-ui/react";
+import {
+  SimpleTextAttachmentAdapter,
+  type PendingAttachment,
+} from "@assistant-ui/react";
 
 const BASE_DOCUMENT_ATTACHMENT_ACCEPT = [
   "application/pdf",
@@ -115,13 +118,13 @@ export function formatAttachmentError(
 export class TextAttachmentAdapter extends SimpleTextAttachmentAdapter {
   public accept = TEXT_ATTACHMENT_ACCEPT;
 
-  public async add(state: { file: File }) {
+  public async add(state: { file: File }): Promise<PendingAttachment> {
     if (state.file.size > MAX_TEXT_ATTACHMENT_BYTES) {
       throw new Error(
         formatOversizedTextAttachmentError(state.file.name, state.file.size),
       );
     }
-    return super.add(state);
+    return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 
   public async send(

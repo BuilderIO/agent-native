@@ -155,6 +155,11 @@ describe("SettingsShell", () => {
         pages: ["profile", "preferences", "security"],
       },
       {
+        id: "app",
+        label: "Clips",
+        pages: ["app", "automations", "channels", "mcp", "labs"],
+      },
+      {
         id: "connections",
         label: "Connections",
         pages: ["integrations", "api-keys"],
@@ -177,13 +182,8 @@ describe("SettingsShell", () => {
         label: "Organization",
         pages: ["org", "members", "usage"],
       },
-      {
-        id: "app",
-        label: "Clips",
-        pages: ["app", "automations", "channels", "mcp", "labs"],
-      },
     ]);
-    expect(container.textContent).toContain("Back to Clips");
+    expect(container.textContent).toContain("Back to app");
   });
 
   it("shows Notifications and What's new when the app passes them", async () => {
@@ -616,7 +616,7 @@ describe("SettingsShell", () => {
     rememberSettingsReturnPath("/library", "?view=grid");
     await render();
     const back = [...rail().querySelectorAll("a")].find((link) =>
-      link.textContent?.includes("Back to Clips"),
+      link.textContent?.includes("Back to app"),
     );
     expect(back?.getAttribute("href")).toBe("/library?view=grid");
   });

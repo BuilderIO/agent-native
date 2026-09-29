@@ -1,20 +1,35 @@
 // @vitest-environment happy-dom
 
+import { AgentKitClient } from "@agent-native/agentkit/client";
+import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+
 const chatMocks = vi.hoisted(() => ({
+  history: undefined as any,
+  session: {
+    authUserId: "user-1",
+    email: "first@example.test",
+    orgId: "workspace-1",
+  },
   appState: new Map<string, unknown>(),
   composerDrafts: new Map<string, string>(),
   threadId: "thread-1",
   renderEmptyState: false,
+  pendingFiles: [] as File[],
+  pendingReferences: [] as any[],
   readThread: () => chatMocks.thread,
   thread: {
     thread: null,
     messages: [] as any[],
     events: [] as any[],
     activeRunIds: [] as string[],
+    runs: {} as Record<string, any>,
+    approvals: {} as Record<string, any>,
+    suggestions: [] as any[],
     tools: {} as Record<string, unknown>,
     activities: {} as Record<string, unknown>,
     queuedMessages: [] as any[],
@@ -47,6 +62,9 @@ const chatMocks = vi.hoisted(() => ({
   runtimeOptions: null as any,
   inBuilder: false,
   useRealRoot: false,
+  realComposerController: null as AgentKitClient | null,
+  useRealChat: false,
+  omitSuggestionsSlot: false,
   voiceTranscriptRegistration: null as any,
   runtime: { kind: "runtime" },
   transport: { kind: "transport" },
@@ -79,11 +97,17 @@ const chatMocks = vi.hoisted(() => ({
 
 vi.mock("../agentkit/react/index.js", async () => {
   const React = await import("react");
+  const { AgentKitChat, AgentKitComposer, AgentMessageView } =
+    await import("../agentkit/react/components.js");
+  const { useAgentKit, useAgentKitControl, useAgentThread } =
+    await import("../agentkit/react/context.js");
   const { useThinkingDisplay } = await import("./thinking-display.js");
   return {
-    AgentKitChat: (props: unknown) => {
+    AgentKitChat: (props: any) => {
       chatMocks.chatProps = props;
       chatMocks.thinkingDisplay = useThinkingDisplay();
+      if (chatMocks.useRealChat)
+        return React.createElement(AgentKitChat, props);
       const slots = chatMocks.rootProps?.slots;
       const Composer = slots?.composer;
       const EmptyState = slots?.emptyState;
@@ -101,10 +125,16 @@ vi.mock("../agentkit/react/index.js", async () => {
           ? React.createElement(EmptyState, { threadId: chatMocks.threadId })
           : null,
         Transcript
-          ? React.createElement(Transcript, {
-              threadId: chatMocks.threadId,
-              children: null,
-            })
+          ? React.createElement(
+              "div",
+              { className: "agentkit-transcript-content" },
+              React.createElement(Transcript, {
+                threadId: chatMocks.threadId,
+                children: React.createElement("div", {
+                  "data-testid": "first-transcript-message",
+                }),
+              }),
+            )
           : null,
         Failure
           ? React.createElement(Failure, {
@@ -131,14 +161,46 @@ vi.mock("../agentkit/react/index.js", async () => {
           : null,
       );
     },
-    AgentKitComposer: (props: unknown) => {
+    AgentKitComposer: (props: any) => {
       chatMocks.composerProps = props;
+      React.useLayoutEffect(() => {
+        if (chatMocks.realComposerController || !props.composerRef) return;
+        props.composerRef.current = {
+          submitWithText: async (text: string) => {
+            if (props.onBeforeSubmit && !(await props.onBeforeSubmit()))
+              return false;
+            await props.onSubmit(
+              text,
+              chatMocks.pendingFiles,
+              chatMocks.pendingReferences,
+              {
+                intent: "immediate",
+                contextItems: props.contextItems,
+              },
+            );
+            chatMocks.pendingFiles = [];
+            chatMocks.pendingReferences = [];
+            return true;
+          },
+        };
+        return () => {
+          props.composerRef.current = null;
+        };
+      });
+      if (chatMocks.realComposerController) {
+        return React.createElement(AgentKitComposer, props);
+      }
       return React.createElement("div", {
         "data-testid": "agentkit-composer",
       });
     },
     AgentApprovalPrompt: () => null,
     AgentMessageView: ({ value }: any) => {
+      if (chatMocks.useRealChat)
+        return React.createElement(AgentMessageView, {
+          value,
+          threadId: chatMocks.threadId,
+        });
       const text = (value?.parts ?? [])
         .filter((part: any) => part.type === "text")
         .map((part: any) => part.text)
@@ -149,22 +211,37 @@ vi.mock("../agentkit/react/index.js", async () => {
         text,
       );
     },
-    useAgentKit: () => ({
-      threadId: chatMocks.threadId,
-      requestComposerFocus: chatMocks.requestComposerFocus,
-      controller: { getThread: () => chatMocks.readThread() },
-    }),
-    useAgentKitControl: () => chatMocks.control,
-    useAgentThread: () => chatMocks.readThread(),
+    useAgentKit: () =>
+      chatMocks.useRealChat
+        ? useAgentKit()
+        : {
+            threadId: chatMocks.threadId,
+            requestComposerFocus: chatMocks.requestComposerFocus,
+            controller: { getThread: () => chatMocks.readThread() },
+          },
+    useAgentKitControl: () =>
+      chatMocks.useRealChat ? useAgentKitControl() : chatMocks.control,
+    useAgentThread: () =>
+      chatMocks.useRealChat ? useAgentThread() : chatMocks.readThread(),
   };
 });
 
 vi.mock("../agentkit/react/root.js", async () => {
   const React = await import("react");
+  const { AgentKitProvider } = await import("../agentkit/react/context.js");
   const actual = await import("../agentkit/react/root.js");
   return {
     AgentKitRoot: (props: any) => {
       chatMocks.rootProps = props;
+      if (chatMocks.realComposerController) {
+        return React.createElement(AgentKitProvider, {
+          ...props,
+          controller: chatMocks.realComposerController,
+          slots: chatMocks.omitSuggestionsSlot
+            ? { ...props.slots, suggestions: undefined }
+            : props.slots,
+        });
+      }
       return chatMocks.useRealRoot
         ? React.createElement(actual.AgentKitRoot, props)
         : props.children;
@@ -172,13 +249,33 @@ vi.mock("../agentkit/react/root.js", async () => {
   };
 });
 
-vi.mock("@agent-native/toolkit/composer", () => ({
-  AgentSuggestionBar: (props: unknown) => {
+vi.mock("@agent-native/toolkit/composer", async () => ({
+  snapshotComposerContextItems: (
+    await import("../../composer/context-items.js")
+  ).snapshotComposerContextItems,
+  AgentSuggestionBar: (props: any) => {
     chatMocks.suggestionBarProps = props;
-    return React.createElement("div", {
-      "data-testid": "agentkit-suggestion-bar",
-      className: (props as { className?: string }).className,
-    });
+    if (chatMocks.realComposerController) {
+      return React.createElement(AgentSuggestionBar, props);
+    }
+    return React.createElement(
+      "div",
+      {
+        "data-testid": "agentkit-suggestion-bar",
+        className: (props as { className?: string }).className,
+      },
+      props.suggestions.map((suggestion: any) =>
+        React.createElement(
+          "button",
+          {
+            key: suggestion.id,
+            disabled: suggestion.disabled,
+            onClick: () => props.onSelect(suggestion),
+          },
+          suggestion.label,
+        ),
+      ),
+    );
   },
   agentSuggestionPrompt: (suggestion: any) =>
     typeof suggestion === "string" ? suggestion : suggestion.prompt,
@@ -208,8 +305,20 @@ vi.mock(
   },
 );
 
-vi.mock("@tabler/icons-react", () =>
-  Object.fromEntries(
+vi.mock("@agent-native/toolkit/agentkit", async (importOriginal) => {
+  const { PromptComposer } = await import("../../composer/PromptComposer.js");
+  return {
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/agentkit")
+    >()),
+    PromptComposer: (props: React.ComponentProps<typeof PromptComposer>) =>
+      chatMocks.useRealChat ? React.createElement(PromptComposer, props) : null,
+  };
+});
+
+vi.mock("@tabler/icons-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tabler/icons-react")>()),
+  ...Object.fromEntries(
     [
       "IconAlertTriangle",
       "IconCheck",
@@ -222,7 +331,7 @@ vi.mock("@tabler/icons-react", () =>
       "IconX",
     ].map((name) => [name, () => null]),
   ),
-);
+}));
 
 vi.mock("./agentkit-chat/history.js", async () => {
   const React = await import("react");
@@ -230,7 +339,7 @@ vi.mock("./agentkit-chat/history.js", async () => {
     AgentKitDevCheckpointProvider: ({ children }: any) =>
       React.createElement(React.Fragment, null, children),
     AgentKitDevCheckpointRestore: () => null,
-    useOptionalAgentKitHistory: () => undefined,
+    useOptionalAgentKitHistory: () => chatMocks.history,
   };
 });
 
@@ -252,7 +361,10 @@ vi.mock("./agentkit-chat/index.js", async () => {
       return null;
     },
     McpConnectionSuggestion: () => null,
-    AgentKitHistoryBeginningRevert: () => null,
+    AgentKitHistoryBeginningRevert: () =>
+      React.createElement("div", {
+        "data-testid": "history-beginning-revert",
+      }),
     AgentKitHistoryMessageSupplement: () => null,
     AgentKitHistoryProvider: ({ children }: any) =>
       React.createElement(React.Fragment, null, children),
@@ -321,7 +433,8 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     useDevMode: () => ({ isDevMode: true }),
     useAgentEngineConfigured: () => chatMocks.readiness,
     filterAgentChatContextItems: (items: unknown[]) => items,
-    formatAgentChatContextItemsForPrompt: () => "",
+    formatAgentChatContextItemsForPrompt:
+      actual.formatAgentChatContextItemsForPrompt,
     getAgentChatContextState: () => ({ items: [], updatedAt: 0 }),
     publishAgentChatContextItems: vi.fn(),
     refreshAgentChatContext: vi.fn(async () => undefined),
@@ -370,7 +483,8 @@ vi.mock("@agent-native/toolkit/clipboard", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatNumber: String,
-    formatDate: (value: string) => value,
+    formatDate: (value: string | Date) =>
+      value instanceof Date ? value.toISOString() : value,
   }),
   useT: () => (key: string, options?: Record<string, unknown>) =>
     key === "agentChat.composer.previewAttachment"
@@ -385,6 +499,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/client/hooks")>();
   return { ...actual, callAction: chatMocks.callAction, signOut: vi.fn() };
 });
+
+vi.mock("@agent-native/core/client/use-session", () => ({
+  useSession: () => ({ session: chatMocks.session, status: "authenticated" }),
+}));
 
 vi.mock("./chat/tool-call-display.js", async () => {
   const React = await import("react");
@@ -461,6 +579,8 @@ import {
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
 import type {
+  AssistantChatComposerContext,
+  AssistantChatComposerContextProviderProps,
   AssistantChatHandle,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
@@ -490,12 +610,15 @@ class TestErrorBoundary extends React.Component<
   }
 }
 
-async function mount(props: AgentKitAssistantChatProps) {
+async function mount(
+  props: AgentKitAssistantChatProps,
+  ref?: React.Ref<AssistantChatHandle>,
+) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(<AgentKitAssistantChat {...props} />);
+    root.render(<AgentKitAssistantChat {...props} ref={ref} />);
   });
 }
 
@@ -523,6 +646,12 @@ function baseProps(
 }
 
 beforeEach(() => {
+  chatMocks.history = undefined;
+  chatMocks.session = {
+    authUserId: "user-1",
+    email: "first@example.test",
+    orgId: "workspace-1",
+  };
   vi.mocked(readClientAppState)
     .mockReset()
     .mockImplementation(async (key) => chatMocks.appState.get(key) ?? null);
@@ -535,12 +664,16 @@ beforeEach(() => {
   chatMocks.composerDrafts.clear();
   chatMocks.threadId = "thread-1";
   chatMocks.renderEmptyState = false;
+  chatMocks.pendingFiles = [];
+  chatMocks.pendingReferences = [];
   chatMocks.thread = {
     thread: null,
     messages: [],
     events: [],
     activeRunIds: [],
     runs: {},
+    approvals: {},
+    suggestions: [],
     tools: {},
     activities: {},
     queuedMessages: [],
@@ -579,6 +712,9 @@ beforeEach(() => {
   chatMocks.transportOptions = null;
   chatMocks.inBuilder = false;
   chatMocks.useRealRoot = false;
+  chatMocks.realComposerController = null;
+  chatMocks.useRealChat = false;
+  chatMocks.omitSuggestionsSlot = false;
   chatMocks.voiceTranscriptRegistration = null;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.queueMessage.mockReset().mockResolvedValue(undefined);
@@ -604,6 +740,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await unmount();
+  chatMocks.realComposerController?.dispose();
   window.sessionStorage.clear();
 });
 
@@ -631,6 +768,725 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(errors[0]?.message).toContain("agentkit-chat.md");
   });
 
+  function seedFollowup() {
+    const suggestion = {
+      id: "refine",
+      runId: "run-1",
+      label: "Refine layout",
+      prompt: "Refine the selected design using the agreed responsive layout.",
+      metadata: { context: "Use the selected design's spacing decisions." },
+    };
+    Object.assign(chatMocks.thread, {
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Create a design" }],
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "Created." }],
+        },
+      ],
+      runs: { "run-1": { id: "run-1", status: "completed", lastSequence: 3 } },
+      suggestions: [suggestion],
+      suggestionsUserMessageId: "user-1",
+    });
+    return suggestion;
+  }
+
+  async function useRealComposer(
+    startRun: AgentTransport["startRun"] = vi.fn(),
+  ) {
+    const at = "2026-09-28T00:00:00.000Z";
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { suggestions: true },
+        getThreadSnapshot: async ({ threadId }) => ({
+          id: threadId,
+          createdAt: at,
+          updatedAt: at,
+          messages: chatMocks.thread.messages,
+          runs: Object.values(chatMocks.thread.runs).map((run) => ({
+            ...run,
+            threadId,
+            startedAt: at,
+            completedAt: at,
+          })),
+          suggestions: chatMocks.thread.suggestions,
+        }),
+        startRun,
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    await client.loadThread(chatMocks.threadId);
+    chatMocks.realComposerController = client;
+    chatMocks.readThread = () => client.getThread(chatMocks.threadId);
+    return client;
+  }
+
+  it.each(["default", "compact"] as const)(
+    "clears the real %s composer before startRun resolves and preserves the next draft",
+    async (composerLayoutVariant) => {
+      const started = Promise.withResolvers<{ runId: string }>();
+      const startRun = vi.fn(() => started.promise);
+      chatMocks.useRealChat = true;
+      const client = await useRealComposer(startRun);
+      try {
+        await mount(
+          baseProps({
+            composerLayoutVariant,
+            showModelSelector: false,
+          }),
+        );
+        container.style.width =
+          composerLayoutVariant === "compact" ? "320px" : "960px";
+        const composer = chatMocks.composerProps.composerRef.current;
+        const editor = container.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        )!;
+        expect(editor).not.toBeNull();
+        await act(async () => composer.setText("First prompt"));
+        const send = container.querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="send-button"]',
+        )!;
+        expect(send.disabled).toBe(false);
+        await act(async () => send.click());
+        await flush();
+
+        expect(startRun).toHaveBeenCalledOnce();
+        expect(
+          container.querySelector('.agentkit-message[data-role="user"]')
+            ?.textContent,
+        ).toContain("First prompt");
+        expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]);
+        expect(editor.textContent).toBe("");
+
+        await act(async () => composer.setText("Next draft"));
+        await act(async () => started.resolve({ runId: "run-latency" }));
+
+        expect(editor.textContent).toBe("Next draft");
+        expect(chatMocks.composerProps.initialText).toBe("Next draft");
+        expect(startRun).toHaveBeenCalledOnce();
+        expect(client.getThread(chatMocks.threadId).messages).toHaveLength(1);
+      } finally {
+        await act(async () => started.resolve({ runId: "run-latency" }));
+      }
+    },
+  );
+
+  it.each([undefined, "hidden"] as const)(
+    "owns follow-up rendering with the real composer (placement: %s)",
+    async (suggestionPlacement) => {
+      const suggestion = seedFollowup();
+      await useRealComposer();
+      const props = baseProps({
+        suggestionPlacement,
+        showModelSelector: false,
+      });
+      chatMocks.omitSuggestionsSlot = true;
+      await mount(props);
+      const rows = () =>
+        container.querySelectorAll(
+          ".agentkit-host-suggestions, .agentkit-suggestions",
+        );
+      const chips = () =>
+        [...container.querySelectorAll("button")].filter(
+          (button) => button.textContent === suggestion.label,
+        );
+      const expected = suggestionPlacement === "hidden" ? 0 : 1;
+      expect(rows()).toHaveLength(expected + 1);
+      expect(chips()).toHaveLength(expected + 1);
+
+      chatMocks.omitSuggestionsSlot = false;
+      await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+
+      expect(rows()).toHaveLength(expected);
+      expect(chips()).toHaveLength(expected);
+      expect(container.querySelector(".agentkit-suggestions")).toBeNull();
+      expect(
+        chatMocks.realComposerController!.getThread(chatMocks.threadId)
+          .suggestions,
+      ).toEqual([suggestion]);
+    },
+  );
+
+  it.each([undefined, "context-chips", "after-composer", "hidden"] as const)(
+    "preserves initial starters with the real composer (placement: %s)",
+    async (suggestionPlacement) => {
+      chatMocks.renderEmptyState = true;
+      await useRealComposer();
+      await mount(
+        baseProps({
+          centerComposerWhenEmpty: true,
+          suggestionPlacement,
+          suggestions: ["Static starter"],
+          showModelSelector: false,
+        }),
+      );
+      const chips = [...container.querySelectorAll("button")].filter(
+        (button) => button.textContent === "Static starter",
+      );
+      expect(chips).toHaveLength(suggestionPlacement === "hidden" ? 0 : 1);
+      expect(container.querySelector(".agentkit-suggestions")).toBeNull();
+    },
+  );
+
+  it.each([false, { getSuggestions: () => ["Heuristic fallback"] }])(
+    "uses runtime follow-ups independently of initial dynamicSuggestions=%j",
+    async (dynamicSuggestions) => {
+      const suggestion = seedFollowup();
+      await mount(
+        baseProps({ suggestions: ["Static starter"], dynamicSuggestions }),
+      );
+      expect(chatMocks.suggestionBarProps.suggestions).toEqual([
+        expect.objectContaining(suggestion),
+      ]);
+      expect(chatMocks.dynamicSuggestionOptions.enabled).toBe(false);
+      expect(container.textContent).not.toContain("Static starter");
+      expect(container.textContent).not.toContain("Heuristic fallback");
+    },
+  );
+
+  it.each(["running", "awaiting_approval", "failed", "cancelled", "empty"])(
+    "never falls back to static chips after a %s turn",
+    async (status) => {
+      seedFollowup();
+      if (status === "empty") chatMocks.thread.suggestions = [];
+      else chatMocks.thread.runs["run-1"].status = status;
+      await mount(
+        baseProps({
+          suggestionPlacement: "context-chips",
+          suggestions: ["Static starter"],
+        }),
+      );
+      expect(
+        container.querySelector('[data-testid="agentkit-suggestion-bar"]'),
+      ).toBeNull();
+      expect(chatMocks.dynamicSuggestionOptions.enabled).toBe(false);
+    },
+  );
+
+  it("submits a chip's full prompt, local files, and fresh provider/integration context through the normal composer", async () => {
+    const suggestion = seedFollowup();
+    const items = [
+      {
+        key: "design-reference",
+        title: "Reference",
+        context: "Old design snapshot",
+      },
+      { key: "figma", title: "Figma", context: "Old invocation grant" },
+    ];
+    const prepared = [
+      { ...items[0], context: "Fresh authorized design snapshot" },
+      { ...items[1], context: "Fresh authorized Figma invocation" },
+    ];
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(async () => prepared),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const file = new File(["image"], "reference.png", { type: "image/png" });
+    chatMocks.pendingFiles = [file];
+    chatMocks.pendingReferences = [{ type: "file", path: "/reference.md" }];
+    await mount(baseProps({ composerContextProvider: Provider }));
+    const button = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent === suggestion.label,
+    )!;
+    await act(async () => button.click());
+    await flush();
+    expect(context.prepareSubmission).toHaveBeenCalledExactlyOnceWith(items);
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        text: expect.stringContaining(suggestion.prompt),
+        metadata: expect.objectContaining({
+          suggestion: expect.objectContaining(suggestion),
+          references: [{ type: "file", path: "/reference.md" }],
+        }),
+      }),
+    );
+    const sent = chatMocks.control.sendMessage.mock.calls[0][0] as any;
+    expect(sent.text).toContain("Fresh authorized design snapshot");
+    expect(sent.text).toContain("Fresh authorized Figma invocation");
+    expect(sent.text).not.toContain("Old design snapshot");
+    expect(context.submissionAccepted).toHaveBeenCalledExactlyOnceWith(
+      prepared,
+    );
+    expect(chatMocks.pendingFiles).toEqual([]);
+    expect(chatMocks.threadId).toBe("thread-1");
+  });
+
+  it.each(["permission", "send", "thread", "disabled"])(
+    "preserves chip draft context after %s blocks submission",
+    async (failure) => {
+      const suggestion = seedFollowup();
+      const items = [
+        {
+          key: "figma",
+          title: "Figma",
+          context: "Selected provider reference",
+        },
+      ];
+      const pending = Promise.withResolvers<typeof items>();
+      const context: AssistantChatComposerContext = {
+        menuItems: [],
+        contextItems: items,
+        onRemoveContextItem: vi.fn(),
+        prepareSubmission: vi.fn(() => pending.promise),
+        submissionAccepted: vi.fn(),
+      };
+      const Provider = ({
+        children,
+      }: AssistantChatComposerContextProviderProps) => children(context);
+      const props = baseProps({ composerContextProvider: Provider });
+      const file = new File(["image"], "keep.png", { type: "image/png" });
+      chatMocks.pendingFiles = [file];
+      if (failure === "send")
+        chatMocks.control.sendMessage.mockRejectedValueOnce(
+          new Error("Send failed"),
+        );
+      await mount(props);
+      await act(async () =>
+        chatMocks.composerProps.onTextChange("Keep this draft"),
+      );
+      const button = [...container.querySelectorAll("button")].find(
+        (item) => item.textContent === suggestion.label,
+      )!;
+      await act(async () => button.click());
+      expect(context.prepareSubmission).toHaveBeenCalledOnce();
+      if (failure === "thread") {
+        chatMocks.threadId = "thread-2";
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} threadId="thread-2" />),
+        );
+      }
+      if (failure === "disabled")
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} composerDisabled />),
+        );
+      await act(async () => {
+        if (failure === "permission")
+          pending.reject(new Error("Grant revoked"));
+        else pending.resolve(items);
+      });
+      await flush();
+      expect(context.submissionAccepted).not.toHaveBeenCalled();
+      expect(chatMocks.pendingFiles).toEqual([file]);
+      expect(context.contextItems).toEqual(items);
+      if (failure !== "send")
+        expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      if (failure !== "thread")
+        expect(chatMocks.composerProps.initialText).toBe("Keep this draft");
+    },
+  );
+
+  it("retains selected context and local files when the chip's thread changes during upload", async () => {
+    const suggestion = seedFollowup();
+    const items = [
+      { key: "figma", title: "Figma", context: "Authorized reference" },
+    ];
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(async () => items),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const props = baseProps({ composerContextProvider: Provider });
+    const file = new File(["image"], "keep.png", { type: "image/png" });
+    chatMocks.pendingFiles = [file];
+    const uploading = Promise.withResolvers<[]>();
+    chatMocks.control.uploadFiles.mockReturnValueOnce(uploading.promise);
+    await mount(props);
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((item) => item.textContent === suggestion.label)!
+        .click(),
+    );
+    expect(context.prepareSubmission).toHaveBeenCalledOnce();
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    chatMocks.threadId = "thread-2";
+    await act(async () =>
+      root.render(<AgentKitAssistantChat {...props} threadId="thread-2" />),
+    );
+    await act(async () => uploading.resolve([]));
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
+    expect(chatMocks.pendingFiles).toEqual([file]);
+  });
+
+  it("keeps preflight from disabling its own submission before onSubmit", async () => {
+    const release = vi.fn();
+    chatMocks.history = {
+      isSubmissionInFlight: false,
+      beginSubmission: vi.fn(async () => {
+        chatMocks.history.isSubmissionInFlight = true;
+        return release;
+      }),
+    };
+    const props = baseProps();
+    await mount(props);
+    await act(async () => {
+      expect(await chatMocks.composerProps.onBeforeSubmit()).toBe(true);
+    });
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.history.beginSubmission).not.toHaveBeenCalled();
+    await act(async () =>
+      chatMocks.composerProps.onSubmit("Send", [], [], { intent: "immediate" }),
+    );
+    expect(chatMocks.history.beginSubmission).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("revalidates captured app context separately from ambient context and acknowledges only accepted sends", async () => {
+    const item = {
+      key: "app-reference",
+      title: "Reference",
+      context: "Captured source",
+    };
+    const prepared = [{ ...item, context: "Fresh source" }];
+    const context: AssistantChatComposerContext = {
+      menuItems: [{ id: "reference", label: "Reference", onSelect: vi.fn() }],
+      contextItems: [item],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div data-app-dialog="true" />,
+      prepareSubmission: vi.fn(async () => prepared),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    const props = baseProps({
+      composerContextProvider: Provider,
+      plusMenuMode: "full",
+    });
+    await mount(props, ref);
+    const ambient = {
+      key: "ambient",
+      title: "Selection",
+      context: "Core selection",
+    };
+    await act(async () => ref.current!.setComposerContextItem(ambient));
+    expect(chatMocks.composerProps.contextItems).toEqual([ambient, item]);
+    expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
+    expect(chatMocks.composerProps.plusMenuMode).toBe("full");
+    expect(container.querySelector("[data-app-dialog]")).not.toBeNull();
+    await act(async () => {
+      chatMocks.composerProps.onRetryContextItem(item.key);
+      chatMocks.composerProps.onInspectContextItem(item.key);
+    });
+    expect(context.onRetryContextItem).toHaveBeenCalledWith(item.key);
+    expect(context.onInspectContextItem).toHaveBeenCalledWith(item.key);
+    const accepted = Promise.withResolvers<void>();
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => accepted.promise,
+    );
+    let submit!: Promise<void>;
+    await act(async () => {
+      submit = chatMocks.composerProps.onSubmit("Use the source", [], [], {
+        intent: "immediate",
+        contextItems: chatMocks.composerProps.contextItems,
+      });
+      await Promise.resolve();
+    });
+    expect(context.prepareSubmission).toHaveBeenCalledWith([item]);
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
+    const laterItem = {
+      key: "later-reference",
+      title: "Later",
+      context: "Not submitted",
+    };
+    context.contextItems = [item, laterItem];
+    await act(async () =>
+      root.render(<AgentKitAssistantChat {...props} ref={ref} />),
+    );
+    await act(async () => {
+      accepted.resolve();
+      await submit;
+    });
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toContain(
+      "Core selection",
+    );
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toContain(
+      "Fresh source",
+    );
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).not.toContain(
+      "Captured source",
+    );
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).not.toContain(
+      "Not submitted",
+    );
+    expect(context.submissionAccepted).toHaveBeenCalledExactlyOnceWith(
+      prepared,
+    );
+    expect(vi.mocked(context.submissionAccepted).mock.calls[0]?.[0]).toBe(
+      prepared,
+    );
+    expect(chatMocks.composerProps.contextItems).toContain(laterItem);
+    await act(async () =>
+      chatMocks.composerProps.onRemoveContextItem(item.key),
+    );
+    expect(context.onRemoveContextItem).toHaveBeenCalledWith(item.key);
+  });
+
+  it.each(["schedule", "automation", "skill"])(
+    "preserves internal %s mode instructions while refreshing only provider context",
+    async (mode) => {
+      const item = {
+        key: "app-reference",
+        title: "Reference",
+        context: "Stale source",
+      };
+      const prepared = [{ ...item, context: "Fresh source" }];
+      const composerModeContext = `Internal ${mode} instructions`;
+      const context: AssistantChatComposerContext = {
+        menuItems: [],
+        contextItems: [item],
+        onRemoveContextItem: vi.fn(),
+        prepareSubmission: vi.fn(async () => prepared),
+        submissionAccepted: vi.fn(),
+      };
+      const Provider = ({
+        children,
+      }: AssistantChatComposerContextProviderProps) => children(context);
+      await mount(baseProps({ composerContextProvider: Provider }));
+      await act(async () => {
+        await chatMocks.composerProps.onSubmit(`Create ${mode}`, [], [], {
+          intent: "immediate",
+          contextItems: [item],
+          composerModeContext,
+        });
+      });
+      expect(context.prepareSubmission).toHaveBeenCalledExactlyOnceWith([item]);
+      const message = chatMocks.control.sendMessage.mock.calls[0]?.[0]?.text;
+      expect(message).toContain(`Create ${mode}`);
+      expect(message).toContain(composerModeContext);
+      expect(message?.split(composerModeContext)).toHaveLength(2);
+      expect(message).toContain("Fresh source");
+      expect(message).not.toContain("Stale source");
+      expect(context.submissionAccepted).toHaveBeenCalledExactlyOnceWith(
+        prepared,
+      );
+    },
+  );
+
+  it.each(["prepare", "dispatch"])(
+    "preserves provider context when %s rejects",
+    async (failure) => {
+      const release = vi.fn();
+      chatMocks.history = { beginSubmission: vi.fn(async () => release) };
+      const items = [
+        { key: "app-reference", title: "Reference", context: "Source" },
+      ];
+      const context: AssistantChatComposerContext = {
+        menuItems: [],
+        contextItems: items,
+        onRemoveContextItem: vi.fn(),
+        prepareSubmission: vi.fn(async () => items),
+        submissionAccepted: vi.fn(),
+      };
+      if (failure === "prepare")
+        vi.mocked(context.prepareSubmission).mockRejectedValueOnce(
+          new Error("Source unavailable"),
+        );
+      else
+        chatMocks.control.sendMessage.mockRejectedValueOnce(
+          new Error("Source unavailable"),
+        );
+      const Provider = ({
+        children,
+      }: AssistantChatComposerContextProviderProps) => children(context);
+      await mount(baseProps({ composerContextProvider: Provider }));
+      await act(async () => {
+        chatMocks.composerProps.onTextChange("Use source");
+      });
+      await act(async () => {
+        expect(await chatMocks.composerProps.onBeforeSubmit()).toBe(true);
+        await expect(
+          chatMocks.composerProps.onSubmit("Use source", [], [], {
+            intent: "immediate",
+            contextItems: items,
+            composerModeContext: "Internal scheduling instructions",
+          }),
+        ).rejects.toThrow("Source unavailable");
+      });
+      expect(release).toHaveBeenCalledExactlyOnceWith();
+      expect(context.submissionAccepted).not.toHaveBeenCalled();
+      expect(chatMocks.composerProps.contextItems).toEqual(items);
+      expect(chatMocks.composerProps.initialText).toBe("Use source");
+      if (failure === "prepare")
+        expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not acknowledge provider context when the submission lock refuses a send", async () => {
+    chatMocks.history = { beginSubmission: vi.fn(async () => null) };
+    const items = [
+      { key: "app-reference", title: "Reference", context: "Source" },
+    ];
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(async () => items),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    await mount(baseProps({ composerContextProvider: Provider }));
+    await act(async () => {
+      await expect(
+        chatMocks.composerProps.onSubmit("Use source", [], [], {
+          intent: "immediate",
+          composerModeContext: "Internal scheduling instructions",
+        }),
+      ).rejects.toThrow();
+    });
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["dropped", "additional", "duplicate"])(
+    "rejects %s prepared context with a typed error",
+    async (kind) => {
+      const item = {
+        key: "app-reference",
+        title: "Reference",
+        context: "Source",
+      };
+      const prepared =
+        kind === "dropped"
+          ? []
+          : kind === "duplicate"
+            ? [item, item]
+            : [item, { ...item, key: "other" }];
+      const context: AssistantChatComposerContext = {
+        menuItems: [],
+        contextItems: [item],
+        onRemoveContextItem: vi.fn(),
+        prepareSubmission: vi.fn(async () => prepared),
+        submissionAccepted: vi.fn(),
+      };
+      const Provider = ({
+        children,
+      }: AssistantChatComposerContextProviderProps) => children(context);
+      await mount(baseProps({ composerContextProvider: Provider }));
+      await act(async () => {
+        await expect(
+          chatMocks.composerProps.onSubmit("Use source", [], [], {
+            intent: "immediate",
+          }),
+        ).rejects.toMatchObject({ code: "composer_context_mismatch" });
+      });
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(context.submissionAccepted).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "disabled",
+    "inactive",
+    "readiness",
+    "account",
+    "identity",
+    "thread",
+  ])("rejects stale provider preparation after a %s change", async (change) => {
+    const release = vi.fn();
+    chatMocks.history = { beginSubmission: vi.fn(async () => release) };
+    const items = [
+      { key: "app-reference", title: "Reference", context: "Source" },
+    ];
+    const prepared = Promise.withResolvers<typeof items>();
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(() => prepared.promise),
+      submissionAccepted: vi.fn(),
+    };
+    const mounts = vi.fn();
+    const providerProps = vi.fn();
+    function Provider(props: AssistantChatComposerContextProviderProps) {
+      React.useEffect(() => {
+        mounts();
+      }, []);
+      providerProps(props);
+      return props.children(context);
+    }
+    const props = baseProps({
+      composerContextProvider: Provider,
+      providerStatusChecksEnabled: true,
+    });
+    await mount(props);
+    let rejected!: Promise<unknown>;
+    await act(async () => {
+      chatMocks.composerProps.onTextChange("Use source");
+    });
+    await act(async () => {
+      expect(await chatMocks.composerProps.onBeforeSubmit()).toBe(true);
+      rejected = expect(
+        chatMocks.composerProps.onSubmit("Use source", [], [], {
+          intent: "immediate",
+          composerModeContext: "Internal scheduling instructions",
+        }),
+      ).rejects.toThrow();
+    });
+    const next = { ...props };
+    if (change === "disabled") next.composerDisabled = true;
+    if (change === "inactive") next.isActiveComposer = false;
+    if (change === "readiness")
+      chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    if (change === "account")
+      chatMocks.session = {
+        authUserId: "user-2",
+        email: "second@example.test",
+        orgId: "workspace-2",
+      };
+    if (change === "identity")
+      chatMocks.session = { ...chatMocks.session, authUserId: "user-2" };
+    if (change === "thread") {
+      next.threadId = "thread-2";
+      chatMocks.threadId = "thread-2";
+    }
+    await act(async () => root.render(<AgentKitAssistantChat {...next} />));
+    await act(async () => {
+      prepared.resolve(items);
+      await rejected;
+    });
+    expect(release).toHaveBeenCalledExactlyOnceWith();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
+    if (
+      change === "disabled" ||
+      change === "inactive" ||
+      change === "readiness"
+    ) {
+      expect(chatMocks.composerProps.initialText).toBe("Use source");
+      expect(chatMocks.composerProps.contextItems).toEqual(items);
+    }
+    if (change === "account" || change === "identity" || change === "thread")
+      expect(mounts).toHaveBeenCalledTimes(2);
+    if (change === "inactive")
+      expect(providerProps.mock.lastCall?.[0].isActive).toBe(false);
+  });
+
   it("loads the model catalog only when the visible picker has no host catalog", async () => {
     await mount(baseProps());
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(true);
@@ -643,6 +1499,56 @@ describe("AgentKitAssistantChat host behavior", () => {
     await mount(baseProps({ showModelSelector: false }));
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
   });
+
+  it.each([
+    {
+      centerComposerWhenEmpty: false,
+      suggestionPlacement: "context-chips" as const,
+    },
+    {
+      centerComposerWhenEmpty: true,
+      suggestionPlacement: "context-chips" as const,
+    },
+    {
+      centerComposerWhenEmpty: true,
+      suggestionPlacement: "after-composer" as const,
+    },
+  ])(
+    "hides suggestions without AI for $suggestionPlacement (centered=$centerComposerWhenEmpty)",
+    async (placement) => {
+      const props = baseProps({
+        ...placement,
+        providerStatusChecksEnabled: true,
+        suggestions: ["Explore my apps"],
+      });
+      await mount(props);
+      for (const state of [
+        "configured",
+        "missing",
+        "unknown",
+        "unavailable",
+        "configured",
+      ]) {
+        const ready = state === "configured";
+        chatMocks.readiness = {
+          canChat: ready,
+          missing: state === "missing",
+          state,
+        };
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} />),
+        );
+        expect(
+          Boolean(
+            container.querySelector('[data-testid="agentkit-suggestion-bar"]'),
+          ),
+        ).toBe(ready);
+        expect(chatMocks.dynamicSuggestionOptions.enabled).toBe(ready);
+        expect(chatMocks.composerProps.disabled).toBe(!ready);
+      }
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    },
+  );
 
   it("places starter prompts between the composer and after-composer content", async () => {
     chatMocks.renderEmptyState = true;
@@ -691,7 +1597,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       container.querySelectorAll('[data-testid="agentkit-suggestion-bar"]'),
     ).toHaveLength(1);
-    expect(container.querySelector("button")).toBeNull();
+    expect(
+      container
+        .querySelector("button")
+        ?.closest('[data-testid="agentkit-suggestion-bar"]'),
+    ).toBe(suggestionElement);
     expect(container.querySelector(".agentkit-host-suggestions")).toBeNull();
     expect(
       composer?.querySelector(".agentkit-after-composer-slot"),
@@ -759,6 +1669,26 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
     expect(container.textContent).toContain("Existing conversation content");
     expect(container.querySelector(".agentkit-home-intro")).toBeNull();
+  });
+
+  it("puts the beginning revert before messages inside the scrollable transcript", async () => {
+    chatMocks.thread.messages = [
+      { id: "first-message", role: "user", parts: [] },
+    ];
+    await mount(baseProps());
+
+    const revert = container.querySelector(
+      '[data-testid="history-beginning-revert"]',
+    );
+    const firstMessage = container.querySelector(
+      '[data-testid="first-transcript-message"]',
+    );
+    expect(chatMocks.chatProps.toolbar).toBeUndefined();
+    expect(revert?.closest(".agentkit-transcript-content")).not.toBeNull();
+    expect(
+      revert!.compareDocumentPosition(firstMessage!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("provides the host-pinned thinking display to the direct AgentKit surface", async () => {
@@ -1087,6 +2017,38 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.appState.has("pending-selection-context")).toBe(false);
   });
+
+  it.each(["immediate", "queued"])(
+    "preserves pending selection when an %s send is rejected",
+    async (intent) => {
+      chatMocks.appState.set("pending-selection-context", {
+        text: "Keep this selection",
+        capturedAt: Date.now(),
+      });
+      const send =
+        intent === "queued"
+          ? chatMocks.control.queueMessage
+          : chatMocks.control.sendMessage;
+      send.mockRejectedValueOnce(new Error("Send refused"));
+      await mount(baseProps());
+      await flush();
+      await act(async () => {
+        await expect(
+          chatMocks.composerProps.onSubmit("Use selection", [], [], { intent }),
+        ).rejects.toThrow("Send refused");
+      });
+      expect(deleteClientAppState).not.toHaveBeenCalledWith(
+        "pending-selection-context",
+        expect.anything(),
+      );
+      expect(chatMocks.appState.has("pending-selection-context")).toBe(true);
+      await act(async () => {
+        await chatMocks.composerProps.onSubmit("Retry", [], [], { intent });
+      });
+      expect(send.mock.calls[1]?.[0]?.text).toContain("Keep this selection");
+      expect(chatMocks.appState.has("pending-selection-context")).toBe(false);
+    },
+  );
 
   it("keeps pending selection available when persisted cleanup fails", async () => {
     chatMocks.appState.set("pending-selection-context", {
@@ -1976,12 +2938,25 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
   });
 
-  it("forwards slash commands and localized labels to AgentKit", async () => {
+  it("forwards slash commands, skills, and localized labels to AgentKit", async () => {
     const onSlashCommand = vi.fn();
     chatMocks.inBuilder = true;
     await mount(baseProps({ onSlashCommand }));
 
     expect(chatMocks.composerProps.includeDefaultSlashCommands).toBe(true);
+    expect(chatMocks.composerProps.includeDefaultSlashSkills).toBe(true);
+    expect(
+      chatMocks.rootProps.registry.toolSource({
+        id: "tool-1",
+        name: "provider-api-request",
+        input: { provider: "figma" },
+        status: "running",
+      })?.id,
+    ).toBe("figma");
+    expect(chatMocks.rootProps.registry.tools).toMatchObject({
+      "connect-builder": chatMocks.rootProps.slots.tool,
+      "connect-file-storage": chatMocks.rootProps.slots.tool,
+    });
     expect(chatMocks.composerProps.onSlashCommand).toBe(onSlashCommand);
     expect(chatMocks.composerProps.interceptBuildRequestsForBuilder).toBe(true);
     expect(chatMocks.rootProps.labels).toMatchObject({
@@ -2675,6 +3650,37 @@ describe("AgentKitAssistantChat host behavior", () => {
     window.removeEventListener("agent-chat:auth-error", onAuthError);
   });
 
+  it.each(["host", "controller"])(
+    "shows cancellation errors from the %s and permits retry",
+    async (source) => {
+      chatMocks.thread.activeRunIds = ["run-stop"];
+      chatMocks.thread.runs = {
+        "run-stop": { id: "run-stop", status: "running" },
+      };
+      const onStop = vi.fn(async () => true);
+      if (source === "host")
+        onStop.mockRejectedValueOnce(new Error("Stop unavailable"));
+      else
+        chatMocks.control.cancel.mockRejectedValueOnce(
+          new Error("Stop unavailable"),
+        );
+      await mount(baseProps({ onStop }));
+      await act(async () => {
+        chatMocks.composerProps.stopButton.props.onClick();
+        await Promise.resolve();
+      });
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Stop unavailable",
+      );
+      await act(async () => {
+        chatMocks.composerProps.stopButton.props.onClick();
+        await Promise.resolve();
+      });
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(chatMocks.control.cancel).toHaveBeenLastCalledWith("run-stop");
+    },
+  );
+
   it("routes first-class approval decisions through host policy hooks", async () => {
     chatMocks.approvalRequest = {
       id: "approval-1",
@@ -2718,6 +3724,35 @@ describe("AgentKitAssistantChat host behavior", () => {
       { decision: "approve", optionIds: ["approve"] },
     );
   });
+
+  it.each(["approve", "deny"])(
+    "shows a failed %s decision and clears it on retry",
+    async (decision) => {
+      chatMocks.approvalRequest = {
+        id: "approval-failed",
+        title: "Allow publishing?",
+        metadata: { toolName: "publish-release" },
+      };
+      chatMocks.control.resolveApproval.mockRejectedValueOnce(
+        new Error("Approval unavailable"),
+      );
+      await mount(baseProps());
+      const action = decision === "approve" ? "onApprove" : "onDeny";
+      await act(async () => {
+        chatMocks.approvalCardProps[action]();
+        await Promise.resolve();
+      });
+      expect(chatMocks.approvalCardProps.saveFailedLabel).toBe(
+        "agentChat.common.saveFailed",
+      );
+      expect(chatMocks.approvalCardProps.isAlwaysAllowing).toBe(false);
+      await act(async () => {
+        chatMocks.approvalCardProps[action]();
+        await Promise.resolve();
+      });
+      expect(chatMocks.approvalCardProps.saveFailedLabel).toBeUndefined();
+    },
+  );
 
   it("labels host always-allow approval actions with their declared scope", async () => {
     chatMocks.approvalRequest = {
@@ -2805,8 +3840,9 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.reasoningProps).toMatchObject({
       defaultOpen: true,
       isStreaming: true,
-      durationMs: 2000,
+      resetKey: "thread-1:assistant-reasoning:0",
     });
+    expect(chatMocks.reasoningProps).not.toHaveProperty("durationMs");
 
     await act(async () => {
       root.render(

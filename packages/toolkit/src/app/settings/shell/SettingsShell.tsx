@@ -71,6 +71,7 @@ import {
 import { BridgedTabSettingsPage, CORE_SETTINGS_PAGES } from "./core-pages.js";
 import {
   DEFAULT_SETTINGS_PAGE_ID,
+  SETTINGS_PAGE_GROUPS,
   getSettingsPages,
   isSettingsPageVisible,
   sortSettingsPages,
@@ -1082,20 +1083,20 @@ function SettingsNav({
           aria-label={t("agentChat.settingsShell.navLabel")}
           className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3"
         >
-          {(["account", "connections", "agent", "organization", "app"] as const)
-            .filter((group) => (groups.get(group) ?? []).length > 0)
-            .map((group) => (
-              <div
-                key={group}
-                data-settings-group={group}
-                className="mt-3.5 flex flex-col gap-px"
-              >
-                <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
-                  {groupLabel(group)}
-                </div>
-                {(groups.get(group) ?? []).map(renderItem)}
+          {SETTINGS_PAGE_GROUPS.filter(
+            (group) => (groups.get(group) ?? []).length > 0,
+          ).map((group) => (
+            <div
+              key={group}
+              data-settings-group={group}
+              className="mt-3.5 flex flex-col gap-px"
+            >
+              <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
+                {groupLabel(group)}
               </div>
-            ))}
+              {(groups.get(group) ?? []).map(renderItem)}
+            </div>
+          ))}
         </nav>
       )}
     </div>

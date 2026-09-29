@@ -39,6 +39,7 @@ import {
   clearSlideEditingActive,
   deckContentSignature,
   flushPendingSaves,
+  hasFailedDeckSave,
   hasUnsavedDeckChanges,
   hasUncommittedDeckChanges,
   markSlideEditingActive,
@@ -104,6 +105,7 @@ function setupFetch(options?: {
   deferredDelete?: boolean;
   deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
+  staleContentConflicts?: boolean;
   putFailures?: { deckId: string; count: number };
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
   putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
@@ -288,6 +290,45 @@ function setupFetch(options?: {
               new Response(JSON.stringify({ ok: true }), { status: 200 }),
             );
         });
+      }
+      if (options?.staleContentConflicts && accessibleDeck) {
+        const operations = actionCallBody(init).operations;
+        const staleContent = Array.isArray(operations)
+          ? operations.some((operation) => {
+              if (!operation || typeof operation !== "object") return false;
+              const patch = operation as {
+                op?: unknown;
+                slideId?: unknown;
+                baseContentHash?: unknown;
+              };
+              if (
+                patch.op !== "patch-slide" ||
+                typeof patch.slideId !== "string" ||
+                typeof patch.baseContentHash !== "string"
+              ) {
+                return false;
+              }
+              const serverSlide = accessibleDeck?.slides.find(
+                (slide) => slide.id === patch.slideId,
+              );
+              return (
+                serverSlide !== undefined &&
+                hashSlideContent(serverSlide.content) !== patch.baseContentHash
+              );
+            })
+          : false;
+        if (staleContent) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: "Slide content changed since it was read",
+                errorCode: "slide_content_stale",
+                details: { slideId: "slide-1" },
+              }),
+              { status: 409 },
+            ),
+          );
+        }
       }
       if (
         deckId === options?.patchFailures?.deckId &&
@@ -760,6 +801,7 @@ describe("DeckContext deck creation persistence", () => {
         op: "patch-slide",
         slideId: "slide-1",
         fields: { content: "Newest" },
+        baseContentHash: hashSlideContent("Older"),
       },
     ]);
   });
@@ -822,14 +864,75 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe(true);
   });
 
-  it("refreshes the server revision before retrying a concurrent patch conflict", async () => {
+  it("hashes successive inline drafts from the last persisted draft", async () => {
+    window.history.pushState({}, "", "/deck/inline-draft-hash-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      staleContentConflicts: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-draft-hash-deck",
+      title: "Inline draft hash deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Draft one" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    setAccessibleDeck({
+      ...initial,
+      slides: [{ ...initial.slides[0]!, content: "Draft one" }],
+    });
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Draft two" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        baseContentHash: hashSlideContent("Draft one"),
+      },
+    ]);
+    expect(hasFailedDeckSave(initial.id)).toBe(false);
+  });
+
+  it("surfaces a same-slide conflict instead of replaying stale content", async () => {
     window.history.pushState({}, "", "/deck/concurrent-patch-deck");
     const {
       fetchMock,
       setAccessibleDeck,
       resolveDeferredPatch,
       getPatchAttempts,
-    } = setupFetch({ deferredPatch: true });
+    } = setupFetch({ deferredPatch: true, staleContentConflicts: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -868,13 +971,15 @@ describe("DeckContext deck creation persistence", () => {
       ...initial,
       updatedAt: remoteRevision,
       slides: [
-        initial.slides[0]!,
-        { ...initial.slides[1]!, content: "Remote edit" },
+        { ...initial.slides[0]!, content: "Remote edit" },
+        initial.slides[1]!,
       ],
     });
     resolveDeferredPatch(409);
     await act(async () => {
-      await result.current.flushDeckSave(initial.id);
+      await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
+        "Failed to save deck",
+      );
     });
 
     expect(deckFetchCalls(fetchMock)).toHaveLength(getCallsBeforeConflict + 1);
@@ -886,7 +991,102 @@ describe("DeckContext deck creation persistence", () => {
     expect(actionCallBody(patchCalls[1]?.[1]).clientWrite).toMatchObject({
       expectedUpdatedAt: remoteRevision,
     });
-    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        baseContentHash: hashSlideContent("Before"),
+      },
+    ]);
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { notes: "Independent edit" },
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() => expect(getPatchAttempts(initial.id)).toBe(3));
+
+    const retryablePatch = fetchMock.mock.calls
+      .filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      )
+      .at(-1);
+    expect(actionCallBody(retryablePatch?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-2",
+        fields: { notes: "Independent edit" },
+      },
+    ]);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Local edit",
+    );
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+  });
+
+  it("does not undo local content over a newer remote slide edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-conflict-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "undo-conflict-deck",
+      title: "Undo conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Local edit" },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Remote edit" }],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Remote edit",
+    );
+
+    const patchCallsBeforeUndo = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    ).length;
+    act(() => result.current.undo(initial.id));
+
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Remote edit",
+    );
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(patchCallsBeforeUndo);
   });
 
   it("merges server layout-fit revisions into optimistic slide writes", async () => {
@@ -1462,10 +1662,14 @@ describe("DeckContext deck creation persistence", () => {
       result.current.addSlide("shared-deck");
     });
 
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability["shared-deck"]?.canUndo).toBe(
+        true,
+      ),
+    );
 
     act(() => {
-      result.current.undo();
+      result.current.undo("shared-deck");
     });
 
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
@@ -1494,7 +1698,11 @@ describe("DeckContext deck creation persistence", () => {
       result.current.addSlide("shared-deck");
     });
 
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability["shared-deck"]?.canUndo).toBe(
+        true,
+      ),
+    );
 
     act(() => {
       window.dispatchEvent(
@@ -1615,7 +1823,9 @@ describe("DeckContext deck creation persistence", () => {
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
     ).toHaveLength(0);
-    expect(result.current.canUndo).toBe(false);
+    expect(
+      result.current.undoAvailability["shared-deck"]?.canUndo ?? false,
+    ).toBe(false);
   });
 
   it("persists inline drafts without replacing the local editor state", async () => {
@@ -1802,9 +2012,11 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
       "<div>Draft</div>",
     );
-    expect(result.current.canUndo).toBe(true);
+    expect(result.current.undoAvailability["inline-undo-deck"]?.canUndo).toBe(
+      true,
+    );
 
-    act(() => result.current.undo());
+    act(() => result.current.undo("inline-undo-deck"));
     expect(result.current.getDeck("inline-undo-deck")?.slides[0]?.content).toBe(
       "<div>Original</div>",
     );
@@ -2048,7 +2260,11 @@ describe("DeckContext deck creation persistence", () => {
     act(() => {
       result.current.addSlide("shared-deck");
     });
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability["shared-deck"]?.canUndo).toBe(
+        true,
+      ),
+    );
 
     act(() => {
       result.current.undo();
@@ -2062,7 +2278,11 @@ describe("DeckContext deck creation persistence", () => {
       result.current.addSlide("shared-deck");
     });
 
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability["shared-deck"]?.canUndo).toBe(
+        true,
+      ),
+    );
   });
 
   it("undoes a wholesale slide replacement that removed an edited slide", async () => {
@@ -2088,7 +2308,9 @@ describe("DeckContext deck creation persistence", () => {
         content: "<div>edited</div>",
       });
     });
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability[deckId]?.canUndo).toBe(true),
+    );
 
     act(() => {
       result.current.setDeckSlides(
@@ -2098,7 +2320,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     act(() => {
-      result.current.undo();
+      result.current.undo(deckId);
     });
     expect(
       result.current.getDeck(deckId)?.slides.some((s) => s.id === slideId),
@@ -2128,16 +2350,22 @@ describe("DeckContext deck creation persistence", () => {
     });
     const deckASlidesBefore = result.current.getDeck(deckA)!.slides.length;
 
+    expect(result.current.undoAvailability[deckA]?.canUndo).toBe(true);
+    expect(result.current.undoAvailability[deckB]?.canUndo).toBe(true);
+    window.history.pushState({}, "", `/deck/${deckB}`);
+
     act(() => {
-      result.current.undo();
+      result.current.undo(deckB);
     });
+    expect(result.current.undoAvailability[deckB]?.canRedo).toBe(true);
     expect(result.current.getDeck(deckB)?.title).toBe("Deck B");
     expect(result.current.getDeck(deckA)?.slides.length).toBe(
       deckASlidesBefore,
     );
 
     act(() => {
-      result.current.undo();
+      window.history.pushState({}, "", `/deck/${deckA}`);
+      result.current.undo(deckA);
     });
     expect(result.current.getDeck(deckA)?.slides.length).toBe(
       deckASlidesBefore - 1,
@@ -2155,7 +2383,9 @@ describe("DeckContext deck creation persistence", () => {
     act(() => {
       deckId = result.current.createDeck("Draft", { noDefaultSlides: true }).id;
     });
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability[deckId]?.canUndo).toBe(true),
+    );
 
     act(() => {
       result.current.undo();
@@ -2178,10 +2408,12 @@ describe("DeckContext deck creation persistence", () => {
     act(() => {
       deckId = result.current.createDeck("Draft", { noDefaultSlides: true }).id;
     });
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability[deckId]?.canUndo).toBe(true),
+    );
 
     act(() => {
-      result.current.undo();
+      result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)).toBeUndefined();
     expect(deletedDeck(fetchMock, deckId)).toBe(false);
@@ -2234,7 +2466,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(deckId)).toBeUndefined();
 
     act(() => {
-      result.current.undo();
+      result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)?.title).toBe("Disposable");
   });
@@ -2455,7 +2687,7 @@ describe("DeckContext deck creation persistence", () => {
     ]);
 
     act(() => {
-      result.current.undo();
+      result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)?.slides).toEqual([]);
   });
@@ -2909,7 +3141,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck("first-deck")).toBeUndefined();
   });
 
-  it("records undo for agent/SSE deck updates so Undo is available after chat edits", async () => {
+  it("keeps agent/SSE deck updates out of the local undo stack", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     const initial: Deck = {
       id: "shared-deck",
@@ -2975,14 +3207,12 @@ describe("DeckContext deck creation persistence", () => {
         "<h1>After agent edit</h1>",
       ),
     );
-    await waitFor(() => expect(result.current.canUndo).toBe(true));
-
-    act(() => {
-      result.current.undo();
-    });
-
+    expect(
+      result.current.undoAvailability["shared-deck"]?.canUndo ?? false,
+    ).toBe(false);
+    act(() => result.current.undo());
     expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
-      "<h1>Before</h1>",
+      "<h1>After agent edit</h1>",
     );
   });
 
@@ -3164,7 +3394,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
 
-    expect(result.current.canUndo).toBe(true);
+    expect(result.current.undoAvailability["shared-deck"]?.canUndo).toBe(true);
     act(() => {
       result.current.undo();
     });
@@ -4307,7 +4537,7 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
-  it("coalesces multiple remote updates from one agent turn into one undo", async () => {
+  it("keeps remote agent updates out of the local undo stack", async () => {
     window.history.pushState({}, "", "/deck/agent-undo-deck");
     const initial: Deck = {
       id: "agent-undo-deck",
@@ -4364,15 +4594,13 @@ describe("DeckContext deck creation persistence", () => {
     await sendAgentUpdate("<h1>First agent update</h1>");
     await sendAgentUpdate("<h1>Last agent update</h1>");
 
-    act(() => {
-      result.current.undo();
-    });
-    await waitFor(() =>
-      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
-        "<h1>Before</h1>",
-      ),
+    expect(result.current.undoAvailability[initial.id]?.canUndo ?? false).toBe(
+      false,
     );
-    expect(result.current.canUndo).toBe(false);
+    act(() => result.current.undo());
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "<h1>Last agent update</h1>",
+    );
   });
 
   it("reconciles a deck-change event while a local edit is pending", async () => {

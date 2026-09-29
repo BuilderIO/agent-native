@@ -653,6 +653,7 @@ const messages = {
       ruleBackfillMatches: "{{count}} हाल के संदेश मेल खाते हैं",
       ruleBackfillNoMatches: "हाल का कोई संदेश इस नियम से मेल नहीं खाता।",
       ruleBackfillFailed: "यह नियम हाल के मेल पर लागू नहीं हो सका।",
+      backfillStatusLoadFailed: "नियमों की हाल की स्थिति लोड नहीं हो सकी।",
       ruleBackfillPartialFailure: "{{count}} संदेश अपडेट नहीं हो सके।",
       ruleBackfillUndoing: "हाल के मेल बहाल हो रहे हैं…",
       ruleBackfillUndoComplete: "{{count}} संदेश बहाल हुए",
