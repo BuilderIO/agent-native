@@ -200,15 +200,21 @@ describe("import-resource-pack", () => {
   });
 
   it("rejects too many files before schema parsing", async () => {
+    const resources = Array.from({ length: 201 }, (_, index) => ({
+      path: `file-${index}.md`,
+      content: "x",
+    }));
+    Object.defineProperty(resources, "flatMap", {
+      value: () => {
+        throw new Error("over-cap resource arrays should not be traversed");
+      },
+    });
     await expect(
       importResourcePack.run(
         {
           pack: {
             version: 1,
-            resources: Array.from({ length: 201 }, (_, index) => ({
-              path: `file-${index}.md`,
-              content: "x",
-            })),
+            resources,
           },
         },
         { userEmail: "alice@x.com", caller: "http" },
