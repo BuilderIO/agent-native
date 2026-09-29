@@ -782,6 +782,9 @@ jobs:
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
 
+      - name: Test untracked-imports guard
+        run: pnpm test:no-untracked-imports
+
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
