@@ -102,7 +102,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     );
   });
 
-  it("shows the Chrome permission prompt and confirms before closing setup", async () => {
+  it("shows the Chrome permission prompt and closes from its X button", async () => {
     const onDismiss = vi.fn();
 
     await act(async () => {
@@ -117,7 +117,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
 
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(
       document.querySelector('img[src="/local-network-access-permission.png"]'),
     ).not.toBeNull();
@@ -127,22 +126,53 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(dismissButton).toBeDefined();
 
     await act(async () => dismissButton?.click());
-    expect(
-      document
-        .querySelector('[role="alertdialog"]')
-        ?.getAttribute("data-state"),
-    ).toBe("open");
-    expect(document.body.textContent).toContain("Close setup?");
-    expect(document.body.textContent).toContain(
-      "Live editing won't work until you allow access in Chrome.",
-    );
-    expect(onDismiss).not.toHaveBeenCalled();
-
-    const closeAnyway = Array.from(
-      document.body.querySelectorAll("button"),
-    ).find((button) => button.textContent?.trim() === "Close anyway");
-    await act(async () => closeAnyway?.click());
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("keeps proactive setup open on outside interaction and Escape", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+          proactive
+        />,
+      );
+    });
+
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-state="open"]'),
+    ).find((element) => element.className.includes("backdrop-blur"));
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][data-state="open"]',
+    );
+    expect(overlay?.className).toContain("backdrop-blur-[4px]");
+    expect(overlay?.className).not.toContain("backdrop-blur-[1px]");
+    expect(dialog).not.toBeNull();
+
+    await act(async () => {
+      overlay?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    await act(async () => {
+      dialog?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
@@ -811,6 +841,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       expect(container.textContent).toContain(
         "The running app is shielded until Design connects to the local bridge.",
       );
+      expect(container.textContent).not.toContain("Preparing the live editor");
     });
   });
 
