@@ -760,14 +760,19 @@ async function topUsageChats(
     args: [...appKeyColumn.args, ...filter.args, sinceMs],
   });
   const rows = result.rows as Array<Record<string, unknown>>;
-  const threadIds = rows.map((row) => stringField(row, "k"));
+  const threadRefs = rows
+    .map((row) => ({
+      id: stringField(row, "k"),
+      ownerEmail: stringField(row, "owner_email"),
+    }))
+    .filter((ref) => ref.id && ref.ownerEmail);
   const threads = new Map<string, { title: string; preview: string }>();
   let threadQueryUnavailable = false;
-  if (threadIds.length > 0) {
+  if (threadRefs.length > 0) {
     try {
       const threadResult = await getDbExec().execute({
-        sql: `SELECT id, title, preview FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
-        args: threadIds,
+        sql: `SELECT id, title, preview FROM chat_threads WHERE ${threadRefs.map(() => "(id = ? AND LOWER(owner_email) = LOWER(?))").join(" OR ")}`,
+        args: threadRefs.flatMap((ref) => [ref.id, ref.ownerEmail]),
       });
       for (const row of threadResult.rows as Array<Record<string, unknown>>) {
         const id = stringField(row, "id");
@@ -1109,20 +1114,26 @@ async function hydrateRecentPrompts(
   legacyRowsUseBuilder: boolean,
 ): Promise<UsageRecentMetric[]> {
   const recentLimit = 12;
-  const threadIds = [
-    ...new Set(
+  const threadRefs = [
+    ...new Map(
       rows
-        .map((row) => nullableStringField(row, "thread_id"))
-        .filter((value): value is string => Boolean(value)),
-    ),
+        .map((row) => ({
+          id: nullableStringField(row, "thread_id"),
+          ownerEmail: nullableStringField(row, "owner_email"),
+        }))
+        .filter((ref): ref is { id: string; ownerEmail: string } =>
+          Boolean(ref.id && ref.ownerEmail),
+        )
+        .map((ref) => [JSON.stringify([ref.id, ref.ownerEmail]), ref] as const),
+    ).values(),
   ].slice(0, recentLimit);
   const threads = new Map<string, ThreadPromptRow>();
   let threadQueryUnavailable = false;
-  if (threadIds.length > 0) {
+  if (threadRefs.length > 0) {
     try {
       const result = await getDbExec().execute({
-        sql: `SELECT id, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
-        args: threadIds,
+        sql: `SELECT id, thread_data FROM chat_threads WHERE ${threadRefs.map(() => "(id = ? AND LOWER(owner_email) = LOWER(?))").join(" OR ")}`,
+        args: threadRefs.flatMap((ref) => [ref.id, ref.ownerEmail]),
       });
       for (const row of result.rows as ThreadPromptRow[]) {
         const id = typeof row.id === "string" ? row.id : "";

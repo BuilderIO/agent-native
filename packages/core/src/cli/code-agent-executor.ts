@@ -48,6 +48,7 @@ import {
   mcpToolsToActionEntries,
   type McpToolInvocationPolicy,
 } from "../mcp-client/index.js";
+import type { McpPrincipal } from "../mcp-client/principal.js";
 import {
   readAgentsBundleFromFs,
   generateDevelopmentSkillsPromptBlock,
@@ -325,7 +326,7 @@ export async function executeCodeAgentRun(
   );
   const mcpManager = toolProfile
     ? null
-    : await startCodeAgentMcpManager(existing.id);
+    : await startCodeAgentMcpManager(existing);
   if (mcpManager) {
     Object.assign(
       actions,
@@ -1501,8 +1502,11 @@ async function executeCodexCliRun(options: {
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const additionalSkillsRoot =
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
+  const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
   const mcpConfig =
-    process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null;
+    process.env.MCP_SERVERS === undefined && mcpPrincipal
+      ? await buildMergedConfig(mcpPrincipal)
+      : null;
   const args = [
     ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
@@ -2078,9 +2082,12 @@ function metadataString(
 }
 
 async function startCodeAgentMcpManager(
-  runId: string,
+  run: CodeAgentRunRecord,
 ): Promise<McpClientManager | null> {
-  const config = await buildMergedConfig().catch((err) => {
+  const runId = run.id;
+  const principal = resolveCodeAgentMcpPrincipal(run);
+  if (!principal) return null;
+  const config = await buildMergedConfig(principal).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentTranscriptEvent({
       runId,
@@ -2126,6 +2133,20 @@ async function startCodeAgentMcpManager(
     },
   });
   return manager;
+}
+
+function resolveCodeAgentMcpPrincipal(
+  run: CodeAgentRunRecord,
+): McpPrincipal | null {
+  const userEmail =
+    metadataString(run, "ownerEmail") ??
+    metadataString(run, "userEmail") ??
+    getAmbientUserEmail();
+  if (!userEmail) return null;
+  return {
+    userEmail,
+    orgId: metadataString(run, "orgId") ?? getAmbientOrgId() ?? null,
+  };
 }
 
 function runWithOptionalCodeAgentRequestContext<T>(

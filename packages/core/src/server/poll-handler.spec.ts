@@ -895,6 +895,46 @@ describe("poll handler", () => {
     );
   });
 
+  it("sets a missing extension watermark from MAX(updated_at) without scanning tools", async () => {
+    let extensionsTs: unknown = null;
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      return { rows: [] };
+    });
+
+    const { AppSyncState } = await import("./poll.js");
+    const state = new AppSyncState({
+      getDb: () => ({ execute: mockExecute }) as any,
+    });
+    await state.seedVersionFromDb();
+
+    extensionsTs = 1_800;
+    await vi.advanceTimersByTimeAsync(1_001);
+    await state.checkExternalDbChanges({ durableEvents: false });
+
+    const toolRowQueries = mockExecute.mock.calls.filter(([query]) => {
+      const sql = typeof query === "string" ? query : query?.sql;
+      return (
+        typeof sql === "string" &&
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      );
+    });
+    expect(toolRowQueries).toEqual([]);
+  });
+
   it("emits action changes from durable markers for child-process actions", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;

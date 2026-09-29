@@ -73,13 +73,16 @@ function unwrapPersistedThreadMessage(
     : record;
 }
 
-async function getThreadMessages(threadId: string): Promise<ThreadMessage[]> {
+async function getThreadMessages(
+  threadId: string,
+  ownerEmail: string,
+): Promise<ThreadMessage[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
 
   const { rows } = await client.execute({
-    sql: `SELECT thread_data FROM chat_threads WHERE id = ?`,
-    args: [threadId],
+    sql: `SELECT thread_data FROM chat_threads WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [threadId, ownerEmail],
   });
 
   if (rows.length === 0) return [];
@@ -302,9 +305,9 @@ function computeRetryScore(userMessages: string[]): number {
 
 export async function computeSatisfactionScore(
   threadId: string,
-  opts: { userId?: string | null } = {},
+  opts: { ownerEmail: string; userId?: string | null },
 ): Promise<SatisfactionScore> {
-  const messages = await getThreadMessages(threadId);
+  const messages = await getThreadMessages(threadId, opts.ownerEmail);
   const userMessages = messages
     .filter((m) => m.role === "user")
     .map((m) => m.content);
