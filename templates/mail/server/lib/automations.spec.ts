@@ -150,7 +150,9 @@ vi.mock("../db/index.js", () => ({
   schema: { automationRules: dbMock.automationRules },
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
+  defineAction: (config: unknown) => config,
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },
