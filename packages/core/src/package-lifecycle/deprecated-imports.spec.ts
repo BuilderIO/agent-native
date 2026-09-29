@@ -344,6 +344,86 @@ describe("scanDeprecatedImports", () => {
     ]);
   });
 
+  it("reports active moves in dynamic, CommonJS, namespace, and unquoted CSS imports", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-call-moves-"));
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "consumer.ts"),
+      [
+        'const { AgentSidebar } = await import("@agent-native/core/client");',
+        'const { AppProvidersProps } = require("@agent-native/core/client/hooks");',
+        'const client = await import("@agent-native/core/client");',
+        "void client.AgentSidebar;",
+        'require("@agent-native/core/client/AgentSidebar");',
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, "global.css"),
+      "@import url(@agent-native/core/styles/agent-native.css);\n",
+    );
+    const manifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {
+        "@agent-native/core/client": {
+          to: "@agent-native/core/client",
+          symbols: {
+            AgentSidebar: { to: "@agent-native/toolkit/app/chat/AgentSidebar" },
+          },
+        },
+        "@agent-native/core/client/hooks": {
+          to: "@agent-native/core/client/hooks",
+          symbols: {
+            AppProvidersProps: { to: "@agent-native/toolkit/app/providers" },
+          },
+        },
+        "@agent-native/core/client/AgentSidebar": {
+          to: "@agent-native/toolkit/app/chat/AgentSidebar",
+        },
+        "@agent-native/core/styles/agent-native.css": {
+          to: "@agent-native/toolkit/styles.css",
+        },
+      },
+    };
+
+    expect(scanDeprecatedImports({ root, manifests: [manifest] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 1,
+          from: "@agent-native/core/client",
+          to: ["@agent-native/toolkit/app/chat/AgentSidebar"],
+          symbols: ["AgentSidebar"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 2,
+          from: "@agent-native/core/client/hooks",
+          to: ["@agent-native/toolkit/app/providers"],
+          symbols: ["AppProvidersProps"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 4,
+          from: "@agent-native/core/client",
+          to: ["@agent-native/toolkit/app/chat/AgentSidebar"],
+          symbols: ["AgentSidebar"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.ts"),
+          line: 5,
+          from: "@agent-native/core/client/AgentSidebar",
+          to: ["@agent-native/toolkit/app/chat/AgentSidebar"],
+        }),
+        expect.objectContaining({
+          file: path.join(root, "global.css"),
+          line: 1,
+          from: "@agent-native/core/styles/agent-native.css",
+          to: ["@agent-native/toolkit/styles.css"],
+        }),
+      ]),
+    );
+  });
+
   it("reports removed chat exports with their migration guide", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-removed-"));
     roots.push(root);

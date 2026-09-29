@@ -89,7 +89,7 @@ function rewriteCssImports(
 ): MigrationCodemodFileChange | null {
   const before = fs.readFileSync(file, "utf-8");
   const after = before.replace(
-    /(@import\s+)(?:(["'])([^"']+)\2|url\((\s*)(["'])([^"']+)\5(\s*)\))/g,
+    /(@import\s+)(?:(["'])([^"']+)\2|url\((\s*)(?:(["'])([^"']+)\5|([^)'"\s]+))(\s*)\))/g,
     (
       whole,
       prefix: string,
@@ -98,9 +98,10 @@ function rewriteCssImports(
       urlLeadingWhitespace: string | undefined,
       urlQuote: string | undefined,
       urlSpecifier: string | undefined,
+      urlUnquotedSpecifier: string | undefined,
       urlTrailingWhitespace: string | undefined,
     ) => {
-      const specifier = quotedSpecifier ?? urlSpecifier;
+      const specifier = quotedSpecifier ?? urlSpecifier ?? urlUnquotedSpecifier;
       if (!specifier) return whole;
       const move = moves[specifier];
       if (!move) return whole;
@@ -123,9 +124,11 @@ function rewriteCssImports(
         specifier,
         move.to,
       );
-      return quote
-        ? `${prefix}${quote}${move.to}${quote}`
-        : `${prefix}url(${urlLeadingWhitespace}${urlQuote}${move.to}${urlQuote}${urlTrailingWhitespace})`;
+      if (quote) return `${prefix}${quote}${move.to}${quote}`;
+      const rewrittenSpecifier = urlQuote
+        ? `${urlQuote}${move.to}${urlQuote}`
+        : move.to;
+      return `${prefix}url(${urlLeadingWhitespace}${rewrittenSpecifier}${urlTrailingWhitespace})`;
     },
   );
   if (before === after) return null;

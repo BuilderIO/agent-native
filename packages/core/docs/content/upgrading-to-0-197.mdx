@@ -37,6 +37,11 @@ aliases and type-only imports. It also rewrites simple CSS `@import` paths and
 adds a missing package dependency when a resolved rewrite crosses a package
 boundary.
 
+The diagnostics also detect CommonJS `require()` and dynamic `import()` forms,
+but the codemod does not rewrite those call expressions. Replace them using the
+reported new home, then rerun Vite or `agent-native doctor`. CSS `@import
+url(...)` paths are codemodded with or without quotes.
+
 It does not change call sites or move your files. It leaves unresolved and
 planned moves alone with warnings. It cannot split default, namespace,
 side-effect, or star imports/exports, or split symbol-level CSS imports. Review

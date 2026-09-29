@@ -35,6 +35,8 @@ directories छोड़कर) और समर्थित import तथा re
 @import paths भी बदलता है और resolved rewrite से package सीमा पार होने पर missing
 dependency जोड़ता है।
 
+डायग्नोस्टिक CommonJS `require()` और dynamic `import()` forms भी detect करता है, लेकिन codemod इन call expressions को rewrite नहीं करता। रिपोर्ट में दिए गए नए destination का उपयोग करके इन्हें बदलें, फिर Vite या `agent-native doctor` दोबारा चलाएँ। CSS `@import url(...)` paths पर codemod quoted और unquoted दोनों रूपों में काम करता है।
+
 यह call sites नहीं बदलता और files नहीं ले जाता। Unresolved और planned moves
 warnings के साथ वैसे ही रहते हैं। यह default, namespace, side-effect या star
 imports/exports को विभाजित नहीं कर सकता; symbol-level CSS imports नहीं बाँटे जा सकते। इन मामलों की manual review करें।
