@@ -2,5 +2,5 @@ import { throwMovedAgentNativeModule } from "../../package-lifecycle/upgrade-err
 
 throwMovedAgentNativeModule(
   "@agent-native/core/client/feedback",
-  "@agent-native/toolkit/app/feedback",
+  "@agent-native/toolkit/app/feedback/FeedbackButton",
 );

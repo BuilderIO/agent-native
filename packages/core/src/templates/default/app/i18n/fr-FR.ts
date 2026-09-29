@@ -18,6 +18,13 @@ const messages = {
     disconnecting: "Déconnexion…",
   },
   settings: {
+    backHome: "Retour à l’accueil",
+    title: "Paramètres",
+    description: "Gérez les paramètres de l’application et de la langue.",
+    languageTitle: "Langue de l’interface",
+    languageDescription:
+      "Choisissez la langue utilisée dans cette application.",
+    languageLabel: "Langue",
     agentTitle: "Paramètres de l'agent",
     agentDescription:
       "Ouvrez les paramètres de l'agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",

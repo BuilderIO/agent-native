@@ -8,14 +8,14 @@ throwMovedAgentNativeModule(
   "@agent-native/toolkit/app/review",
 );
 
-/** @deprecated @agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx @agent-native/core@latest upgrade --codemods */
+/** @deprecated @agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx */
 export const InlineMarkdown =
-  undefined as DeprecatedExport<"@agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx @agent-native/core@latest upgrade --codemods">;
+  undefined as DeprecatedExport<"@agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx">;
 
-/** @deprecated @agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx @agent-native/core@latest upgrade --codemods */
+/** @deprecated @agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx */
 export type InlineMarkdownProtectedSpan =
-  DeprecatedExport<"@agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx @agent-native/core@latest upgrade --codemods">;
+  DeprecatedExport<"@agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx">;
 
-/** @deprecated @agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx @agent-native/core@latest upgrade --codemods */
+/** @deprecated @agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx */
 export type InlineMarkdownProps =
-  DeprecatedExport<"@agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx @agent-native/core@latest upgrade --codemods">;
+  DeprecatedExport<"@agent-native/core/client/markdown moved to @agent-native/toolkit/app/review. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx">;

@@ -29,6 +29,11 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 ## How
 
+For the Core 0.197.0 package and import migration, follow the
+[Core 0.197.0 upgrade runbook](../../../packages/core/docs/content/upgrading-to-0-197.mdx).
+It covers the preview and apply commands, Toolkit and optional peer packages,
+codemod limits, and a symbol-level path map.
+
 1. **Preview migration codemods first**
 
    ```bash
@@ -39,15 +44,16 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    manually edit imports before running this command; the migration manifest is
    the source of truth for renamed specifiers and symbols.
 
-2. **Apply the reviewed codemods, then run the upgrade**
+2. **Apply the reviewed upgrade and codemods**
 
    ```bash
    npx @agent-native/core@latest upgrade --codemods --yes
-   npx @agent-native/core@latest upgrade
    ```
 
-   Or from an already-installed CLI: `pnpm exec agent-native upgrade` /
-   `agent-native upgrade`.
+   This single invocation applies the codemods and runs the upgrade, including
+   dependency installation, scaffold skill refresh, and typecheck when
+   available. Do not run a second upgrade command just to apply the codemods.
+   From an already-installed CLI, use `pnpm exec agent-native upgrade --codemods --yes`.
 
    What it does:
 

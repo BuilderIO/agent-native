@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ALL_GUARD_NAMES,
@@ -23,8 +23,42 @@ const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
 ).href;
 
 const tmpRoots: string[] = [];
+const doctorEnvironmentKeys = [
+  "APP_NAME",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
+  "DATABASE_URL",
+  "SENTRY_SERVER_DSN",
+  "SENTRY_CLIENT_DSN",
+  "SENTRY_DSN",
+  "VITE_SENTRY_CLIENT_DSN",
+  "VITE_SENTRY_DSN",
+  "SENTRY_CLIENT_KEY",
+  "VITE_SENTRY_CLIENT_KEY",
+  "SENTRY_PROJECT_ID",
+  "VITE_SENTRY_PROJECT_ID",
+  "SENTRY_INGEST_HOST",
+  "VITE_SENTRY_INGEST_HOST",
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_ORG",
+  "SENTRY_ORG_SLUG",
+  "SENTRY_PROJECT",
+  "SENTRY_CLIENT_PROJECT",
+  "AUTH_SSO",
+  "AUTH_SCIM",
+  "VITE_AMPLITUDE_API_KEY",
+  "MICROSOFT_TEAMS_APP_ID",
+  "MICROSOFT_TEAMS_APP_PASSWORD",
+] as const;
+
+beforeEach(() => {
+  for (const key of doctorEnvironmentKeys) {
+    vi.stubEnv(key, key === "DATABASE_URL" ? "postgres://doctor-test" : "");
+  }
+});
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -33,6 +67,12 @@ afterEach(() => {
 function makeTempAppRoot(files: Record<string, string>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-cli-"));
   tmpRoots.push(root);
+  if (files[".env"] === undefined) {
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://localhost/doctor-test\n",
+    );
+  }
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(root, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -193,11 +233,63 @@ describe("runDoctorScan", () => {
       expect.objectContaining({
         guard: "migration-manifest",
         file: "app/root.tsx",
-        message: expect.stringContaining(
-          "npx @agent-native/core@latest upgrade --codemods",
-        ),
+        message:
+          "@agent-native/core/client/composer (PromptComposer) moves to @agent-native/toolkit/composer. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
       }),
     ]);
+  });
+
+  it("reports a missing optional peer when its feature is configured", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      ".env": "DATABASE_URL=postgres://localhost/app\nAUTH_SSO=true\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["feature-dependencies"],
+      shellEnvironment: {},
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          dependencies: [
+            { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+          ],
+        },
+      ],
+    });
+
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        guard: "feature-dependencies",
+        file: "package.json",
+        message: expect.stringContaining("@better-auth/sso@1.7.4"),
+      }),
+    ]);
+  });
+
+  it("does not report optional peers for an unconfigured feature", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      ".env": "DATABASE_URL=postgres://localhost/app\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["feature-dependencies"],
+      shellEnvironment: {},
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          dependencies: [
+            { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+          ],
+        },
+      ],
+    });
+
+    expect(report.findings).toEqual([]);
+    expect(report.ok).toBe(true);
   });
 
   it("reports planned imports as non-blocking warnings", () => {
@@ -233,11 +325,14 @@ describe("runDoctorScan", () => {
     ]);
   });
 
-  it("reports removed API imports with a direct migration guide", () => {
+  it("reports AgentKit and UI removals with their symbol-specific guides", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
-      "app/root.tsx":
-        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";\n',
+      "app/root.tsx": [
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";',
+        'import { AgentNative } from "@agent-native/core/client";',
+        "",
+      ].join("\n"),
     });
     const report = runDoctorScan({
       root,
@@ -251,22 +346,45 @@ describe("runDoctorScan", () => {
               symbols: ["createAgentChatAdapter"],
               migrationGuide: "https://example.test/agentkit-chat.md",
             },
+            "@agent-native/core/client": {
+              symbols: ["AgentNative"],
+              migrationGuide: "https://example.test/agentkit-chat.md",
+              symbolGuides: {
+                AgentNative: "https://example.test/upgrading-to-0-197.mdx",
+              },
+            },
           },
         },
       ],
     });
 
     expect(report.ok).toBe(false);
-    expect(report.findings).toEqual([
-      expect.objectContaining({
-        guard: "migration-manifest",
-        file: "app/root.tsx",
-        message: expect.stringContaining("createAgentChatAdapter was removed"),
-      }),
-    ]);
-    expect(report.findings[0]?.message).toContain(
-      "https://example.test/agentkit-chat.md",
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          guard: "migration-manifest",
+          file: "app/root.tsx",
+          message: expect.stringContaining(
+            "createAgentChatAdapter was removed",
+          ),
+        }),
+        expect.objectContaining({
+          guard: "migration-manifest",
+          file: "app/root.tsx",
+          message: expect.stringContaining("AgentNative was removed"),
+        }),
+      ]),
     );
+    expect(
+      report.findings.find((finding) =>
+        finding.message.includes("createAgentChatAdapter was removed"),
+      )?.message,
+    ).toContain("https://example.test/agentkit-chat.md");
+    expect(
+      report.findings.find((finding) =>
+        finding.message.includes("AgentNative was removed"),
+      )?.message,
+    ).toContain("https://example.test/upgrading-to-0-197.mdx");
   });
 
   it("uses the installed Core package's matching chat migration guide", () => {

@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("scanDeprecatedImports", () => {
-  it("documents every removed export in the migration guide", () => {
+  it("documents removed AgentKit chat exports in their migration guide", () => {
     const manifest = JSON.parse(
       fs.readFileSync(
         new URL("../../migration-manifest.json", import.meta.url),
@@ -68,14 +68,65 @@ describe("scanDeprecatedImports", () => {
       "utf-8",
     );
     const symbols = new Set(
-      Object.values(manifest.removedExports ?? {}).flatMap(
-        (removedExport) => removedExport.symbols,
-      ),
+      Object.values(manifest.removedExports ?? {})
+        .filter((removedExport) =>
+          removedExport.migrationGuide.endsWith("/agentkit-chat.md"),
+        )
+        .flatMap((removedExport) =>
+          removedExport.symbols.filter(
+            (symbol) => !removedExport.symbolGuides?.[symbol],
+          ),
+        ),
     );
 
     expect(
       [...symbols].filter((symbol) => !guide.includes(`\`${symbol}\``)),
     ).toEqual([]);
+  });
+
+  it("uses the per-symbol guide for removals sharing an old subpath", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-guides-"));
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "index.ts"),
+      [
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";',
+        'import { AgentNative } from "@agent-native/core/client";',
+        "",
+      ].join("\n"),
+    );
+    const manifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {},
+      removedExports: {
+        "@agent-native/core/client/agent-chat": {
+          symbols: ["createAgentChatAdapter"],
+          migrationGuide: "https://example.test/agentkit-chat.md",
+        },
+        "@agent-native/core/client": {
+          symbols: ["AgentNative"],
+          migrationGuide: "https://example.test/agentkit-chat.md",
+          symbolGuides: {
+            AgentNative: "https://example.test/upgrading-to-0-197.mdx",
+          },
+        },
+      },
+    };
+
+    expect(scanDeprecatedImports({ root, manifests: [manifest] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "@agent-native/core/client/agent-chat",
+          symbols: ["createAgentChatAdapter"],
+          migrationGuide: "https://example.test/agentkit-chat.md",
+        }),
+        expect.objectContaining({
+          from: "@agent-native/core/client",
+          symbols: ["AgentNative"],
+          migrationGuide: "https://example.test/upgrading-to-0-197.mdx",
+        }),
+      ]),
+    );
   });
 
   it("activates predictive moves only when their release is running", () => {
@@ -826,6 +877,21 @@ describe("readMigrationManifest dependencies", () => {
             "@agent-native/core/client": {
               symbols: "createAgentChatAdapter",
               migrationGuide: "https://example.test/guide.md",
+            },
+          },
+        },
+        "removedExports",
+      ],
+      [
+        {
+          ...base,
+          removedExports: {
+            "@agent-native/core/client": {
+              symbols: ["AgentNative"],
+              migrationGuide: "https://example.test/guide.md",
+              symbolGuides: {
+                Unknown: "https://example.test/other.md",
+              },
             },
           },
         },

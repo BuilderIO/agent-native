@@ -1,3 +1,5 @@
+import { AGENT_NATIVE_MIGRATION_GUIDE_URL } from "../package-lifecycle/migration-message.js";
+
 export class OptionalPeerDependencyError extends Error {
   readonly code = "ERR_AGENT_NATIVE_OPTIONAL_PEER";
 
@@ -6,7 +8,7 @@ export class OptionalPeerDependencyError extends Error {
     options?: ErrorOptions,
   ) {
     super(
-      `This feature requires optional peer ${packageName}. Install it with \`pnpm add ${packageName}\`.`,
+      `This feature requires optional peer ${packageName}. Install it with \`pnpm add ${packageName}\`. For feature-specific packages and the upgrade path, see ${AGENT_NATIVE_MIGRATION_GUIDE_URL}.`,
       options,
     );
     this.name = "OptionalPeerDependencyError";

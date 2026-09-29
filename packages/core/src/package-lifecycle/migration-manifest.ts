@@ -43,6 +43,7 @@ export interface MigrationManifest {
 export interface RemovedExportManifest {
   symbols: string[];
   migrationGuide: string;
+  symbolGuides?: Record<string, string>;
 }
 
 const MIGRATION_DEPENDENCY_CONDITIONS = new Set<MigrationDependencyCondition>([
@@ -109,13 +110,22 @@ function isMigrationMove(value: unknown): value is MigrationMove {
 function isRemovedExportManifest(
   value: unknown,
 ): value is RemovedExportManifest {
+  if (!isRecord(value) || !Array.isArray(value.symbols)) return false;
+  const symbols = value.symbols;
+  const symbolGuides = value.symbolGuides;
   return (
-    isRecord(value) &&
-    Array.isArray(value.symbols) &&
-    value.symbols.length > 0 &&
-    value.symbols.every((symbol) => typeof symbol === "string") &&
+    symbols.length > 0 &&
+    symbols.every((symbol) => typeof symbol === "string") &&
     typeof value.migrationGuide === "string" &&
-    /^https:\/\//.test(value.migrationGuide)
+    /^https:\/\//.test(value.migrationGuide) &&
+    (symbolGuides === undefined ||
+      (isRecord(symbolGuides) &&
+        Object.entries(symbolGuides).every(
+          ([symbol, guide]) =>
+            symbols.includes(symbol) &&
+            typeof guide === "string" &&
+            /^https:\/\//.test(guide),
+        )))
   );
 }
 

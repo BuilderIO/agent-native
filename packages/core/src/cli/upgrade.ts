@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import {
   isMigrationManifestActive,
   loadMigrationManifestsForProject,
+  type MigrationManifest,
   type MigrationDependency,
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
@@ -442,7 +443,7 @@ function findWorkspaceEnvironmentRoot(
   }
 }
 
-function readUpgradeEnvironment(
+export function readUpgradeEnvironment(
   projectRoot: string,
   packageDir: string,
   shellEnvironment: NodeJS.ProcessEnv,
@@ -481,11 +482,12 @@ function readUpgradeEnvironment(
   return environment;
 }
 
-function loadActiveMigrationDependencies(
+export function loadActiveMigrationDependencies(
   projectRoot: string,
   packageVersion: string | null,
+  manifests = loadMigrationManifestsForProject(projectRoot),
 ): MigrationDependency[] {
-  return loadMigrationManifestsForProject(projectRoot)
+  return manifests
     .filter((manifest) => isMigrationManifestActive(manifest, packageVersion))
     .flatMap((manifest) => manifest.dependencies ?? []);
 }
@@ -799,7 +801,7 @@ function isYarnPnpProject(projectRoot: string): boolean {
   }
 }
 
-function resolveInstalledPackageVersion(
+export function resolveInstalledPackageVersion(
   projectRoot: string,
   packageName: string,
 ): string | null {
@@ -862,7 +864,7 @@ function resolveInstalledPackageVersion(
   return null;
 }
 
-function readCliCoreVersion(): string | null {
+export function readCliCoreVersion(): string | null {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "../../package.json");

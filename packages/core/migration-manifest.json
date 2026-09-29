@@ -106,8 +106,7 @@
           "to": "@agent-native/toolkit/app/chat"
         },
         "AppProviders": {
-          "to": "@agent-native/core/client/hooks",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/providers/AppProviders"
         },
         "AppearancePicker": {
           "to": "@agent-native/toolkit/app/shared"
@@ -134,9 +133,7 @@
           "to": "@agent-native/toolkit/editor"
         },
         "BuilderSetupCard": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "BuilderSetupCard",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/chat/run-recovery"
         },
         "ChangelogDialog": {
           "to": "@agent-native/toolkit/app/changelog"
@@ -257,24 +254,16 @@
           "status": "planned"
         },
         "GuidedQuestion": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "GuidedQuestion",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "GuidedQuestionAnswers": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "GuidedQuestionAnswers",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "GuidedQuestionFlow": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "GuidedQuestionFlow",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "GuidedQuestionOption": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "GuidedQuestionOption",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "ImageUploadFn": {
           "to": "@agent-native/toolkit/editor"
@@ -337,8 +326,7 @@
           "status": "planned"
         },
         "NewWorkspaceAppFlow": {
-          "to": "@agent-native/core/client/ui",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/onboarding/NewWorkspaceAppFlow"
         },
         "ObservabilityDashboard": {
           "to": "@agent-native/toolkit/app/observability"
@@ -477,8 +465,7 @@
           "to": "@agent-native/toolkit/app/review"
         },
         "ReviewThread": {
-          "to": "@agent-native/core/client/review",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
         },
         "ReviewThreadPanel": {
           "to": "@agent-native/toolkit/app/review"
@@ -580,14 +567,10 @@
           "status": "planned"
         },
         "ToolRendererContext": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "ToolRendererContext",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
         },
         "ToolRendererProps": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "ToolRendererProps",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
         },
         "TopLevelDiff": {
           "to": "@agent-native/toolkit/editor"
@@ -666,9 +649,7 @@
           "to": "@agent-native/toolkit/editor"
         },
         "askUserQuestion": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "askUserQuestion",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "buildDefaultBubbleItems": {
           "to": "@agent-native/toolkit/editor"
@@ -678,12 +659,10 @@
         },
         "buildRepositoryFromCodeAgentTranscript": "buildRepositoryFromCodeAgentTranscript",
         "buildReviewThreads": {
-          "to": "@agent-native/core/client/review",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
         },
         "buildSignInReturnHref": {
-          "to": "@agent-native/core/client/ui",
-          "status": "planned"
+          "to": "@agent-native/core/client/sign-in-return"
         },
         "callAction": {
           "to": "@agent-native/core/client/hooks"
@@ -783,14 +762,10 @@
           "status": "planned"
         },
         "focusAgentChat": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "focusAgentChat",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
         },
         "formatGuidedAnswersForAgent": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "formatGuidedAnswersForAgent",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "formatPromptWithAttachments": {
           "to": "@agent-native/core/client/composer",
@@ -820,9 +795,7 @@
           "to": "@agent-native/core/client/i18n"
         },
         "getOtherGuidedAnswerText": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "getOtherGuidedAnswerText",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "getRegistryBlockSlashDescription": {
           "to": "@agent-native/toolkit/editor"
@@ -841,9 +814,7 @@
           "status": "planned"
         },
         "hasGuidedAnswer": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "hasGuidedAnswer",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "injectSessionReplayIframeBootstrap": {
           "to": "@agent-native/core/client/host"
@@ -876,9 +847,7 @@
           "status": "planned"
         },
         "isOtherGuidedAnswer": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "isOtherGuidedAnswer",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "isReconcileLeadClient": {
           "to": "@agent-native/core/client/collab"
@@ -902,9 +871,7 @@
           "to": "@agent-native/core/client/i18n"
         },
         "makeOtherGuidedAnswer": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "makeOtherGuidedAnswer",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "managedIntegrationOAuthUrl": {
           "to": "@agent-native/core/client/integrations"
@@ -916,9 +883,7 @@
         "mergeCodeAgentTranscriptEvents": "mergeCodeAgentTranscriptEvents",
         "navigateWithAgentChatViewTransition": "navigateWithAgentChatViewTransition",
         "normalizeGuidedAnswers": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "normalizeGuidedAnswers",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "normalizeLocaleCode": {
           "to": "@agent-native/core/client/i18n"
@@ -930,8 +895,7 @@
           "to": "@agent-native/core/client/host"
         },
         "openAgentSidebar": {
-          "to": "@agent-native/core/client/navigation",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
         },
         "openBuilderConnectPopup": {
           "to": "@agent-native/toolkit/app/settings"
@@ -957,9 +921,7 @@
           "status": "planned"
         },
         "registerActionChatRenderer": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "registerActionChatRenderer",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
         },
         "removeAgentChatContextItem": "removeAgentChatContextItem",
         "requestAgentChatThreadOpen": "requestAgentChatThreadOpen",
@@ -1050,8 +1012,7 @@
           "to": "@agent-native/core/client/collab"
         },
         "useCommandMenuShortcut": {
-          "to": "@agent-native/core/client/navigation",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
         },
         "useCreateReviewComment": {
           "to": "@agent-native/core/client/review"
@@ -1070,9 +1031,7 @@
           "to": "@agent-native/core/client/i18n"
         },
         "useGuidedQuestionFlow": {
-          "to": "@agent-native/core/client/agent-chat",
-          "name": "useGuidedQuestionFlow",
-          "status": "planned"
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
         },
         "useLocale": {
           "to": "@agent-native/core/client/i18n"
@@ -1498,6 +1457,585 @@
         },
         "withBuilderConnectTrackingParams": {
           "to": "@agent-native/toolkit/app/settings"
+        },
+        "AgentChatMemoryRouter": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "detectExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "ExternalAgentNudge": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "getExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "useExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "ExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "ExternalAgentHostId": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "ExternalAgentHostSignals": {
+          "to": "@agent-native/toolkit/app/chat/external-agent-host"
+        },
+        "CodeRequiredDialog": {
+          "to": "@agent-native/toolkit/app/chat/components/CodeRequiredDialog"
+        },
+        "CodeRequiredDialogProps": {
+          "to": "@agent-native/toolkit/app/chat/components/CodeRequiredDialog"
+        },
+        "ChatFirstAgentActivityPanel": {
+          "to": "@agent-native/toolkit/app/chat/chat-first/ChatFirstAgentActivityPanel"
+        },
+        "ChatFirstAgentActivityPanelProps": {
+          "to": "@agent-native/toolkit/app/chat/chat-first/ChatFirstAgentActivityPanel"
+        },
+        "ChatFirstSurfacePanelToggle": {
+          "to": "@agent-native/toolkit/app/chat/chat-first/ChatFirstSurfacePanelToggle"
+        },
+        "isMissingLlmProviderRunError": {
+          "to": "@agent-native/toolkit/app/chat/chat/run-recovery"
+        },
+        "RunErrorInfo": {
+          "to": "@agent-native/toolkit/app/chat/chat/run-recovery"
+        },
+        "AgentConversation": {
+          "to": "@agent-native/toolkit/app/chat/conversation/AgentConversation"
+        },
+        "AgentConversationMessageView": {
+          "to": "@agent-native/toolkit/app/chat/conversation/AgentConversation"
+        },
+        "normalizeCodeAgentTranscriptForConversation": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "useNearBottomAutoscroll": {
+          "to": "@agent-native/toolkit/app/chat/conversation/use-near-bottom-autoscroll"
+        },
+        "CodeAgentConversationTranscriptEvent": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "CodeAgentConversationTranscriptEventType": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "NormalizeCodeAgentTranscriptOptions": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "AgentConversationArtifact": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationAttachment": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationMessage": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationMessagePart": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationMessageRole": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationNotice": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationNoticeTone": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationToolCall": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationToolState": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "McpAppRenderer": {
+          "to": "@agent-native/toolkit/app/chat/mcp-apps/McpAppRenderer"
+        },
+        "CodeAgentIndicator": {
+          "to": "@agent-native/toolkit/app/chat/components/CodeAgentIndicator"
+        },
+        "CodeAgentIndicatorProps": {
+          "to": "@agent-native/toolkit/app/chat/components/CodeAgentIndicator"
+        },
+        "AssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatHandle": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatAdapterContext": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatSendOptions": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AgentChatSurfaceKind": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatHistoryConfig": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "AssistantChatHistoryContext": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "AssistantChatHistoryMessage": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "AssistantChatHistoryScope": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "MultiTabAssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/MultiTabAssistantChat"
+        },
+        "MultiTabAssistantChatHeaderProps": {
+          "to": "@agent-native/toolkit/app/chat/MultiTabAssistantChat"
+        },
+        "RunStuckBannerProps": {
+          "to": "@agent-native/toolkit/app/chat/RunStuckBanner"
+        },
+        "KeepTabOpenNotice": {
+          "to": "@agent-native/toolkit/app/chat/KeepTabOpenNotice"
+        },
+        "KeepTabOpenNoticeProps": {
+          "to": "@agent-native/toolkit/app/chat/KeepTabOpenNotice"
+        },
+        "GuidedQuestionProviderGate": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "formatGuidedAnswerValue": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "AskUserQuestionInput": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "AskUserQuestionOption": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "AskUserQuestionResult": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "GuidedQuestionFlowProps": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "GuidedQuestionPayload": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "GuidedQuestionType": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "UseGuidedQuestionFlowOptions": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat/guided-questions"
+        },
+        "ChatHistorySection": {
+          "to": "@agent-native/toolkit/app/chat/chat/ChatHistoryList"
+        },
+        "ChatHistoryListProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/ChatHistoryList"
+        },
+        "preloadAgentChatSurface": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
+        },
+        "ConnectionsTab": {
+          "to": "@agent-native/toolkit/app/agent-page/AgentTabsPage"
+        },
+        "AgentPageExtraTabContext": {
+          "to": "@agent-native/toolkit/app/agent-page/AgentTabsPage"
+        },
+        "AgentPageExtraTabFactory": {
+          "to": "@agent-native/toolkit/app/agent-page/AgentTabsPage"
+        },
+        "AgentPageTabProps": {
+          "to": "@agent-native/toolkit/app/agent-page/types"
+        },
+        "clearReservedToolRenderersForTests": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "clearToolRenderersForTests": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerFallbackToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerReservedActionChatRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerReservedFallbackToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerReservedToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "resolveToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ActionChatRendererRegistration": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ToolRendererComponent": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ToolRendererMatch": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ToolRendererRegistration": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ThinkingDisplayProvider": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "getBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "setBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "subscribeToBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "useThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "useThinkingDisplayControl": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "DEFAULT_THINKING_DISPLAY": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "THINKING_DISPLAY_MODES": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "isThinkingDisplay": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "ThinkingDisplay": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "AgentNativeWebMcpActionRegistration": {
+          "to": "@agent-native/toolkit/app/providers/AppProviders"
+        },
+        "AppProvidersProps": {
+          "to": "@agent-native/toolkit/app/providers/AppProviders"
+        },
+        "COMMAND_MENU_OPEN_EVENT": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "openAgentSettings": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "openCommandMenu": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "submitToAgent": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "useCommandMenuNestedDialog": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandMenuDoc": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandDocsGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandItemProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandShortcutProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "SettingsShortcut": {
+          "to": "@agent-native/core/client/use-settings-shortcut"
+        },
+        "useAgentNativeEmbeddedBrowserSession": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedBrowserSessionOptions": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedCommandCallback": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedCommandCallbackInfo": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "UseAgentNativeEmbeddedBrowserSessionOptions": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeRouteWarmup": {
+          "to": "@agent-native/core/client/route-warmup"
+        },
+        "isClientRouteUrl": {
+          "to": "@agent-native/core/client/route-warmup"
+        },
+        "AgentNativeRouteWarmupProps": {
+          "to": "@agent-native/core/client/route-warmup"
+        },
+        "AgentNativeExtensionFrame": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionSlot": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionFrameProps": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionPermissionList": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionSlotProps": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionStorageScopeList": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AGENT_NATIVE_EXTENSION_MESSAGE_TYPES": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "createHttpAgentNativeExtensionStorage": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "createLocalStorageAgentNativeExtensionStorage": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "getAgentNativeExtensionManifest": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "isAgentNativeExtensionAllowedInSlot": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionDefinition": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionManifest": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionMessageType": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorage": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageContext": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageRow": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageScope": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "BuildAgentNativeExtensionHtmlOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "CreateHttpAgentNativeExtensionStorageOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeWebMcpRegistrationState": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "AgentNativeWebMcpStatus": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "getAgentNativeWebMcpStatus": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "AgentNativeWebMcpToolSummary": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "AgentNativeWebMcpCallFailureCode": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "AgentNativeWebMcpCallOutcome": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "AgentNativeWebMcpPageHelper": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "createAgentNativeWebMcpPageHelper": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "installAgentNativeWebMcpPageHelper": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "getAgentNativeWebMcpPageHelper": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "createAgentNativeServerActionWebMcpRegistration": {
+          "to": "@agent-native/core/client/webmcp"
+        },
+        "ApiKeySettings": {
+          "to": "@agent-native/toolkit/app/settings/ApiKeySettings"
+        },
+        "RequireSession": {
+          "to": "@agent-native/toolkit/app/auth/RequireSession"
+        },
+        "RequireSessionProps": {
+          "to": "@agent-native/toolkit/app/auth/RequireSession"
+        },
+        "NewWorkspaceAppFlowProps": {
+          "to": "@agent-native/toolkit/app/onboarding/NewWorkspaceAppFlow"
+        },
+        "VaultSecretOption": {
+          "to": "@agent-native/toolkit/app/onboarding/NewWorkspaceAppFlow"
+        },
+        "OpenSourceBadgeProps": {
+          "to": "@agent-native/toolkit/app/shared/PoweredByBadge"
+        },
+        "PoweredByBadgeProps": {
+          "to": "@agent-native/toolkit/app/shared/PoweredByBadge"
+        },
+        "StarfieldBackgroundProps": {
+          "to": "@agent-native/toolkit/app/shared/StarfieldBackground"
+        },
+        "buildErrorReportTemplate": {
+          "to": "@agent-native/core/client/error-reporting"
+        },
+        "buildGitHubIssueUrl": {
+          "to": "@agent-native/core/client/error-reporting"
+        },
+        "ErrorReportTemplateOptions": {
+          "to": "@agent-native/core/client/error-reporting"
+        },
+        "Spinner": {
+          "to": "@agent-native/toolkit/ui/spinner"
+        },
+        "RuntimeConfigNotice": {
+          "to": "@agent-native/toolkit/app/shared/RuntimeConfigNotice"
+        },
+        "EnvironmentBadge": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "buildEnvironmentUrl": {
+          "to": "@agent-native/core/shared/environment-lanes"
+        },
+        "isBuilderIoEmployee": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "resolveEnvironmentChannel": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "resolveEnvironmentTargets": {
+          "to": "@agent-native/core/shared/environment-lanes"
+        },
+        "EnvironmentBadgePlacement": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "EnvironmentBadgeTargets": {
+          "to": "@agent-native/core/shared/environment-lanes"
+        },
+        "RouteTransitionIndicator": {
+          "to": "@agent-native/toolkit/app/shared/RouteTransitionIndicator"
+        },
+        "ROUTE_TRANSITION_INDICATOR_DELAY_MS": {
+          "to": "@agent-native/toolkit/app/shared/RouteTransitionIndicator"
+        },
+        "applyEmbeddedThemeUpdate": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "buildEmbeddedThemeUpdate": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "EMBEDDED_THEME_CHANGE_EVENT": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "EMBEDDED_THEME_UPDATE_MESSAGE": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "parseEmbeddedThemeUpdate": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "themeInitScript": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "EmbeddedThemeUpdate": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "NormalizedEmbeddedThemeUpdate": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "ResolvedTheme": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "ThemePreference": {
+          "to": "@agent-native/core/client/theme"
+        },
+        "APPEARANCE_PRESETS": {
+          "to": "@agent-native/core/client/appearance"
+        },
+        "applyAppearance": {
+          "to": "@agent-native/core/client/appearance"
+        },
+        "getStoredAppearance": {
+          "to": "@agent-native/core/client/appearance"
+        },
+        "useAppearance": {
+          "to": "@agent-native/core/client/appearance"
+        },
+        "AppearancePresetId": {
+          "to": "@agent-native/core/client/appearance"
+        },
+        "RouterSidebarLink": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "useAppSidebar": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "PrimitiveButton": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "isGhostEmphasis": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "resolvePrimitiveButtonEmphasis": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "PrimitiveButtonProps": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "ReviewCommentComposerProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewCommentComposer"
+        },
+        "ReviewCommentFilter": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "useChangelogSeen": {
+          "to": "@agent-native/core/client/changelog/use-changelog-seen"
+        },
+        "parseChangelog": {
+          "to": "@agent-native/toolkit/app/changelog/Changelog"
+        },
+        "ChangelogEntry": {
+          "to": "@agent-native/toolkit/app/changelog/Changelog"
+        },
+        "DevOverlayProps": {
+          "to": "@agent-native/toolkit/app/dev-overlay/DevOverlay"
+        },
+        "BlockRegistryProvider": {
+          "to": "@agent-native/toolkit/app/blocks/provider"
+        },
+        "useBlockRegistry": {
+          "to": "@agent-native/toolkit/app/blocks/provider"
+        },
+        "useOptionalBlockRegistry": {
+          "to": "@agent-native/toolkit/app/blocks/provider"
+        },
+        "BlockView": {
+          "to": "@agent-native/toolkit/app/blocks/BlockView"
+        },
+        "SchemaBlockEditor": {
+          "to": "@agent-native/toolkit/app/blocks/SchemaBlockEditor"
         }
       }
     },
@@ -1698,6 +2236,945 @@
         },
         "ToolRendererContext": {
           "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentChatHome": {
+          "to": "@agent-native/toolkit/app/chat/AgentChatHome"
+        },
+        "AgentChatHomeProps": {
+          "to": "@agent-native/toolkit/app/chat/AgentChatHome"
+        },
+        "MAX_ESTIMATED_BODY_BYTES": {
+          "to": "@agent-native/toolkit/composer/attachment-accept"
+        },
+        "estimateAttachmentBodyBytes": {
+          "to": "@agent-native/toolkit/composer/attachment-accept"
+        },
+        "AgentChatSurface": {
+          "to": "@agent-native/toolkit/app/chat/AgentPanel"
+        },
+        "AgentPanel": {
+          "to": "@agent-native/toolkit/app/chat/AgentPanel"
+        },
+        "AgentChatSurfaceMode": {
+          "to": "@agent-native/toolkit/app/chat/AgentPanel"
+        },
+        "AgentChatSurfaceProps": {
+          "to": "@agent-native/toolkit/app/chat/AgentPanel"
+        },
+        "AgentPanelProps": {
+          "to": "@agent-native/toolkit/app/chat/AgentPanel"
+        },
+        "AgentSidebar": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
+        },
+        "AgentToggleButton": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
+        },
+        "focusAgentChat": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
+        },
+        "AgentSidebarProps": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
+        },
+        "AGENT_CHAT_HOME_HANDOFF_TTL_MS": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_CHAT_VIEW_TRANSITION_CLASS": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_CHAT_VIEW_TRANSITION_NAME": {
+          "to": "@agent-native/core/client"
+        },
+        "consumeAgentChatHomeHandoff": {
+          "to": "@agent-native/core/client"
+        },
+        "getAgentChatViewTransitionStyle": {
+          "to": "@agent-native/core/client"
+        },
+        "isAgentChatHomeHandoffActive": {
+          "to": "@agent-native/core/client"
+        },
+        "markAgentChatHomeHandoff": {
+          "to": "@agent-native/core/client"
+        },
+        "navigateWithAgentChatViewTransition": {
+          "to": "@agent-native/core/client"
+        },
+        "startAgentChatViewTransition": {
+          "to": "@agent-native/core/client"
+        },
+        "supportsAgentChatViewTransition": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatHomeHandoffOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatViewTransition": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatViewTransitionOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "useAgentChatHomeHandoff": {
+          "to": "@agent-native/core/client"
+        },
+        "useAgentChatHomeHandoffLinks": {
+          "to": "@agent-native/core/client"
+        },
+        "UseAgentChatHomeHandoffLinksOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "UseAgentChatHomeHandoffOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentKitAssistantChat": {
+          "to": "@agent-native/toolkit/app/chat/AgentKitAssistantChat"
+        },
+        "AssistantChat": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "AgentKitAssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/AgentKitAssistantChat"
+        },
+        "clearChatStorage": {
+          "to": "@agent-native/core/client"
+        },
+        "AssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatHandle": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatAdapterContext": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatSendOptions": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AssistantChatSubmitResult": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "AgentChatSurfaceKind": {
+          "to": "@agent-native/toolkit/app/chat/chat/surface-types"
+        },
+        "MultiTabAssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/MultiTabAssistantChat"
+        },
+        "MultiTabAssistantChatHeaderProps": {
+          "to": "@agent-native/toolkit/app/chat/MultiTabAssistantChat"
+        },
+        "CreateOpenAIAgentsChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateOpenAIResponsesChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateAgUiChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateClaudeAgentChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateVercelAiChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "createOpenAIResponsesChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "createOpenAIAgentsChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "createAgUiChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "createClaudeAgentChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "createVercelAiChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentApprovalCard": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentChoiceCard": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentInputCard": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentApprovalCardProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentChoiceCardProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentChoiceOption": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentInputCardProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-approval-card"
+        },
+        "AgentActivityObject": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-object"
+        },
+        "AgentActivityObjectKind": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-object"
+        },
+        "AgentActivityObjectProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-object"
+        },
+        "AgentActivityObjectReference": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-object"
+        },
+        "AgentActivityChip": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityTrace": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityChipProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityDisplayMode": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityItem": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityStatus": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityTraceProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "AgentActivityVariant": {
+          "to": "@agent-native/toolkit/app/chat/chat/agent-activity-trace"
+        },
+        "ToolChips": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "ToolChipDetail": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "ToolChipDiff": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "ToolChipKind": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "ToolChipStep": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "ToolChipTone": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "ToolChipsProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-chips"
+        },
+        "AgentChatRuntimeId": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSessionId": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTurnId": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessageId": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolCallId": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMetadata": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeAwaitable": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeKind": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeRole": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeContentPartBase": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTextPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeReasoningPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeImagePart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeFilePart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolCallPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolResultPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeDataPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCustomContentPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeKnownContentPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeContentPart": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessage": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeAttachment": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolDefinition": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolCall": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolStatus": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeUsage": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessageCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSessionCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCancellationCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeModelCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeArtifactCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeRichCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCapabilities": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCreateSessionInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeListSessionsInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSessionStatus": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSessionSummary": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSessionSnapshot": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTurnInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeApprovalResponse": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeConnectionResponse": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeContinueInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCancelInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCancelStatus": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCancelResult": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeEventBase": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessageStartEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessageDelta": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessageDeltaEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeMessageDoneEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolStartEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolDeltaEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeToolDoneEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeApprovalRequestEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeApprovalResolvedEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeConnectionRequestEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeStatusEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSuggestionsEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeObjectReference": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeAnnotation": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeAnnotationEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeWidget": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeWidgetEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeParticipantStatus": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeParticipant": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeParticipantEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeWorkScope": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeInteraction": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeInteractionEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeWorkStatus": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeActivity": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeActivityEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTask": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTaskEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTaskGroup": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTaskGroupEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeUploadProgressEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeClientEffectEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeExtensionReference": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeExtensionEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeArtifactEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeFileEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeUsageEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeErrorEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeDoneReason": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeDoneEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeCustomEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeKnownEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeEvent": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeTurn": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSendMessageInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSubscribeInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeResumeInput": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntimeSession": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateHttpAgentChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateAgentNativeChatRuntimeOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "createHttpAgentChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "createAgentNativeChatRuntime": {
+          "to": "@agent-native/core/client"
+        },
+        "createAgentKitProtocolAdapter": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentKitProtocolAdapter": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateAgentKitProtocolAdapterOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "createAgentNativeAgentKitTransport": {
+          "to": "@agent-native/core/client"
+        },
+        "CreateAgentNativeAgentKitTransportOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_CHAT_RUNNING_EVENT": {
+          "to": "@agent-native/core/client"
+        },
+        "dispatchAgentChatRunning": {
+          "to": "@agent-native/core/client"
+        },
+        "resolveAgentChatRunningThreadId": {
+          "to": "@agent-native/core/client"
+        },
+        "useAgentChatRunningThreads": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatPresentationPhase": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRunningEventDetail": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatRunningThreadsState": {
+          "to": "@agent-native/core/client"
+        },
+        "UseAgentChatRunningThreadsOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "sendToAgentChat": {
+          "to": "@agent-native/core/client"
+        },
+        "sendToAgentChatAndConfirm": {
+          "to": "@agent-native/core/client"
+        },
+        "reportAgentChatSubmitResult": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_CHAT_SUBMIT_RESULT_EVENT": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatMessage": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentChatSubmitResult": {
+          "to": "@agent-native/core/client"
+        },
+        "SendToAgentChatAndConfirmResult": {
+          "to": "@agent-native/core/client"
+        },
+        "useAgentChatGenerating": {
+          "to": "@agent-native/core/client"
+        },
+        "useSendToAgentChat": {
+          "to": "@agent-native/core/client"
+        },
+        "DESKTOP_LOCAL_CODE_CHANGE_EVENT": {
+          "to": "@agent-native/core/client"
+        },
+        "requestDesktopLocalCodeChange": {
+          "to": "@agent-native/core/client"
+        },
+        "DesktopLocalCodeChangeDetail": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_SIDEBAR_DEFAULT_MAX_WIDTH": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_SIDEBAR_MIN_WIDTH": {
+          "to": "@agent-native/core/client"
+        },
+        "AGENT_SIDEBAR_WIDE_WIDTH_RATIO": {
+          "to": "@agent-native/core/client"
+        },
+        "clampAgentSidebarWidth": {
+          "to": "@agent-native/core/client"
+        },
+        "getAgentSidebarMaxWidth": {
+          "to": "@agent-native/core/client"
+        },
+        "getAgentSidebarWideWidth": {
+          "to": "@agent-native/core/client"
+        },
+        "requestAgentSidebarOpen": {
+          "to": "@agent-native/core/client"
+        },
+        "SIDEBAR_STATE_CHANGE_EVENT": {
+          "to": "@agent-native/core/client"
+        },
+        "setAgentSidebarOpenPreference": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentSidebarStateChangeDetail": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentSidebarStateMode": {
+          "to": "@agent-native/core/client"
+        },
+        "AgentSidebarStateSource": {
+          "to": "@agent-native/core/client"
+        },
+        "clearReservedToolRenderersForTests": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "clearToolRenderersForTests": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerFallbackToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerReservedActionChatRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerReservedFallbackToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerReservedToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "registerToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ActionChatRendererRegistration": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ToolRendererComponent": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ToolRendererMatch": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ToolRendererRegistration": {
+          "to": "@agent-native/toolkit/app/chat/chat/tool-render-registry"
+        },
+        "ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ACTION_CHAT_UI_DATA_CHART_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ACTION_CHAT_UI_DATA_WIDGET_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ACTION_CHAT_UI_RECORD_CHANGE_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "normalizeAgentTeamProgressResult": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ActionChange": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ActionChangeResult": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ActionChangeUndo": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ActionChangeVerb": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "ActionChatUIConfig": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "AgentTeamProgressResult": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "AgentTeamProgressTask": {
+          "to": "@agent-native/core/action-ui"
+        },
+        "DATA_CHART_WIDGET": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DATA_INSIGHTS_WIDGET": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DATA_TABLE_WIDGET": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "createDataChartWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "createDataInsightsWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "createDataTableWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "dataChartWidgetResultSchema": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "dataChartWidgetSchema": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "dataInsightsWidgetResultSchema": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "dataTableWidgetResultSchema": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "dataTableWidgetSchema": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "dataWidgetResultSchema": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "isDataChartWidget": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "isDataTableWidget": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "isDataWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "normalizeDataWidgetKind": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "normalizeDataWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataChartSeriesDefinition": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataChartWidget": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataChartWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataChartWidgetResultInput": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataInsightsWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataInsightsWidgetResultInput": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataTableColumn": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataTableWidget": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataTableWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataTableWidgetResultInput": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataWidgetDisplay": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataWidgetKind": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataWidgetResult": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "DataWidgetResultMetadata": {
+          "to": "@agent-native/core/data-widgets"
+        },
+        "useChatModels": {
+          "to": "@agent-native/core/client/use-chat-models"
+        },
+        "UseChatModelsResult": {
+          "to": "@agent-native/core/client/use-chat-models"
+        },
+        "EngineModelGroup": {
+          "to": "@agent-native/core/client/chat-model-groups"
+        },
+        "useChatThreads": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatThreadScope": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatThreadSnapshot": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatThreadSummary": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatThreadData": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatThreadShareLink": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatThreadShareState": {
+          "to": "@agent-native/core/client"
+        },
+        "UseChatThreadsOptions": {
+          "to": "@agent-native/core/client"
+        },
+        "ChatHistoryList": {
+          "to": "@agent-native/toolkit/app/chat/chat/ChatHistoryList"
+        },
+        "ChatHistoryItem": {
+          "to": "@agent-native/toolkit/app/chat/chat/ChatHistoryList"
+        },
+        "ChatHistorySection": {
+          "to": "@agent-native/toolkit/app/chat/chat/ChatHistoryList"
+        },
+        "ChatHistoryListProps": {
+          "to": "@agent-native/toolkit/app/chat/chat/ChatHistoryList"
+        },
+        "AgentConversation": {
+          "to": "@agent-native/toolkit/app/chat/conversation/AgentConversation"
+        },
+        "AgentConversationMessageView": {
+          "to": "@agent-native/toolkit/app/chat/conversation/AgentConversation"
+        },
+        "useNearBottomAutoscroll": {
+          "to": "@agent-native/toolkit/app/chat/conversation/use-near-bottom-autoscroll"
+        },
+        "normalizeCodeAgentTranscriptForConversation": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "CodeAgentConversationTranscriptEvent": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "CodeAgentConversationTranscriptEventType": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "NormalizeCodeAgentTranscriptOptions": {
+          "to": "@agent-native/toolkit/app/chat/conversation/code-agent-transcript"
+        },
+        "AgentConversationAttachment": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationArtifact": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationMessage": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationMessagePart": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationMessageRole": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationNotice": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationNoticeTone": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationToolCall": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "AgentConversationToolState": {
+          "to": "@agent-native/toolkit/app/chat/conversation/types"
+        },
+        "ThinkingDisplayProvider": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "getBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "setBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "subscribeToBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "useThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "useThinkingDisplayControl": {
+          "to": "@agent-native/toolkit/app/chat/thinking-display"
+        },
+        "DEFAULT_THINKING_DISPLAY": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "THINKING_DISPLAY_MODES": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "isThinkingDisplay": {
+          "to": "@agent-native/core/shared/thinking-display"
+        },
+        "ThinkingDisplay": {
+          "to": "@agent-native/core/shared/thinking-display"
         }
       }
     },
@@ -1910,6 +3387,18 @@
         },
         "ShareDialog": {
           "to": "@agent-native/toolkit/app/sharing"
+        },
+        "AgentShareSection": {
+          "to": "@agent-native/toolkit/app/sharing/AgentShareSection"
+        },
+        "AgentShareSectionProps": {
+          "to": "@agent-native/toolkit/app/sharing/AgentShareSection"
+        },
+        "ShareDialogProps": {
+          "to": "@agent-native/toolkit/app/sharing/ShareDialog"
+        },
+        "ShareButtonProps": {
+          "to": "@agent-native/toolkit/app/sharing/ShareButton"
         }
       }
     },
@@ -1997,7 +3486,7 @@
       "to": "@agent-native/toolkit/app/shared/ErrorBoundary"
     },
     "@agent-native/core/client/feedback": {
-      "to": "@agent-native/toolkit/app/feedback"
+      "to": "@agent-native/toolkit/app/feedback/FeedbackButton"
     },
     "@agent-native/core/client/agent-native-icon": {
       "to": "@agent-native/toolkit/app/shared/AgentNativeIcon"
@@ -2127,6 +3616,132 @@
         },
         "parseWorkspaceAppLinksJson": {
           "to": "@agent-native/toolkit/app/org"
+        },
+        "AppRolesDescriptor": {
+          "to": "@agent-native/core/org/app-roles"
+        },
+        "AccountMenu": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "AccountMenuProps": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "AccountMenuUtilityLink": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "OrgSwitcherProps": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "OrgSwitcherUtilityLink": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "InvitationBannerProps": {
+          "to": "@agent-native/toolkit/app/org/InvitationBanner"
+        },
+        "WorkspaceNotice": {
+          "to": "@agent-native/toolkit/app/org/WorkspaceNotice"
+        },
+        "TeamPageProps": {
+          "to": "@agent-native/toolkit/app/org/TeamPage"
+        },
+        "OrgGeneralSection": {
+          "to": "@agent-native/toolkit/app/org/OrgGeneralSection"
+        },
+        "MembersSection": {
+          "to": "@agent-native/toolkit/app/org/MembersSection"
+        },
+        "GroupsSection": {
+          "to": "@agent-native/toolkit/app/org/GroupsSection"
+        },
+        "useWorkspaceGroupEditor": {
+          "to": "@agent-native/toolkit/app/org/GroupsSection"
+        },
+        "WorkspaceGroupEditorController": {
+          "to": "@agent-native/toolkit/app/org/GroupsSection"
+        },
+        "AuthenticationSection": {
+          "to": "@agent-native/toolkit/app/org/AuthenticationSection"
+        },
+        "AppsAccessSection": {
+          "to": "@agent-native/toolkit/app/org/AppsAccessSection"
+        },
+        "OrgGeneralPage": {
+          "to": "@agent-native/toolkit/app/org/pages/OrgGeneralPage"
+        },
+        "OrgAuthenticationPage": {
+          "to": "@agent-native/toolkit/app/org/pages/OrgAuthenticationPage"
+        },
+        "OrgAppsPage": {
+          "to": "@agent-native/toolkit/app/org/pages/OrgAppsPage"
+        },
+        "RequireActiveOrg": {
+          "to": "@agent-native/toolkit/app/org/RequireActiveOrg"
+        },
+        "RequireActiveOrgProps": {
+          "to": "@agent-native/toolkit/app/org/RequireActiveOrg"
+        },
+        "dispatchAppsHref": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "isWorkspaceAppEnvironment": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "parseWorkspaceAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "visibleOrgAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "ORG_SWITCHER_MAX_APP_LINKS": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "OrgSwitcherAppLink": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "UseOrgSwitcherAppLinksResult": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "VisibleOrgAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "canInviteOrgMembers": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "canManageOrg": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "canManageOrgA2ASecret": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "canManageOrgDomain": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "orgRoleAtLeast": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "orgRoleRank": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "OrgRole": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgMember": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgPendingInvitation": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgSummary": {
+          "to": "@agent-native/core/org/types"
+        },
+        "SIGN_IN_METHOD_ENV_VARS": {
+          "to": "@agent-native/core/org/sign-in-methods"
+        },
+        "OrgSignInMethods": {
+          "to": "@agent-native/core/org/sign-in-methods"
+        },
+        "SocialSignInMethod": {
+          "to": "@agent-native/core/org/sign-in-methods"
         }
       }
     },
@@ -2297,6 +3912,15 @@
         },
         "ResourceSettingsGroups": {
           "to": "@agent-native/toolkit/app/resources"
+        },
+        "SettingsTabItem": {
+          "to": "@agent-native/toolkit/app/settings/SettingsTabsPage"
+        },
+        "useIntegrationStatus": {
+          "to": "@agent-native/core/client/integrations/useIntegrationStatus"
+        },
+        "IntegrationStatus": {
+          "to": "@agent-native/core/client/integrations/useIntegrationStatus"
         }
       }
     },
@@ -2316,6 +3940,12 @@
         },
         "LabsSettingsProps": {
           "to": "@agent-native/toolkit/app/labs"
+        },
+        "LabsSettingsGroup": {
+          "to": "@agent-native/toolkit/app/labs/LabsSettings"
+        },
+        "LabsSettingsGroupProps": {
+          "to": "@agent-native/toolkit/app/labs/LabsSettings"
         }
       }
     },
@@ -2371,6 +4001,36 @@
         },
         "IntegrationConnectionChoice": {
           "to": "@agent-native/toolkit/app/integrations"
+        },
+        "McpIntegrationsLanding": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationsPanel"
+        },
+        "McpIntegrationsSection": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationsPanel"
+        },
+        "McpIntegrationsLandingProps": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationsPanel"
+        },
+        "McpIntegrationsSectionProps": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationsPanel"
+        },
+        "IntegrationGridItem": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationGrid"
+        },
+        "IntegrationGridProps": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationGrid"
+        },
+        "IntegrationConnectionChoiceProps": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationConnectionChoice"
+        },
+        "GoogleProduct": {
+          "to": "@agent-native/toolkit/app/integrations/GoogleProductLogo"
+        },
+        "channelIcon": {
+          "to": "@agent-native/toolkit/app/integrations"
+        },
+        "ChannelIcon": {
+          "to": "@agent-native/toolkit/app/integrations"
         }
       }
     },
@@ -2412,6 +4072,45 @@
         },
         "McpServerDetail": {
           "to": "@agent-native/toolkit/app/resources"
+        },
+        "ResourcesPanelProps": {
+          "to": "@agent-native/toolkit/app/resources/ResourcesPanel"
+        },
+        "ResourceTreeProps": {
+          "to": "@agent-native/toolkit/app/resources/ResourceTree"
+        },
+        "ResourceEditorProps": {
+          "to": "@agent-native/toolkit/app/resources/ResourceEditor"
+        },
+        "McpIntegrationDialogProps": {
+          "to": "@agent-native/toolkit/app/resources/McpIntegrationDialog"
+        },
+        "McpAccessSettingsProps": {
+          "to": "@agent-native/toolkit/app/resources/McpAccessSettings"
+        },
+        "findMcpConnectionSuggestionIntegration": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpConnectionSuggestionProps": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpConnectionSuggestionVariant": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpAgentKitConnectionRequestCard": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionResume": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionRequestCardProps": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionResumeProps": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionTarget": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
         }
       }
     },
@@ -2681,6 +4380,384 @@
         },
         "registerBlocks": {
           "to": "@agent-native/core/blocks/server"
+        },
+        "defineBlock": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "BlockPlacement": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "BlockMdxConfig": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "BlockAttrReader": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "MdxAttrValue": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "BlockContainerRegion": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "BlockContainerSpec": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "NarrowContainerProvider": {
+          "to": "@agent-native/toolkit/app/blocks/library/narrow-container"
+        },
+        "useInNarrowContainer": {
+          "to": "@agent-native/toolkit/app/blocks/library/narrow-container"
+        },
+        "RegistryBlockDataChangeMeta": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RegistryBlockDataValue": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "RegistryBlockSideMapBlock": {
+          "to": "@agent-native/toolkit/editor"
+        },
+        "markdown": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "richtext": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "introspect": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "FieldKind": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "FieldDescriptor": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "prop": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "escapeAttr": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "jsonExpression": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "attributeValue": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "createAttrReader": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "childCodeFenceFields": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "serializeChildCodeFenceFields": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "serializeSpecBlock": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "parseSpecBlock": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "MdxJsxNode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "MdxAttrNode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "SerializableBlock": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ParsedBlockBase": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "describeBlocksForAgent": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "renderBlockVocabularyReference": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "BlockAgentDoc": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "checklistSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "checklistMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ChecklistData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ChecklistItem": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "tableSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "tableMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "TableData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "codeTabsSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "codeTabsMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "CodeTabsData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "CodeTabsTab": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "htmlSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "htmlMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "HtmlBlockData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "tabsSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "tabsMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "TabsData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "TabsOrientation": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "TabsTab": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "columnsSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "columnsMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ColumnsData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ColumnsColumn": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "calloutSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "calloutMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "CALLOUT_TONES": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "CalloutTone": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "questionFormSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "questionFormMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "visualQuestionsSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "visualQuestionsMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "QuestionFormData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "QuestionFormOption": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "QuestionFormQuestion": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "QuestionMode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "VisualQuestionsData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "diagramSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "diagramMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DiagramData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DiagramNode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DiagramEdge": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DiagramNote": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "wireframeSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "wireframeMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "createStableWireframeNodeId": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WIREFRAME_SURFACES": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WIREFRAME_EL_NAMES": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WireframeData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WireframeNode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WireframeElName": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WireframeTone": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WireframeSurface": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "WireframeRenderMode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "mermaidSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "mermaidMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "MermaidData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "apiEndpointSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "apiEndpointMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "API_ENDPOINT_METHODS": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "API_PARAM_LOCATIONS": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ApiEndpointData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ApiEndpointMethod": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ApiEndpointParam": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ApiEndpointRequest": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ApiEndpointResponse": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "ApiParamLocation": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "dataModelSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "dataModelMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DATA_MODEL_RELATION_KINDS": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DataModelData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DataModelEntity": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DataModelField": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DataModelRelation": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DataModelRelationKind": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "diffSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "diffMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DiffData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "DiffMode": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "fileTreeSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "fileTreeMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "FILE_TREE_CHANGES": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "FileTreeData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "FileTreeEntry": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "FileTreeChange": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "jsonExplorerSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "jsonExplorerMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "JsonExplorerData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "annotatedCodeSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "annotatedCodeMdx": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "AnnotatedCodeData": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "AnnotatedCodeAnnotation": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "openApiSpecSchema": {
+          "to": "@agent-native/core/blocks/server"
+        },
+        "openApiSpecMdx": {
+          "to": "@agent-native/core/blocks/server"
         }
       }
     },
@@ -2799,6 +4876,306 @@
         },
         "useGuidedQuestionFlow": {
           "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "MemoryRouter": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "AgentAskPopover": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "AgentAskPopoverProps": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "detectExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "ExternalAgentNudge": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "getExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "ExternalAgentHost": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "ExternalAgentHostId": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "ExternalAgentHostSignals": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "CodeRequiredDialog": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "CodeRequiredDialogProps": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "ChatFirstAgentActivityPanel": {
+          "to": "@agent-native/toolkit/app/chat/chat-first"
+        },
+        "ChatFirstAgentActivityPanelProps": {
+          "to": "@agent-native/toolkit/app/chat/chat-first"
+        },
+        "ChatFirstSurfacePanelToggle": {
+          "to": "@agent-native/toolkit/app/chat/chat-first"
+        },
+        "RunErrorInfo": {
+          "to": "@agent-native/toolkit/app/chat/chat/run-recovery"
+        },
+        "AgentConversation": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationMessageView": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "normalizeCodeAgentTranscriptForConversation": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "useNearBottomAutoscroll": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "CodeAgentConversationTranscriptEvent": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "CodeAgentConversationTranscriptEventType": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "NormalizeCodeAgentTranscriptOptions": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationArtifact": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationAttachment": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationMessage": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationMessagePart": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationMessageRole": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationNotice": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationNoticeTone": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationToolCall": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentConversationToolState": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "McpAppRenderer": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "CodeAgentIndicator": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "CodeAgentIndicatorProps": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "AgentKitAssistantChat": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentKitAssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AssistantChatHandle": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AssistantChatAdapterContext": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AssistantChatSendOptions": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentChatSurfaceKind": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AssistantChatHistoryContext": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "AssistantChatHistoryMessage": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "AssistantChatHistoryScope": {
+          "to": "@agent-native/toolkit/app/chat/chat/history-types"
+        },
+        "MultiTabAssistantChatProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "MultiTabAssistantChatHeaderProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "RunStuckBannerProps": {
+          "to": "@agent-native/toolkit/app/chat/RunStuckBanner"
+        },
+        "KeepTabOpenNotice": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "KeepTabOpenNoticeProps": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "askUserQuestion": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "formatGuidedAnswerValue": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "AskUserQuestionInput": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "AskUserQuestionOption": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "AskUserQuestionResult": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "GuidedQuestionFlowProps": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "GuidedQuestionPayload": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "GuidedQuestionType": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "UseGuidedQuestionFlowOptions": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "ChatHistoryList": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ChatHistoryItem": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ChatHistorySection": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ChatHistoryListProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentChatHomeProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentChatSurfaceMode": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentChatSurfaceProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentPanelProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "preloadAgentChatSurface": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
+        },
+        "AgentSidebarProps": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentTabsPage": {
+          "to": "@agent-native/toolkit/app/agent-page"
+        },
+        "ConnectionsTab": {
+          "to": "@agent-native/toolkit/app/agent-page/AgentTabsPage"
+        },
+        "AgentPageExtraTabContext": {
+          "to": "@agent-native/toolkit/app/agent-page/AgentTabsPage"
+        },
+        "AgentPageExtraTabFactory": {
+          "to": "@agent-native/toolkit/app/agent-page/AgentTabsPage"
+        },
+        "AgentTabsPageProps": {
+          "to": "@agent-native/toolkit/app/agent-page"
+        },
+        "AgentPageScope": {
+          "to": "@agent-native/toolkit/app/agent-page"
+        },
+        "AgentPageTabProps": {
+          "to": "@agent-native/toolkit/app/agent-page"
+        },
+        "clearReservedToolRenderersForTests": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "clearToolRenderersForTests": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "registerActionChatRenderer": {
+          "to": "@agent-native/toolkit/app/chat/agentkit-chat"
+        },
+        "registerFallbackToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "registerReservedActionChatRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "registerReservedFallbackToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "registerReservedToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "registerToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "resolveToolRenderer": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ActionChatRendererRegistration": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ToolRendererComponent": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ToolRendererMatch": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ToolRendererRegistration": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ThinkingDisplayProvider": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "getBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "setBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "subscribeToBrowserThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "useThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "useThinkingDisplayControl": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "DEFAULT_THINKING_DISPLAY": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "THINKING_DISPLAY_MODES": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "isThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "ThinkingDisplay": {
+          "to": "@agent-native/toolkit/app/chat/chat"
+        },
+        "AgentChatMemoryRouter": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "AssistantChat": {
+          "to": "@agent-native/toolkit/app/chat"
         }
       }
     },
@@ -2810,6 +5187,24 @@
         },
         "ChangelogSettingsCard": {
           "to": "@agent-native/toolkit/app/changelog"
+        },
+        "getChangelogLatestId": {
+          "to": "@agent-native/core/client/changelog/use-changelog-seen"
+        },
+        "useChangelogSeen": {
+          "to": "@agent-native/core/client/changelog/use-changelog-seen"
+        },
+        "ChangelogDialogProps": {
+          "to": "@agent-native/toolkit/app/changelog/Changelog"
+        },
+        "ChangelogSettingsCardProps": {
+          "to": "@agent-native/toolkit/app/changelog/Changelog"
+        },
+        "parseChangelog": {
+          "to": "@agent-native/toolkit/app/changelog/Changelog"
+        },
+        "ChangelogEntry": {
+          "to": "@agent-native/toolkit/app/changelog/Changelog"
         }
       }
     },
@@ -2818,6 +5213,39 @@
       "symbols": {
         "openAgentSettings": {
           "to": "@agent-native/toolkit/app/shared"
+        },
+        "CommandMenu": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "openAgentSidebar": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "submitToAgent": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "useCommandMenuShortcut": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandDocsGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandItemProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandMenuDoc": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandMenuProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandShortcutProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "focusAgentChat": {
+          "to": "@agent-native/toolkit/app/chat/AgentSidebar"
         }
       }
     },
@@ -2826,6 +5254,9 @@
       "symbols": {
         "DevOverlay": {
           "to": "@agent-native/toolkit/app/dev-overlay"
+        },
+        "DevOverlayProps": {
+          "to": "@agent-native/toolkit/app/dev-overlay/DevOverlay"
         }
       }
     },
@@ -2846,6 +5277,36 @@
         },
         "useCommandMenuShortcut": {
           "to": "@agent-native/toolkit/app/shared"
+        },
+        "COMMAND_MENU_OPEN_EVENT": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "openAgentSettings": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "submitToAgent": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandMenuProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandMenuDoc": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandDocsGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandItemProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "CommandShortcutProps": {
+          "to": "@agent-native/toolkit/app/shared/CommandMenu"
+        },
+        "SettingsShortcut": {
+          "to": "@agent-native/core/client/use-settings-shortcut"
         }
       }
     },
@@ -2868,6 +5329,21 @@
         },
         "OnboardingStepLayout": {
           "to": "@agent-native/toolkit/app/onboarding"
+        },
+        "FirstRunOnboardingStartupGate": {
+          "to": "@agent-native/toolkit/app/onboarding/first-run-startup-gate"
+        },
+        "OnboardingPanel": {
+          "to": "@agent-native/toolkit/app/onboarding/OnboardingPanel"
+        },
+        "OnboardingBanner": {
+          "to": "@agent-native/toolkit/app/onboarding/OnboardingBanner"
+        },
+        "SetupButton": {
+          "to": "@agent-native/toolkit/app/onboarding/SetupButton"
+        },
+        "FirstRunOnboarding": {
+          "to": "@agent-native/toolkit/app/onboarding/FirstRunOnboarding"
         }
       }
     },
@@ -2899,6 +5375,24 @@
         },
         "isTrustedReviewAttachmentUrl": {
           "to": "@agent-native/toolkit/app/review"
+        },
+        "ReviewCommentComposerProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewCommentComposer"
+        },
+        "ReviewStatusBadgeProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewStatusBadge"
+        },
+        "ReviewCommentCapability": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewCommentFilter": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewThreadCapability": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewThreadPanelProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
         }
       }
     },
@@ -2961,6 +5455,123 @@
         },
         "buildSignInReturnHref": {
           "to": "@agent-native/core/client/sign-in-return"
+        },
+        "ApiKeySettings": {
+          "to": "@agent-native/toolkit/app/settings/ApiKeySettings"
+        },
+        "RequireSession": {
+          "to": "@agent-native/toolkit/app/auth/RequireSession"
+        },
+        "RequireSessionProps": {
+          "to": "@agent-native/toolkit/app/auth/RequireSession"
+        },
+        "NewWorkspaceAppFlow": {
+          "to": "@agent-native/toolkit/app/onboarding/NewWorkspaceAppFlow"
+        },
+        "NewWorkspaceAppFlowProps": {
+          "to": "@agent-native/toolkit/app/onboarding/NewWorkspaceAppFlow"
+        },
+        "VaultSecretOption": {
+          "to": "@agent-native/toolkit/app/onboarding/NewWorkspaceAppFlow"
+        },
+        "TurnstileProps": {
+          "to": "@agent-native/toolkit/app/shared/Turnstile"
+        },
+        "OpenSourceBadge": {
+          "to": "@agent-native/toolkit/app/shared/PoweredByBadge"
+        },
+        "OpenSourceBadgeProps": {
+          "to": "@agent-native/toolkit/app/shared/PoweredByBadge"
+        },
+        "PoweredByBadgeProps": {
+          "to": "@agent-native/toolkit/app/shared/PoweredByBadge"
+        },
+        "StarfieldBackgroundProps": {
+          "to": "@agent-native/toolkit/app/shared/StarfieldBackground"
+        },
+        "FeedbackButtonProps": {
+          "to": "@agent-native/toolkit/app/feedback/FeedbackButton"
+        },
+        "ErrorReportActionsProps": {
+          "to": "@agent-native/toolkit/app/feedback/ErrorReportActions"
+        },
+        "ClientOnly": {
+          "to": "@agent-native/toolkit/app/shared/ClientOnly"
+        },
+        "Spinner": {
+          "to": "@agent-native/toolkit/ui/spinner"
+        },
+        "RuntimeConfigNotice": {
+          "to": "@agent-native/toolkit/app/shared/RuntimeConfigNotice"
+        },
+        "buildEnvironmentUrl": {
+          "to": "@agent-native/core/shared/environment-lanes"
+        },
+        "isBuilderIoEmployee": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "resolveEnvironmentChannel": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "resolveEnvironmentTargets": {
+          "to": "@agent-native/core/shared/environment-lanes"
+        },
+        "EnvironmentBadgePlacement": {
+          "to": "@agent-native/toolkit/app/shared/EnvironmentBadge"
+        },
+        "EnvironmentBadgeTargets": {
+          "to": "@agent-native/core/shared/environment-lanes"
+        },
+        "ROUTE_TRANSITION_INDICATOR_DELAY_MS": {
+          "to": "@agent-native/toolkit/app/shared/RouteTransitionIndicator"
+        },
+        "AppearancePickerProps": {
+          "to": "@agent-native/toolkit/app/shared/AppearancePicker"
+        },
+        "AppSidebarNavGroup": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarFeedbackButton": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "useAppSidebar": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarHeaderProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarNavItemProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarNavGroupProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarSectionProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarFeedbackButtonProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarFooterProps": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "AppSidebarContextValue": {
+          "to": "@agent-native/toolkit/app/shared/AppSidebar"
+        },
+        "PrimitiveButton": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "isGhostEmphasis": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "resolvePrimitiveButtonEmphasis": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
+        },
+        "PrimitiveButtonProps": {
+          "to": "@agent-native/toolkit/app/shared/PrimitiveButton"
         }
       }
     },
@@ -2969,6 +5580,499 @@
       "symbols": {
         "AppProviders": {
           "to": "@agent-native/toolkit/app/providers"
+        },
+        "AgentNativeWebMcpActionRegistration": {
+          "to": "@agent-native/toolkit/app/providers"
+        },
+        "AppProvidersProps": {
+          "to": "@agent-native/toolkit/app/providers"
+        }
+      }
+    },
+    "@agent-native/core/client/host": {
+      "to": "@agent-native/core/client/host",
+      "symbols": {
+        "AgentNativeEmbedded": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "useAgentNativeEmbeddedBrowserSession": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedBrowserSessionOptions": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedCommandCallback": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedCommandCallbackInfo": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeEmbeddedProps": {
+          "to": "@agent-native/toolkit/app/chat"
+        },
+        "UseAgentNativeEmbeddedBrowserSessionOptions": {
+          "to": "@agent-native/core/client/AgentNativeEmbedded"
+        },
+        "AgentNativeRouteWarmup": {
+          "to": "@agent-native/core/client/route-warmup"
+        },
+        "isClientRouteUrl": {
+          "to": "@agent-native/core/client/route-warmup"
+        },
+        "AgentNativeRouteWarmupProps": {
+          "to": "@agent-native/core/client/route-warmup"
+        },
+        "AgentNativeExtensionFrame": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionSlot": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionFrameProps": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionPermissionList": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionSlotProps": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AgentNativeExtensionStorageScopeList": {
+          "to": "@agent-native/toolkit/app/extensions/AgentNativeExtensionFrame"
+        },
+        "AGENT_NATIVE_EXTENSION_MESSAGE_TYPES": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "createHttpAgentNativeExtensionStorage": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "createLocalStorageAgentNativeExtensionStorage": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "getAgentNativeExtensionManifest": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "isAgentNativeExtensionAllowedInSlot": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionDefinition": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionManifest": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionMessageType": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorage": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageContext": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageRow": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "AgentNativeExtensionStorageScope": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "BuildAgentNativeExtensionHtmlOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "CreateHttpAgentNativeExtensionStorageOptions": {
+          "to": "@agent-native/toolkit/app/extensions/portable-extension"
+        },
+        "IframeEmbed": {
+          "to": "@agent-native/toolkit/app/chat/chat/IframeEmbed"
+        },
+        "parseEmbedBody": {
+          "to": "@agent-native/toolkit/app/chat/chat/IframeEmbed"
+        }
+      }
+    },
+    "@agent-native/core/client/resources/runtime": {
+      "to": "@agent-native/core/client/resources/runtime",
+      "symbols": {
+        "ResourcesPanel": {
+          "to": "@agent-native/toolkit/app/resources/ResourcesPanel"
+        },
+        "ResourcesPanelProps": {
+          "to": "@agent-native/toolkit/app/resources/ResourcesPanel"
+        },
+        "ResourceTree": {
+          "to": "@agent-native/toolkit/app/resources/ResourceTree"
+        },
+        "ResourceTreeProps": {
+          "to": "@agent-native/toolkit/app/resources/ResourceTree"
+        },
+        "ResourceEditor": {
+          "to": "@agent-native/toolkit/app/resources/ResourceEditor"
+        },
+        "ResourceEditorProps": {
+          "to": "@agent-native/toolkit/app/resources/ResourceEditor"
+        },
+        "McpIntegrationDialog": {
+          "to": "@agent-native/toolkit/app/resources/McpIntegrationDialog"
+        },
+        "McpIntegrationDialogProps": {
+          "to": "@agent-native/toolkit/app/resources/McpIntegrationDialog"
+        },
+        "McpIntegrationLogo": {
+          "to": "@agent-native/toolkit/app/resources/McpIntegrationLogo"
+        },
+        "McpAccessSettings": {
+          "to": "@agent-native/toolkit/app/resources/McpAccessSettings"
+        },
+        "McpAccessSettingsProps": {
+          "to": "@agent-native/toolkit/app/resources/McpAccessSettings"
+        },
+        "findMcpConnectionSuggestionIntegration": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpConnectionSuggestion": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpConnectionSuggestionProps": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpConnectionSuggestionVariant": {
+          "to": "@agent-native/toolkit/app/resources/McpConnectionSuggestion"
+        },
+        "McpAgentKitConnectionRequestCard": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionResume": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionRequestCardProps": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionResumeProps": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        },
+        "McpAgentKitConnectionTarget": {
+          "to": "@agent-native/toolkit/app/resources/McpAgentKitConnectionRequest"
+        }
+      }
+    },
+    "@agent-native/core/client/setup-connections/runtime": {
+      "to": "@agent-native/core/client/setup-connections/runtime",
+      "symbols": {
+        "BuilderConnectCard": {
+          "to": "@agent-native/toolkit/app/setup-connections/BuilderConnectCard"
+        },
+        "DefaultBuilderConnectCardView": {
+          "to": "@agent-native/toolkit/app/setup-connections/BuilderConnectCard"
+        },
+        "DefaultBuilderConnectCardViewProps": {
+          "to": "@agent-native/toolkit/app/setup-connections/BuilderConnectCard"
+        },
+        "BuilderConnectCardProps": {
+          "to": "@agent-native/toolkit/app/setup-connections/BuilderConnectCard"
+        },
+        "BuilderConnectCardRenderContext": {
+          "to": "@agent-native/toolkit/app/setup-connections/BuilderConnectCard"
+        },
+        "useBuilderConnectCardController": {
+          "to": "@agent-native/toolkit/app/setup-connections/useBuilderConnectCardController"
+        },
+        "BuilderConnectCardAction": {
+          "to": "@agent-native/toolkit/app/setup-connections/useBuilderConnectCardController"
+        },
+        "BuilderConnectCardControllerOptions": {
+          "to": "@agent-native/toolkit/app/setup-connections/useBuilderConnectCardController"
+        },
+        "BuilderConnectCardStatus": {
+          "to": "@agent-native/toolkit/app/setup-connections/useBuilderConnectCardController"
+        },
+        "BuilderConnectCardViewModel": {
+          "to": "@agent-native/toolkit/app/setup-connections/useBuilderConnectCardController"
+        },
+        "ProviderReadinessBadge": {
+          "to": "@agent-native/toolkit/app/setup-connections/ProviderReadinessBadge"
+        },
+        "ProviderReadinessBadgeProps": {
+          "to": "@agent-native/toolkit/app/setup-connections/ProviderReadinessBadge"
+        },
+        "SetupConnectionsPage": {
+          "to": "@agent-native/toolkit/app/setup-connections/SetupConnectionsPage"
+        },
+        "SetupConnectionsPageProps": {
+          "to": "@agent-native/toolkit/app/setup-connections/SetupConnectionsPage"
+        },
+        "FileStorageSetupPopover": {
+          "to": "@agent-native/toolkit/app/chat/FileStorageSetupPopover"
+        },
+        "FileStorageSetupPopoverProps": {
+          "to": "@agent-native/toolkit/app/chat/FileStorageSetupPopover"
+        },
+        "OnboardingBanner": {
+          "to": "@agent-native/toolkit/app/onboarding/OnboardingBanner"
+        },
+        "OnboardingPanel": {
+          "to": "@agent-native/toolkit/app/onboarding/OnboardingPanel"
+        },
+        "SetupButton": {
+          "to": "@agent-native/toolkit/app/onboarding/SetupButton"
+        },
+        "SecretsSection": {
+          "to": "@agent-native/toolkit/app/settings/SecretsSection"
+        },
+        "SettingsPanel": {
+          "to": "@agent-native/toolkit/app/settings/SettingsPanel"
+        },
+        "SettingsTabsPage": {
+          "to": "@agent-native/toolkit/app/settings/SettingsTabsPage"
+        },
+        "openBuilderConnectPopup": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "useBuilderConnectFlow": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "useBuilderStatus": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "BuilderConnectFlow": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "BuilderConnectFlowOptions": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "BuilderStatus": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "OpenBuilderConnectPopupOptions": {
+          "to": "@agent-native/toolkit/app/settings/useBuilderStatus"
+        },
+        "SecretsSectionProps": {
+          "to": "@agent-native/toolkit/app/settings/SecretsSection"
+        },
+        "SettingsPanelProps": {
+          "to": "@agent-native/toolkit/app/settings/SettingsPanel"
+        },
+        "SettingsTabItem": {
+          "to": "@agent-native/toolkit/app/settings/SettingsTabsPage"
+        },
+        "SettingsTabsPageProps": {
+          "to": "@agent-native/toolkit/app/settings/SettingsTabsPage"
+        },
+        "IntegrationsPanel": {
+          "to": "@agent-native/toolkit/app/integrations/IntegrationsPanel"
+        },
+        "useIntegrationStatus": {
+          "to": "@agent-native/core/client/integrations/useIntegrationStatus"
+        },
+        "IntegrationStatus": {
+          "to": "@agent-native/core/client/integrations/useIntegrationStatus"
+        }
+      }
+    },
+    "@agent-native/core/client/org-team": {
+      "to": "@agent-native/core/client/org-team",
+      "symbols": {
+        "RequirePermission": {
+          "to": "@agent-native/toolkit/app/org"
+        },
+        "AppRolesDescriptor": {
+          "to": "@agent-native/core/org/app-roles"
+        },
+        "AccountMenu": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "BuilderCreditNotice": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "OrgSwitcher": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "AccountMenuProps": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "AccountMenuUtilityLink": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "OrgSwitcherProps": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "OrgSwitcherUtilityLink": {
+          "to": "@agent-native/toolkit/app/org/OrgSwitcher"
+        },
+        "InvitationBanner": {
+          "to": "@agent-native/toolkit/app/org/InvitationBanner"
+        },
+        "InvitationBannerProps": {
+          "to": "@agent-native/toolkit/app/org/InvitationBanner"
+        },
+        "WorkspaceNotice": {
+          "to": "@agent-native/toolkit/app/org/WorkspaceNotice"
+        },
+        "TeamPage": {
+          "to": "@agent-native/toolkit/app/org/TeamPage"
+        },
+        "TeamPageProps": {
+          "to": "@agent-native/toolkit/app/org/TeamPage"
+        },
+        "OrgGeneralSection": {
+          "to": "@agent-native/toolkit/app/org/OrgGeneralSection"
+        },
+        "MembersSection": {
+          "to": "@agent-native/toolkit/app/org/MembersSection"
+        },
+        "GroupsSection": {
+          "to": "@agent-native/toolkit/app/org/GroupsSection"
+        },
+        "useWorkspaceGroupEditor": {
+          "to": "@agent-native/toolkit/app/org/GroupsSection"
+        },
+        "WorkspaceGroupEditorController": {
+          "to": "@agent-native/toolkit/app/org/GroupsSection"
+        },
+        "AuthenticationSection": {
+          "to": "@agent-native/toolkit/app/org/AuthenticationSection"
+        },
+        "AppsAccessSection": {
+          "to": "@agent-native/toolkit/app/org/AppsAccessSection"
+        },
+        "OrgGeneralPage": {
+          "to": "@agent-native/toolkit/app/org/pages/OrgGeneralPage"
+        },
+        "OrgAuthenticationPage": {
+          "to": "@agent-native/toolkit/app/org/pages/OrgAuthenticationPage"
+        },
+        "OrgAppsPage": {
+          "to": "@agent-native/toolkit/app/org/pages/OrgAppsPage"
+        },
+        "RequireActiveOrg": {
+          "to": "@agent-native/toolkit/app/org/RequireActiveOrg"
+        },
+        "RequireActiveOrgProps": {
+          "to": "@agent-native/toolkit/app/org/RequireActiveOrg"
+        },
+        "defaultOrgAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "dispatchAppsHref": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "dispatchOverviewHref": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "isWorkspaceAppEnvironment": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "parseWorkspaceAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "parseWorkspaceAppLinksJson": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "visibleOrgAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "ORG_SWITCHER_MAX_APP_LINKS": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "OrgSwitcherAppLink": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "UseOrgSwitcherAppLinksResult": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "VisibleOrgAppLinks": {
+          "to": "@agent-native/toolkit/app/org/workspace-app-links"
+        },
+        "canInviteOrgMembers": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "canManageOrg": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "canManageOrgA2ASecret": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "canManageOrgDomain": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "orgRoleAtLeast": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "orgRoleRank": {
+          "to": "@agent-native/core/org/permissions"
+        },
+        "OrgRole": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgInfo": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgMember": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgPendingInvitation": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgSummary": {
+          "to": "@agent-native/core/org/types"
+        },
+        "OrgInvitationSummary": {
+          "to": "@agent-native/core/org/types"
+        },
+        "DomainMatchOrg": {
+          "to": "@agent-native/core/org/types"
+        },
+        "SIGN_IN_METHOD_ENV_VARS": {
+          "to": "@agent-native/core/org/sign-in-methods"
+        },
+        "OrgSignInMethods": {
+          "to": "@agent-native/core/org/sign-in-methods"
+        },
+        "SocialSignInMethod": {
+          "to": "@agent-native/core/org/sign-in-methods"
+        }
+      }
+    },
+    "@agent-native/core/client/comments-review": {
+      "to": "@agent-native/core/client/comments-review",
+      "symbols": {
+        "ReviewCommentComposer": {
+          "to": "@agent-native/toolkit/app/review/ReviewCommentComposer"
+        },
+        "ReviewCommentComposerProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewCommentComposer"
+        },
+        "ReviewStatusBadge": {
+          "to": "@agent-native/toolkit/app/review/ReviewStatusBadge"
+        },
+        "ReviewStatusBadgeProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewStatusBadge"
+        },
+        "ReviewThreadPanel": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "buildReviewThreads": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "isTrustedReviewAttachmentUrl": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewThread": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewCommentCapability": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewCommentFilter": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewThreadCapability": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
+        },
+        "ReviewThreadPanelProps": {
+          "to": "@agent-native/toolkit/app/review/ReviewThreadPanel"
         }
       }
     }
@@ -2976,63 +6080,125 @@
   "removedExports": {
     "@agent-native/core/client": {
       "symbols": [
-        "createAgentChatAdapter",
-        "CreateAgentChatAdapterOptions",
-        "createCodeAgentChatAdapter",
-        "CodeAgentChatController",
-        "CodeAgentChatControlResult",
-        "CodeAgentChatFollowUpMode",
-        "CodeAgentChatTranscriptEvent",
-        "CreateCodeAgentChatAdapterOptions",
-        "createAgentChatRuntimeAdapter",
-        "CreateAgentChatRuntimeAdapterOptions",
-        "codeAgentTranscriptEventsToContent",
-        "codeAgentTranscriptHasPendingApproval",
+        "AgentChatRuntimeContinuationEvent",
+        "AgentNative",
+        "AgentNativeCommandCallback",
+        "AgentNativeCommandCallbackInfo",
+        "AgentNativeFrame",
+        "AgentNativeFrameProps",
+        "AgentNativeProps",
         "AssistantMessageActionBar",
         "AssistantMessageActionBarProps",
-        "FormattedMessageTimestamp"
+        "CodeAgentChatControlResult",
+        "CodeAgentChatController",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateAgentChatAdapterOptions",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "CreateCodeAgentChatAdapterOptions",
+        "FormattedMessageTimestamp",
+        "HistoryTimeline",
+        "VersionHistoryPanel",
+        "VersionHistoryPanelProps",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "createAgentChatAdapter",
+        "createAgentChatRuntimeAdapter",
+        "createCodeAgentChatAdapter",
+        "useAgentNativeScreenContext"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
+      "symbolGuides": {
+        "AgentChatRuntimeContinuationEvent": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "AgentNative": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "useAgentNativeScreenContext": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "AgentNativeCommandCallback": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "AgentNativeCommandCallbackInfo": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "AgentNativeProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "AgentNativeFrame": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "AgentNativeFrameProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "HistoryTimeline": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "VersionHistoryPanel": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+        "VersionHistoryPanelProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+      }
     },
     "@agent-native/core/client/chat": {
       "symbols": [
-        "createAgentChatAdapter",
-        "CreateAgentChatAdapterOptions",
-        "createCodeAgentChatAdapter",
-        "CodeAgentChatController",
-        "CodeAgentChatControlResult",
-        "CodeAgentChatFollowUpMode",
-        "CodeAgentChatTranscriptEvent",
-        "CreateCodeAgentChatAdapterOptions",
-        "createAgentChatRuntimeAdapter",
-        "CreateAgentChatRuntimeAdapterOptions",
-        "codeAgentTranscriptEventsToContent",
-        "codeAgentTranscriptHasPendingApproval",
+        "AgentChatRuntimeContinuationEvent",
         "AssistantMessageActionBar",
         "AssistantMessageActionBarProps",
-        "FormattedMessageTimestamp"
+        "CodeAgentChatControlResult",
+        "CodeAgentChatController",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateAgentChatAdapterOptions",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "CreateCodeAgentChatAdapterOptions",
+        "FormattedMessageTimestamp",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "createAgentChatAdapter",
+        "createAgentChatRuntimeAdapter",
+        "createCodeAgentChatAdapter"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
+      "symbolGuides": {
+        "AgentChatRuntimeContinuationEvent": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+      }
     },
     "@agent-native/core/client/agent-chat": {
       "symbols": [
-        "createAgentChatAdapter",
-        "CreateAgentChatAdapterOptions",
-        "createCodeAgentChatAdapter",
-        "CodeAgentChatController",
-        "CodeAgentChatControlResult",
-        "CodeAgentChatFollowUpMode",
-        "CodeAgentChatTranscriptEvent",
-        "CreateCodeAgentChatAdapterOptions",
-        "createAgentChatRuntimeAdapter",
-        "CreateAgentChatRuntimeAdapterOptions",
-        "codeAgentTranscriptEventsToContent",
-        "codeAgentTranscriptHasPendingApproval",
+        "AgentChatRuntimeContinuationEvent",
         "AssistantMessageActionBar",
         "AssistantMessageActionBarProps",
-        "FormattedMessageTimestamp"
+        "CodeAgentChatControlResult",
+        "CodeAgentChatController",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateAgentChatAdapterOptions",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "CreateCodeAgentChatAdapterOptions",
+        "FormattedMessageTimestamp",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "createAgentChatAdapter",
+        "createAgentChatRuntimeAdapter",
+        "createCodeAgentChatAdapter"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
+      "symbolGuides": {
+        "AgentChatRuntimeContinuationEvent": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+      }
+    },
+    "@agent-native/core/client/host": {
+      "symbols": [
+        "AgentNative",
+        "AgentNativeCommandCallback",
+        "AgentNativeCommandCallbackInfo",
+        "AgentNativeFrame",
+        "AgentNativeFrameProps",
+        "AgentNativeProps",
+        "useAgentNativeScreenContext"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+    },
+    "@agent-native/core/client/speak": {
+      "symbols": [
+        "SPEECH_MAX_CHARS",
+        "SpeechClipFailure",
+        "SpeechClipInput",
+        "SpeechClipResult",
+        "fetchSpeechClip"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+    },
+    "@agent-native/core/client/history": {
+      "symbols": [
+        "HistoryTimeline",
+        "VersionHistoryPanel",
+        "VersionHistoryPanelProps"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
     }
   }
 }

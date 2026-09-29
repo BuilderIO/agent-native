@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "جارٍ قطع الاتصال…",
   },
   settings: {
+    backHome: "العودة إلى الصفحة الرئيسية",
+    title: "الإعدادات",
+    description: "إدارة إعدادات التطبيق واللغة.",
+    languageTitle: "لغة الواجهة",
+    languageDescription: "اختر اللغة المستخدمة في هذا التطبيق.",
+    languageLabel: "اللغة",
     agentTitle: "إعدادات الوكيل",
     agentDescription:
       "افتح إعدادات الوكيل في الشريط الجانبي للنموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",

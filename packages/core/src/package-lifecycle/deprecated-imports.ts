@@ -76,6 +76,7 @@ export interface DeprecatedImportFinding {
 
 export interface ScanDeprecatedImportsOptions {
   root: string;
+  files?: string[];
   manifests?: MigrationManifest[];
 }
 
@@ -135,6 +136,13 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function removedSymbolMigrationGuide(
+  removedExport: RemovedExportManifest,
+  symbol: string,
+): string {
+  return removedExport.symbolGuides?.[symbol] ?? removedExport.migrationGuide;
+}
+
 function appendRemovedImportFinding(
   findings: DeprecatedImportFinding[],
   file: string,
@@ -148,15 +156,24 @@ function appendRemovedImportFinding(
     removedExport?.symbols.includes(name),
   );
   if (!removedExport || !removedSymbols?.length) return;
-  findings.push({
-    file,
-    line: lineAt(text, index),
-    from,
-    to: [],
-    symbols: removedSymbols,
-    status: "removed",
-    migrationGuide: removedExport.migrationGuide,
-  });
+  const symbolsByGuide = new Map<string, string[]>();
+  for (const symbol of removedSymbols) {
+    const guide = removedSymbolMigrationGuide(removedExport, symbol);
+    const matches = symbolsByGuide.get(guide) ?? [];
+    matches.push(symbol);
+    symbolsByGuide.set(guide, matches);
+  }
+  for (const [migrationGuide, matchedSymbols] of symbolsByGuide) {
+    findings.push({
+      file,
+      line: lineAt(text, index),
+      from,
+      to: [],
+      symbols: matchedSymbols,
+      status: "removed",
+      migrationGuide,
+    });
+  }
 }
 
 function appendRemovedNamespaceFindings(
@@ -200,7 +217,7 @@ function appendRemovedNamespaceFindings(
         to: [],
         symbols: [symbol],
         status: "removed",
-        migrationGuide: removedExport.migrationGuide,
+        migrationGuide: removedSymbolMigrationGuide(removedExport, symbol),
       });
     }
   }
@@ -876,6 +893,21 @@ export function scanDeprecatedImports(
     ...manifests.map((manifest) => manifest.removedExports ?? {}),
   );
   const findings: DeprecatedImportFinding[] = [];
+  const files = options.files
+    ? [...new Set(options.files.map((file) => path.resolve(file)))].filter(
+        (file) => {
+          const relative = path.relative(root, file);
+          return (
+            relative.length > 0 &&
+            !relative.startsWith(`..${path.sep}`) &&
+            relative !== ".." &&
+            SOURCE_EXTENSIONS.has(path.extname(file)) &&
+            !file.endsWith(".d.ts") &&
+            fs.existsSync(file)
+          );
+        },
+      )
+    : sourceFiles(root);
   const fromDeclaration =
     /\b(import|export)\s+([^;]*?)\s+from\s+["']([^"']+)["']\s*;?/g;
   const sideEffectImport = /\bimport\s+["']([^"']+)["']\s*;?/g;
@@ -902,7 +934,7 @@ export function scanDeprecatedImports(
   const importTypeMember =
     /(?<![\w$.])\bimport\(\s*["']([^"']+)["']\s*\)\s*\.\s*([\w$]+)/g;
 
-  for (const file of sourceFiles(root)) {
+  for (const file of files) {
     const sourceText = fs.readFileSync(file, "utf-8");
     const commentMask = new Uint8Array(sourceText.length);
     const codeMask = codePositionMask(sourceText, commentMask);

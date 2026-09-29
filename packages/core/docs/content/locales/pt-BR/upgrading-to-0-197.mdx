@@ -1,0 +1,157 @@
+---
+title: "Atualizar apps existentes para Core 0.197.0"
+description: "Guia passo a passo para migrar para Core 0.197.0, imports do Toolkit, peers opcionais e verificação."
+---
+
+# Atualizar apps existentes para Core 0.197.0
+
+Use este guia para atualizar um app existente para Core 0.197.0. Execute os
+comandos na raiz do app ou workspace e mantenha um diff revisável antes de
+começar. Verifique separadamente as configurações dos ambientes remotos: a CLI
+pode ler arquivos de ambiente locais, mas não consegue inspecionar ambientes
+remotos nem configurações de recursos salvas no banco de dados.
+
+## 1. Visualizar o upgrade e os codemods de imports
+
+Use a CLI incluída no Core 0.197.0 para carregar o manifesto de migração dessa
+versão:
+
+    npx @agent-native/core@0.197.0 upgrade --codemods
+
+Depois que o Core 0.197.0 estiver instalado no app, a mesma prévia fica disponível pelo binário local do CLI:
+
+    npx agent-native upgrade --codemods
+
+Sem --yes, --codemods é uma simulação e não grava arquivos. Revise as mudanças
+de dependências previstas, o diff e os avisos antes de continuar.
+
+O codemod usa os manifestos ativos de migração do Core e do Toolkit. Ele analisa
+somente arquivos .ts e .tsx (exceto arquivos de declaração, gerados e diretórios de
+dependências) e reescreve especificadores de import e re-export compatíveis.
+Quando exports nomeados migram para módulos diferentes, ele pode dividir uma
+declaração por símbolo, preservando aliases e imports somente de tipos. Também
+reescreve caminhos simples de CSS @import e adiciona uma dependência ausente
+quando uma reescrita resolvida cruza o limite de um pacote.
+
+Ele não altera os pontos de chamada nem move seus arquivos. Movimentos não
+resolvidos ou planejados permanecem sem alteração e geram avisos. Ele não pode
+dividir imports ou exports default, namespace, side-effect ou star; não divide imports CSS por símbolo. Revise esses casos
+manualmente. Exports removidos podem exigir mudanças no código; siga o guia de
+migração citado no aviso da CLI.
+
+A prévia também mostra o plano completo do upgrade: overrides ou patches do
+framework que bloqueiam a operação, atualizações pendentes de versões
+@agent-native/\*, dependências de recursos inferidas da configuração local, a
+instalação do gerenciador de pacotes, atualização das skills de scaffold e
+typecheck quando o pacote raiz tiver esse script. O comando muda as versões
+para latest no registry e depois fixa as versões resolvidas pela instalação.
+Execute quando 0.197.0 for a versão atual desejada; se precisar de uma versão
+exata mais tarde, confira os pins resolvidos.
+
+## 2. Confirmar o Toolkit e os pacotes opcionais
+
+Imports movidos para `@agent-native/toolkit/*` exigem `@agent-native/toolkit`. O codemod adiciona o Toolkit quando move para lá um import ou export compatível e resolvido. Se o app usa um export do Toolkit e a dependência não foi adicionada, instale a versão do Toolkit correspondente ao Core 0.197.0:
+
+    pnpm add @agent-native/toolkit@0.197.0
+    # npm install @agent-native/toolkit@0.197.0
+    # yarn add @agent-native/toolkit@0.197.0
+
+### Dependências selecionadas pelo CLI de atualização
+
+O CLI adiciona estas dependências quando as verificações do ambiente local correspondem. Para PGlite, verifica primeiro `${APP_NAME}_DATABASE_URL` com o nome do app normalizado e depois `DATABASE_URL`; seleciona PGlite se a URL estiver ausente ou começar com `pglite:`. Ele não consegue inspecionar ambientes remotos nem configurações de recursos armazenadas no banco de dados; verifique produção e prévia separadamente.
+
+| Recurso                                        | Pacote opcional              | Versão              | Configuração local verificada pelo CLI                                                          |
+| ---------------------------------------------- | ---------------------------- | ------------------- | ----------------------------------------------------------------------------------------------- |
+| Banco de dados PGlite                          | @electric-sql/pglite         | ^0.5.8              | `${APP_NAME}_DATABASE_URL` normalizada e depois `DATABASE_URL`; ausente ou começa com `pglite:` |
+| Sentry no servidor                             | @sentry/node                 | ^10.60.0 ou ^11.0.0 | `SENTRY_SERVER_DSN`, `SENTRY_DSN` ou a tupla de chaves do Sentry                                |
+| Sentry no navegador                            | @sentry/browser              | ^10.60.0 ou ^11.0.0 | DSN do Sentry cliente, `SENTRY_DSN` ou a tupla de chaves                                        |
+| Envio de source maps do Sentry durante o build | @sentry/vite-plugin          | ^5.4.0              | `SENTRY_AUTH_TOKEN`, organização e projeto definidos                                            |
+| Autenticação SSO                               | @better-auth/sso             | 1.7.4               | `AUTH_SSO` habilitado                                                                           |
+| Autenticação SCIM                              | @better-auth/scim            | 1.7.4               | `AUTH_SCIM` habilitado                                                                          |
+| Amplitude                                      | @amplitude/analytics-browser | ^2.45.8             | `VITE_AMPLITUDE_API_KEY` definida                                                               |
+| Microsoft Teams                                | botframework-connector       | ^4.23.3             | `MICROSOFT_TEAMS_APP_ID` e `MICROSOFT_TEAMS_APP_PASSWORD` definidos                             |
+
+### Peers de runtime opcionais por recurso usado
+
+O CLI não infere estes peers. Adicione o pacote de cada recurso usado pelo app e confira as configurações locais e implantadas. O mecanismo de AI SDK precisa de `ai` e do pacote do provedor escolhido pelo mecanismo:
+
+| Recurso                                                       | Pacote opcional                                                                                  | Versão           |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- |
+| Mecanismo de AI SDK                                           | ai                                                                                               | >=6              |
+| Provedores Anthropic, Cohere, Google, Groq, Mistral ou OpenAI | @ai-sdk/anthropic, @ai-sdk/cohere, @ai-sdk/google, @ai-sdk/groq, @ai-sdk/mistral, @ai-sdk/openai | >=3 each         |
+| Provedor OpenRouter                                           | @openrouter/ai-sdk-provider                                                                      | >=2              |
+| Provedor Ollama                                               | ai-sdk-ollama                                                                                    | >=3              |
+| Contagem exata de tokens Anthropic no Context X-Ray           | @anthropic-ai/tokenizer                                                                          | ^0.0.4           |
+| Tipos para indexação de sistemas de design da Builder         | @builder.io/ai-utils                                                                             | ^0.84.0          |
+| Solicitações TypeSafe AI diretas para Jev                     | @typesafe-ai/sdk                                                                                 | ^0.6.0           |
+| Ingestão de documentos Office                                 | officeparser; mammoth                                                                            | ^7.3.0; ^1.12.0  |
+| Ingestão de planilhas                                         | xlsx                                                                                             | ^0.18.5          |
+| Ingestão de PowerPoint                                        | jszip; fast-xml-parser                                                                           | ^3.10.1; ^5.10.1 |
+| Metadados de mídia e transformações de imagem                 | sharp                                                                                            | ^0.35.3          |
+| Renderização SVG de prévias sociais / Open Graph              | @resvg/resvg-js                                                                                  | ^2.6.2           |
+| Gravação de replay de sessões do navegador                    | @rrweb/record                                                                                    | ^2.1.0           |
+| Integração de tracing OpenTelemetry                           | @opentelemetry/api                                                                               | ^1.9.1           |
+| Flags de recurso LaunchDarkly no servidor                     | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
+| Sessões de terminal incorporado                               | node-pty; ws                                                                                     | >=1; >=8         |
+| Formatação HTML de extensões                                  | prettier                                                                                         | ^3.8.3           |
+
+**Já incluído no Core:** A extração de páginas web para Markdown usa `linkedom`, `@mozilla/readability` e `turndown`. O Core fornece esses pacotes como dependências regulares, então não é preciso adicioná-los separadamente. Peers de build e framework como Vite, React Router, Tailwind e Drizzle Kit não são recursos do app nesta tabela; mantenha-os alinhados à configuração do framework.
+
+## 3. Aplicar o upgrade
+
+Depois de revisar a simulação e confirmar os pacotes dos recursos, aplique o
+plano:
+
+    npx @agent-native/core@0.197.0 upgrade --codemods --yes
+
+Esse único comando atualiza especificações elegíveis de dependências
+@agent-native/\*, alinha as dependências de recursos detectados, executa o
+gerenciador de pacotes, fixa as versões resolvidas do Agent-Native, aplica os
+codemods compatíveis, atualiza as skills de scaffold e executa o script
+typecheck da raiz quando existir. Não execute outro upgrade apenas para aplicar
+os codemods. Corrija avisos e erros do app no código do app; não adicione
+overrides nem patches do framework.
+
+## 4. Verificar o resultado
+
+Revise o diff completo, especialmente avisos de codemods ignorados e versões de
+dependências, e então execute:
+
+    npx @agent-native/core@0.197.0 upgrade check
+    pnpm typecheck
+
+Use o comando equivalente de typecheck para npm ou Yarn e execute os testes e o
+build relevantes do app. Confirme que a tabela de peers opcionais cobre as
+configurações locais e de produção. Pesquise os imports antigos da tabela
+abaixo; ocorrências restantes devem ser intencionais, não suportadas pelo
+manifesto ou explicadas por um aviso.
+
+## Caminhos antigos e destinos representativos
+
+O manifesto de migração é sensível aos símbolos; exports do mesmo módulo antigo
+podem ir para destinos diferentes. A tabela mostra exemplos, não todos os
+símbolos movidos.
+
+| Caminho e símbolos antigos                                                                                                       | Caminho novo                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| @agent-native/core/client/settings                                                                                               | @agent-native/toolkit/app/settings                                                                                                                                     |
+| @agent-native/core/client/agent-chat: AgentPanel, AgentSidebar, AgentChatHome, AgentChatSurface                                  | @agent-native/toolkit/app/chat                                                                                                                                         |
+| @agent-native/core/client/agent-chat: exports de perguntas guiadas                                                               | @agent-native/toolkit/app/chat/agentkit-chat                                                                                                                           |
+| @agent-native/core/client/changelog: ChangelogDialog, ChangelogSettingsCard                                                      | @agent-native/toolkit/app/changelog                                                                                                                                    |
+| @agent-native/core/client/org: OrgSwitcher, BuilderCreditNotice                                                                  | @agent-native/toolkit/app/org                                                                                                                                          |
+| @agent-native/core/client/org: TeamPage                                                                                          | @agent-native/toolkit/app/org/TeamPage                                                                                                                                 |
+| @agent-native/core/client/org: OrgInfo, DomainMatchOrg, OrgInvitationSummary                                                     | @agent-native/core/org/types                                                                                                                                           |
+| @agent-native/core/client/setup-connections: BuilderConnectCard, SetupConnectionsPage                                            | @agent-native/toolkit/app/setup-connections                                                                                                                            |
+| @agent-native/core/client/setup-connections: FileStorageSetupPopover                                                             | @agent-native/toolkit/app/chat/FileStorageSetupPopover                                                                                                                 |
+| @agent-native/core/client/setup-connections: exports de UI de settings, onboarding, resources e integrações                      | Divididos entre @agent-native/toolkit/app/settings, @agent-native/toolkit/app/onboarding, @agent-native/toolkit/app/resources e @agent-native/toolkit/app/integrations |
+| @agent-native/core/client/ui: exports de UI compartilhada; exports de feedback                                                   | @agent-native/toolkit/app/shared; @agent-native/toolkit/app/feedback                                                                                                   |
+| @agent-native/core/client/ui: buildSignInReturnHref                                                                              | @agent-native/core/client/sign-in-return                                                                                                                               |
+| @agent-native/core/blocks: registry, renderers e editores do client; tipos e registro de blocks no servidor                      | @agent-native/toolkit/app/blocks; @agent-native/core/blocks/server                                                                                                     |
+| @agent-native/core/client/hooks: AppProviders, AppProvidersProps                                                                 | @agent-native/toolkit/app/providers                                                                                                                                    |
+| @agent-native/core/client/components/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                  | @agent-native/toolkit/ui/{dialog,dropdown-menu,hover-card,popover,sheet,tooltip}                                                                                       |
+| @agent-native/core/client/editor and @agent-native/core/client/rich-markdown-editor: RichMarkdownEditor, BubbleToolbar           | @agent-native/toolkit/editor                                                                                                                                           |
+| @agent-native/core/client/components/{AgentPresenceChip,PresenceBar,LiveCursorOverlay,RecentEditHighlights,RemoteSelectionRings} | @agent-native/toolkit/collab-ui                                                                                                                                        |
+| @agent-native/agentkit/react e seus subpaths React                                                                               | @agent-native/toolkit/app/agentkit                                                                                                                                     |
+
+URL canônica da fonte:
+[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx).
