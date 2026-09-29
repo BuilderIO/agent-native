@@ -1,9 +1,7 @@
 import {
   createError,
   defineEventHandler,
-  getHeader,
   getRequestURL,
-  readMultipartFormData,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
@@ -12,7 +10,9 @@ import {
 import { getDbExec } from "../db/client.js";
 import {
   getIconAsset,
+  IconUploadBodyError,
   putIconAsset,
+  readIconUploadFormData,
   readIconAssetForAuthorizedReference,
 } from "../icon-assets/index.js";
 import {
@@ -84,21 +84,25 @@ export const uploadWorkspacePrivateIconHandler = defineEventHandler(
     const org = await readOrg(ctx.orgId);
     if (!org)
       throw createError({ statusCode: 404, message: "Organization not found" });
-    const declaredLength = Number(getHeader(event, "content-length"));
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > MAX_ICON_BYTES + 64 * 1024
-    ) {
-      throw createError({
-        statusCode: 413,
-        message: "Workspace icon is too large",
-      });
-    }
-    const parts = await readMultipartFormData(event);
-    const file = parts?.find((part) => part.name === "file");
-    if (!file?.data?.length)
+    const form = await readIconUploadFormData(event.req).catch(
+      (error: unknown) => {
+        if (error instanceof IconUploadBodyError) {
+          throw createError({
+            statusCode: error.statusCode,
+            cause: error,
+            message:
+              error.statusCode === 413
+                ? "Workspace icon is too large"
+                : error.message,
+          });
+        }
+        throw error;
+      },
+    );
+    const file = form.get("file");
+    if (!file || typeof file === "string" || !file.size)
       throw createError({ statusCode: 400, message: "Image file required" });
-    if (file.data.length > MAX_ICON_BYTES)
+    if (file.size > MAX_ICON_BYTES)
       throw createError({
         statusCode: 413,
         message: "Workspace icon is too large",
@@ -110,20 +114,21 @@ export const uploadWorkspacePrivateIconHandler = defineEventHandler(
         message: "Unsupported workspace icon image type",
       });
     }
+    const data = new Uint8Array(await file.arrayBuffer());
     const id = await runWithRequestContext(
       { userEmail: ctx.email, orgId: ctx.orgId },
       async () =>
         isFederated(org)
           ? uploadFederatedWorkspaceIcon(event, org, ctx.email, {
-              data: file.data,
+              data,
               mimeType,
-              filename: file.filename || "workspace-icon",
+              filename: file.name || "workspace-icon",
             })
           : (
               await putIconAsset({
-                data: file.data,
+                data,
                 mimeType,
-                filename: file.filename || undefined,
+                filename: file.name || undefined,
                 ownerEmail: ctx.email,
                 orgId: ctx.orgId,
               })

@@ -2,6 +2,8 @@ import { createHmac } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_ICON_MULTIPART_BYTES } from "../../../../core/src/icon-assets/multipart.js";
+
 const mocks = vi.hoisted(() => ({
   verifyA2AToken: vi.fn(),
   resolveOrgByDomain: vi.fn(),
@@ -24,7 +26,8 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: mocks.getSession,
   runWithRequestContext: (_context: unknown, run: () => unknown) => run(),
 }));
-vi.mock("@agent-native/core/icon-assets", () => ({
+vi.mock("@agent-native/core/icon-assets", async () => ({
+  ...(await import("../../../../core/src/icon-assets/multipart.js")),
   getIconAsset: mocks.getIconAsset,
   listIconAssets: mocks.listIconAssets,
   putIconAsset: mocks.putIconAsset,
@@ -204,6 +207,51 @@ describe("Dispatch private icon assets", () => {
         filename: "mark.png",
       }),
     );
+  });
+
+  it("rejects an understated content length before parsing or writing", async () => {
+    mocks.verifyA2AToken.mockResolvedValue(verified("private-icon:upload"));
+    const cancel = vi.fn();
+    const url = new URL("https://dispatch.example.test/");
+    const req = new Request(url, {
+      method: "POST",
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(MAX_ICON_MULTIPART_BYTES + 1));
+        },
+        cancel,
+      }),
+      duplex: "half",
+      headers: {
+        authorization: "Bearer example-signed-token",
+        "content-type": "multipart/form-data; boundary=example-boundary",
+        "content-length": "1",
+      },
+    } as RequestInit);
+    const response = await createPrivateIconAssetsHandler()({ url, req });
+    expect(response.status).toBe(413);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mocks.putIconAsset).not.toHaveBeenCalled();
+  });
+
+  it("retains the content-length requirement for Dispatch uploads", async () => {
+    mocks.verifyA2AToken.mockResolvedValue(verified("private-icon:upload"));
+    const url = new URL("https://dispatch.example.test/");
+    const form = new FormData();
+    form.set(
+      "file",
+      new File([Uint8Array.of(1, 2)], "logo.png", { type: "image/png" }),
+    );
+    const response = await createPrivateIconAssetsHandler()({
+      url,
+      req: new Request(url, {
+        method: "POST",
+        body: form,
+        headers: { authorization: "Bearer example-signed-token" },
+      }),
+    });
+    expect(response.status).toBe(411);
+    expect(mocks.putIconAsset).not.toHaveBeenCalled();
   });
 
   it("limits the owner library to safe metadata", async () => {

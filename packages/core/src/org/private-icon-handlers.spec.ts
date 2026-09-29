@@ -1,4 +1,7 @@
+import { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { MAX_ICON_MULTIPART_BYTES } from "../icon-assets/multipart.js";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -13,33 +16,6 @@ const mocks = vi.hoisted(() => ({
   validateFederatedOrganizationMembership: vi.fn(),
 }));
 
-vi.mock("h3", () => ({
-  defineEventHandler: (handler: unknown) => handler,
-  getRequestURL: (event: { _url: string }) => new URL(event._url),
-  getHeader: (
-    event: { _requestHeaders?: Record<string, string> },
-    key: string,
-  ) => event._requestHeaders?.[key],
-  readMultipartFormData: (event: { _parts?: unknown[] }) =>
-    Promise.resolve(event._parts),
-  setResponseHeader: (
-    event: { _headers: Record<string, string> },
-    key: string,
-    value: string,
-  ) => {
-    event._headers[key] = value;
-  },
-  setResponseStatus: (event: { _status?: number }, status: number) => {
-    event._status = status;
-  },
-  createError: ({
-    statusCode,
-    message,
-  }: {
-    statusCode: number;
-    message: string;
-  }) => Object.assign(new Error(message), { statusCode }),
-}));
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mocks.execute }),
 }));
@@ -49,7 +25,8 @@ vi.mock("./federation.js", () => ({
   validateFederatedOrganizationMembership:
     mocks.validateFederatedOrganizationMembership,
 }));
-vi.mock("../icon-assets/index.js", () => ({
+vi.mock("../icon-assets/index.js", async () => ({
+  ...(await import("../icon-assets/multipart.js")),
   putIconAsset: mocks.putIconAsset,
   getIconAsset: mocks.getIconAsset,
   readIconAssetForAuthorizedReference:
@@ -68,10 +45,20 @@ import {
 
 const assetId = "12345678-1234-4234-8234-123456789abc";
 const image = { version: 1, kind: "image", authority: "private-icon", assetId };
-const event = (path: string) => ({
-  _url: `https://app.example.test${path}`,
-  _headers: {} as Record<string, string>,
-});
+const event = (path: string) =>
+  new H3Event(new Request(`https://app.example.test${path}`));
+
+function uploadEvent(
+  mimeType = "image/png",
+  filename = "logo.png",
+  data = Uint8Array.of(1, 2),
+) {
+  const form = new FormData();
+  form.set("file", new File([data], filename, { type: mimeType }));
+  return new H3Event(
+    new Request("https://app.example.test/", { method: "POST", body: form }),
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -94,6 +81,43 @@ beforeEach(() => {
 });
 
 describe("workspace private icons", () => {
+  it.each([undefined, "1"])(
+    "rejects a body over the byte budget with declared length %s before storage",
+    async (length) => {
+      mocks.execute.mockResolvedValueOnce({
+        rows: [
+          {
+            identity_authority: null,
+            identity_id: null,
+            allowed_domain: null,
+            icon_json: null,
+          },
+        ],
+      });
+      const cancel = vi.fn();
+      const req = new Request("https://app.example.test/", {
+        method: "POST",
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(MAX_ICON_MULTIPART_BYTES + 1));
+          },
+          cancel,
+        }),
+        duplex: "half",
+        headers: {
+          "content-type": "multipart/form-data; boundary=example-boundary",
+          ...(length ? { "content-length": length } : {}),
+        },
+      } as RequestInit);
+      await expect(
+        uploadWorkspacePrivateIconHandler(new H3Event(req)),
+      ).rejects.toMatchObject({ statusCode: 413 });
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(mocks.putIconAsset).not.toHaveBeenCalled();
+      expect(mocks.uploadFederatedWorkspaceIcon).not.toHaveBeenCalled();
+    },
+  );
+
   it("uploads a private icon only for an organization administrator", async () => {
     mocks.execute.mockResolvedValueOnce({
       rows: [
@@ -105,17 +129,7 @@ describe("workspace private icons", () => {
         },
       ],
     });
-    const request = {
-      ...event("/"),
-      _parts: [
-        {
-          name: "file",
-          data: new Uint8Array([1, 2]),
-          type: "image/png",
-          filename: "logo.png",
-        },
-      ],
-    };
+    const request = uploadEvent();
     await expect(
       uploadWorkspacePrivateIconHandler(request as never),
     ).resolves.toEqual({ id: assetId });
@@ -149,17 +163,7 @@ describe("workspace private icons", () => {
       ],
     });
     mocks.uploadFederatedWorkspaceIcon.mockResolvedValueOnce(assetId);
-    const request = {
-      ...event("/"),
-      _parts: [
-        {
-          name: "file",
-          data: new Uint8Array([1, 2]),
-          type: "image/png",
-          filename: "logo.png",
-        },
-      ],
-    };
+    const request = uploadEvent();
     await expect(
       uploadWorkspacePrivateIconHandler(request as never),
     ).resolves.toEqual({ id: assetId });
@@ -183,17 +187,11 @@ describe("workspace private icons", () => {
         },
       ],
     });
-    const upload = {
-      ...event("/"),
-      _parts: [
-        {
-          name: "file",
-          data: new TextEncoder().encode("<svg></svg>"),
-          type: "image/svg+xml",
-          filename: "logo.svg",
-        },
-      ],
-    };
+    const upload = uploadEvent(
+      "image/svg+xml",
+      "logo.svg",
+      new TextEncoder().encode("<svg></svg>"),
+    );
     await expect(
       uploadWorkspacePrivateIconHandler(upload as never),
     ).resolves.toEqual({ id: assetId });
@@ -222,7 +220,9 @@ describe("workspace private icons", () => {
     await expect(
       readWorkspacePrivateIconHandler(read as never),
     ).resolves.toBeInstanceOf(Buffer);
-    expect(read._headers["Content-Security-Policy"]).toContain("sandbox");
+    expect(read.res.headers.get("Content-Security-Policy")).toContain(
+      "sandbox",
+    );
   });
 
   it("serves the exact referenced icon to an organization member", async () => {
@@ -242,7 +242,7 @@ describe("workspace private icons", () => {
     await expect(
       readWorkspacePrivateIconHandler(request as never),
     ).resolves.toEqual(Buffer.from([1, 2]));
-    expect(request._headers["Cache-Control"]).toBe("private, no-store");
+    expect(request.res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("denies nonmembers and unreferenced asset IDs before reading bytes", async () => {

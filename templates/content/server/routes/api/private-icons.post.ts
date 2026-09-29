@@ -1,11 +1,9 @@
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
-  createError,
-  defineEventHandler,
-  getHeader,
-  readMultipartFormData,
-  setResponseHeader,
-} from "h3";
+  IconUploadBodyError,
+  readIconUploadFormData,
+} from "@agent-native/core/icon-assets";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { createError, defineEventHandler, setResponseHeader } from "h3";
 
 import { uploadPrivateIcon } from "../../lib/private-icon-authority.js";
 import { resolveEditablePrivateIconOrgId } from "../../lib/private-icon-target.js";
@@ -23,22 +21,28 @@ export default defineEventHandler(async (event) => {
   const session = await getSession(event);
   if (!session?.email)
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
-  const contentLength = Number(getHeader(event, "content-length"));
-  if (
-    Number.isFinite(contentLength) &&
-    contentLength > MAX_ICON_BYTES + 64_000
-  ) {
-    throw createError({
-      statusCode: 413,
-      statusMessage: "Private icon is too large",
-    });
-  }
-  const parts = await readMultipartFormData(event);
-  const file = parts?.find((part) => part.name === "file" && part.filename);
-  const documentIds = parts?.filter((part) => part.name === "documentId");
+  const form = await readIconUploadFormData(event.req).catch(
+    (error: unknown) => {
+      if (error instanceof IconUploadBodyError) {
+        throw createError({
+          statusCode: error.statusCode,
+          cause: error,
+          statusMessage:
+            error.statusCode === 413
+              ? "Private icon is too large"
+              : error.message,
+        });
+      }
+      throw error;
+    },
+  );
+  const file = form
+    .getAll("file")
+    .find((part) => typeof part !== "string" && part.name);
+  const documentIds = form.getAll("documentId");
   const documentId =
-    documentIds?.length === 1
-      ? new TextDecoder().decode(documentIds[0]!.data).trim()
+    documentIds.length === 1 && typeof documentIds[0] === "string"
+      ? documentIds[0].trim()
       : "";
   if (!documentId || documentId.length > 128) {
     throw createError({
@@ -48,8 +52,9 @@ export default defineEventHandler(async (event) => {
   }
   if (
     !file ||
-    !file.data.length ||
-    file.data.length > MAX_ICON_BYTES ||
+    typeof file === "string" ||
+    !file.size ||
+    file.size > MAX_ICON_BYTES ||
     !file.type ||
     !IMAGE_TYPES.has(file.type)
   ) {
@@ -64,9 +69,9 @@ export default defineEventHandler(async (event) => {
       const orgId = await resolveEditablePrivateIconOrgId(documentId);
       return {
         id: await uploadPrivateIcon({
-          data: new Uint8Array(file.data),
+          data: new Uint8Array(await file.arrayBuffer()),
           mimeType: file.type!,
-          filename: file.filename,
+          filename: file.name,
           ownerEmail: session.email,
           orgId,
         }),

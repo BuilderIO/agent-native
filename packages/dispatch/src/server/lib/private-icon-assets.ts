@@ -1,6 +1,8 @@
 import { verifyA2AToken } from "@agent-native/core/a2a";
 import {
   getIconAsset,
+  IconUploadBodyError,
+  readIconUploadFormData,
   readIconAssetForAuthorizedReference,
   listIconAssets,
   putIconAsset,
@@ -9,7 +11,6 @@ import { isOrgMember, resolveOrgByDomain } from "@agent-native/core/org";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
-const MAX_MULTIPART_BYTES = MAX_ICON_BYTES + 64 * 1024;
 const ICON_ID = /^[A-Za-z0-9_-]{8,128}$/;
 const ICON_PATH = /^\/([A-Za-z0-9_-]{8,128})\/?$/;
 
@@ -119,9 +120,6 @@ export function createPrivateIconAssetsHandler() {
       if (!Number.isSafeInteger(length) || length <= 0) {
         return errorResponse(411, "Content length required");
       }
-      if (length > MAX_MULTIPART_BYTES) {
-        return errorResponse(413, "Icon too large");
-      }
       if (
         !event.req.headers
           .get("content-type")
@@ -131,9 +129,11 @@ export function createPrivateIconAssetsHandler() {
       }
       let files: FormDataEntryValue[];
       try {
-        files = (await event.req.formData()).getAll("file");
-      } catch {
-        return errorResponse(400, "Invalid multipart icon upload");
+        files = (await readIconUploadFormData(event.req)).getAll("file");
+      } catch (error) {
+        if (error instanceof IconUploadBodyError)
+          return errorResponse(error.statusCode, error.message);
+        throw error;
       }
       const file = files.length === 1 ? files[0] : undefined;
       if (!file || typeof file === "string") {
