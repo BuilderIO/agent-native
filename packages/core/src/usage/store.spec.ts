@@ -58,6 +58,11 @@ beforeEach(async () => {
   });
 
   pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
   await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
     id BIGINT PRIMARY KEY,
     owner_email TEXT NOT NULL,
