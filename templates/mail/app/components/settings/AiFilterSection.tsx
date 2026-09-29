@@ -966,6 +966,26 @@ export function AiFilterSection() {
             </Button>
           </div>
 
+          {recentBackfills.isError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 px-3 py-2"
+            >
+              <p className="min-w-0 text-xs text-destructive">
+                {t("mail.aiFilter.backfillStatusLoadFailed")}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7"
+                onClick={() => void recentBackfills.refetch()}
+                disabled={recentBackfills.isFetching}
+              >
+                {t("mail.error.tryAgain")}
+              </Button>
+            </div>
+          )}
+
           {newRuleOpen && (
             <form
               className="space-y-3 rounded-lg border border-border/50 p-3"
@@ -1122,11 +1142,13 @@ export function AiFilterSection() {
                         </Button>
                       )}
                     {modeRules.map((rule) => {
-                      const status = recentBackfills.data?.find((run) =>
-                        run.perRule.some(
-                          (progress) => progress.ruleId === rule.id,
-                        ),
-                      );
+                      const status = recentBackfills.isError
+                        ? undefined
+                        : recentBackfills.data?.find((run) =>
+                            run.perRule.some(
+                              (progress) => progress.ruleId === rule.id,
+                            ),
+                          );
                       return (
                         <div key={rule.id} className="overflow-hidden">
                           <RuleRow

@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   automationsError: false,
   automationsLoading: false,
   automationsHasData: true,
+  recentBackfillsError: false,
   triageEnabled: true,
   updateAiFilterSettings: vi.fn(),
   createRule: vi.fn(),
@@ -98,7 +99,8 @@ vi.mock("@/hooks/use-ai-filter", () => ({
   useRecentAiFilterBackfills: () => ({
     data: mocks.backfillStatus ? [mocks.backfillStatus] : [],
     isLoading: false,
-    isError: false,
+    isError: mocks.recentBackfillsError,
+    isFetching: false,
     refetch: mocks.refetchBackfill,
   }),
   latestAiFilterDecisions: (state: { decisions: Array<Record<string, any>> }) =>
@@ -183,6 +185,7 @@ describe("AiFilterSection", () => {
     mocks.automationsError = false;
     mocks.automationsLoading = false;
     mocks.automationsHasData = true;
+    mocks.recentBackfillsError = false;
     mocks.triageEnabled = true;
     mocks.accounts = [];
     mocks.createRule.mockReset().mockResolvedValue({ id: "created-rule" });
@@ -833,6 +836,59 @@ describe("AiFilterSection", () => {
     expect(
       screen.queryByRole("button", { name: "mail.error.tryAgain" }),
     ).toBeNull();
+  });
+
+  it("shows one retryable status error instead of failing every rule", async () => {
+    mocks.recentBackfillsError = true;
+    mocks.rules = [
+      importantRule(),
+      {
+        ...importantRule(),
+        id: "other-rule",
+        name: "AI other",
+      },
+    ];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 0,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+        {
+          ruleId: "other-rule",
+          name: "AI other",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "fetch failed",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.backfillStatusLoadFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.ruleBackfillFailed")).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => expect(mocks.refetchBackfill).toHaveBeenCalled());
   });
 
   it("retries a failed backfill when there are no applied changes to undo", async () => {
