@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 
 const CORE_ROOT = "packages/core";
-const MAX_RUNTIME_DEPENDENCIES = 63;
+// The CLI needs esbuild for project generation and Ink for the create wizard.
+const MAX_RUNTIME_DEPENDENCIES = 65;
 const CODE_EXTENSIONS = [
   ".ts",
   ".tsx",
