@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listOAuthAccountsByOwner: vi.fn(),
   getClientForConnectedAccount: vi.fn(),
+  gmailGetAttachment: vi.fn(),
   gmailGetMessage: vi.fn(),
   googleFetch: vi.fn(),
-  registerGmailAccountToken: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -13,9 +13,9 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 }));
 
 vi.mock("./google-api.js", () => ({
+  gmailGetAttachment: mocks.gmailGetAttachment,
   gmailGetMessage: mocks.gmailGetMessage,
   googleFetch: mocks.googleFetch,
-  registerGmailAccountToken: mocks.registerGmailAccountToken,
 }));
 
 vi.mock("./google-auth.js", () => ({
@@ -177,6 +177,110 @@ describe("saveGmailDraft", () => {
     expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
       "owner@example.com",
       "gmail@example.com",
+    );
+  });
+
+  it("keeps Gmail attachments when updating an existing draft", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "token",
+          scope: "https://mail.google.com/",
+        },
+      },
+    ]);
+    mocks.gmailGetAttachment.mockResolvedValue({
+      data: Buffer.from("attachment body").toString("base64url"),
+    });
+
+    await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-draft-1",
+      to: "recipient@example.com",
+      subject: "Updated",
+      body: "Revised body",
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 16,
+          url: "/api/attachments/brief.pdf",
+          source: "gmail",
+          gmailMessageId: "source-message-1",
+          gmailAttachmentId: "source-attachment-1",
+          accountEmail: "owner@example.com",
+        },
+      ],
+    });
+
+    expect(mocks.gmailGetAttachment).toHaveBeenCalledWith(
+      "token",
+      "source-message-1",
+      "source-attachment-1",
+    );
+    const [, , options] = mocks.googleFetch.mock.calls[0] ?? [];
+    const raw = Buffer.from(
+      JSON.parse(options.body).message.raw,
+      "base64url",
+    ).toString("utf8");
+    expect(raw).toContain(
+      'Content-Disposition: attachment; filename="brief.pdf"',
+    );
+    expect(raw).toContain(Buffer.from("attachment body").toString("base64"));
+  });
+
+  it("reads an attachment from a read-only Gmail account", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "draft@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.compose" },
+      },
+      {
+        accountId: "source@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.readonly" },
+      },
+    ]);
+    mocks.gmailGetAttachment.mockResolvedValue({
+      data: Buffer.from("source attachment").toString("base64url"),
+    });
+
+    await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "draft@example.com",
+      to: "recipient@example.com",
+      subject: "Forwarded file",
+      body: "See attached",
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 17,
+          url: "/api/attachments/brief.pdf",
+          source: "gmail",
+          gmailMessageId: "source-message-1",
+          gmailAttachmentId: "source-attachment-1",
+          accountEmail: "source@example.com",
+        },
+      ],
+    });
+
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      "owner@example.com",
+      "source@example.com",
+    );
+    expect(mocks.gmailGetAttachment).toHaveBeenCalledWith(
+      "token",
+      "source-message-1",
+      "source-attachment-1",
     );
   });
 

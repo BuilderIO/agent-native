@@ -15,8 +15,7 @@ metadata:
 
 The microphone inside the sidebar composer offers two distinct paths:
 editable dictation and an opt-in realtime speech-to-speech agent session.
-Users configure dictation separately from AI cleanup in Settings → Voice
-Transcription. With the `settings-redesign` flag on, the source picker (Mac
+Users configure dictation separately from AI cleanup. The source picker (Mac
 Native, Google Realtime, Batch) is the Voice transcription row on Settings ›
 Account › Preferences (`VoiceTranscriptionSection compact`, anchor `voice`);
 cleanup and batch provider keys stay in the agent sidebar's Voice

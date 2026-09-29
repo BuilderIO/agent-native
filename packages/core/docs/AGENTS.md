@@ -73,6 +73,8 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 | Build extensions or custom widgets    | `content/extensions.md`, `content/agent-web-surfaces.md`                                                 |
 | Deploy or configure hosting           | `content/deployment.md`, `content/server-overview.md`                                                    |
 | Write agent instructions or skills    | `content/skills-guide.md`, `content/writing-agent-instructions.md`                                       |
+| Plan a breaking package API change    | `migrations/README.md`                                                                                  |
+| Migrate the Core chat API to AgentKit | `migrations/agentkit-chat.md`, `content/native-chat-ui.mdx`                                               |
 
 ## Rules
 
@@ -83,3 +85,6 @@ preserve public action, state, auth, and agent-chat runtime contracts.
   for that app, but verify the framework API shape in package docs or types.
 - Do not invent Agent-Native APIs. Search these docs and installed type
   definitions before adding imports, routes, actions, or framework config.
+- For package API migrations, read the matching versioned guide under
+  `node_modules/@agent-native/core/docs/migrations/` before changing imports or
+  chat ownership.

@@ -323,6 +323,8 @@ export default {
       bottomLeft: "UL",
       bottomRight: "UR",
       blend: "Mischung",
+      blendMode: "Mischmodus",
+      removeBlendMode: "Mischmodus entfernen",
       border: "Rahmen",
       outline: "Kontur",
       inside: "Innen",

@@ -61,12 +61,6 @@
   background: var(--agent-kit-recessed-surface);
 }
 
-.agent-layout-left-drawer,
-.agent-sidebar-panel[data-agent-sidebar-layout="desktop"],
-.agent-sidebar-panel[data-agent-sidebar-layout="mobile"] {
-  background: var(--agent-native-lower-surface);
-}
-
 .agent-layout-left-drawer {
   background: var(--agent-native-lower-surface) !important;
 }
@@ -112,16 +106,24 @@
 
 .agent-sidebar-panel[data-agent-sidebar-layout="desktop"] {
   border-inline-start: 1px solid hsl(var(--border) / 0.72);
-  background: var(--agent-kit-recessed-surface);
 }
 
 .agent-sidebar-panel .agent-sidebar-chat-header {
   border-bottom: 1px solid hsl(var(--border) / 0.72);
-  background: var(--agent-kit-recessed-surface);
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel .agent-sidebar-chat-header .agent-native-shell-topbar {
   background: transparent;
+}
+
+.agent-sidebar-panel .agentkit-chat {
+  --agentkit-chat-background: var(--agent-kit-nav-surface);
+}
+
+.agent-sidebar-panel
+  .agentkit-transcript-content:has([data-agent-suggestion-bar="true"]) {
+  padding-bottom: 0;
 }
 
 .agent-sidebar-panel .agent-tabs-scroll {
@@ -152,7 +154,7 @@
 }
 
 .agent-sidebar-panel .agent-chat-scroll {
-  background: var(--agent-kit-recessed-surface);
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel .agent-empty-state {
@@ -168,7 +170,7 @@
 }
 
 .agent-sidebar-panel .agent-composer-area:not(.agent-composer-area--hero) {
-  padding: 0.625rem 0.75rem 0.75rem;
+  padding: 0;
   border-top: 0;
   background: transparent;
 }
@@ -181,11 +183,12 @@
 }
 
 .agent-sidebar-panel .agent-composer-stack {
-  background: var(--agent-kit-recessed-surface);
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel [data-agent-suggestion-bar="true"] {
-  background: var(--agent-kit-recessed-surface);
+  padding-block: 0 0.25rem;
+  background: var(--agent-kit-nav-surface);
 }
 
 .agent-sidebar-panel .agent-composer-workflow {
@@ -619,6 +622,13 @@
   height: var(--agent-kit-page-header-height);
   z-index: var(--agent-kit-layer-page-header);
   background: var(--agent-kit-recessed-surface);
+}
+
+@media (min-width: 768px) {
+  [data-agent-page-chat-topbar]:not(:has([data-agent-page-chat-header]))
+    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
+    top: -1.75rem;
+  }
 }
 
 .agent-kit-chat-canvas-toolbar {
