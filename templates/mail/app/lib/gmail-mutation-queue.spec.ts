@@ -158,6 +158,47 @@ describe("gmailMutationQueue", () => {
     ]);
   });
 
+  it("retries only quota-deferred stars as one batch after the cooldown", async () => {
+    callAction
+      .mockResolvedValueOnce({
+        requested: ["m1", "m2", "m3"],
+        succeeded: ["m1"],
+        failed: [],
+        remaining: ["m2", "m3"],
+        retryAfterSeconds: 2,
+      })
+      .mockResolvedValueOnce({
+        requested: ["m2", "m3"],
+        succeeded: ["m2", "m3"],
+        failed: [],
+        remaining: [],
+      });
+    const pending = ["m1", "m2", "m3"].map((id) =>
+      gmailMutationQueue.enqueue("star", {
+        id,
+        accountEmail: "a@x.com",
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(callAction).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all(pending);
+
+    expect(callAction).toHaveBeenCalledTimes(2);
+    expect(callAction.mock.calls.map(([action]) => action)).toEqual([
+      "star-email",
+      "star-email",
+    ]);
+    expect(callAction.mock.calls[1][1]).toEqual({
+      id: "m2,m3",
+      threadIds: ",",
+      accountEmails: "a@x.com,a@x.com",
+      unstar: false,
+    });
+  });
+
   it("batches trash and settles partial per-item results from one action call", async () => {
     callAction.mockResolvedValueOnce({
       requested: ["m1", "m2"],

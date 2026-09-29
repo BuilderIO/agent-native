@@ -616,30 +616,105 @@ class GmailMutationQueue {
     ops: QueuedMutation[],
     isStarred: boolean,
   ): Promise<void> {
-    try {
-      await callAction("star-email", {
-        ...bulkArgs(ops),
-        unstar: !isStarred,
-      }).then(assertActionSuccess);
-      for (const op of ops) {
-        this.recordOutcome(op, "success");
-        for (const resolve of op.resolves) resolve();
-      }
-      this.emit({ kind: "star", count: ops.length });
-    } catch {
-      const error = await this.flushIndividually(ops, (op) =>
-        callAction("star-email", {
-          id: op.id,
-          accountEmail: op.accountEmail,
+    let pending = [...ops];
+    let firstError: unknown;
+
+    for (let attempt = 0; pending.length > 0; attempt += 1) {
+      let result: unknown;
+      try {
+        result = await callAction("star-email", {
+          ...bulkArgs(pending),
           unstar: !isStarred,
-        }).then(assertActionSuccess),
+        }).then(assertActionSuccess);
+      } catch (error) {
+        if (isGmailQuotaCooldown(error)) {
+          if (attempt + 1 < MAX_ARCHIVE_BATCH_ATTEMPTS) {
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, gmailQuotaRetryDelayMs(error)),
+            );
+            continue;
+          }
+          firstError = error;
+          for (const op of pending) {
+            this.recordOutcome(op, "failure");
+            for (const reject of op.rejects) reject(error);
+          }
+        } else {
+          const fallbackError = await this.flushIndividually(pending, (op) =>
+            callAction("star-email", {
+              id: op.id,
+              accountEmail: op.accountEmail,
+              unstar: !isStarred,
+            }).then(assertActionSuccess),
+          );
+          firstError = fallbackError;
+        }
+        pending = [];
+        break;
+      }
+
+      if (!isArchiveActionResult(result)) {
+        for (const op of pending) {
+          this.recordOutcome(op, "success");
+          for (const resolve of op.resolves) resolve();
+        }
+        pending = [];
+        break;
+      }
+
+      const succeeded = new Set(result.succeeded);
+      const remainingIds = new Set(result.remaining);
+      const failures = new Map(
+        result.failed.map(({ id, error }) => [id, error]),
       );
-      this.emit(
-        error
-          ? { kind: "star", count: ops.length, error }
-          : { kind: "star", count: ops.length },
-      );
+      const nextPending: QueuedMutation[] = [];
+      for (const op of pending) {
+        if (succeeded.has(op.id)) {
+          this.recordOutcome(op, "success");
+          for (const resolve of op.resolves) resolve();
+        } else if (failures.has(op.id)) {
+          const error = new Error(failures.get(op.id)!);
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        } else if (remainingIds.has(op.id)) {
+          nextPending.push(op);
+        } else {
+          const error = new Error("Star action omitted a target outcome");
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        }
+      }
+      pending = nextPending;
+      if (pending.length === 0) break;
+
+      if (attempt + 1 >= MAX_ARCHIVE_BATCH_ATTEMPTS) {
+        const error = new Error("Star remains incomplete after retries");
+        firstError ??= error;
+        for (const op of pending) {
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        }
+        pending = [];
+        break;
+      }
+
+      const delayMs =
+        typeof result.retryAfterSeconds === "number" &&
+        result.retryAfterSeconds > 0
+          ? result.retryAfterSeconds * 1000
+          : 0;
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
     }
+
+    this.emit(
+      firstError
+        ? { kind: "star", count: ops.length, error: firstError }
+        : { kind: "star", count: ops.length },
+    );
   }
 
   private async flushTrash(ops: QueuedMutation[]): Promise<void> {

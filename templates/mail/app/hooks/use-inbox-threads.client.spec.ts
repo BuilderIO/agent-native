@@ -25,6 +25,7 @@ import type {
 } from "@shared/inbox-threads";
 
 import {
+  inboxSyncRefetchInterval,
   inboxSyncQueryKey,
   useInboxSyncPoller,
   useInboxThreads,
@@ -364,6 +365,47 @@ describe("useInboxThreads tab previews", () => {
 });
 
 describe("useInboxSyncPoller account discovery", () => {
+  it("drops omitted stale accounts from unscoped polls and becomes idle", async () => {
+    const staleAccount = {
+      accountEmail: "disconnected@example.com",
+      state: "initial" as const,
+      lastSyncedAt: null,
+      changed: false,
+      lastPushGeneration: 0,
+      pushGeneration: 1,
+      pushPending: true,
+    };
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      inboxSyncQueryKey(),
+      { accounts: [staleAccount] },
+      { updatedAt: 0 },
+    );
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxSyncPoller(), { wrapper });
+
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledOnce());
+    await waitFor(() => expect(hook.result.current.data?.accounts).toEqual([]));
+    expect(
+      inboxSyncRefetchInterval({
+        state: {
+          error: hook.result.current.error,
+          data: hook.result.current.data,
+        },
+      }),
+    ).toBe(20_000);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledOnce();
+
+    hook.unmount();
+    queryClient.clear();
+  });
+
   it("keeps all-account polls unscoped so newly connected accounts are discovered", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
     const existingAccount = {

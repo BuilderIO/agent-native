@@ -1873,7 +1873,11 @@ describe("gmailBatchModifyByAccount", () => {
       ["UNREAD"],
     );
 
-    expect(result).toEqual({ succeeded: ["message-secondary"], failed: [] });
+    expect(result).toEqual({
+      succeeded: ["message-secondary"],
+      failed: [],
+      remaining: [],
+    });
     expect(googleFetch).toHaveBeenCalledWith(
       expect.stringContaining("messages/batchModify"),
       "secondary-token",
@@ -1891,12 +1895,41 @@ describe("gmailBatchModifyByAccount", () => {
       ["UNREAD"],
     );
 
-    expect(result).toEqual({ succeeded: ["message-default"], failed: [] });
+    expect(result).toEqual({
+      succeeded: ["message-default"],
+      failed: [],
+      remaining: [],
+    });
     expect(googleFetch).toHaveBeenCalledWith(
       expect.stringContaining("messages/batchModify"),
       "access-token",
       expect.any(Object),
     );
+  });
+
+  it("returns the unattempted batch after a later chunk hits quota cooldown", async () => {
+    mockAccount();
+    vi.mocked(googleFetch)
+      .mockResolvedValueOnce({} as any)
+      .mockRejectedValueOnce(
+        new GmailQuotaCooldownError("quota cooldown", 2_000),
+      );
+    const ids = Array.from({ length: 1_001 }, (_, index) => `message-${index}`);
+
+    const result = await gmailBatchModifyByAccount(
+      "owner@example.com",
+      ids.map((id) => ({ id })),
+      ["STARRED"],
+      undefined,
+    );
+
+    expect(result).toEqual({
+      succeeded: ids.slice(0, 1_000),
+      failed: [],
+      remaining: [ids[1_000]],
+      retryAfterSeconds: 2,
+    });
+    expect(googleFetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -1926,7 +1959,11 @@ describe("gmailBatchModifyByAccount", () => {
         ["UNREAD"],
       );
 
-      expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(result).toEqual({
+        succeeded: ["message-refresh"],
+        failed: [],
+        remaining: [],
+      });
       expect(createOAuth2Client).toHaveBeenCalledWith(
         "client-id",
         "client-secret",
@@ -2403,7 +2440,11 @@ describe("gmailBatchModifyByAccount — managed workspace grant", () => {
       ["UNREAD"],
     );
 
-    expect(result).toEqual({ succeeded: ["message-managed"], failed: [] });
+    expect(result).toEqual({
+      succeeded: ["message-managed"],
+      failed: [],
+      remaining: [],
+    });
     expect(googleFetch).toHaveBeenCalledWith(
       expect.stringContaining("messages/batchModify"),
       "managed-token",
@@ -2421,7 +2462,11 @@ describe("gmailBatchModifyByAccount — managed workspace grant", () => {
       ["UNREAD"],
     );
 
-    expect(result).toEqual({ succeeded: ["message-default"], failed: [] });
+    expect(result).toEqual({
+      succeeded: ["message-default"],
+      failed: [],
+      remaining: [],
+    });
     expect(googleFetch).toHaveBeenCalledWith(
       expect.stringContaining("messages/batchModify"),
       "managed-token",

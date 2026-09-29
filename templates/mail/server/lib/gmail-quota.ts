@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   clearGmailQuotaCooldownAfterSuccess,
   recordGmailQuotaCooldown,
@@ -15,6 +17,16 @@ type GmailQuotaAccount = {
 
 const accountsByToken = new Map<string, GmailQuotaAccount>();
 
+function tokenKey(accessToken: string): string {
+  return createHash("sha256").update(accessToken).digest("hex");
+}
+
+function pruneExpiredAccounts(now: number): void {
+  for (const [key, account] of accountsByToken) {
+    if (account.expiresAt <= now) accountsByToken.delete(key);
+  }
+}
+
 export class GmailQuotaAccountUnavailableError extends Error {
   constructor() {
     super("Gmail quota account is unavailable for this token");
@@ -31,22 +43,25 @@ export function registerGmailAccountToken(
   const owner = ownerEmail.toLowerCase();
   const account = accountEmail.toLowerCase();
   const now = Date.now();
-  for (const [token, registered] of accountsByToken) {
-    if (registered.expiresAt <= now) accountsByToken.delete(token);
-  }
-  accountsByToken.set(accessToken, {
+  pruneExpiredAccounts(now);
+  if (expiresAt <= now) return;
+  accountsByToken.set(tokenKey(accessToken), {
     ownerEmail: owner,
     accountEmail: account,
     expiresAt,
   });
 }
 
+function registeredAccountForToken(
+  accessToken: string,
+): GmailQuotaAccount | undefined {
+  pruneExpiredAccounts(Date.now());
+  return accountsByToken.get(tokenKey(accessToken));
+}
+
 function accountForToken(accessToken: string): GmailQuotaAccount {
-  const account = accountsByToken.get(accessToken);
-  if (!account || account.expiresAt <= Date.now()) {
-    accountsByToken.delete(accessToken);
-    throw new GmailQuotaAccountUnavailableError();
-  }
+  const account = registeredAccountForToken(accessToken);
+  if (!account) throw new GmailQuotaAccountUnavailableError();
   return account;
 }
 
@@ -109,7 +124,7 @@ export async function markGmailQuotaSuccess(
   shouldClearCooldown: boolean,
 ): Promise<void> {
   if (!shouldClearCooldown) return;
-  const account = accountsByToken.get(accessToken);
+  const account = registeredAccountForToken(accessToken);
   if (!account) return;
   await clearGmailQuotaCooldownAfterSuccess(account.accountEmail);
 }

@@ -128,6 +128,7 @@ describe("mark-read action", () => {
     mocks.gmailBatchModifyByAccount.mockResolvedValue({
       succeeded: ["email-1", "email-2"],
       failed: [],
+      remaining: [],
     });
 
     await action.run({
@@ -165,11 +166,19 @@ describe("mark-read action", () => {
     mocks.gmailBatchModifyByAccount.mockResolvedValue({
       succeeded: ["email-1"],
       failed: [],
+      remaining: [],
     });
 
     const result = await action.run({ id: "email-1,email-2" });
 
-    expect(result).toBe("Marked 1/2 email(s) as read");
+    expect(result).toEqual({
+      requested: ["email-1", "email-2"],
+      succeeded: ["email-1"],
+      failed: [
+        { id: "email-2", error: "Cannot determine which connected account" },
+      ],
+      remaining: [],
+    });
     expect(mocks.gmailBatchModifyByAccount).toHaveBeenCalledWith(
       OWNER,
       [{ id: "email-1", accountEmail: "acct-a@example.com" }],
@@ -235,6 +244,34 @@ describe("mark-read action", () => {
       { add: undefined, remove: ["UNREAD"], scope: "thread" },
     );
     expect(mocks.gmailBatchModifyByAccount).not.toHaveBeenCalled();
+  });
+
+  it("returns quota-deferred message targets for the queue to retry as one batch", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.gmailBatchModifyByAccount.mockResolvedValueOnce({
+      succeeded: ["email-1"],
+      failed: [],
+      remaining: ["email-2"],
+      retryAfterSeconds: 4,
+    });
+
+    await expect(
+      action.run({
+        id: "email-1,email-2",
+        accountEmails: `${ACCOUNT},${ACCOUNT}`,
+      }),
+    ).resolves.toEqual({
+      requested: ["email-1", "email-2"],
+      succeeded: ["email-1"],
+      failed: [],
+      remaining: ["email-2"],
+      retryAfterSeconds: 4,
+    });
+    expect(mocks.syncInboxLabelDeltaForTargets).toHaveBeenCalledWith(
+      OWNER,
+      [{ id: "email-1", accountEmail: ACCOUNT }],
+      { add: undefined, remove: ["UNREAD"], scope: "message" },
+    );
   });
 
   it.each([[{ id: "email-1", scope: "all-unread" }], [{}]])(

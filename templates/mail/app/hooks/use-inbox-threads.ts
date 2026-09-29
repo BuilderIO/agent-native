@@ -453,7 +453,8 @@ export function useInboxSyncPoller(
         const email = account.accountEmail.toLowerCase();
         if (
           returnedByEmail.has(email) ||
-          (hasAccountScope && !scopedEmailSet.has(email))
+          !hasAccountScope ||
+          !scopedEmailSet.has(email)
         ) {
           continue;
         }

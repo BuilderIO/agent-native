@@ -2152,13 +2152,13 @@ export interface BatchModifyTarget {
 export interface BatchModifyByAccountResult {
   succeeded: string[];
   failed: Array<{ id: string; error: string }>;
+  remaining: string[];
+  retryAfterSeconds?: number;
 }
 
 export interface GmailBatchModifyThreadsByAccountResult extends BatchModifyByAccountResult {
   threadIdsByTarget: Record<string, string>;
   removeLabelIdsByAccount: Record<string, string[]>;
-  remaining: string[];
-  retryAfterSeconds?: number;
 }
 
 export type GmailBatchArchiveByAccountResult =
@@ -2630,6 +2630,8 @@ export async function gmailBatchModifyByAccount(
 
   const succeeded: string[] = [];
   const failed: Array<{ id: string; error: string }> = [];
+  const remaining: string[] = [];
+  let retryAfterSeconds: number | undefined;
 
   for (const [accountEmail, accountTargets] of byAccount) {
     try {
@@ -2644,21 +2646,25 @@ export async function gmailBatchModifyByAccount(
       );
       succeeded.push(...result.succeeded);
       failed.push(...result.failed);
-      failed.push(
-        ...result.remaining.map((id) => ({
-          id,
-          error: result.retryAfterSeconds
-            ? `Gmail quota cooldown; retry after ${result.retryAfterSeconds}s`
-            : "Gmail batch request budget reached; retry the remaining IDs",
-        })),
-      );
+      remaining.push(...result.remaining);
+      if (result.retryAfterSeconds !== undefined) {
+        retryAfterSeconds = Math.max(
+          retryAfterSeconds ?? 0,
+          result.retryAfterSeconds,
+        );
+      }
     } catch (err: any) {
       const message = err?.message ?? "batchModify failed";
       for (const t of accountTargets) failed.push({ id: t.id, error: message });
     }
   }
 
-  return { succeeded, failed };
+  return {
+    succeeded,
+    failed,
+    remaining,
+    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+  };
 }
 
 interface GmailMessageReference {

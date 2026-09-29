@@ -9,6 +9,7 @@ import {
   markRead,
   resolveMutationAccounts,
 } from "../server/lib/email-state.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   gmailBatchModifyByAccount,
   gmailBatchModifyThreadsByAccount,
@@ -186,7 +187,7 @@ export default defineAction({
     const threadIdList = args.threadIds?.split(",").map((s) => s.trim());
 
     const results: { id: string; success: boolean; error?: string }[] = [];
-    let threadMutationResult:
+    let bulkMutationResult:
       | {
           requested: string[];
           succeeded: string[];
@@ -215,6 +216,8 @@ export default defineAction({
       let threadBatchResult:
         | Awaited<ReturnType<typeof gmailBatchModifyThreadsByAccount>>
         | undefined;
+      let remaining: string[] = [];
+      let retryAfterSeconds: number | undefined;
       if (usesThreadTargets) {
         threadBatchResult = await gmailBatchModifyThreadsByAccount(
           ownerEmail,
@@ -224,6 +227,8 @@ export default defineAction({
         );
         succeeded = threadBatchResult.succeeded;
         failed = threadBatchResult.failed;
+        remaining = threadBatchResult.remaining;
+        retryAfterSeconds = threadBatchResult.retryAfterSeconds;
       } else {
         const batchResult = await gmailBatchModifyByAccount(
           ownerEmail,
@@ -233,12 +238,9 @@ export default defineAction({
         );
         succeeded = batchResult.succeeded;
         failed = batchResult.failed;
+        remaining = batchResult.remaining;
+        retryAfterSeconds = batchResult.retryAfterSeconds;
       }
-      for (const id of succeeded) results.push({ id, success: true });
-      for (const f of failed)
-        results.push({ id: f.id, success: false, error: f.error });
-      for (const u of unresolved)
-        results.push({ id: u.id, success: false, error: u.error });
       const succeededTargets = resolved
         .filter((target) => succeeded.includes(target.id))
         .map((target) => ({
@@ -251,20 +253,16 @@ export default defineAction({
         remove: isRead ? ["UNREAD"] : undefined,
         scope: threadBatchResult ? "thread" : "message",
       });
-      if (threadBatchResult) {
-        threadMutationResult = {
-          requested: ids,
-          succeeded,
-          failed: [
-            ...failed,
-            ...unresolved.map(({ id, error }) => ({ id, error })),
-          ],
-          remaining: threadBatchResult.remaining,
-          ...(threadBatchResult.retryAfterSeconds !== undefined
-            ? { retryAfterSeconds: threadBatchResult.retryAfterSeconds }
-            : {}),
-        };
-      }
+      bulkMutationResult = {
+        requested: ids,
+        succeeded,
+        failed: [
+          ...failed,
+          ...unresolved.map(({ id, error }) => ({ id, error })),
+        ],
+        remaining,
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      };
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -277,6 +275,7 @@ export default defineAction({
           });
           results.push({ id, success: true });
         } catch (err: any) {
+          if (err instanceof GmailQuotaCooldownError) throw err;
           results.push({ id, success: false, error: err?.message ?? "failed" });
         }
       }
@@ -284,29 +283,29 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    if (threadMutationResult) {
+    if (bulkMutationResult) {
       track(
         "inbox_triaged",
         {
           app_name: "mail",
           template_name: "mail",
           action: "mark_read",
-          items_triaged: threadMutationResult.succeeded.length,
+          items_triaged: bulkMutationResult.succeeded.length,
           succeeded:
-            threadMutationResult.failed.length === 0 &&
-            threadMutationResult.remaining.length === 0,
+            bulkMutationResult.failed.length === 0 &&
+            bulkMutationResult.remaining.length === 0,
           partial:
-            threadMutationResult.succeeded.length > 0 &&
-            (threadMutationResult.failed.length > 0 ||
-              threadMutationResult.remaining.length > 0),
+            bulkMutationResult.succeeded.length > 0 &&
+            (bulkMutationResult.failed.length > 0 ||
+              bulkMutationResult.remaining.length > 0),
           failed_count:
-            threadMutationResult.failed.length +
-            threadMutationResult.remaining.length,
+            bulkMutationResult.failed.length +
+            bulkMutationResult.remaining.length,
           scope: "explicit",
         },
         ctx,
       );
-      return threadMutationResult;
+      return bulkMutationResult;
     }
 
     const action = isRead ? "read" : "unread";

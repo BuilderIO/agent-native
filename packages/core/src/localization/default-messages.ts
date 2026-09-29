@@ -1808,10 +1808,6 @@ const messages = {
     openFullConversation: "Open full conversation",
     learnAboutTab: "Learn about this tab",
     promoteToEval: "Promote to eval",
-    promoteMustContain: "Reply must contain…",
-    promoteMustContainLabel: "Text the promoted eval reply must contain",
-    promoteNeedsContains:
-      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     promotingToEval: "Promoting…",
     promotedEval: "Eval dataset {{id}}",
     promotedEvalHint:
@@ -1845,11 +1841,6 @@ const messages = {
     thumbsUpRate: "Thumbs up rate",
     categories: "Categories",
     review: "Human review",
-    promoteMustContain: "Reply must contain…",
-    promoteMustContainOptional: "Reply must contain (optional)",
-    promoteMustContainLabel: "Text the promoted eval reply must contain",
-    promoteNeedsContains:
-      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     reviewDescription:
       "Review the ask and answer, record feedback, and draft an instruction update.",
     ask: "What was asked",
