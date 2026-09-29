@@ -102,11 +102,6 @@ const messages: AgentChatTranslation = {
     "リクエストを送信できませんでした。もう一度お試しください。",
   "observability.summaryExpired":
     "まだ要約が表示されていません。再試行できますが、エージェントが処理中の可能性があります。",
-  "observability.promoteMustContain": "返信に含めるテキスト…",
-  "observability.promoteMustContainOptional": "返信に含めるテキスト（任意）",
-  "observability.promoteMustContainLabel": "評価に追加する返信に含めるテキスト",
-  "observability.promoteNeedsContains":
-    "この実行では成功したツール呼び出しがありません。評価に追加する前に、返信に含めるテキストを入力してください。",
   "onboarding.back": "戻る",
   "onboarding.chooseRole": "役割を選択",
   "onboarding.customizeRole": "あなた向けにカスタマイズしましょう。",
