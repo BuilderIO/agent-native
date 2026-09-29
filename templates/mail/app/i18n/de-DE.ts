@@ -341,6 +341,16 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "Geplanten Versand abbrechen",
+      deliveryUnknownWarning:
+        "Zustellstatus unbekannt; prüfe vor der Klärung die Ansicht „Gesendet“ in Mail.",
+      markSentAfterChecking:
+        "Ich habe „Gesendet“ geprüft; als gesendet markieren",
+      sendNewCopy: "Neue Kopie senden",
+      sendingStatus:
+        "Geplanter Versand wird verarbeitet. Aktionen sind vorübergehend nicht verfügbar.",
+      confirmSendNewCopyTitle: "Eine weitere Kopie senden?",
+      confirmSendNewCopyDescription:
+        "Die ursprüngliche Nachricht wurde möglicherweise bereits zugestellt. Prüfe zuerst die Ansicht „Gesendet“ in Mail. Beim erneuten Senden kann eine doppelte E-Mail entstehen.",
       dateInput: "Datum und Uhrzeit",
       noDateMatch: "Keine passende zukünftige Zeit",
       inputPlaceholder: "Versuche: 8 Uhr, 3 Tage, 7. Aug.",
@@ -452,6 +462,11 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
       scheduledSendFailed: "Geplante E-Mail konnte nicht gesendet werden",
+      uncertainScheduledMarkedSent: "Geplante E-Mail als gesendet markiert.",
+      uncertainScheduledResolveFailed:
+        "Geplante E-Mail konnte nicht geklärt werden.",
+      uncertainScheduledRetryStarted: "Eine neue Kopie wird gesendet.",
+      uncertainScheduledRetryFailed: "Neue Kopie konnte nicht gesendet werden.",
       scheduledCancelled: "Geplante E-Mail abgebrochen.",
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",

@@ -2810,6 +2810,41 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("treats a repeat guard as a completed stop and preserves the closing answer", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "The deck is complete and measures clean." },
+          {
+            type: "done",
+            reason: "loop_breaker",
+            message:
+              "Stopped because get-layout-overflows repeated with identical arguments.",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-loop-breaker",
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        { type: "text", text: "The deck is complete and measures clean." },
+      ],
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          runWarning: {
+            errorCode: "tool_loop_stopped",
+            message:
+              "Stopped because get-layout-overflows repeated with identical arguments.",
+          },
+        },
+      },
+    });
+  });
+
   it("keeps direct SSE and durable replay folds identical across a replayed frame", async () => {
     const events = [
       {

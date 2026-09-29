@@ -117,6 +117,10 @@ describe("built-in Core chat translations", () => {
       "summaryQueued",
       "summaryFailed",
       "summaryExpired",
+      "promoteMustContain",
+      "promoteMustContainOptional",
+      "promoteMustContainLabel",
+      "promoteNeedsContains",
     ];
     const englishSummaryQueued =
       defaultEnglishMessages.observability.summaryQueued;
@@ -135,6 +139,43 @@ describe("built-in Core chat translations", () => {
       }
       if (locale !== "en-US") {
         expect(observability.summaryQueued).not.toBe(englishSummaryQueued);
+      }
+    }
+  });
+
+  it("localizes observability promotion copy in every built-in locale", async () => {
+    const promotionKeys = [
+      "promoteMustContain",
+      "promoteMustContainOptional",
+      "promoteMustContainLabel",
+      "promoteNeedsContains",
+    ];
+    const englishMessages = await loadCoreMessagesForLocale("en-US");
+    const englishObservability = englishMessages.observability as Record<
+      string,
+      string
+    >;
+
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      const observability = messages.observability as Record<string, string>;
+
+      for (const key of promotionKeys) {
+        expect(observability[key], `${locale}:${key}`).toEqual(
+          expect.any(String),
+        );
+        expect(placeholders(observability[key]!), `${locale}:${key}`).toEqual(
+          placeholders(englishObservability[key]!),
+        );
+        if (locale !== "en-US") {
+          expect(observability[key], `${locale}:${key}`).not.toBe(
+            englishObservability[key],
+          );
+        } else {
+          expect(englishObservability[key], key).toBe(
+            defaultEnglishMessages.observability[key],
+          );
+        }
       }
     }
   });

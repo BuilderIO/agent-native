@@ -80,6 +80,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未擷取",
   "observability.openFullConversation": "開啟完整對話",
   "observability.learnAboutTab": "了解此分頁",
+  "observability.promoteMustContain": "回覆必須包含…",
+  "observability.promoteMustContainLabel": "升級後評估回覆必須包含的文字",
+  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
+  "observability.promoteNeedsContains":
+    "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.summarizeWithAgent": "請代理程式摘要",
   "observability.regenerateSummary": "重新產生摘要",
   "observability.summarizeWithAgentHelp":
@@ -1239,6 +1244,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新電子郵件",
   "settings.emailNewPlaceholder": "輸入新電子郵件",
   "usage.builderCredits": "Builder 點數",
+  "featureFlags.builderCreditReferrals.name": "Builder 點數推薦",
+  "featureFlags.builderCreditReferrals.description":
+    "在使用量中顯示已連結 Builder 工作區的推薦詳情。",
   "usage.inviteFriends": "邀請朋友",
   "usage.inviteCredits": "朋友訂閱後可獲得 {{amount}} 點 Builder 點數。",
   "usage.copyInviteLink": "複製邀請連結",

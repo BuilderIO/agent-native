@@ -7,6 +7,7 @@ import type { PromptComposerProps } from "@agent-native/core/client/composer";
 import {
   act,
   createRef,
+  lazy,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -158,6 +159,9 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </div>
     );
   },
+}));
+
+vi.mock("@agent-native/toolkit/composer/use-eager-file-uploads", () => ({
   useEagerFileUploads: () => {
     const [uploading, setUploading] = useState(false);
     const uploadFiles = useCallback(async (files: File[]) => {
@@ -267,6 +271,40 @@ async function renderPopover(props: Record<string, unknown>) {
     );
   });
 }
+
+describe("PromptPopover lazy editor composer", () => {
+  it("keeps the composer area visible while the lazy chunk loads", async () => {
+    let resolveComposer!: (module: {
+      default: React.ComponentType<PromptComposerProps>;
+    }) => void;
+    const LoadedComposer: React.ComponentType<PromptComposerProps> = () => (
+      <div data-testid="loaded-prompt-composer" />
+    );
+    const DelayedComposer = lazy(
+      () =>
+        new Promise<{ default: React.ComponentType<PromptComposerProps> }>(
+          (resolve) => {
+            resolveComposer = resolve;
+          },
+        ),
+    );
+
+    await renderPopover({ composerComponent: DelayedComposer });
+
+    const fallback = container!.querySelector('[aria-busy="true"]');
+    expect(fallback?.querySelector(".h-16.w-full")).toBeTruthy();
+    expect(fallback?.querySelector(".size-8")).toBeTruthy();
+
+    await act(async () => {
+      resolveComposer({ default: LoadedComposer });
+      await Promise.resolve();
+    });
+
+    expect(
+      container!.querySelector('[data-testid="loaded-prompt-composer"]'),
+    ).toBeTruthy();
+  });
+});
 
 describe("PromptPopover inline home", () => {
   it("renders the composer immediately and shows preflight as submitting", async () => {

@@ -7,6 +7,7 @@ import type {
   ContentDatabaseNavigationPageResponse,
   Document,
 } from "@shared/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -73,6 +74,7 @@ function Harness({
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [queryClient] = useState(() => new QueryClient());
   return (
     <AgentNativeI18nProvider
       initialLocale="en-US"
@@ -87,32 +89,34 @@ function Harness({
         },
       }}
     >
-      <MemoryRouter>
-        <TooltipProvider>
-          <PagedContentFilesSidebarView
-            databaseId="files"
-            sort="custom"
-            viewId="default"
-            activeDocumentId={activeDocumentId}
-            expandedDocumentIds={expanded}
-            onDocumentExpandedChange={(id, open) =>
-              setExpanded((current) => {
-                const next = new Set(current);
-                if (open) next.add(id);
-                else next.delete(id);
-                return next;
-              })
-            }
-            documentMetadata={new Map()}
-            activePathDocuments={activePathDocuments}
-            onCreateChildPage={() => {}}
-            onDeleteItem={onDeleteItem}
-            onToggleFavorite={onToggleFavorite}
-            navigationLabel="Files"
-            untitledLabel="Untitled"
-          />
-        </TooltipProvider>
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <TooltipProvider>
+            <PagedContentFilesSidebarView
+              databaseId="files"
+              sort="custom"
+              viewId="default"
+              activeDocumentId={activeDocumentId}
+              expandedDocumentIds={expanded}
+              onDocumentExpandedChange={(id, open) =>
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  if (open) next.add(id);
+                  else next.delete(id);
+                  return next;
+                })
+              }
+              documentMetadata={new Map()}
+              activePathDocuments={activePathDocuments}
+              onCreateChildPage={() => {}}
+              onDeleteItem={onDeleteItem}
+              onToggleFavorite={onToggleFavorite}
+              navigationLabel="Files"
+              untitledLabel="Untitled"
+            />
+          </TooltipProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
     </AgentNativeI18nProvider>
   );
 }
@@ -272,6 +276,117 @@ describe("PagedContentFilesSidebarView", () => {
       21,
     );
     expect(container.textContent).toContain("Page child-21");
+
+    await act(async () => root.unmount());
+  });
+
+  it("reloads a Show more page from a fresh cursor when its cursor expired", async () => {
+    const roots = Array.from({ length: 20 }, (_, index) =>
+      navigationItem(`root-${index + 1}`),
+    );
+    let issuedCursor = "expired-cursor";
+    const refetchFirstPage = vi.fn(async () => {
+      issuedCursor = "fresh-cursor";
+      return { data: page(roots, issuedCursor) };
+    });
+    const expired = Object.assign(new Error("stale cursor"), {
+      errorCode: "invalid_navigation_cursor",
+    });
+    useActionQuery.mockImplementation((_name, args) =>
+      args.navigation.cursor === "expired-cursor"
+        ? {
+            data: undefined,
+            error: expired,
+            isLoading: false,
+            isError: true,
+            isFetching: false,
+            refetch: vi.fn(),
+          }
+        : {
+            data: args.navigation.cursor
+              ? page([navigationItem("root-21")])
+              : page(roots, issuedCursor),
+            isLoading: false,
+            isError: false,
+            isFetching: false,
+            refetch: refetchFirstPage,
+          },
+    );
+    const { container, root } = await renderHarness();
+
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Show more")
+        ?.click(),
+    );
+    expect(refetchFirstPage).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain("Retry");
+
+    // React Query re-renders after a refetch; the mock needs a render pass.
+    await act(async () => root.render(<Harness />));
+    expect(container.textContent).toContain("Page root-21");
+    expect(container.textContent).not.toContain("Retry");
+
+    await act(async () => root.unmount());
+  });
+
+  it("reloads a branch automatically once, then offers Retry that reloads from the first page", async () => {
+    const roots = Array.from({ length: 20 }, (_, index) =>
+      navigationItem(`root-${index + 1}`),
+    );
+    let issued = 0;
+    const refetchFirstPage = vi.fn(async () => {
+      issued += 1;
+      return { data: page(roots, `cursor-${issued}`) };
+    });
+    const refetchExpiredPage = vi.fn();
+    const expired = Object.assign(new Error("stale cursor"), {
+      errorCode: "invalid_navigation_cursor",
+    });
+    useActionQuery.mockImplementation((_name, args) =>
+      args.navigation.cursor
+        ? {
+            data: undefined,
+            error: expired,
+            isLoading: false,
+            isError: true,
+            isFetching: false,
+            refetch: refetchExpiredPage,
+          }
+        : {
+            data: page(roots, `cursor-${issued}`),
+            isLoading: false,
+            isError: false,
+            isFetching: false,
+            refetch: refetchFirstPage,
+          },
+    );
+    const { container, root } = await renderHarness();
+
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Show more")
+        ?.click(),
+    );
+    expect(refetchFirstPage).toHaveBeenCalledOnce();
+
+    // The reload issued a new cursor, and that one expires as well.
+    await act(async () => root.render(<Harness />));
+    expect(useActionQuery).toHaveBeenCalledWith(
+      "query-content-database-items",
+      expect.objectContaining({
+        navigation: expect.objectContaining({ cursor: "cursor-1" }),
+      }),
+    );
+    expect(refetchFirstPage).toHaveBeenCalledOnce();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(retry).not.toBeUndefined();
+
+    await act(async () => retry?.click());
+    expect(refetchFirstPage).toHaveBeenCalledTimes(2);
+    expect(refetchExpiredPage).not.toHaveBeenCalled();
 
     await act(async () => root.unmount());
   });
