@@ -478,6 +478,9 @@ describe("manage-draft deep link", () => {
 describe("manage-draft call-shape guidance", () => {
   it("describes the required action field and the create-before-update contract", () => {
     expect(action.description).toContain("action");
+    expect(action.description).toContain(
+      "Revise a draft created earlier in this conversation with update and its returned id; do not create another draft.",
+    );
     expect(action.description).toMatch(/create.*update.*delete/i);
     expect(action.description).toContain("id returned by a prior create");
   });

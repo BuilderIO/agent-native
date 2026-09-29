@@ -154,7 +154,9 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft. Always pass action " +
+    "Create, update, or delete a compose draft. Revise a draft created " +
+    "earlier in this conversation with update and its returned id; do not " +
+    "create another draft. Always pass action " +
     "(create, update, delete, delete-saved, or delete-all). update and " +
     "delete require the id returned by a prior create call on this draft; " +
     "delete-saved requires savedDraftId instead. Never call update or " +
