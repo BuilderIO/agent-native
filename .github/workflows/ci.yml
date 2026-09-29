@@ -35,6 +35,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
+      query_budget_apps: ${{ steps.scope.outputs.query_budget_apps }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
@@ -628,10 +629,20 @@ jobs:
         with:
           restore-dist-cache: "true"
 
-      - name: Build and measure every active first-party template
+      # change-scope owns the app list: every template when shared code
+      # changed, otherwise only the templates this change touched.
+      - name: Build and measure the affected first-party templates
+        env:
+          QUERY_BUDGET_APPS: ${{ needs.change-scope.outputs.query_budget_apps }}
         run: |
           set -euo pipefail
-          for app in analytics assets brain calendar chat clips content crm design dispatch factory forms mail plan slides tasks; do
+          mapfile -t apps < <(jq -r '.[]' <<< "$QUERY_BUDGET_APPS")
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "::error::change-scope selected the query budget but no templates to measure."
+            exit 1
+          fi
+          echo "Measuring: ${apps[*]}"
+          for app in "${apps[@]}"; do
             app_dir="templates/$app"
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
             NITRO_PRESET=netlify pnpm --filter "$app" build

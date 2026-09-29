@@ -293,6 +293,7 @@ production deployment:
 | `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                     |
 | `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                      |
 | `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                         |
+| `QUERY_BUDGET_APPS`           | JSON list of first-party templates the cold-request query budget job builds and measures, chosen by the change-scope classifier.                                                        |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
 ### Clips Chrome Web Store release

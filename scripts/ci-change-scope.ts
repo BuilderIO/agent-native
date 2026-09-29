@@ -90,6 +90,28 @@ const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
   "scripts/ci-change-scope.test.ts",
 ]);
 
+// Every first-party template the cold-request query budget builds and
+// measures. A template change measures only that template; anything the
+// templates share measures all of them.
+export const QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "brain",
+  "calendar",
+  "chat",
+  "clips",
+  "content",
+  "crm",
+  "design",
+  "dispatch",
+  "factory",
+  "forms",
+  "mail",
+  "plan",
+  "slides",
+  "tasks",
+] as const;
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 export type CheckSelection = Record<CheckName, boolean>;
@@ -103,6 +125,7 @@ export type ChangeScope = {
   workspaceFilters: string[];
   testWorkspaceFilters: string[];
   scriptTests: string[];
+  queryBudgetApps: string[];
 };
 
 export function normalizeChangedPath(path: string): string {
@@ -314,6 +337,29 @@ function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
   );
 }
 
+function measuresEveryQueryBudgetApp(paths: readonly string[]): boolean {
+  return (
+    hasPath(paths, "packages/core/") ||
+    hasPath(paths, "scripts/neon-query-budget")
+  );
+}
+
+function changedQueryBudgetApps(paths: readonly string[]): string[] {
+  return QUERY_BUDGET_APPS.filter((app) => hasPath(paths, `templates/${app}/`));
+}
+
+function queryBudgetAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.neon_query_budget) return [];
+  if (full || measuresEveryQueryBudgetApp(changedPaths)) {
+    return [...QUERY_BUDGET_APPS];
+  }
+  return changedQueryBudgetApps(changedPaths);
+}
+
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
@@ -357,10 +403,8 @@ function buildChecks(
     "packages/creative-context/",
   );
   const neonQueryBudgetChanged =
-    coreChanged ||
-    templateChanged ||
-    hasPath(changedPaths, "scripts/neon-query-budget") ||
-    hasPath(changedPaths, "scripts/neon-query-budgets");
+    measuresEveryQueryBudgetApp(changedPaths) ||
+    changedQueryBudgetApps(changedPaths).length > 0;
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -413,23 +457,26 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     changedPaths.some(isFullPath) ||
     (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0);
 
+  const checks = docsOnly
+    ? (Object.fromEntries(
+        CHECK_NAMES.map((name) => [
+          name,
+          name === "lint" ||
+            (name === "changeset" && changedPaths.some(isChangesetPath)),
+        ]),
+      ) as CheckSelection)
+    : buildChecks(changedPaths, full);
+
   return {
     changedPaths,
     docsOnly,
     full,
     nonDocsPaths,
-    checks: docsOnly
-      ? (Object.fromEntries(
-          CHECK_NAMES.map((name) => [
-            name,
-            name === "lint" ||
-              (name === "changeset" && changedPaths.some(isChangesetPath)),
-          ]),
-        ) as CheckSelection)
-      : buildChecks(changedPaths, full),
+    checks,
     workspaceFilters,
     testWorkspaceFilters,
     scriptTests: scriptTestsForPaths(changedPaths),
+    queryBudgetApps: queryBudgetAppsFor(changedPaths, full, checks),
   };
 }
 
@@ -451,6 +498,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
+      `query_budget_apps=${JSON.stringify(scope.queryBudgetApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,
