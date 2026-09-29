@@ -57,6 +57,7 @@ import {
   getFrameworkRoutePrefix,
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
+import { isHttpsRequest } from "./https-request.js";
 
 function toWebRequest(event: H3Event): Request {
   const req = (event as any).req as Request;
@@ -4752,22 +4753,7 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-export function isHttpsRequest(event: H3Event): boolean {
-  try {
-    const xfProto = getHeader(event, "x-forwarded-proto");
-    if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
-      return true;
-    }
-    const req: any = (event as any).req ?? event.node?.req;
-    const url: string | undefined = req?.url;
-    if (typeof url === "string" && url.startsWith("https://")) return true;
-    const appUrl = getAppConfig().app.url ?? "";
-    if (appUrl.startsWith("https://")) return true;
-  } catch {
-    // ignore
-  }
-  return false;
-}
+export { isHttpsRequest };
 
 function isPublicPath(
   url: string,
