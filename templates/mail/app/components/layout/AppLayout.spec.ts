@@ -100,6 +100,14 @@ describe("AppLayout inbox tab bar", () => {
     );
   });
 
+  it("shows inbox category tabs only in the inbox view", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+    );
+  });
+
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
     const source = appLayoutSource();
 
@@ -521,7 +529,9 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
-    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+    );
   });
 
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {

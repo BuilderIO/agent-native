@@ -768,8 +768,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
-    () => [...systemViewTabs, ...dataTabs],
-    [systemViewTabs, dataTabs],
+    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
+    [systemViewTabs, dataTabs, view],
   );
 
   const hiddenViews = useMemo(
