@@ -74,7 +74,6 @@ const messages = {
     create: "作成",
     save: "保存",
     saving: "保存中…",
-    saveChanges: "変更を保存",
     connected: "接続済み",
     notConnected: "未接続",
     disconnect: "接続解除",
@@ -809,7 +808,6 @@ const messages = {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     agentTitle: "エージェントを管理",
-    title: "設定",
     pageTitle: "設定 · Clips",
     labs: "Labs",
     labsIntro:
@@ -822,12 +820,6 @@ const messages = {
     labWisprFlow: "音声入力",
     labWisprFlowDescription:
       "Clips Desktop の音声入力を表示または非表示にします。",
-    intro: "この Clips ワークスペースの設定と接続済みサービスです。",
-    preferencesTitle: "環境設定",
-    languageTitle: "言語",
-    languageDescription:
-      "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",
-    languageLabel: "インターフェイス言語",
     uploadWorkspaceTitle: "アクティブなワークスペース",
     uploadWorkspaceDescription:
       "デスクトップからのアップロードを含む新しい Clips 録画で使用するワークスペースを選択します。",
@@ -850,9 +842,6 @@ const messages = {
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
-    playback: "再生",
-    defaultPlaybackSpeed: "デフォルト再生速度",
-    playbackDescription: "録画を開いたときに自動的に適用されます。",
     transcript: "文字起こし",
     transcriptCleanup: "バックグラウンド整形",
     transcriptCleanupDescription:
@@ -860,27 +849,17 @@ const messages = {
     notifications: "通知",
     monthlyRecap: "月次まとめ",
     sharing: "共有",
-    defaultVisibility: "新しい録画のデフォルトの公開範囲",
-    defaultVisibilityDescription:
-      "作成するすべての録画に適用されます。録画ごとに公開範囲を変更できます。",
     visibilityPrivate: "非公開 - 自分のみ",
     visibilityOrg: "組織 - ワークスペースの全員",
     visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
       "受け取る Clips の任意メール通知を選択します。",
-    saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
-    builderConnectedToast: "Builder.io に接続しました",
-    videoStorage: "動画ストレージ",
     videoStorageDescription:
       "Builder.io は Clips アップロードの主要な保存先です。独自バケットが必要な場合は S3 も利用できます。",
-    checkingBuilder: "Builder.io を確認中",
     builderConnected: "Builder.io 接続済み",
     connectBuilder: "Builder.io を使用",
-    builderConnectedFor: "{{orgName}} で Builder.io を使用中です。",
-    builderConnectedGeneric:
-      "新しいクリップは接続済みの Builder.io プロバイダーを使用します。",
     builderIncludes:
       "Builder.io の無料プランには、新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしが含まれます。",
     s3Title: "S3 互換ストレージ",
@@ -888,11 +867,8 @@ const messages = {
     active: "有効",
     s3BuilderConnectedDescription:
       "このワークスペースを Builder.io ではなく独自バケットにアップロードする場合のみ使用してください。",
-    s3CurrentProvider: "現在 {{providerName}} を使用中です。",
     s3OwnBucketDescription:
       "Builder.io ストレージを使わない場合は独自バケットを使用してください。",
-    configureS3: "S3 を設定",
-    hideS3: "S3 を非表示",
     saveStorage: "ストレージを保存",
     storageSaved: "ストレージ設定を保存しました",
     storageRequired: "Endpoint、bucket、access key、secret は必須です。",
@@ -908,7 +884,6 @@ const messages = {
       "バケット名は 3〜63 文字の小文字、数字、またはハイフンで指定してください",
     s3RegionInvalid:
       '有効なリージョン（例: us-east-1）または "auto" を入力してください',
-    apiSetup: "AI 設定",
     apiSetupDescription: "Clips の AI 接続方法を選択します。",
     builderEasySetup: "Builder.io 無料クレジット",
     builderAiAvailable:
@@ -919,18 +894,11 @@ const messages = {
     providerKeyDescription:
       "プロバイダー課金で使用する Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere、Ollama を選択します。",
     providerKeysSet: "{{count}} 件設定済み",
-    providerActionTitle: "AI プロバイダー",
-    providerActionDescription:
-      "Builder.io には無料プランがあります。カスタムキーも使用できます。",
-    providerManage: "管理",
-    providerCustomKeys: "カスタムキー",
-    checkingProviderKeys: "プロバイダーキーを確認中…",
     keySet: "設定済み",
     keyCleared: "ストレージ認証情報をクリアしました",
     clearAllS3: "認証情報をクリア",
     replaceKey: "キーを置換…",
     pasteProviderKey: "先にプロバイダーキーを貼り付けてください。",
-    apiKeySaved: "API キーを保存しました",
     apiKeyFailed: "キーの保存に失敗しました",
     slackTitle: "Agent-Native Clips 用 Slack",
     slackDescription:
@@ -1045,8 +1013,6 @@ const messages = {
     noOrganization:
       "組織はまだありません。開始するには組織スイッチャーから作成してください。",
     description: "組織管理: ブランド、メンバー、招待。",
-    adminsOnlyBranding: "ブランドを編集できるのは管理者のみです。",
-    brandingLoadFailed: "組織のブランド情報を読み込めませんでした。",
     members: "メンバー",
     pendingInvites: "保留中の招待",
     noPendingInvites: "保留中の招待はありません。",

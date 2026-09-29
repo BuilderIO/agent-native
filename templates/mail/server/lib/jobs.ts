@@ -1,10 +1,4 @@
-import {
-  getOAuthTokens,
-  saveOAuthTokens,
-  listOAuthAccounts,
-  listOAuthAccountsByOwner,
-  setOAuthDisplayName,
-} from "@agent-native/core/oauth-tokens";
+import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
 import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
@@ -12,7 +6,6 @@ import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
 import {
-  createOAuth2Client,
   gmailGetMessage,
   gmailGetThread,
   gmailListLabels,
@@ -27,7 +20,6 @@ import {
   getConnectedAccountsWithErrors,
   isConnected,
   gmailToEmailMessage,
-  getOAuth2Credentials,
   setAccountDisplayName,
 } from "./google-auth.js";
 import { syncInboxLabelDelta } from "./inbox-store-sync.js";
@@ -43,12 +35,6 @@ import {
   resolveComposeAttachments,
 } from "./outgoing-email.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
 
 export interface SnoozeJobPayload {
   snoozedAt: number;
@@ -119,77 +105,23 @@ async function beginScheduledSendDispatch(
   }
 }
 
-async function getAccessToken(
-  accountEmail: string,
-  requireFreshToken = false,
-): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  if (
-    requireFreshToken &&
-    tokens.expiry_date &&
-    !tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    return null;
-  }
-
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch (err: any) {
-      console.error(
-        `[getAccessToken] refresh failed for ${accountEmail}:`,
-        err.message,
-      );
-      if (requireFreshToken) return null;
-    }
-  }
-
-  return tokens.access_token;
-}
-
 async function getFirstAccountToken(
   preferEmail?: string,
   ownerEmail?: string,
   strictPreference = false,
 ): Promise<{ email: string; accessToken: string } | null> {
+  if (!ownerEmail) return null;
+
   if (preferEmail) {
-    const token = await getAccessToken(preferEmail, strictPreference);
-    if (token) return { email: preferEmail, accessToken: token };
+    const client = await getClientForConnectedAccount(ownerEmail, preferEmail);
+    if (client) return client;
     if (strictPreference) return null;
   }
 
-  const accounts = ownerEmail
-    ? await listOAuthAccountsByOwner("google", ownerEmail)
-    : await listOAuthAccounts("google");
-  for (const account of accounts) {
-    const token = await getAccessToken(account.accountId);
-    if (token) return { email: account.accountId, accessToken: token };
-  }
-
-  return null;
+  const { clients } = await getClientsWithErrors(ownerEmail);
+  return clients[0]
+    ? { email: clients[0].email, accessToken: clients[0].accessToken }
+    : null;
 }
 
 async function fetchLabelMap(
@@ -294,6 +226,7 @@ async function threadHasReplySinceSnooze(
         threadId,
         "full",
         undefined,
+        "interactive",
         signal,
       );
       signal?.throwIfAborted();
@@ -530,6 +463,7 @@ export async function resurfaceEmail(
           emailId,
           ["INBOX"],
           [],
+          "interactive",
           signal,
         )) as { historyId?: string } | undefined;
       }
@@ -538,6 +472,7 @@ export async function resurfaceEmail(
         emailId,
         ["UNREAD"],
         [],
+        "interactive",
         signal,
       )) as { historyId?: string } | undefined;
       signal?.throwIfAborted();
@@ -635,14 +570,6 @@ export async function getSyntheticEmailsForView(
   ownerEmail: string,
   view: "snoozed" | "scheduled",
 ): Promise<EmailMessage[]> {
-  if (view === "scheduled") {
-    const expired = await markExpiredScheduledSendsUncertain();
-    if (expired > 0) {
-      console.info(
-        `[mail] Marked ${expired} scheduled send(s) with expired dispatch leases as uncertain.`,
-      );
-    }
-  }
   const jobs = await listPendingJobs(ownerEmail);
 
   if (view === "snoozed") {
@@ -809,6 +736,7 @@ export async function sendScheduledEmail(
         account.accessToken,
         replyToId,
         "metadata",
+        "interactive",
         options?.signal,
       );
       options?.signal?.throwIfAborted();

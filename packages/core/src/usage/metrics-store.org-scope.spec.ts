@@ -3,6 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
+vi.mock("./alerts-store.js", () => ({
+  enqueueUsageAlertEvaluation: vi.fn(async () => undefined),
+}));
+
+const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(),
+);
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: readDefaultAgentEngineSettingMock,
+}));
+
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
@@ -68,7 +83,15 @@ const CHAT_THREADS_SQL = `CREATE TABLE IF NOT EXISTS chat_threads (
   thread_data TEXT
 )`;
 
+const SETTINGS_SQL = `CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at BIGINT NOT NULL
+)`;
+
 beforeEach(async () => {
+  readDefaultAgentEngineSettingMock.mockReset();
+  readDefaultAgentEngineSettingMock.mockResolvedValue(null);
   let randomCursor = 0;
   vi.spyOn(Math, "random").mockImplementation(() => {
     randomCursor = (randomCursor + 1) % 1000;
@@ -76,9 +99,15 @@ beforeEach(async () => {
   });
 
   pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
   await pglite.exec(CHAT_THREADS_SQL);
+  await pglite.exec(SETTINGS_SQL);
   for (const [orgId, email, role] of [
     ["org-1", "a@example.com", "owner"],
     ["org-1", "admin@example.com", "admin"],

@@ -95,10 +95,9 @@ export function AdminOnlyControl() {
 }
 ```
 
-With the `settings-redesign` flag on, the Settings shell renders the
-Organization pages from `@agent-native/core/client/org`: `OrgGeneralPage`,
+The Settings shell renders the Organization pages from
+`@agent-native/core/client/org`: `OrgGeneralPage`,
 `OrgMembersPage({ appRoles? })`, `OrgAuthenticationPage`, and `OrgAppsPage`.
-With the flag off, `TeamPage` passed as `team` renders the earlier Team tab.
 
 Server code imports the same role helpers from `@agent-native/core/org-team`.
 The route plugin mounts `/_agent-native/org/*` for org creation, switching,

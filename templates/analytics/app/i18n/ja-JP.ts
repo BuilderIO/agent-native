@@ -159,14 +159,11 @@ export default {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
-    account: "アカウント",
     signedInAs: "サインイン中",
     credentials: "データソース認証情報",
     credentialsDescription:
       "API キーと認証情報はデータソースページで管理します。",
     manageDataSources: "データソースを管理",
-    languageTitle: "言語",
-    languageLabel: "インターフェース言語",
     errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
     errorEmailNotificationsDescription:
       "新しい JavaScript エラーが記録されたときにメールを送信します。デフォルトではオフです。",
@@ -211,8 +208,6 @@ export default {
     storageSaved: "ストレージ設定を保存しました。",
     storageSaveFailed: "ストレージ設定を保存できませんでした。",
     alertsTitle: "アラート",
-    alertsDescription:
-      "ファーストパーティ分析イベントのルールと通知配信を管理します。",
     alertRunNow: "チェックを実行",
     alertNew: "新しいアラート",
     alertsEmptyTitle: "アラートルールはまだありません",

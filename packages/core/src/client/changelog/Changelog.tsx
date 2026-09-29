@@ -9,7 +9,12 @@ import {
   useMarkdownReady,
   markdownUrlTransform,
 } from "../chat/markdown-renderer.js";
-import { DEFAULT_LOCALE, useOptionalLocale, type LocaleCode } from "../i18n.js";
+import {
+  DEFAULT_LOCALE,
+  useOptionalLocale,
+  useT,
+  type LocaleCode,
+} from "../i18n.js";
 import { cn } from "../utils.js";
 
 export {
@@ -18,18 +23,19 @@ export {
 } from "./use-changelog-seen.js";
 
 function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
-  if (entry.date) {
-    const [y, m, d] = entry.date.split("-").map(Number);
-    if (y && m && d) {
-      const formatted = new Date(y, m - 1, d).toLocaleDateString(locale, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-      return entry.version ? `${entry.version} · ${formatted}` : formatted;
-    }
-  }
-  return entry.title;
+  if (!entry.date) return entry.title;
+  const formatted = formatEntryDate(entry.date, locale);
+  return entry.version ? `${entry.version} · ${formatted}` : formatted;
+}
+
+function formatEntryDate(date: string, locale: LocaleCode): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) return date;
+  return new Date(y, m - 1, d).toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 const changelogMarkdownComponents = {
@@ -122,6 +128,51 @@ function ChangelogEntries({
   );
 }
 
+function ChangelogCards({ entries }: { entries: ChangelogEntry[] }) {
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
+  const groups = new Map<
+    string,
+    { heading: string; entries: ChangelogEntry[] }
+  >();
+
+  for (const entry of entries) {
+    const key = entry.date ?? entry.id;
+    const heading = entry.date
+      ? formatEntryDate(entry.date, locale)
+      : entry.title;
+    const group = groups.get(key);
+    if (group) group.entries.push(entry);
+    else groups.set(key, { heading, entries: [entry] });
+  }
+
+  return (
+    <div className="space-y-6">
+      {[...groups].map(([key, group]) => (
+        <section key={key}>
+          <h4 className="mb-3 text-sm font-semibold text-foreground">
+            {group.heading}
+          </h4>
+          <div className="space-y-3">
+            {group.entries.map((entry) => (
+              <article
+                key={entry.id}
+                className="rounded-lg border border-border bg-card p-4 text-card-foreground"
+              >
+                {entry.version && (
+                  <h5 className="mb-2 text-xs font-semibold text-muted-foreground">
+                    {entry.version}
+                  </h5>
+                )}
+                <ChangelogBody markdown={entry.body} />
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export interface ChangelogDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -192,81 +243,71 @@ export function ChangelogDialog({
 
 export interface ChangelogSettingsCardProps {
   markdown: string;
+  /** Number of entries shown and revealed per click. Defaults to ten. */
   limit?: number;
   title?: string;
   /** Drop the heading, for a page whose header already names it. */
   hideTitle?: boolean;
+  /** @deprecated Inline cards do not have a close control. */
   closeLabel?: string;
   emptyText?: string;
   viewAllLabel?: string;
+  /** @deprecated Changelog cards reveal entries incrementally instead of collapsing. */
   collapseLabel?: string;
   className?: string;
 }
 
 export function ChangelogSettingsCard({
   markdown,
-  limit = 2,
-  title = "What's new",
+  limit = 10,
+  title,
   hideTitle = false,
-  emptyText = "No updates yet.",
-  viewAllLabel = "View all updates",
-  collapseLabel = "Show fewer updates",
+  emptyText,
+  viewAllLabel,
   className,
 }: ChangelogSettingsCardProps) {
+  const t = useT();
   const entries = useMemo(() => parseChangelog(markdown), [markdown]);
-  const [expanded, setExpanded] = useState(false);
+  const pageSize = Math.max(1, Math.floor(limit));
+  const [visibleCount, setVisibleCount] = useState(pageSize);
   const bodyId = useId();
+  const heading = title ?? t("agentChat.settingsShell.page.whatsNew");
 
-  if (entries.length === 0) return null;
-
-  const shown = entries.slice(0, limit);
-  const hasMore = entries.length > shown.length;
-  const visibleEntries = expanded ? entries : shown;
+  const visibleEntries = entries.slice(0, visibleCount);
+  const hasMore = entries.length > visibleEntries.length;
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border border-border bg-card text-card-foreground",
-        className,
-      )}
-    >
+    <div className={cn("space-y-4 text-card-foreground", className)}>
       {hideTitle ? null : (
-        <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+        <div className="flex items-center gap-2">
           <IconHistory className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">{title}</h3>
+          <h3 className="text-sm font-semibold">{heading}</h3>
         </div>
       )}
-      <div className="px-5 py-4">
-        <div
-          id={bodyId}
-          className={cn(
-            "overflow-hidden transition-[max-height] duration-200 ease-[var(--ease-collapse)]",
-            expanded ? "max-h-96 overflow-y-auto pr-1" : "max-h-[9.5rem]",
-          )}
-        >
-          <ChangelogEntries entries={visibleEntries} emptyText={emptyText} />
-        </div>
-        {hasMore && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setExpanded((value) => !value)}
-            aria-expanded={expanded}
-            aria-controls={bodyId}
-            className="mt-4"
-          >
-            {expanded ? collapseLabel : viewAllLabel}
-            <IconChevronDown
-              className={cn(
-                "transition-transform duration-200 ease-[var(--ease-collapse)]",
-                expanded && "rotate-180",
-              )}
-              aria-hidden="true"
-            />
-          </Button>
+      <div id={bodyId}>
+        {entries.length > 0 ? (
+          <ChangelogCards entries={visibleEntries} />
+        ) : (
+          <ChangelogEntries
+            entries={[]}
+            emptyText={
+              emptyText ?? t("agentChat.settingsShell.appGroup.whatsNewEmpty")
+            }
+          />
         )}
       </div>
+      {hasMore && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => setVisibleCount((count) => count + pageSize)}
+          aria-controls={bodyId}
+        >
+          {viewAllLabel ?? t("agentChat.share.loadMore")}
+          <IconChevronDown className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      )}
     </div>
   );
 }

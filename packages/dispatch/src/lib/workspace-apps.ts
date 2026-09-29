@@ -18,6 +18,7 @@ export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  defaultDescriptionKey?: string;
   path: string;
   homePath?: string;
   url?: string | null;
@@ -155,6 +156,32 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
 ): boolean {
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
+
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
+};
 
 function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
@@ -311,6 +338,15 @@ export function workspaceAppTargetPath(app: {
   return normalizeWorkspaceAppHomePath(undefined);
 }
 
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
 export function workspaceAppEmbedTarget(
   app: Pick<WorkspaceAppSummary, "path" | "url">,
 ): { path?: string; url?: string } {
@@ -413,18 +449,58 @@ export function navigateToWorkspaceApp(href: string): boolean {
 
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  grantedApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+  }[] = [],
 ): WorkspaceAppSummary[] {
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    const id = app.id.trim().toLowerCase();
+    const fallback = merged.get(id);
+    merged.set(id, {
+      ...app,
+      id,
+      description: app.description ?? fallback?.description,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.description
+          ? fallback?.defaultDescriptionKey
+          : undefined,
+    });
+  }
+
+  const existingIds = new Set(
+    [...merged.values()].map((app) => app.id.trim().toLowerCase()),
+  );
+  for (const app of grantedApps) {
+    const id = app.id.trim().toLowerCase();
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
+    });
+  }
 
   return [...merged.values()];
 }

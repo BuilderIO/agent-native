@@ -49,6 +49,7 @@ import {
   retryAutomationTriggerEvent,
   scheduleAutomationTriggerEventPurge,
   setAutomationTriggerSweepCursor,
+  type AutomationTriggerQueueQueryOptions,
   type QueuedAutomationTriggerEvent,
 } from "./event-queue.js";
 import type { TriggerFrontmatter } from "./types.js";
@@ -96,8 +97,13 @@ const DURABLE_TRIGGER_READY_PAGE_SIZE = 100;
 const MIN_DURABLE_TRIGGER_RUN_MS = 1_000;
 const MIN_DURABLE_TRIGGER_SWEEP_RUN_MS = 15_000;
 const DB_QUERY_TIMEOUT_MS = 15_000;
+const DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS = 5_000;
 const MAX_MAIL_TRIGGER_EVENT_AGE_MS = 60 * 60_000;
 const MAIL_RECEIVED_EVENT = "mail.message.received";
+const DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS: AutomationTriggerQueueQueryOptions =
+  {
+    timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
+  };
 let _deps: TriggerDispatcherDeps | null = null;
 let _triggerQueueWorkerStarted = false;
 
@@ -256,6 +262,28 @@ async function drainReadyTriggerQueue(
 
   const deadline = context.deadlineAt;
   const sweepStartedAt = Date.now();
+  const staleMailEventCutoff =
+    deps.appId === "mail"
+      ? new Date(sweepStartedAt - MAX_MAIL_TRIGGER_EVENT_AGE_MS).toISOString()
+      : undefined;
+  let staleMailExpiryIncomplete = false;
+  const readyQueryOptions = () => ({
+    ...DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+    ...(staleMailExpiryIncomplete && staleMailEventCutoff !== undefined
+      ? {
+          excludeStaleEventBefore: {
+            eventName: MAIL_RECEIVED_EVENT,
+            emittedBefore: staleMailEventCutoff,
+          },
+        }
+      : {}),
+  });
+  if (
+    context.signal?.aborted ||
+    Date.now() + DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS >= deadline
+  ) {
+    return;
+  }
   let reclaimedExpiredCount = 0;
   let claimedEventCount = 0;
   let completedEventCount = 0;
@@ -263,7 +291,11 @@ async function drainReadyTriggerQueue(
   let failedEventCount = 0;
   let peakConcurrentDrains = 0;
 
-  let cycleStart = await getAutomationTriggerSweepCursor(deps.appId);
+  let cycleStart = await getAutomationTriggerSweepCursor(
+    deps.appId,
+    DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+  );
+  if (context.signal?.aborted) return;
   let cursor = cycleStart;
   let wrapped = false;
   let madeProgress = false;
@@ -275,28 +307,44 @@ async function drainReadyTriggerQueue(
     >
   >();
   const failures: unknown[] = [];
-  const hasDrainBudget = () =>
+  const hasDispatchBudget = () =>
     !context.signal?.aborted &&
     Date.now() +
       DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+      DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS +
+      MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
+      deadline;
+  const hasReadyTriggerScanBudget = () =>
+    !context.signal?.aborted &&
+    Date.now() +
+      DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+      DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS * 3 +
+      MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
+      deadline;
+  const hasStaleMailExpiryBudget = () =>
+    !context.signal?.aborted &&
+    Date.now() +
+      DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS +
+      DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+      DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS * 3 +
       MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
       deadline;
 
   const expireStaleMailEventBatches = async () => {
-    if (deps.appId !== "mail") return;
-    const emittedBefore = new Date(
-      Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS,
-    ).toISOString();
-    while (hasDrainBudget()) {
+    if (deps.appId !== "mail" || staleMailEventCutoff === undefined) return;
+    while (hasStaleMailExpiryBudget()) {
       const expired = await expireStaleAutomationTriggerEvents({
         appId: deps.appId,
         eventName: MAIL_RECEIVED_EVENT,
-        emittedBefore,
+        emittedBefore: staleMailEventCutoff,
         reason: "Expired because the mail event was older than 60 minutes.",
         limit: AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
+        timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
       });
       reclaimedExpiredCount += expired;
-      if (expired < AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE) return;
+      staleMailExpiryIncomplete =
+        expired >= AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE;
+      if (!staleMailExpiryIncomplete) return;
     }
   };
 
@@ -304,7 +352,7 @@ async function drainReadyTriggerQueue(
     let scanCursor = cursor;
     let scanWrapped = wrapped;
 
-    while (hasDrainBudget()) {
+    while (hasReadyTriggerScanBudget()) {
       const ready = await listReadyAutomationTriggerIds(
         deps.appId,
         DURABLE_TRIGGER_READY_PAGE_SIZE,
@@ -314,7 +362,9 @@ async function drainReadyTriggerQueue(
             ? { throughTriggerId: cycleStart }
             : {}),
         },
+        readyQueryOptions(),
       );
+      if (context.signal?.aborted) return null;
 
       if (ready.length === 0) {
         if (!scanWrapped && cycleStart !== null) {
@@ -323,7 +373,10 @@ async function drainReadyTriggerQueue(
           continue;
         }
         if (madeProgress) {
-          cycleStart = await getAutomationTriggerSweepCursor(deps.appId);
+          cycleStart = await getAutomationTriggerSweepCursor(
+            deps.appId,
+            DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+          );
           cursor = cycleStart;
           wrapped = false;
           madeProgress = false;
@@ -337,10 +390,23 @@ async function drainReadyTriggerQueue(
       for (const triggerId of ready) {
         scanCursor = triggerId;
         if (activeDrains.has(triggerId)) continue;
+        if (
+          Date.now() +
+            DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS * 2 +
+            DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+            MIN_DURABLE_TRIGGER_SWEEP_RUN_MS >=
+          deadline
+        ) {
+          return null;
+        }
 
         cursor = triggerId;
         wrapped = scanWrapped;
-        await setAutomationTriggerSweepCursor(deps.appId, cursor);
+        await setAutomationTriggerSweepCursor(
+          deps.appId,
+          cursor,
+          DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+        );
         return triggerId;
       }
 
@@ -352,7 +418,10 @@ async function drainReadyTriggerQueue(
           continue;
         }
         if (madeProgress) {
-          cycleStart = await getAutomationTriggerSweepCursor(deps.appId);
+          cycleStart = await getAutomationTriggerSweepCursor(
+            deps.appId,
+            DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+          );
           cursor = cycleStart;
           wrapped = false;
           madeProgress = false;
@@ -379,19 +448,19 @@ async function drainReadyTriggerQueue(
 
   try {
     await expireStaleMailEventBatches();
-    while (hasDrainBudget() || activeDrains.size > 0) {
+    while (hasDispatchBudget() || activeDrains.size > 0) {
       let exhaustedReadyTriggers = false;
       while (
         failures.length === 0 &&
         activeDrains.size < DURABLE_TRIGGER_DRAIN_CONCURRENCY &&
-        hasDrainBudget()
+        hasReadyTriggerScanBudget()
       ) {
         const triggerId = await findNextReadyTriggerId();
         if (triggerId === null) {
           exhaustedReadyTriggers = true;
           break;
         }
-        if (!hasDrainBudget()) {
+        if (!hasDispatchBudget()) {
           exhaustedReadyTriggers = true;
           break;
         }
@@ -401,6 +470,7 @@ async function drainReadyTriggerQueue(
           skipExisting: true,
           expireStaleMailEvents: true,
           deadline,
+          queueQueryTimeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
           onEventClaimed: () => {
             claimedEventCount += 1;
           },
@@ -431,7 +501,7 @@ async function drainReadyTriggerQueue(
         failures.length > 0 ||
         exhaustedReadyTriggers ||
         activeDrains.size === DURABLE_TRIGGER_DRAIN_CONCURRENCY ||
-        !hasDrainBudget()
+        !hasDispatchBudget()
       ) {
         await settleOneDrain();
       }
@@ -562,6 +632,7 @@ function startTriggerDrain(
     skipExisting?: boolean;
     expireStaleMailEvents?: boolean;
     deadline?: number;
+    queueQueryTimeoutMs?: number;
     onEventClaimed?: () => void;
     onEventOutcome?: (outcome: "completed" | "retried" | "failed") => void;
     onStaleEventExpired?: () => void;
@@ -581,6 +652,7 @@ function startTriggerDrain(
     options?.onEventClaimed,
     options?.onEventOutcome,
     onStaleEventExpired,
+    options?.queueQueryTimeoutMs,
   ).finally(() => {
     if (localStaleExpiredCount > 0) {
       console.info(
@@ -608,13 +680,19 @@ async function drainTriggerQueue(
   onEventClaimed?: () => void,
   onEventOutcome?: (outcome: "completed" | "retried" | "failed") => void,
   onStaleEventExpired?: () => void,
+  queueQueryTimeoutMs?: number,
 ): Promise<boolean> {
   let processedEvents = 0;
+  const queueQueryOptions =
+    queueQueryTimeoutMs === undefined
+      ? undefined
+      : { timeoutMs: queueQueryTimeoutMs };
   while (processedEvents < maxEvents) {
     if (
       deadline !== undefined &&
       Date.now() +
         DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+        (queueQueryTimeoutMs ?? 0) +
         MIN_DURABLE_TRIGGER_RUN_MS >=
         deadline
     ) {
@@ -624,7 +702,11 @@ async function drainTriggerQueue(
     if (!deps) return processedEvents > 0;
     const shouldExpireStaleMailEvents =
       expireStaleMailEvents || deps.appId === "mail";
-    const queued = await claimNextAutomationTriggerEvent(triggerId, deps.appId);
+    const queued = await claimNextAutomationTriggerEvent(
+      triggerId,
+      deps.appId,
+      queueQueryOptions,
+    );
     if (!queued) return processedEvents > 0;
     processedEvents += 1;
     onEventClaimed?.();
@@ -640,6 +722,7 @@ async function drainTriggerQueue(
         queued.claimedAt,
         queued.attempts,
         "Expired because the mail event was older than 60 minutes.",
+        queueQueryOptions,
       );
       onStaleEventExpired?.();
       continue;
@@ -654,6 +737,7 @@ async function drainTriggerQueue(
         new Error(
           "Automation event exceeded its retry limit after worker crashes.",
         ),
+        queueQueryOptions,
       );
       onEventOutcome?.("failed");
       return true;
@@ -679,7 +763,7 @@ async function drainTriggerQueue(
           queued.attempts,
           queued.failureAttempts,
           "Automation trigger is busy; the event remains queued.",
-          { delayMs: 5_000, countFailure: false },
+          { delayMs: 5_000, countFailure: false, ...queueQueryOptions },
         );
         onEventOutcome?.("retried");
         return true;
@@ -688,6 +772,7 @@ async function drainTriggerQueue(
         queued.id,
         queued.claimedAt,
         queued.attempts,
+        queueQueryOptions,
       );
       onEventOutcome?.("completed");
     } catch (error) {
@@ -698,6 +783,7 @@ async function drainTriggerQueue(
           queued.attempts,
           queued.failureAttempts,
           error,
+          queueQueryOptions,
         );
         onEventOutcome?.("failed");
         console.error(
@@ -712,6 +798,7 @@ async function drainTriggerQueue(
           queued.attempts,
           queued.failureAttempts,
           error,
+          queueQueryOptions,
         );
         onEventOutcome?.("retried");
         console.error(

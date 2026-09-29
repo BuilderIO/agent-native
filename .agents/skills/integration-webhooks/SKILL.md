@@ -121,7 +121,7 @@ All under `/_agent-native/integrations/`:
 
 ## Settings › Channels
 
-With the `settings-redesign` flag on, each app's Channels page
+Each app's Channels page
 (`packages/core/src/client/integrations/ChannelsPage.tsx`) lists the channels
 the deployment mounts. It reads and changes them only through two core
 actions, which the agent calls too:

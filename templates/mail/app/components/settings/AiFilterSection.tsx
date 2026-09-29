@@ -448,7 +448,7 @@ function RuleBackfillStatus({
   );
 }
 
-export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
+export function AiFilterSection() {
   const t = useT();
   const { hash } = useLocation();
   const navigate = useNavigate();
@@ -852,7 +852,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   if (automations.isError && automations.data === undefined) {
     return (
       <div
-        className="flex max-w-180 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+        className="flex w-full items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
         role="alert"
       >
         <span className="text-sm text-muted-foreground">
@@ -871,7 +871,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   }
 
   if (filterLoading || automations.isLoading || !state) {
-    return <Skeleton className="h-72 w-full max-w-180" />;
+    return <Skeleton className="h-72 w-full" />;
   }
 
   const decisions = latestAiFilterDecisions(state).slice(0, 5);
@@ -895,29 +895,19 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <>
-      <div className="max-w-180 space-y-7 pb-10">
-        {embedded ? (
-          <>
-            <SettingsGroup id="ai-filter-settings">
-              <SettingsRow
-                id="ai-filter-enabled"
-                label={t("mail.aiFilter.triageTitle")}
-                control={enabledSwitch}
-              />
-            </SettingsGroup>
-            <div className="flex justify-end">{manageAutomationsLink}</div>
-          </>
-        ) : (
-          <div className="flex items-center justify-between border-b border-border/50 pb-4">
-            <h2 className="text-base font-semibold text-foreground">
-              {t("mail.aiFilter.triageTitle")}
-            </h2>
-            <div className="flex items-center gap-3">
-              {manageAutomationsLink}
-              {enabledSwitch}
-            </div>
-          </div>
-        )}
+      <div className="w-full space-y-7 pb-10">
+        <SettingsGroup id="ai-filter-settings">
+          <SettingsRow
+            id="ai-filter-enabled"
+            label={t("mail.aiFilter.triageTitle")}
+            control={
+              <div className="flex items-center gap-3">
+                {manageAutomationsLink}
+                {enabledSwitch}
+              </div>
+            }
+          />
+        </SettingsGroup>
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />

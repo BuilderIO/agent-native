@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "جارٍ قطع الاتصال…",
   },
   settings: {
-    title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     agentTitle: "إعدادات الوكيل",
     agentDescription:
       "افتح إعدادات الوكيل في الشريط الجانبي للنموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "إدارة وصول الفريق وموارد مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    backHome: "العودة إلى الرئيسية",
     emailChange: "تغيير البريد الإلكتروني",
     emailChangeSent: "تحقق من بريدك الإلكتروني لتأكيد هذا التغيير.",
     emailChangeError: "تعذر إرسال التأكيد.",

@@ -23,6 +23,7 @@ import { createOrganization, resolveOrgIdForEmail } from "./context.js";
 import {
   __resetProcessMemberOrgCacheForTests,
   cachedActiveOrgSetting,
+  cachedMemberships,
   invalidateActiveOrgSettingCache,
   orgSelectionFromCookieHeader,
 } from "./request-org-cache.js";
@@ -147,6 +148,32 @@ describe("per-request org membership memo", () => {
 
     expect(result).toBe("org1");
     expect(memberRowQueries()).toHaveLength(2);
+  });
+});
+
+describe("cross-request membership cache", () => {
+  beforeEach(() => __resetProcessMemberOrgCacheForTests());
+
+  it("reuses a membership list across requests", async () => {
+    const load = vi.fn(async () => [{ orgId: "org-1" }]);
+
+    await cachedMemberships("a@b.com", load);
+    await cachedMemberships("a@b.com", load);
+
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads an empty membership list, which gates default-org creation", async () => {
+    const load = vi
+      .fn<() => Promise<{ orgId: string }[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ orgId: "org-1" }]);
+
+    expect(await cachedMemberships("a@b.com", load)).toEqual([]);
+    expect(await cachedMemberships("a@b.com", load)).toEqual([
+      { orgId: "org-1" },
+    ]);
+    expect(load).toHaveBeenCalledTimes(2);
   });
 });
 
