@@ -640,6 +640,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "موصى به",
   "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
   "mcpIntegrations.menuLabel": "عمليات التكامل",
+  "mcpApps.optionalPeerRequired":
+    "يتطلب تطبيق MCP هذا الحزمة {{packageName}}. ثبّتها باستخدام {{installCommand}}.",
   "mcpIntegrations.menuDescription": "ربط الأدوات والخدمات بالوكيل",
   "mcpIntegrations.title": "ربط عمليات التكامل",
   "mcpIntegrations.description":

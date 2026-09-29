@@ -29,7 +29,10 @@ import {
   markJobCancelled,
   markJobDone,
   markJobProcessing,
+  markJobSendStarted,
   resurfaceEmail,
+  releaseJobProcessing,
+  resetJobProcessingForRetry,
   sendScheduledEmail,
   shouldResurfaceSnoozedThread,
   type SendLaterPayload,
@@ -39,6 +42,7 @@ const INTERVAL_MS = 60_000;
 const AI_FILTER_BACKFILL_INTERVAL_MS = 10_000;
 const WATCH_RENEW_INTERVAL_MS = 6 * 60 * 60_000;
 const WATCH_RENEW_CLAIM_MS = 10 * 60_000;
+const JOB_PROCESSING_LEASE_GRACE_MS = 30_000;
 const MAX_DUE_JOBS_PER_TICK = 20;
 const MAX_AUTOMATION_ACCOUNTS_PER_TICK = 5;
 const MAX_WATCH_ACCOUNTS_PER_TICK = 5;
@@ -235,32 +239,31 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
         tokens,
       });
       if (!client) throw new Error("No usable Google account token.");
-      if (!(await startWatch(client.accessToken))) {
+      if (!(await startWatch(client.accessToken, context.signal))) {
         throw new Error("Gmail did not start the watch.");
       }
+      await completeWatchRenewal(acc.accountEmail, claim);
       if (isDeadlineReached(context)) {
         throw incompleteSweepError(
-          `Gmail watch renewal remains pending for ${acc.accountEmail}.`,
+          `Gmail watch renewal completed for ${acc.accountEmail} as the sweep deadline elapsed.`,
         );
       }
-      await completeWatchRenewal(acc.accountEmail, claim);
     } catch (error) {
       if (claim) {
         try {
           await releaseWatchRenewal(claim);
         } catch (releaseError) {
-          failures.push(
-            makeAggregateError(
-              [error, releaseError],
-              `Gmail watch renewal and claim release failed for ${acc.accountEmail}.`,
-            ),
+          const failure = makeAggregateError(
+            [error, releaseError],
+            `Gmail watch renewal and claim release failed for ${acc.accountEmail}.`,
           );
+          failures.push(failure);
           console.warn(
             `[gmail-watch] renew and claim release failed for ${acc.accountEmail}:`,
             error,
             releaseError,
           );
-          if (context.signal?.aborted) context.signal.throwIfAborted();
+          if (context.signal?.aborted) throw failure;
           continue;
         }
       }
@@ -284,24 +287,48 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
 async function processJobs(context: RecurringSweepContext): Promise<void> {
   const now = Date.now();
   const due = await getDuePendingJobs(now, MAX_DUE_JOBS_PER_TICK);
+  if (isDeadlineReached(context)) {
+    throw incompleteSweepError("scheduled Mail jobs remain pending.");
+  }
 
   for (const job of due) {
     if (isDeadlineReached(context)) {
       throw incompleteSweepError("scheduled Mail jobs remain pending.");
     }
-    if (!(await markJobProcessing(job.id))) continue;
+    const claimId = await markJobProcessing(
+      job.id,
+      Date.now(),
+      context.deadlineAt + JOB_PROCESSING_LEASE_GRACE_MS,
+    );
+    if (!claimId) continue;
+    let sendStarted = false;
 
     try {
+      if (isDeadlineReached(context)) {
+        await releaseJobProcessing(job.id, claimId);
+        throw incompleteSweepError(
+          `scheduled Mail job ${job.id} remains pending.`,
+        );
+      }
       const ownerEmail = job.ownerEmail || job.accountEmail;
       const acctEmail = job.accountEmail ?? undefined;
       if (job.type === "snooze" && job.emailId) {
-        const shouldResurface = await shouldResurfaceSnoozedThread(job);
+        const shouldResurface = await shouldResurfaceSnoozedThread(
+          job,
+          context.signal,
+        );
+        if (isDeadlineReached(context)) {
+          throw incompleteSweepError(
+            `scheduled Mail job ${job.id} remains pending.`,
+          );
+        }
         if (shouldResurface && ownerEmail) {
           await resurfaceEmail(
             ownerEmail,
             job.emailId,
             getSnoozeThreadId(job),
             acctEmail,
+            context.signal,
           );
         }
       } else if (job.type === "send_later") {
@@ -309,12 +336,74 @@ async function processJobs(context: RecurringSweepContext): Promise<void> {
           JSON.parse(job.payload) as SendLaterPayload,
           acctEmail,
           job.ownerEmail ?? undefined,
+          {
+            signal: context.signal,
+            onDispatchStart: async () => {
+              if (isDeadlineReached(context)) {
+                throw incompleteSweepError(
+                  `scheduled email ${job.id} remains pending.`,
+                );
+              }
+              if (!(await markJobSendStarted(job.id, claimId))) {
+                throw new Error(
+                  `Scheduled email claim was lost before sending ${job.id}.`,
+                );
+              }
+              sendStarted = true;
+              if (isDeadlineReached(context)) {
+                if (await resetJobProcessingForRetry(job.id, claimId)) {
+                  sendStarted = false;
+                }
+                if (context.signal?.aborted) context.signal.throwIfAborted();
+                throw incompleteSweepError(
+                  `scheduled email ${job.id} remains pending.`,
+                );
+              }
+            },
+            onDispatchCancelled: async () => {
+              if (await resetJobProcessingForRetry(job.id, claimId)) {
+                sendStarted = false;
+              }
+            },
+          },
         );
       }
-      await markJobDone(job.id);
-    } catch (err) {
-      console.error(`[mail-jobs] Job ${job.id} failed:`, err);
-      await markJobCancelled(job.id);
+      if (!(await markJobDone(job.id, claimId))) {
+        console.warn(
+          `[mail-jobs] Job ${job.id} completed after its claim was lost.`,
+        );
+      }
+    } catch (error) {
+      if (
+        isDeadlineReached(context) ||
+        (error instanceof Error && error.name === "AbortError")
+      ) {
+        if (!sendStarted) {
+          try {
+            await releaseJobProcessing(job.id, claimId);
+          } catch (releaseError) {
+            throw makeAggregateError(
+              [error, releaseError],
+              `Mail job ${job.id} was cancelled and its claim could not be released.`,
+            );
+          }
+        }
+        if (context.signal?.aborted) {
+          if (error instanceof Error && error.name === "AggregateError") {
+            throw error;
+          }
+          context.signal.throwIfAborted();
+        }
+        throw error;
+      }
+      console.error(`[mail-jobs] Job ${job.id} failed:`, error);
+      if (!sendStarted) {
+        await markJobCancelled(job.id, claimId);
+      } else {
+        console.error(
+          `[mail-jobs] Scheduled send ${job.id} has an uncertain provider result and will not be retried automatically.`,
+        );
+      }
     }
   }
 }

@@ -403,6 +403,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Empfohlen",
   "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
   "mcpIntegrations.menuLabel": "Integrationen",
+  "mcpApps.optionalPeerRequired":
+    "Diese MCP-App benötigt das Paket {{packageName}}. Installiere es mit {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Tools und Dienste mit dem Agenten verbinden",
   "mcpIntegrations.title": "Integrationen verbinden",

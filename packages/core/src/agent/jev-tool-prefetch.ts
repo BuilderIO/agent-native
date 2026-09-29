@@ -2,6 +2,10 @@ import {
   getBuilderProxyOrigin,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import {
+  loadOptionalPeer,
+  OptionalPeerDependencyError,
+} from "../shared/optional-peer.js";
 import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-headers.js";
 import type { EngineTool } from "./engine/types.js";
 import type { ActionEntry, JevContextCredentials } from "./production-agent.js";
@@ -284,6 +288,7 @@ export async function rankJevCandidatesWithStatus(
       ? { status: "selected", ids }
       : { status: "no-match", ids: [] };
   } catch (error) {
+    if (error instanceof OptionalPeerDependencyError) throw error;
     console.warn(
       "[agent] Jev context prefetch unavailable; continuing with the existing context.",
       error instanceof Error ? error.message : "unknown error",
@@ -477,7 +482,10 @@ async function requestJevDirect(
   options: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<JevResponse> {
   options.signal?.throwIfAborted();
-  const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");
+  const { choice, TypeSafeClient } = await loadOptionalPeer(
+    "@typesafe-ai/sdk",
+    () => import("@typesafe-ai/sdk"),
+  );
   options.signal?.throwIfAborted();
   const client = new TypeSafeClient({
     apiKey,

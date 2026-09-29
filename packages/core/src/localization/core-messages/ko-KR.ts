@@ -639,6 +639,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
   "mcpIntegrations.menuLabel": "연동",
+  "mcpApps.optionalPeerRequired":
+    "이 MCP 앱을 사용하려면 {{packageName}} 패키지가 필요합니다. {{installCommand}}로 설치하세요.",
   "mcpIntegrations.menuDescription": "도구와 서비스를 에이전트에 연결",
   "mcpIntegrations.title": "연동 연결",
   "mcpIntegrations.description":
