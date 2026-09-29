@@ -7043,16 +7043,18 @@ it.each([
     name: "the perspective property",
     parentStyle:
       "perspective:600px;transform-style:preserve-3d;transform-origin:0 0",
+    targetTransform: "transform:rotateX(30deg);",
   },
   {
     name: "a perspective transform",
     parentStyle:
       "transform:perspective(600px) rotateX(30deg);transform-style:preserve-3d;transform-origin:0 0",
+    targetTransform: "",
   },
 ])(
   "hides radius handles when %s makes the viewport mapping projective",
   { timeout: 30_000 },
-  async ({ parentStyle }) => {
+  async ({ parentStyle, targetTransform }) => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -7061,7 +7063,7 @@ it.each([
       const pageErrors: string[] = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.setContent(`<!doctype html><html><body>
-  <div style="${parentStyle};position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent"></div></div>
+  <div style="${parentStyle};position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetTransform}position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent"></div></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -7119,6 +7121,38 @@ it.each([
         messages.filter((message) => message.type === "visual-style-change"),
       ).toEqual([]);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps radius handles when an ancestor perspective does not project the selected plane",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <div style="perspective:600px;position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent"></div></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+      const visibleRadiusHandles = await page.evaluate(
+        () =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display === "block")
+            .length,
+      );
+      expect(visibleRadiusHandles).toBe(4);
     } finally {
       await browser.close();
     }

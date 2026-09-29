@@ -12870,6 +12870,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function radiusPerspectiveMatrixForStyle(cs) {
+    if (!cs.perspective || cs.perspective === "none") {
+      return identityRadiusMatrix4();
+    }
+    var distance = parseFloat(cs.perspective);
+    if (!Number.isFinite(distance) || distance <= 0) return null;
+    var matrix = identityRadiusMatrix4();
+    matrix[14] = -1 / distance;
+    return matrix;
+  }
+
   function radiusViewportLinearTransform(el) {
     var total = identityRadiusMatrix4();
     for (
@@ -12878,12 +12889,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       current = current.parentElement
     ) {
       var cs = window.getComputedStyle(current);
-      if (current !== el && cs.perspective && cs.perspective !== "none") {
-        return null;
-      }
       var local = radiusLinearTransformForStyle(cs);
       if (!local) return null;
-      total = composeRadiusTransformMatrices(local, total);
+      var perspective =
+        current === el
+          ? identityRadiusMatrix4()
+          : radiusPerspectiveMatrixForStyle(cs);
+      if (!perspective) return null;
+      total = composeRadiusTransformMatrices(
+        local,
+        composeRadiusTransformMatrices(perspective, total),
+      );
     }
     var perspectiveX = total[12];
     var perspectiveY = total[13];
