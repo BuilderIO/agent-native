@@ -23,6 +23,9 @@ import {
 
 const tmpRoots: string[] = [];
 const upgradeEnvKeys = [
+  "APP_NAME",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
   "DATABASE_URL",
   "SENTRY_SERVER_DSN",
   "SENTRY_CLIENT_DSN",
@@ -43,6 +46,8 @@ const upgradeEnvKeys = [
   "AUTH_SSO",
   "AUTH_SCIM",
   "VITE_AMPLITUDE_API_KEY",
+  "MICROSOFT_TEAMS_APP_ID",
+  "MICROSOFT_TEAMS_APP_PASSWORD",
 ] as const;
 const savedUpgradeEnv = new Map<string, string | undefined>();
 
@@ -417,6 +422,33 @@ describe("migration dependency selection", () => {
       "@sentry/browser",
       "@better-auth/scim",
     ]);
+
+    expect(
+      selectMigrationDependencies(dependencies, {
+        APP_NAME: "mail-app",
+        MAIL_APP_DATABASE_URL: "pglite://memory",
+        DATABASE_URL: "postgres://database",
+      }).map(({ name }) => name),
+    ).toContain("@electric-sql/pglite");
+    expect(
+      selectMigrationDependencies(dependencies, {
+        APP_NAME: "mail-app",
+        MAIL_APP_DATABASE_URL: "postgres://database",
+        DATABASE_URL: "pglite://memory",
+      }).map(({ name }) => name),
+    ).not.toContain("@electric-sql/pglite");
+
+    expect(
+      selectMigrationDependencies(dependencies, {
+        MICROSOFT_TEAMS_APP_ID: "teams-app-id",
+        MICROSOFT_TEAMS_APP_PASSWORD: "teams-app-password",
+      }).map(({ name }) => name),
+    ).toContain("botframework-connector");
+    expect(
+      selectMigrationDependencies(dependencies, {
+        MICROSOFT_TEAMS_APP_ID: "teams-app-id",
+      }).map(({ name }) => name),
+    ).not.toContain("botframework-connector");
   });
 
   it("plans peers per Core app using app and workspace env without secrets", () => {
@@ -449,11 +481,16 @@ describe("migration dependency selection", () => {
     );
     fs.writeFileSync(
       path.join(root, "apps", "enabled", ".env.local"),
-      "AUTH_SSO=true\nVITE_AMPLITUDE_API_KEY=amplitude-secret\n",
+      "AUTH_SSO=true\nVITE_AMPLITUDE_API_KEY=amplitude-secret\nMICROSOFT_TEAMS_APP_ID=teams-app-id\nMICROSOFT_TEAMS_APP_PASSWORD=teams-app-password\n",
     );
     fs.writeFileSync(
       path.join(root, "apps", "pglite", ".env"),
-      "DATABASE_URL=pglite://memory\n",
+      [
+        "APP_NAME=pglite",
+        "PGLITE_DATABASE_URL=pglite://memory",
+        "DATABASE_URL=postgres://database",
+        "",
+      ].join("\n"),
     );
 
     const additions = planMigrationDependencyAdditions(
@@ -465,6 +502,7 @@ describe("migration dependency selection", () => {
     ).toEqual([
       ["apps/enabled/package.json", "@better-auth/sso"],
       ["apps/enabled/package.json", "@amplitude/analytics-browser"],
+      ["apps/enabled/package.json", "botframework-connector"],
       ["apps/pglite/package.json", "@electric-sql/pglite"],
     ]);
     expect(JSON.stringify(additions)).not.toContain("secret");
@@ -562,7 +600,13 @@ describe("runUpgrade", () => {
 
     expect(out.join("\n")).toContain("[planned] feature-dependencies");
     expect(out.join("\n")).toContain("@better-auth/sso 1.7.4");
-    expect(out.join("\n")).not.toContain("@electric-sql/pglite");
+    expect(out.join("\n")).toContain(
+      "Remote deployment environment and database-backed feature settings cannot be inspected",
+    );
+    expect(out.join("\n")).toContain("botframework-connector");
+    expect(out.join("\n")).not.toContain(
+      "Would align add package.json @electric-sql/pglite",
+    );
     expect(fs.readFileSync(packageFile, "utf-8")).toBe(before);
   });
 
@@ -602,6 +646,10 @@ describe("runUpgrade", () => {
       afterFirstRun,
     );
     expect(out.join("\n")).toContain("[skipped] feature-dependencies");
+    expect(out.join("\n")).toContain(
+      "Remote deployment environment and database-backed feature settings cannot be inspected",
+    );
+    expect(out.join("\n")).toContain("botframework-connector");
   });
 
   it("promotes compatible feature peers from devDependencies", async () => {

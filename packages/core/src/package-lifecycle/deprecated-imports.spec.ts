@@ -42,6 +42,11 @@ const featureDependencies = [
     version: "^2.45.8",
     when: "amplitude",
   },
+  {
+    name: "botframework-connector",
+    version: "^4.23.3",
+    when: "microsoft-teams",
+  },
 ];
 
 afterEach(() => {

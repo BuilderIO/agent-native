@@ -469,6 +469,51 @@ describe("client optional peer stubs", () => {
         | ((id: string) => string | null)
         | undefined;
       expect(presentResolveId?.("@rrweb/record")).toBe(null);
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          optionalDependencies: { "@rrweb/record": "^2.1.0" },
+        }),
+      );
+      const optionalPlugin = _clientOptionalPeerStubPlugin(cwd);
+      const optionalResolveId = optionalPlugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(optionalResolveId?.("@rrweb/record")).toBe(null);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves linkedom/worker available to external Core consumers", async () => {
+    const cwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "core-vite-linkedom-consumer-"),
+    );
+    try {
+      const corePackagePath = path.resolve(
+        import.meta.dirname,
+        "../../package.json",
+      );
+      const corePackage = JSON.parse(fs.readFileSync(corePackagePath, "utf-8"));
+      expect(corePackage.dependencies?.linkedom).toBeTruthy();
+      await expect(import("linkedom/worker")).resolves.toHaveProperty(
+        "parseHTML",
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          dependencies: { "@agent-native/core": "^0.0.0" },
+        }),
+      );
+      const plugin = _clientOptionalPeerStubPlugin(cwd);
+      const resolveId = plugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(resolveId?.("linkedom/worker")).toBe(null);
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
     }

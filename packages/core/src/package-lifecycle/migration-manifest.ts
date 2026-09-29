@@ -24,7 +24,8 @@ export type MigrationDependencyCondition =
   | "sentry-source-map-upload"
   | "sso"
   | "scim"
-  | "amplitude";
+  | "amplitude"
+  | "microsoft-teams";
 
 export interface MigrationDependency {
   name: string;
@@ -46,6 +47,7 @@ const MIGRATION_DEPENDENCY_CONDITIONS = new Set<MigrationDependencyCondition>([
   "sso",
   "scim",
   "amplitude",
+  "microsoft-teams",
 ]);
 
 function isMigrationDependency(value: unknown): value is MigrationDependency {

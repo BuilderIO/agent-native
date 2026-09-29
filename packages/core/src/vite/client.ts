@@ -732,7 +732,8 @@ function hasDep(pkg: string, cwd: string): boolean {
     return !!(
       pkgJson.dependencies?.[pkg] ||
       pkgJson.devDependencies?.[pkg] ||
-      pkgJson.peerDependencies?.[pkg]
+      pkgJson.peerDependencies?.[pkg] ||
+      pkgJson.optionalDependencies?.[pkg]
     );
   } catch {
     return false;

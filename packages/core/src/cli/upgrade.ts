@@ -354,7 +354,16 @@ export function selectMigrationDependencies(
   dependencies: MigrationDependency[],
   environment: NodeJS.ProcessEnv,
 ): MigrationDependency[] {
-  const databaseUrl = environment.DATABASE_URL?.trim();
+  const appName =
+    environment.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+    environment.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+    environment.APP_NAME?.trim();
+  const appDatabaseUrl = appName
+    ? environment[
+        `${appName.toUpperCase().replace(/-/g, "_")}_DATABASE_URL`
+      ]?.trim()
+    : undefined;
+  const databaseUrl = appDatabaseUrl || environment.DATABASE_URL?.trim();
   const sentryKeyTuple = hasSentryKeyTuple(environment);
   const enabled = new Set<MigrationDependencyCondition>();
 
@@ -392,6 +401,12 @@ export function selectMigrationDependencies(
   if (isEnabled(environment.AUTH_SCIM)) enabled.add("scim");
   if (firstConfigured(environment.VITE_AMPLITUDE_API_KEY)) {
     enabled.add("amplitude");
+  }
+  if (
+    firstConfigured(environment.MICROSOFT_TEAMS_APP_ID) &&
+    firstConfigured(environment.MICROSOFT_TEAMS_APP_PASSWORD)
+  ) {
+    enabled.add("microsoft-teams");
   }
 
   const selected = new Map<string, MigrationDependency>();
@@ -466,6 +481,15 @@ function readUpgradeEnvironment(
   return environment;
 }
 
+function loadActiveMigrationDependencies(
+  projectRoot: string,
+  packageVersion: string | null,
+): MigrationDependency[] {
+  return loadMigrationManifestsForProject(projectRoot)
+    .filter((manifest) => isMigrationManifestActive(manifest, packageVersion))
+    .flatMap((manifest) => manifest.dependencies ?? []);
+}
+
 export function planMigrationDependencyAdditions(
   project: UpgradeProject,
   shellEnvironment: NodeJS.ProcessEnv = process.env,
@@ -476,9 +500,10 @@ export function planMigrationDependencyAdditions(
       "Could not read the Core version for dependency migration.",
     );
   }
-  const dependencies = loadMigrationManifestsForProject(project.root)
-    .filter((manifest) => isMigrationManifestActive(manifest, cliCoreVersion))
-    .flatMap((manifest) => manifest.dependencies ?? []);
+  const dependencies = loadActiveMigrationDependencies(
+    project.root,
+    cliCoreVersion,
+  );
   if (dependencies.length === 0) return [];
 
   const additions: UpgradeDependencyAddition[] = [];
@@ -1077,11 +1102,20 @@ export async function runUpgrade(
     return result.exitCode;
   }
 
+  const conditionalPeers = [
+    ...new Set(
+      loadActiveMigrationDependencies(project.root, doctor.cliCoreVersion).map(
+        ({ name }) => name,
+      ),
+    ),
+  ];
+  const deploymentEnvironmentNote = `Remote deployment environment and database-backed feature settings cannot be inspected by this command; verify configured features against these conditional peers: ${conditionalPeers.join(", ") || "none declared"}.`;
+
   if (dependencyAdditions.length === 0) {
     result.steps.push({
       id: "feature-dependencies",
       status: "skipped",
-      detail: "No configured optional Core peers are missing",
+      detail: `No local dependency additions are pending. ${deploymentEnvironmentNote}`,
     });
   } else {
     const detail = dependencyAdditions
@@ -1094,14 +1128,14 @@ export async function runUpgrade(
       result.steps.push({
         id: "feature-dependencies",
         status: "planned",
-        detail: `Would align ${detail}`,
+        detail: `Would align ${detail}. ${deploymentEnvironmentNote}`,
       });
     } else {
       applyMigrationDependencyAdditions(dependencyAdditions);
       result.steps.push({
         id: "feature-dependencies",
         status: "ok",
-        detail: `Aligned ${detail}`,
+        detail: `Aligned ${detail}. ${deploymentEnvironmentNote}`,
       });
     }
   }
