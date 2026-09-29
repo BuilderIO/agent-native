@@ -3,12 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
-import {
-  getActiveOrgSettingForEvent,
-  getOrgContext,
-  getOrgDomain,
-  listOrgMembershipsForEvent,
-} from "../org/context.js";
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -36,6 +31,7 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { resolveMcpOrgChoices } from "./org-choice.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -826,44 +822,13 @@ async function handleAuthorize(
     });
   }
 
-  const activeOrgSetting = await getActiveOrgSettingForEvent(
+  const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
     event,
-    session.email,
-  );
-  const requestedOrganizationId =
+    session,
     method === "POST" && params.organization_id !== undefined
       ? params.organization_id || null
-      : (activeOrgSetting?.orgId ?? session.orgId ?? null);
-  let memberships = await listOrgMembershipsForEvent(
-    event,
-    session.email,
-    requestedOrganizationId,
+      : undefined,
   );
-  // A token issued with no org stays org-less for its whole life, even after
-  // the app later creates the org, so resolve an account without one to its
-  // domain or default org before offering the choice.
-  const ensuredOrgId =
-    memberships?.length === 0 ? (await getOrgContext(event)).orgId : null;
-  if (ensuredOrgId) {
-    memberships = await listOrgMembershipsForEvent(
-      event,
-      session.email,
-      ensuredOrgId,
-    );
-  }
-  const organizations =
-    memberships?.map((membership) => ({
-      id: membership.orgId,
-      name: membership.orgName,
-      domain: membership.allowedDomain,
-    })) ??
-    (session.orgId
-      ? [{ id: session.orgId, name: "Organization", domain: null }]
-      : []);
-  const defaultOrganizationId =
-    [activeOrgSetting?.orgId, ensuredOrgId, session.orgId].find(
-      (id) => id && organizations.some((org) => org.id === id),
-    ) ?? organizations[0]?.id;
 
   if (method === "GET") {
     return html(

@@ -54,6 +54,7 @@ import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { type McpOrgOption, resolveMcpOrgChoices } from "./org-choice.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "./route-paths.js";
 
 const DEVICE_POLL_INTERVAL_S = 3;
@@ -418,6 +419,8 @@ function renderConnectPage(params: {
   catalogScope: "full" | null;
   locale: LocaleCode;
   requestedGuide: string | null;
+  organizations: McpOrgOption[];
+  defaultOrganizationId: string | undefined;
 }): string {
   const {
     connectBasePath,
@@ -429,6 +432,8 @@ function renderConnectPage(params: {
     catalogScope,
     locale,
     requestedGuide,
+    organizations,
+    defaultOrganizationId,
   } = params;
   const direction = localeDirection(locale);
   const messages = mcpSettingsMessagesForLocale(locale);
@@ -473,6 +478,23 @@ function renderConnectPage(params: {
       ),
     )
     .join("\n");
+  const organizationSelectorHtml =
+    safeUserCode && organizations.length > 1
+      ? `<div class="field">
+        <label for="organizationId">${localize(connectMessages.organization)}</label>
+        <div class="select-wrap">
+        <select id="organizationId">
+          ${organizations
+            .map(
+              (organization) =>
+                `<option value="${escapeHtml(organization.id)}"${organization.id === defaultOrganizationId ? " selected" : ""}>${escapeHtml(organization.name)}${organization.domain ? ` (${escapeHtml(organization.domain)})` : ""}</option>`,
+            )
+            .join("")}
+        </select>
+        <span class="chev" aria-hidden="true"></span>
+        </div>
+      </div>`
+      : "";
   const setupHtml = safeUserCode
     ? ""
     : `
@@ -583,7 +605,7 @@ function renderConnectPage(params: {
     display: flex; align-items: center; justify-content: space-between;
     gap: 0.75rem; border: 1px solid var(--border);
     border-radius: 8px; padding: 0.5rem 0.65rem; margin: 0 0 0.9rem;
-    background: var(--panel-soft); color: var(--muted);
+    background: var(--panel-soft); color: var(--muted); line-height: 1.2rem;
   }
   .device-strip .label {
     font-size: 0.76rem; font-weight: 560; color: var(--subtle);
@@ -660,12 +682,25 @@ function renderConnectPage(params: {
   .field:last-child { margin-bottom: 0; }
   .field label { display: block; font-size: 0.78rem; color: var(--muted);
     margin-bottom: 0.35rem; }
-  .field input {
+  .field input, .field select {
     width: 100%; padding: 0.6rem 0.7rem; font: inherit; color: var(--text);
     background: var(--panel-2); border: 1px solid var(--border-strong);
     border-radius: 8px;
   }
-  .field input:focus-visible {
+  .select-wrap { position: relative; }
+  .select-wrap select {
+    appearance: none; -webkit-appearance: none;
+    padding: 0.5rem 2.4rem 0.5rem 0.65rem; font-size: 0.78rem;
+    line-height: 1.2rem; cursor: pointer;
+  }
+  .select-wrap .chev {
+    position: absolute; top: 50%; right: 1rem; width: 7px; height: 7px;
+    border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+    transform: translateY(-70%) rotate(45deg); pointer-events: none;
+    transition: transform 0.15s ease;
+  }
+  .select-wrap:has(select:open) .chev { transform: translateY(-30%) rotate(225deg); }
+  .field input:focus-visible, .field select:focus-visible {
     outline: none; border-color: var(--ring);
     box-shadow: 0 0 0 3px rgba(250,250,250,0.12);
   }
@@ -876,6 +911,7 @@ function renderConnectPage(params: {
       ? `<div id="staticTokenMint">
     <div id="msg" class="msg" role="status" aria-live="polite"></div>
     <div id="mintForm">
+      ${organizationSelectorHtml}
       <button id="authorizeBtn" class="primary">${localize(connectMessages.authorizeDevice)}</button>
     </div>
   </div>`
@@ -1023,6 +1059,7 @@ function renderConnectPage(params: {
     if (response.status === 404) return COPY.unknownDeviceCode;
     if (response.status === 410) return COPY.expiredDeviceCode;
     if (response.status === 409) return COPY.alreadyUsedDeviceCode;
+    if (response.status === 403) return COPY.invalidOrganization;
     return COPY.couldNotAuthorize;
   }
 
@@ -1089,7 +1126,13 @@ function renderConnectPage(params: {
     clearMsg();
     try {
       if (USER_CODE) {
-        var a = await postJson("/device/authorize", { user_code: USER_CODE });
+        var orgSelect = document.getElementById("organizationId");
+        var a = await postJson(
+          "/device/authorize",
+          orgSelect
+            ? { user_code: USER_CODE, org_id: orgSelect.value }
+            : { user_code: USER_CODE },
+        );
         if (!a.ok) {
           resetButtonLoading(btn);
           showMsg(deviceAuthorizationError(a));
@@ -1222,6 +1265,8 @@ export async function handleMcpConnect(
           catalogScope: null,
           locale,
           requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
+          organizations: [],
+          defaultOrganizationId: undefined,
         }),
       );
     }
@@ -1237,6 +1282,9 @@ export async function handleMcpConnect(
       deviceCode.expiresAt >= Date.now()
         ? deviceCode.catalogScope
         : null;
+    const { organizations, defaultOrganizationId } = userCode
+      ? await resolveMcpOrgChoices(event, session)
+      : { organizations: [], defaultOrganizationId: undefined };
     return html(
       renderConnectPage({
         connectBasePath: basePath,
@@ -1248,6 +1296,8 @@ export async function handleMcpConnect(
         catalogScope,
         locale,
         requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
+        organizations,
+        defaultOrganizationId,
       }),
     );
   }
@@ -1276,9 +1326,13 @@ export async function handleMcpConnect(
         ? "full"
         : undefined;
     try {
+      const { defaultOrganizationId } = await resolveMcpOrgChoices(
+        event,
+        session,
+      );
       const { token } = await mintConnectToken({
         email: session.email,
-        orgId: session.orgId,
+        orgId: defaultOrganizationId,
         label,
         ttlDays,
         appUrl,
@@ -1338,17 +1392,33 @@ export async function handleMcpConnect(
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       user_code?: unknown;
+      org_id?: unknown;
     };
     const userCode =
       typeof body.user_code === "string" ? body.user_code.trim() : "";
     if (!USER_CODE_RE.test(userCode)) {
       return json({ error: "Invalid user code." }, 400);
     }
-    const orgId =
-      typeof session.orgId === "string" && session.orgId.trim()
-        ? session.orgId.trim()
-        : null;
-    const result = await approveDeviceCode(userCode, session.email, orgId);
+    const requestedOrgId =
+      typeof body.org_id === "string" && body.org_id ? body.org_id : undefined;
+    const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
+      event,
+      session,
+      requestedOrgId,
+    );
+
+    if (
+      requestedOrgId !== undefined &&
+      !organizations.some(({ id }) => id === requestedOrgId)
+    ) {
+      return json({ error: "Choose an organization you belong to." }, 403);
+    }
+    const selectedOrgId = requestedOrgId ?? defaultOrganizationId ?? null;
+    const result = await approveDeviceCode(
+      userCode,
+      session.email,
+      selectedOrgId,
+    );
     if (result === "not_found") {
       return json({ error: "Unknown device code." }, 404);
     }

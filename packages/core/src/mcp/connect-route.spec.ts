@@ -22,9 +22,30 @@ vi.mock("../server/auth.js", () => ({
   isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
 
+const listOrgMembershipsForEventMock = vi.fn(
+  async (): Promise<unknown[] | null> => null,
+);
+const getOrgContextMock = vi.fn(
+  async (): Promise<{ orgId: string | null }> => ({ orgId: null }),
+);
 vi.mock("../org/context.js", () => ({
   getOrgDomain: vi.fn(async () => "builder.io"),
+  getActiveOrgSettingForEvent: vi.fn(async () => null),
+  getOrgContext: (...a: any[]) => getOrgContextMock(...a),
+  listOrgMembershipsForEvent: (...a: any[]) =>
+    listOrgMembershipsForEventMock(...a),
 }));
+
+function membership(orgId: string, orgName: string) {
+  return {
+    orgId,
+    orgName,
+    allowedDomain: null,
+    role: "member",
+    identityAuthority: null,
+    identityId: null,
+  };
+}
 
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
@@ -159,6 +180,10 @@ describe("handleMcpConnect", () => {
     tokenRows.length = 0;
     deviceRows.length = 0;
     getSessionMock.mockReset();
+    listOrgMembershipsForEventMock.mockReset();
+    listOrgMembershipsForEventMock.mockResolvedValue(null);
+    getOrgContextMock.mockReset();
+    getOrgContextMock.mockResolvedValue({ orgId: null });
     getConfiguredLoginHtmlMock.mockReturnValue(null);
     process.env.A2A_SECRET = SECRET;
   });
@@ -342,6 +367,22 @@ describe("handleMcpConnect", () => {
         label: "laptop",
         jti: payload.jti,
       });
+    });
+
+    it("binds a new token to the default org of an account without one", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      getOrgContextMock.mockResolvedValueOnce({ orgId: "org-new" });
+      listOrgMembershipsForEventMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([membership("org-new", "U's workspace")]);
+
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: {} }),
+        "/token",
+      );
+
+      expect(res.status).toBe(200);
+      expect(tokenRows[0].orgId).toBe("org-new");
     });
 
     it("defaults token lifetime to 365 days", async () => {
@@ -562,6 +603,113 @@ describe("handleMcpConnect", () => {
       expect(ok.status).toBe(200);
       expect(deviceRows[0].ownerEmail).toBe("u@example.com");
       expect(deviceRows[0].status).toBe("approved");
+    });
+
+    it("lets a member of several orgs choose the org bound to the device", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+        membership("org-2", "Globex"),
+      ]);
+
+      const page = await (
+        await handleMcpConnect(ev({ path: "/?user_code=ABCD-2345" }), "/")
+      ).text();
+      expect(page).toContain('<select id="organizationId">');
+      expect(page).toContain('<option value="org-1" selected>Acme');
+
+      const ok = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "org-2" },
+        }),
+        "/device/authorize",
+      );
+      expect(ok.status).toBe(200);
+      expect(deviceRows[0].orgId).toBe("org-2");
+    });
+
+    it("omits the org picker for a member of exactly one org", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+      ]);
+
+      const page = await (
+        await handleMcpConnect(ev({ path: "/?user_code=ABCD-2345" }), "/")
+      ).text();
+      expect(page).not.toContain('id="organizationId"');
+    });
+
+    it("ignores a non-string or empty org_id and falls back to the default", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+      ]);
+
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "" },
+        }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(200);
+      expect(deviceRows[0].orgId).toBe("org-1");
+    });
+
+    it("refuses to bind a device to an org the user does not belong to", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+      ]);
+
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "org-9" },
+        }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(403);
+      expect(deviceRows[0].status).toBe("pending");
+    });
+
+    it("refuses a client-supplied org_id when the account has no orgs to check it against", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([]);
+      getOrgContextMock.mockResolvedValueOnce({ orgId: null });
+
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "someone-elses-org" },
+        }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(403);
+      expect(deviceRows[0].status).toBe("pending");
+      expect(deviceRows[0].orgId).not.toBe("someone-elses-org");
+    });
+
+    it("gives an account without an org its default one before binding", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      getOrgContextMock.mockResolvedValueOnce({ orgId: "org-new" });
+      listOrgMembershipsForEventMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([membership("org-new", "U's workspace")]);
+
+      const ok = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      expect(ok.status).toBe(200);
+      expect(deviceRows[0].orgId).toBe("org-new");
     });
 
     it("rejects a malformed user_code", async () => {
