@@ -2,6 +2,7 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { useOrg } from "@agent-native/core/client/org";
 import type { RecordingKind } from "@shared/recording-kind";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
@@ -221,27 +222,23 @@ export function useTagRecording() {
 }
 
 /**
- * One active-org request shared by every caller. A requested org is served
- * from it only when its id matches, so an org switch never shows the
- * previous org's state; otherwise that org is fetched on its own.
+ * Keyed by the org id, defaulting to the caller's active org, so every caller
+ * shares one request per org. An unscoped key would keep serving the previous
+ * org's cached state across an org switch or after the last org is left.
  */
-export function useOrganizationState<
-  T extends { organization?: { id: string } | null } = any,
->(organizationId?: string, options: { enabled?: boolean } = {}) {
-  const enabled = options.enabled ?? true;
-  const active = useActionQuery<T>("list-organization-state", undefined, {
-    enabled,
-  });
-  const needsOtherOrganization =
-    Boolean(organizationId) &&
-    active.isFetched &&
-    active.data?.organization?.id !== organizationId;
-  const other = useActionQuery<T>(
+export function useOrganizationState<T = any>(
+  organizationId?: string,
+  options: { enabled?: boolean } = {},
+) {
+  const { data: org } = useOrg();
+  const scopedOrganizationId = organizationId ?? org?.orgId ?? undefined;
+  return useActionQuery<T>(
     "list-organization-state",
-    { organizationId },
-    { enabled: enabled && needsOtherOrganization },
+    { organizationId: scopedOrganizationId },
+    {
+      enabled: (options.enabled ?? true) && Boolean(scopedOrganizationId),
+    },
   );
-  return needsOtherOrganization ? other : active;
 }
 
 export function useFolders(
