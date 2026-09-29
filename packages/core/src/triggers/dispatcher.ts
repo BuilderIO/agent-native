@@ -43,6 +43,7 @@ import {
   expireAutomationTriggerEvent,
   failAutomationTriggerEvent,
   getAutomationTriggerSweepCursor,
+  hasPendingStaleAutomationTriggerEvents,
   listReadyAutomationTriggerIds,
   purgeExpiredAutomationTriggerEvents,
   reserveAutomationTriggerEventPurge,
@@ -342,9 +343,16 @@ async function drainReadyTriggerQueue(
         timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
       });
       reclaimedExpiredCount += expired;
-      staleMailExpiryIncomplete =
-        expired >= AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE;
-      if (!staleMailExpiryIncomplete) return;
+      staleMailExpiryIncomplete = true;
+      if (expired >= AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE) continue;
+      if (!hasStaleMailExpiryBudget()) return;
+      staleMailExpiryIncomplete = await hasPendingStaleAutomationTriggerEvents({
+        appId: deps.appId,
+        eventName: MAIL_RECEIVED_EVENT,
+        emittedBefore: staleMailEventCutoff,
+        timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
+      });
+      return;
     }
   };
 
@@ -687,6 +695,10 @@ async function drainTriggerQueue(
     queueQueryTimeoutMs === undefined
       ? undefined
       : { timeoutMs: queueQueryTimeoutMs };
+  const hasTerminalWriteBudget = () =>
+    deadline === undefined ||
+    (queueQueryTimeoutMs !== undefined &&
+      Date.now() + queueQueryTimeoutMs < deadline);
   while (processedEvents < maxEvents) {
     if (
       deadline !== undefined &&
@@ -717,6 +729,7 @@ async function drainTriggerQueue(
       queued.eventName === MAIL_RECEIVED_EVENT &&
       Date.parse(queued.emittedAt) < Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS
     ) {
+      if (!hasTerminalWriteBudget()) return processedEvents > 0;
       await expireAutomationTriggerEvent(
         queued.id,
         queued.claimedAt,
@@ -729,6 +742,7 @@ async function drainTriggerQueue(
     }
 
     if (queued.failureAttempts >= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES) {
+      if (!hasTerminalWriteBudget()) return processedEvents > 0;
       await failAutomationTriggerEvent(
         queued.id,
         queued.claimedAt,
@@ -757,6 +771,7 @@ async function drainTriggerQueue(
         hardDeadlineAt,
       );
       if (result === "retry") {
+        if (!hasTerminalWriteBudget()) return processedEvents > 0;
         await retryAutomationTriggerEvent(
           queued.id,
           queued.claimedAt,
@@ -768,6 +783,7 @@ async function drainTriggerQueue(
         onEventOutcome?.("retried");
         return true;
       }
+      if (!hasTerminalWriteBudget()) return processedEvents > 0;
       await completeAutomationTriggerEvent(
         queued.id,
         queued.claimedAt,
@@ -776,6 +792,7 @@ async function drainTriggerQueue(
       );
       onEventOutcome?.("completed");
     } catch (error) {
+      if (!hasTerminalWriteBudget()) return processedEvents > 0;
       if (queued.failureAttempts + 1 >= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES) {
         await failAutomationTriggerEvent(
           queued.id,

@@ -580,6 +580,26 @@ export async function expireStaleAutomationTriggerEvents(input: {
   return rowsAffected;
 }
 
+export async function hasPendingStaleAutomationTriggerEvents(input: {
+  appId: string;
+  eventName: string;
+  emittedBefore: string;
+  timeoutMs?: number;
+}): Promise<boolean> {
+  await ensureAutomationTriggerEventQueue();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM ${TABLE}
+          WHERE app_id = ? AND event_name = ? AND status = 'pending'
+            AND emitted_at < ?
+          LIMIT 1`,
+    args: [input.appId, input.eventName, input.emittedBefore],
+    ...(input.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: input.timeoutMs, maxAttempts: 1 }),
+  });
+  return rows.length > 0;
+}
+
 export async function retryAutomationTriggerEvent(
   id: string,
   claimedAt: number,
