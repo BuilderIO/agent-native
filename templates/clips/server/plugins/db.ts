@@ -1153,6 +1153,20 @@ export const migrations = runMigrations(
         END';
       `,
     },
+    {
+      version: 78,
+      name: "recording-kind-screenshots",
+      // Additive. Existing rows are videos; `image_url` stays NULL for videos.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'video'`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS image_url TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 79,
+      name: "screenshot-base-image",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS base_image_url TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

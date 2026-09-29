@@ -219,6 +219,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.maxResultChars === "number") {
     out.maxResultChars = entry.maxResultChars;
   }
+  if (typeof entry.maxBodyBytes === "number") {
+    out.maxBodyBytes = entry.maxBodyBytes;
+  }
   if (
     typeof entry.needsApproval === "boolean" ||
     typeof entry.needsApproval === "function"
@@ -768,6 +771,14 @@ export async function mergeCoreSharingActions(
     [
       "export-audit-events",
       () => import("../audit/actions/export-audit-events.js"),
+    ],
+    [
+      "export-resource-pack",
+      () => import("../resources/actions/export-resource-pack.js"),
+    ],
+    [
+      "import-resource-pack",
+      () => import("../resources/actions/import-resource-pack.js"),
     ],
     [
       "promote-trace-eval",

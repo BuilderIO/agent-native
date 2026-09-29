@@ -6,18 +6,22 @@ import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import * as Sentry from "@sentry/node";
-
 import {
   clearAgentNativeNitroPresetMarker,
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
 } from "./react-router-command.js";
+import {
+  captureSentryException as captureOptionalSentryException,
+  flushSentryTelemetry,
+  setCliSentryVersion,
+} from "./sentry-telemetry.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
@@ -29,6 +33,7 @@ try {
   );
   _version = pkg.version;
 } catch {}
+setCliSentryVersion(_version);
 
 const REQUIRED_NODE_MAJOR = 22;
 const REQUIRED_NODE_MINOR = 22;
@@ -46,101 +51,6 @@ if (_unsupportedNode) {
   );
   process.exit(1);
 }
-const SECRET_FLAG_RE = /^--?(token|key|secret|password|api[_-]?key)$/i;
-const SECRET_FLAG_EQ_RE =
-  /^(--?(token|key|secret|password|api[_-]?key))=(.*)$/i;
-function buildRedactedCommandTag(argv: string[]): string {
-  const out: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (SECRET_FLAG_RE.test(a)) {
-      out.push(a);
-      if (i + 1 < argv.length) {
-        out.push("<redacted>");
-        i++;
-      }
-      continue;
-    }
-    const m = a.match(SECRET_FLAG_EQ_RE);
-    if (m) {
-      out.push(`${m[1]}=<redacted>`);
-      continue;
-    }
-    out.push(a);
-  }
-  return out.join(" ");
-}
-
-Sentry.init({
-  dsn: "https://0d384e9eff2f6542af468b92769f2f5b@o117565.ingest.us.sentry.io/4511270386466816",
-  release: `agent-native-cli@${_version}`,
-  integrations: (integrations) =>
-    integrations.filter((integration) => integration.name !== "Http"),
-  sendDefaultPii: false,
-  beforeSend(event) {
-    const exceptionType = event.exception?.values?.[0]?.type;
-    if (
-      exceptionType === "ValidationError" ||
-      event.tags?.handled === "validation"
-    ) {
-      return null;
-    }
-
-    if (event.request) {
-      if (event.request.headers) {
-        const headers = event.request.headers as Record<string, string>;
-        for (const k of Object.keys(headers)) {
-          const lk = k.toLowerCase();
-          if (
-            lk === "cookie" ||
-            lk === "authorization" ||
-            lk === "set-cookie" ||
-            lk === "proxy-authorization"
-          ) {
-            delete headers[k];
-          }
-        }
-      }
-      delete (event.request as Record<string, unknown>).cookies;
-    }
-    if (event.user) {
-      const user = event.user as Record<string, unknown>;
-      delete user.ip_address;
-      const hasIdentity =
-        typeof user.id === "string" ||
-        typeof user.email === "string" ||
-        typeof user.username === "string";
-      if (!hasIdentity) {
-        delete event.user;
-      }
-    }
-    if (event.contexts && typeof event.contexts === "object") {
-      delete (event.contexts as Record<string, unknown>).runtime_env;
-    }
-
-    event.tags = {
-      ...event.tags,
-      command: buildRedactedCommandTag(process.argv.slice(2)),
-      subcommand: process.argv[2] ?? "none",
-      nodeVersion: process.version,
-      platform: process.platform,
-    };
-    return event;
-  },
-});
-
-{
-  const builderUserId = process.env.BUILDER_USER_ID;
-  const builderPublicKey = process.env.BUILDER_PUBLIC_KEY;
-  if (builderUserId) {
-    Sentry.setUser({ id: builderUserId });
-    Sentry.setTag("builderUserId", builderUserId);
-  }
-  if (builderPublicKey) {
-    Sentry.setTag("spaceId", builderPublicKey);
-  }
-}
-
 const FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV?source=cli";
 const BUGS_URL = "https://github.com/BuilderIO/agent-native/issues";
@@ -199,9 +109,10 @@ function captureCliException(
 }
 
 function flushTelemetryAndExit(code: number): void {
-  void Promise.allSettled([cliTelemetry.flush(), Sentry.flush(2000)]).finally(
-    () => process.exit(code),
-  );
+  void Promise.allSettled([
+    cliTelemetry.flush(),
+    flushSentryTelemetry(2000),
+  ]).finally(() => process.exit(code));
 }
 
 process.on("uncaughtException", (err) => {
@@ -210,7 +121,7 @@ process.on("uncaughtException", (err) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
   captureCliException(err, { handled: false, tags: { source: "process" } });
-  Sentry.captureException(err);
+  void captureOptionalSentryException(err);
   flushTelemetryAndExit(1);
 });
 
@@ -223,7 +134,7 @@ process.on("unhandledRejection", (reason: any) => {
     handled: false,
     tags: { source: "unhandled-rejection" },
   });
-  Sentry.captureException(reason);
+  void captureOptionalSentryException(reason);
   flushTelemetryAndExit(1);
 });
 
@@ -248,7 +159,7 @@ function handleScaffoldImportError(err: any): void {
     handled: false,
     tags: { source: "scaffold-import" },
   });
-  Sentry.captureException(err);
+  void captureOptionalSentryException(err);
   flushTelemetryAndExit(1);
 }
 
@@ -466,7 +377,7 @@ function runBuildStep(
     child.on("error", (err) => {
       const cwd = process.cwd();
       const { template, app } = inferBuildContext(cwd);
-      Sentry.captureException(err, {
+      void captureOptionalSentryException(err, {
         tags: {
           buildStep: opts.label,
           ...(template ? { template } : {}),
@@ -505,7 +416,7 @@ function runBuildStep(
           (template ? ` (template=${template})` : "") +
           (app ? ` (app=${app})` : ""),
       );
-      Sentry.captureException(err, {
+      void captureOptionalSentryException(err, {
         tags: {
           buildStep: opts.label,
           ...(template ? { template } : {}),
@@ -666,7 +577,7 @@ switch (command) {
         handled: false,
         tags: { source: "orchestration" },
       });
-      Sentry.captureException(err);
+      void captureOptionalSentryException(err);
       flushTelemetryAndExit(1);
     });
     break;
@@ -983,7 +894,11 @@ switch (command) {
   }
 
   case "recap": {
-    import("./recap.js")
+    loadOptionalPeer(
+      "@agent-native/recap-cli",
+      () => import("@agent-native/recap-cli"),
+    )
+      .then(() => import("./recap.js"))
       .then((m) => m.runRecap(args))
       .catch((err) => {
         console.error(err?.message ?? err);
@@ -993,7 +908,11 @@ switch (command) {
   }
 
   case "plan": {
-    import("./plan-local.js")
+    loadOptionalPeer(
+      "@agent-native/recap-cli",
+      () => import("@agent-native/recap-cli"),
+    )
+      .then(() => import("./plan-local.js"))
       .then((m) => m.runPlan(args))
       .catch((err) => {
         console.error(err?.message ?? err);

@@ -1,3 +1,5 @@
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 const TRACER_NAME = "@agent-native/core/agent-loop";
 
 export interface AgentSpan {
@@ -34,11 +36,15 @@ interface AgentTraceRuntime {
 }
 
 let cachedRuntime: AgentTraceRuntime | null | undefined;
+let runtimeLoadWarningLogged = false;
 
 async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
   if (cachedRuntime !== undefined) return cachedRuntime;
   try {
-    const otel: any = await import("@opentelemetry/api");
+    const otel: any = await loadOptionalPeer(
+      "@opentelemetry/api",
+      () => import("@opentelemetry/api"),
+    );
     const tracer = otel?.trace?.getTracer?.(TRACER_NAME);
     cachedRuntime = tracer
       ? {
@@ -49,7 +55,14 @@ async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
           ...(otel?.trace?.setSpan ? { trace: otel.trace } : {}),
         }
       : null;
-  } catch {
+  } catch (error) {
+    if (!runtimeLoadWarningLogged) {
+      runtimeLoadWarningLogged = true;
+      console.warn(
+        "[agent-native] OpenTelemetry tracing disabled after an optional peer load failure.",
+        error,
+      );
+    }
     cachedRuntime = null;
   }
   return cachedRuntime;
@@ -362,6 +375,7 @@ export function endAgentSpan(
 
 export function __resetAgentTracerCache(): void {
   cachedRuntime = undefined;
+  runtimeLoadWarningLogged = false;
 }
 
 export function __setAgentTracerForTests(tracer: AgentTracer | null): void {

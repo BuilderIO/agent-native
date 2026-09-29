@@ -18,6 +18,9 @@ iframe-backed screens on the infinite canvas.
 The editor is hosted at `https://design.agent-native.com`. Never start local
 Design; only the target app and bridge run locally.
 
+See the [Visual Edit guide](https://github.com/BuilderIO/agent-native/blob/main/skills/visual-edit/README.md)
+for a worked onboarding-flow example.
+
 ## Fast local startup
 
 - Do not install this skill into the target app or start a local Design server.
