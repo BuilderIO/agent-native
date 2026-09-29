@@ -1829,6 +1829,11 @@ const messages = {
     thumbsUpRate: "Thumbs up rate",
     categories: "Categories",
     review: "Human review",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Reply must contain (optional)",
+    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     reviewDescription:
       "Review the ask and answer, record feedback, and draft an instruction update.",
     ask: "What was asked",

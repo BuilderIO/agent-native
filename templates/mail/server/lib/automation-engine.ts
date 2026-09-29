@@ -176,7 +176,11 @@ async function getAccessToken(
         accountEmail,
         updated as unknown as Record<string, unknown>,
       );
-      registerGmailAccountToken(refreshed.access_token, ownerEmail, accountEmail);
+      registerGmailAccountToken(
+        refreshed.access_token,
+        ownerEmail,
+        accountEmail,
+      );
       return refreshed.access_token;
     } catch (err: any) {
       console.error(
@@ -467,7 +471,12 @@ async function refreshReceivedEventCursor(
   signal?: AbortSignal,
 ): Promise<void> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
-  const profile = await gmailGetProfile(accessToken, "incremental", false, signal);
+  const profile = await gmailGetProfile(
+    accessToken,
+    "incremental",
+    false,
+    signal,
+  );
   throwIfAborted(signal);
   if (typeof profile.historyId !== "string" || !profile.historyId) {
     throw new Error("Gmail did not return a history cursor for Mail events.");
@@ -744,7 +753,12 @@ async function fetchNewInboxMessages(
   if (fallbackToList || watermark.fallbackPageToken) {
     try {
       if (fallbackToList) {
-        const profile = await gmailGetProfile(accessToken, "incremental", false, signal);
+        const profile = await gmailGetProfile(
+          accessToken,
+          "incremental",
+          false,
+          signal,
+        );
         throwIfAborted(signal);
         if (typeof profile.historyId !== "string" || !profile.historyId) {
           throw new Error(
@@ -2012,7 +2026,11 @@ async function runAutomationsForAccount(
       claimToken,
       signal,
     );
-    const labelCache = await buildLabelCache(accessToken, "incremental", signal);
+    const labelCache = await buildLabelCache(
+      accessToken,
+      "incremental",
+      signal,
+    );
     throwIfAborted(signal);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];

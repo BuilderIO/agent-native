@@ -759,6 +759,23 @@ describe("inboxThreadsHasNextPage", () => {
       }),
     ).toBe(false);
   });
+
+  it("stops at the hydrated page frontier while a provider total is incomplete", () => {
+    expect(
+      inboxThreadsHasNextPage(50, 250, {
+        complete: false,
+        lastPageLength: 0,
+        pageSize: 50,
+      }),
+    ).toBe(false);
+    expect(
+      inboxThreadsHasNextPage(50, 250, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("mergeInboxThreadPages", () => {

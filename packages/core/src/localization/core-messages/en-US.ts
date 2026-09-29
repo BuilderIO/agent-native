@@ -71,6 +71,12 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainOptional": "Reply must contain (optional)",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
   "observability.hideDetails": "Hide details",
   "observability.input": "Input",

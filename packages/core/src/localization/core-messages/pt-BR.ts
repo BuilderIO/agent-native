@@ -73,6 +73,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
+  "observability.promoteMustContain": "A resposta deve conter…",
+  "observability.promoteMustContainOptional":
+    "A resposta deve conter (opcional)",
+  "observability.promoteMustContainLabel":
+    "Texto que a resposta da avaliação promovida deve conter",
+  "observability.promoteNeedsContains":
+    "Esta execução não tem nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promover.",
   "observability.viewDetails": "Ver detalhes",
   "observability.hideDetails": "Ocultar detalhes",
   "observability.input": "Entrada",

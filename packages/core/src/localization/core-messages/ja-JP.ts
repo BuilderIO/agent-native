@@ -75,6 +75,11 @@ const messages: AgentChatTranslation = {
   "commands.mention": "ファイル、エージェント、リソースをメンション",
   "commands.new": "/clear と同じ",
   "commands.plan": "読み取り専用の計画モードに切り替え",
+  "observability.promoteMustContain": "返信に含める内容…",
+  "observability.promoteMustContainOptional": "返信に含める内容（任意）",
+  "observability.promoteMustContainLabel": "昇格する評価の返信に含めるテキスト",
+  "observability.promoteNeedsContains":
+    "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",
   "observability.hideDetails": "詳細を非表示",
   "observability.input": "入力",

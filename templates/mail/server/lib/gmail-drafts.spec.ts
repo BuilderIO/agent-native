@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getOAuth2Credentials: vi.fn(),
   gmailGetMessage: vi.fn(),
   googleFetch: vi.fn(),
+  registerGmailAccountToken: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -20,6 +21,7 @@ vi.mock("./google-api.js", () => ({
   createOAuth2Client: mocks.createOAuth2Client,
   gmailGetMessage: mocks.gmailGetMessage,
   googleFetch: mocks.googleFetch,
+  registerGmailAccountToken: mocks.registerGmailAccountToken,
 }));
 
 vi.mock("./google-auth.js", () => ({

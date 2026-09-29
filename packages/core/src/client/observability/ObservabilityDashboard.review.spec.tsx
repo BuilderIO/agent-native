@@ -73,6 +73,14 @@ vi.mock("./useObservability.js", () => ({
   useOutputReviews: () => mockOutputReviews(),
   useOutputReviewDetail: (runId: string | null) =>
     mockOutputReviewDetail(runId),
+  usePromoteTraceEval: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    data: undefined,
+    isError: false,
+    error: null,
+  }),
   useSaveInstructionUpdate: () => ({
     mutate: mockSaveInstructionUpdate,
     isPending: false,

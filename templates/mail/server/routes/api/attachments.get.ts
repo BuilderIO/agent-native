@@ -53,7 +53,11 @@ async function getAccessToken(
         accountEmail,
         updated as unknown as Record<string, unknown>,
       );
-      registerGmailAccountToken(refreshed.access_token, ownerEmail, accountEmail);
+      registerGmailAccountToken(
+        refreshed.access_token,
+        ownerEmail,
+        accountEmail,
+      );
       return refreshed.access_token;
     } catch {
       // Use existing token

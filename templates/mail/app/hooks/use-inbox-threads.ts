@@ -386,11 +386,13 @@ export function useInboxSyncPoller(
       const previous = qc.getQueryData<InboxSyncResult>(queryKey);
       const now = Date.now();
       const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
+      const scopedEmailSet = new Set(scopedEmails);
+      const hasAccountScope = scopedEmailSet.size > 0;
       const eligibleEmails = previous?.accounts
         .filter((account) => {
           if (
-            scopedEmails &&
-            !scopedEmails.includes(account.accountEmail.toLowerCase())
+            hasAccountScope &&
+            !scopedEmailSet.has(account.accountEmail.toLowerCase())
           ) {
             return false;
           }
@@ -400,6 +402,7 @@ export function useInboxSyncPoller(
       if (
         previous &&
         previous.accounts.length > 0 &&
+        hasAccountScope &&
         eligibleEmails?.length === 0
       ) {
         return {
@@ -411,13 +414,11 @@ export function useInboxSyncPoller(
           })),
         };
       }
-      const requestedEmails = previous
-        ? previous.accounts.length === 0 && !accountEmails
-          ? undefined
-          : (eligibleEmails ?? scopedEmails ?? [])
-        : accountEmails
-          ? [...accountEmails]
-          : undefined;
+      const requestedEmails = hasAccountScope
+        ? previous?.accounts.length
+          ? eligibleEmails
+          : scopedEmails
+        : undefined;
       const request = requestedEmails ? { accountEmails: requestedEmails } : {};
       const result = await syncMutation.mutateAsync(request);
       const receivedAt = Date.now();
@@ -452,7 +453,7 @@ export function useInboxSyncPoller(
         const email = account.accountEmail.toLowerCase();
         if (
           returnedByEmail.has(email) ||
-          (scopedEmails && !scopedEmails.includes(email))
+          (hasAccountScope && !scopedEmailSet.has(email))
         ) {
           continue;
         }
@@ -525,7 +526,10 @@ export function inboxThreadsHasNextPage(
     totalIsLowerBound?: boolean;
   },
 ): boolean {
-  if (options?.totalIsLowerBound) {
+  if (
+    options?.totalIsLowerBound ||
+    (options?.complete === false && options.lastPageLength !== undefined)
+  ) {
     return (
       options.complete !== true &&
       options.lastPageLength === (options.pageSize ?? INBOX_PAGE_SIZE)
