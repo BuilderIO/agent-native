@@ -28,6 +28,7 @@ vi.mock("../labs/LabsSettings.js", () => ({
 vi.mock("../i18n.js", () => ({
   useT: () => (key: string) =>
     key === "agentChat.auth.logOut" ? "Cerrar sesión" : key,
+  useOptionalLocale: () => ({ locale: "en" }),
 }));
 
 function stubMobileViewport(isMobile: boolean) {
@@ -513,6 +514,31 @@ describe("SettingsTabsPage", () => {
     expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Recent updates");
     expect(container.textContent).not.toContain("General content");
+  });
+
+  it("renders What's new markdown in the legacy settings fallback", async () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          whatsNewMarkdown={"## 2026-09-25\n\n### Fixed\n\n- Fixed an issue"}
+        />,
+      );
+    });
+
+    const whatsNewTab = container.querySelector<HTMLButtonElement>(
+      "#settings-tab-whats-new",
+    );
+    expect(whatsNewTab).not.toBeNull();
+
+    act(() => {
+      whatsNewTab!.click();
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Fixed an issue");
+      expect(container.textContent).not.toContain("General content");
+    });
   });
 
   it("keeps semantic settings routes under a workspace mount", () => {
