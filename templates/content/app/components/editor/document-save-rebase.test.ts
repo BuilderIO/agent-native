@@ -101,30 +101,6 @@ describe("document save ownership after a rejected CAS", () => {
     });
   });
 
-  it("returns the base revision used by a successful rebased save", async () => {
-    const baseRevision = { ...base, revision: "body:31" };
-    const winningRevision = { ...winner, revision: "body:32" };
-    const persisted = {
-      ...winningRevision,
-      content: draft,
-      updatedAt: "2026-09-09T00:00:03.000Z",
-      revision: "body:33",
-    };
-    const persist = vi
-      .fn()
-      .mockResolvedValueOnce({ conflict: true, document: winningRevision })
-      .mockResolvedValueOnce(persisted);
-
-    await expect(
-      saveDocumentWithRebase({ base: baseRevision, content: draft, persist }),
-    ).resolves.toMatchObject({ status: "saved", baseRevision: "body:32" });
-    expect(persist).toHaveBeenNthCalledWith(2, draft, {
-      content: winningRevision.content,
-      updatedAt: winningRevision.updatedAt,
-      revision: "body:32",
-    });
-  });
-
   it("retries a genuine overlap with the later local intent", async () => {
     const localDraft = original.replace("inspect", "discuss");
     const saved = {

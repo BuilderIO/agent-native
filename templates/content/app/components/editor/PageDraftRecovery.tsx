@@ -3,13 +3,7 @@ import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -30,13 +24,13 @@ import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
 import { authoredCandidateMatchesContent } from "./document-save-retry";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
-import { LiveEditorSessionContext } from "./live-editor-session";
 import {
   clearPageDraftJournal,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
   writePageDraftJournal,
 } from "./page-draft-journal";
+import { LiveEditorSessionContext } from "./live-editor-session";
 import { RecoveryComparison } from "./RecoveryComparison";
 
 type DraftRecoveryFailure = "conflict" | "error";
@@ -82,43 +76,17 @@ export function PageDraftRecovery({
   const journalAttemptRef = useRef<string | null>(null);
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
-  const [liveEditorSession, setLiveEditorSession] = useState<{
-    editorSessionId: string;
-    draft: { title: string; content: string } | null;
-    active: boolean;
-  } | null>(null);
-  const registerLiveEditorSession = useCallback(
-    (
-      editorSessionId: string,
-      liveDraft: { title: string; content: string } | null,
-      active: boolean,
-    ) => {
-      setLiveEditorSession((current) => {
-        if (!active) {
-          return current?.editorSessionId === editorSessionId
-            ? { editorSessionId, draft: null, active: false }
-            : current;
-        }
-        return { editorSessionId, draft: liveDraft, active: true };
-      });
-    },
-    [],
+  const [liveEditorSessionId, setLiveEditorSessionId] = useState<string | null>(
+    null,
   );
-  const persistedDraft = drafts.data?.draft;
-  const liveDraft = liveEditorSession?.draft;
-  const draftCanSettle = Boolean(
-    persistedDraft &&
-    liveDraft &&
-    liveEditorSession?.active &&
-    persistedDraft.editorSessionId === liveEditorSession?.editorSessionId &&
-    persistedDraft.title === liveDraft.title &&
-    persistedDraft.content === liveDraft.content,
-  );
-  const draft = draftCanSettle ? null : persistedDraft;
-  const liveDraftNeedsReview = Boolean(
-    draft && draft.editorSessionId === liveEditorSession?.editorSessionId,
-  );
-  const visibleFailure = failure ?? (liveDraftNeedsReview ? "conflict" : null);
+  // The live editor settles drafts it wrote itself; swapping it for a
+  // skeleton here would remount it and jump the page to the top.
+  const draft =
+    drafts.data?.draft &&
+    liveEditorSessionId &&
+    drafts.data.draft.editorSessionId === liveEditorSessionId
+      ? null
+      : drafts.data?.draft;
   const editorReleased =
     releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey && !draft;
 
@@ -175,20 +143,8 @@ export function PageDraftRecovery({
       setJournalState("failed");
       return;
     }
-    if (
-      entry &&
-      (entry.scope.writerId === liveEditorSession?.editorSessionId ||
-        entry.scope.writerId === persistedDraft?.editorSessionId)
-    ) {
-      setJournalState("ready");
-      return;
-    }
     if (!entry) {
-      try {
-        sweepLegacyRetainedPageDraftMarkers();
-      } catch (error) {
-        console.warn("Unable to remove legacy Content draft markers.", error);
-      }
+      sweepLegacyRetainedPageDraftMarkers();
       setJournalState("ready");
       return;
     }
@@ -435,8 +391,6 @@ export function PageDraftRecovery({
     editorReleased,
     journalRevision,
     journalState,
-    liveEditorSession?.editorSessionId,
-    persistedDraft?.editorSessionId,
     scopeKey,
     session?.email,
     session?.orgId,
@@ -629,7 +583,6 @@ export function PageDraftRecovery({
       !draft ||
       !hasEditIdentity ||
       busy ||
-      liveDraftNeedsReview ||
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
@@ -669,7 +622,6 @@ export function PageDraftRecovery({
     draft,
     failure,
     hasEditIdentity,
-    liveDraftNeedsReview,
     journalState,
     scopeKey,
     session?.email,
@@ -679,7 +631,7 @@ export function PageDraftRecovery({
 
   // Keep the editor at one tree position so a notice never remounts it.
   const withNotice = (notice: ReactNode) => (
-    <LiveEditorSessionContext.Provider value={registerLiveEditorSession}>
+    <LiveEditorSessionContext.Provider value={setLiveEditorSessionId}>
       {notice}
       {children}
     </LiveEditorSessionContext.Provider>
@@ -717,7 +669,7 @@ export function PageDraftRecovery({
   if (!draft) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
-  if (!visibleFailure) return <DocumentEditorSkeleton title={document.title} />;
+  if (!failure) return <DocumentEditorSkeleton title={document.title} />;
   const savedVersion = conflictDocument ?? document;
   return (
     <RecoveryComparison
@@ -726,7 +678,7 @@ export function PageDraftRecovery({
       busy={busy}
       keepMineDisabled={documentBodyHydrationIsPending(document)}
       failure={
-        visibleFailure === "conflict"
+        failure === "conflict"
           ? t("editor.previewDraftConflict")
           : t("empty.genericError")
       }
