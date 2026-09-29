@@ -53,6 +53,7 @@ import {
   cancelScheduledJobForOwner,
   confirmUncertainScheduledJobSentForOwner,
   getDuePendingJobs,
+  getSyntheticEmailsForView,
   listPendingJobs,
   markExpiredScheduledSendsUncertain,
   markJobUncertain,
@@ -62,6 +63,20 @@ import {
 } from "./jobs.js";
 
 describe("scheduled job lease claims", () => {
+  it("keeps scheduled-view reads owner-scoped and free of lease-recovery writes", async () => {
+    const ownerEmail = "alice@example.com";
+    captured.updateValues = null;
+    captured.selectedRows = [];
+
+    await expect(
+      getSyntheticEmailsForView(ownerEmail, "scheduled"),
+    ).resolves.toEqual([]);
+
+    expect(captured.updateValues).toBeNull();
+    const query = new PgDialect().sqlToQuery(captured.selectedCondition);
+    expect(query.params).toContain(ownerEmail);
+  });
+
   it("does not expose scheduled sends without a proven owner", async () => {
     captured.selectedRows = [];
 

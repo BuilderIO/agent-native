@@ -979,14 +979,19 @@ Respond to the event.`,
     });
 
     const staleEmittedAt = new Date(now - 2 * 60 * 60_000).toISOString();
+    const staleTriggerIds = Array.from(
+      { length: 100 },
+      (_, index) => `a-stale-trigger-${String(index).padStart(3, "0")}`,
+    );
     for (let index = 0; index < 2_000; index += 1) {
+      const triggerId = staleTriggerIds[index % staleTriggerIds.length]!;
       triggerQueueMocks.rows.push({
         appId: "mail",
         id: `stale-${index}`,
         sequenceId: index + 2,
-        triggerId: "a-stale-trigger",
+        triggerId,
         triggerOwner: "alice+triggers@agent-native.test",
-        triggerPath: "jobs/a-stale-trigger.md",
+        triggerPath: `jobs/${triggerId}.md`,
         eventName,
         eventId: `stale-event-${index}`,
         payload: {},
@@ -1005,6 +1010,9 @@ Respond to the event.`,
     await sweep?.({ deadlineAt: now + 90_000 });
 
     expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(3);
+    expect(
+      triggerQueueMocks.expire.mock.invocationCallOrder.at(-1),
+    ).toBeLessThan(triggerQueueMocks.ready.mock.invocationCallOrder[0]!);
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
     const prompt =
       runAgentLoopMock.mock.calls[0]?.[0].messages[0]?.content[0]?.text;
@@ -1017,7 +1025,7 @@ Respond to the event.`,
     expect(
       triggerQueueMocks.rows.some(
         (row) =>
-          row.triggerId === "a-stale-trigger" &&
+          row.triggerId.startsWith("a-stale-trigger-") &&
           row.status === "completed" &&
           row.lastError ===
             "Expired because the mail event was older than 60 minutes.",
@@ -1026,7 +1034,8 @@ Respond to the event.`,
     expect(
       triggerQueueMocks.rows.filter(
         (row) =>
-          row.triggerId === "a-stale-trigger" && row.status === "completed",
+          row.triggerId.startsWith("a-stale-trigger-") &&
+          row.status === "completed",
       ),
     ).toHaveLength(2_000);
   });
