@@ -6589,6 +6589,8 @@ it(
         height: 60px;
         border-top-left-radius: 20px;
         background: transparent;
+        border: 1px solid #111;
+        box-sizing: border-box;
       }
     </style>
   </head>
@@ -6694,7 +6696,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6741,7 +6743,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6819,7 +6821,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
-  <div id="first" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="first" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6885,7 +6887,7 @@ it.each(["rectangle", "polygon"] as const)(
         ...polygonPoints.map(([x, y]) => [x, y, null, null, null, null, null]),
       ]);
       const shapeMarkup = isRectangle
-        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;border:1px solid #111;box-sizing:border-box"></div>'
         : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
@@ -6958,7 +6960,7 @@ it.each(["rectangle", "polygon"] as const)(
         ].map(([x, y]) => [x, y, null, null, null, null, null]),
       ]);
       const shapeMarkup = isRectangle
-        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;border:1px solid #111;box-sizing:border-box"></div>'
         : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
@@ -7064,7 +7066,7 @@ it.each(["rectangle", "polygon"] as const)(
 );
 
 it(
-  "shows radius handles only on supported shapes and does not require a fill",
+  "shows radius handles on supported shapes only when they have visible paint",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -7074,7 +7076,12 @@ it(
       });
       await page.setContent(`<!doctype html>
 <html><body>
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#ddd"></div>
+  <div id="no-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:40px;width:120px;height:80px"></div>
+  <div id="transparent-fill-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:140px;width:120px;height:80px;background:rgba(20,40,60,0)"></div>
+  <div id="stroke-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:240px;width:120px;height:80px;background:transparent;border:2px solid #222;box-sizing:border-box"></div>
+  <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
+  <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
   <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
   <div id="unknown" style="position:absolute;left:520px;top:40px;width:60px;height:30px"></div>
@@ -7098,6 +7105,11 @@ it(
         "line",
         "arrow",
         "malformed-vector",
+        "no-paint-rectangle",
+        "transparent-fill-rectangle",
+        "stroke-rectangle",
+        "zero-opacity-rectangle",
+        "stroke-polygon",
       ]) {
         await selectElementDirect(page, `#${id}`);
         const visible = await page.evaluate(() =>
@@ -7120,7 +7132,7 @@ it(
             .evaluate((element) =>
               Boolean((element as HTMLElement).style.background),
             );
-          expect(hasAuthoredFill).toBe(false);
+          expect(hasAuthoredFill).toBe(true);
           await page.mouse.move(44, 44);
           const visibleAtCorner = await page.evaluate(() =>
             Array.from(
@@ -7215,6 +7227,78 @@ it(
             ),
           );
           expect(visibleAfterLeaving).toBe(false);
+        }
+        if (id === "stroke-rectangle") {
+          await page.mouse.move(644, 244);
+          const visibleAtCorner = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtCorner).toEqual(["nw"]);
+        }
+        if (id === "stroke-polygon") {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error("stroke polygon is not visible");
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex).toEqual(["vertex-0"]);
+        }
+        if (
+          id === "no-paint-rectangle" ||
+          id === "transparent-fill-rectangle" ||
+          id === "zero-opacity-rectangle"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + 4, box.y + 4);
+          const visibleAtCorner = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          const style = await page.locator(`#${id}`).evaluate((element) => {
+            const computed = getComputedStyle(element);
+            return {
+              backgroundColor: computed.backgroundColor,
+              backgroundImage: computed.backgroundImage,
+              opacity: computed.opacity,
+              border: [
+                computed.borderTopWidth,
+                computed.borderTopStyle,
+                computed.borderTopColor,
+              ],
+            };
+          });
+          expect(visibleAtCorner, `${id} ${JSON.stringify(style)}`).toEqual([]);
         }
       }
       expect(pageErrors).toEqual([]);
@@ -17125,6 +17209,8 @@ it.each([
         height: 60px;
         border-top-left-radius: 20px;
         background: transparent;
+        border: 1px solid #111;
+        box-sizing: border-box;
       }
     </style>
   </head>
@@ -17299,7 +17385,7 @@ it(
       await page.setContent(`<!doctype html><html><body>
   <div id="root" style="position:absolute;left:320px;top:100px;width:300px;height:300px;transform:rotateY(35deg);transform-style:preserve-3d;transform-origin:0 0">
     <div id="parent" style="position:absolute;left:20px;top:15px;width:200px;height:180px;transform:rotateX(25deg);transform-style:preserve-3d;transform-origin:0 0">
-      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-top-left-radius:20px;background:transparent"></div>
+      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-top-left-radius:20px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
     </div>
   </div>
 </body></html>`);
@@ -17456,7 +17542,7 @@ it.each([
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body>
-  <div style="${sceneStyle};position:absolute;left:150px;top:100px;width:320px;height:220px"><div style="${parentStyle};position:absolute;left:0;top:0;width:200px;height:150px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetStyle}position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px;background:transparent"></div></div></div>
+  <div style="${sceneStyle};position:absolute;left:150px;top:100px;width:320px;height:220px"><div style="${parentStyle};position:absolute;left:0;top:0;width:200px;height:150px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetStyle}position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]', {
@@ -17577,7 +17663,7 @@ it.each([
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body>
-  <div id="root" style="${rootStyle};position:absolute;left:320px;top:100px;width:300px;height:300px"><div id="parent" style="${parentStyle};position:absolute;left:20px;top:15px;width:200px;height:180px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-radius:16px;background:transparent"></div></div></div>
+  <div id="root" style="${rootStyle};position:absolute;left:320px;top:100px;width:300px;height:300px"><div id="parent" style="${parentStyle};position:absolute;left:20px;top:15px;width:200px;height:180px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -17713,7 +17799,7 @@ it.each([
       const pageErrors: string[] = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.setContent(`<!doctype html><html><body>
-  <div style="${parentStyle};position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetTransform}position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent"></div></div>
+  <div style="${parentStyle};position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetTransform}position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -17787,7 +17873,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body>
-  <div style="perspective:600px;position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent"></div></div>
+  <div style="perspective:600px;position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -17819,7 +17905,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body>
-  <div style="position:absolute;left:160px;top:120px;transform:rotate(45deg);rotate:x 90deg;scale:2 3;transform-origin:0 0"><div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px"></div></div>
+  <div style="position:absolute;left:160px;top:120px;transform:rotate(45deg);rotate:x 90deg;scale:2 3;transform-origin:0 0"><div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px;border:1px solid #111;box-sizing:border-box"></div></div>
 </body></html>`);
       const pageErrors: string[] = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));

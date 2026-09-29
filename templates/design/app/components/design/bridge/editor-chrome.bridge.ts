@@ -9265,8 +9265,70 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function cornerRadiusColorIsVisible(value) {
+    var color = String(value || "")
+      .trim()
+      .toLowerCase();
+    if (!color || color === "none" || color === "transparent") return false;
+    var parsed = parseCssRgb(color);
+    if (parsed) return parsed.a > 0;
+    var alpha = /\/\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))%?\s*\)$/.exec(color);
+    return !alpha || Number(alpha[1]) > 0;
+  }
+
+  function cornerRadiusHasVisiblePaint(el) {
+    var cursor = el;
+    while (cursor) {
+      var style = window.getComputedStyle(cursor);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number(style.opacity) === 0
+      ) {
+        return false;
+      }
+      cursor = cursor.parentElement;
+    }
+    var style = window.getComputedStyle(el);
+    if (
+      style.backgroundImage !== "none" ||
+      cornerRadiusColorIsVisible(style.backgroundColor)
+    ) {
+      return true;
+    }
+    var borderSides = ["top", "right", "bottom", "left"];
+    for (var index = 0; index < borderSides.length; index += 1) {
+      var side = borderSides[index];
+      if (
+        parseFloat(style.getPropertyValue("border-" + side + "-width")) > 0 &&
+        style.getPropertyValue("border-" + side + "-style") !== "none" &&
+        style.getPropertyValue("border-" + side + "-style") !== "hidden" &&
+        cornerRadiusColorIsVisible(
+          style.getPropertyValue("border-" + side + "-color"),
+        )
+      ) {
+        return true;
+      }
+    }
+    if (el.tagName.toLowerCase() !== "svg") return false;
+    var paintTarget = vectorPaintTarget(el);
+    if (!paintTarget) return false;
+    var paintStyle = window.getComputedStyle(paintTarget);
+    if (Number(paintStyle.opacity) === 0) return false;
+    return (
+      (paintStyle.fill !== "none" &&
+        Number(paintStyle.fillOpacity) > 0 &&
+        cornerRadiusColorIsVisible(paintStyle.fill)) ||
+      (paintStyle.stroke !== "none" &&
+        parseFloat(paintStyle.strokeWidth) > 0 &&
+        Number(paintStyle.strokeOpacity) > 0 &&
+        cornerRadiusColorIsVisible(paintStyle.stroke))
+    );
+  }
+
   function cornerRadiusHandleKeys(el) {
     if (!el || el.nodeType !== 1) return [];
+    if (!cornerRadiusHasVisiblePaint(el)) return [];
     var kind = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
