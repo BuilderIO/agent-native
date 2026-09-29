@@ -236,6 +236,13 @@ export async function runWorkspaceDeploy(
 
   const preset = resolvePreset(opts.preset, rawArgs);
   assertWorkspaceDeployProductionEnv({ buildOnly, preset });
+  // Resolve before clearing outputs: an invalid value must not delete the
+  // previous successful build's artifacts.
+  const concurrency = resolveBuildConcurrency(
+    opts.concurrency,
+    rawArgs,
+    config.deployment?.workspace?.buildConcurrency,
+  );
   const distDir = path.join(workspaceRoot, "dist");
   const vercelOutputDir = path.join(workspaceRoot, VERCEL_OUTPUT_DIR);
   if (preset === "vercel") {
@@ -260,11 +267,6 @@ export async function runWorkspaceDeploy(
   );
 
   const execFile = opts.execFile ?? execFileSync;
-  const concurrency = resolveBuildConcurrency(
-    opts.concurrency,
-    rawArgs,
-    config.deployment?.workspace?.buildConcurrency,
-  );
   const timings: AppBuildTiming[] = [];
   if (concurrency > 1) {
     await runAppBuildsConcurrently(
@@ -2025,6 +2027,10 @@ function resolveBuildConcurrency(
 // about 3.7 GiB. Running more builds than memory allows swaps or gets
 // OOM-killed on small CI builders long before cores run out.
 const APP_BUILD_MEMORY_BYTES = 4 * 1024 ** 3;
+// Held back for the deploy process, the pnpm wrappers, each app's build
+// parent process, and the OS. Without it an 8 GiB builder gets two ~3.7 GiB
+// builds and nothing left over.
+const BUILD_MEMORY_RESERVE_BYTES = 1.5 * 1024 ** 3;
 
 function autoBuildConcurrency(): number {
   // Container limits (cgroups) are invisible to os.totalmem(), which reports
@@ -2032,7 +2038,9 @@ function autoBuildConcurrency(): number {
   const limit = process.constrainedMemory();
   const memory = limit > 0 && limit < os.totalmem() ? limit : os.totalmem();
   const byCores = os.availableParallelism() - 1;
-  const byMemory = Math.floor(memory / APP_BUILD_MEMORY_BYTES);
+  const byMemory = Math.floor(
+    (memory - BUILD_MEMORY_RESERVE_BYTES) / APP_BUILD_MEMORY_BYTES,
+  );
   return Math.max(1, Math.min(byCores, byMemory));
 }
 

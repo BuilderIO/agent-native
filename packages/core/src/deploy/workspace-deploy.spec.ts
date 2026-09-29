@@ -1970,7 +1970,7 @@ describe("workspace deploy build concurrency", () => {
     }
     const gib = 1024 ** 3;
     vi.spyOn(os, "availableParallelism").mockReturnValue(4);
-    vi.spyOn(os, "totalmem").mockReturnValue(8 * gib);
+    const totalmem = vi.spyOn(os, "totalmem").mockReturnValue(16 * gib);
     const constrained = vi
       .spyOn(process, "constrainedMemory")
       .mockReturnValue(0);
@@ -1982,9 +1982,34 @@ describe("workspace deploy build concurrency", () => {
         execFile: execFile as typeof execFileSync,
         runAppBuild: builds.runAppBuild,
       });
-      // 4 cores leave 3 builds; 8 GiB of memory allows 2.
-      expect(builds.maxInFlight()).toBe(2);
+      // 4 cores leave 3 builds; 16 GiB less the reserve allows 3.
+      expect(builds.maxInFlight()).toBe(3);
 
+      totalmem.mockReturnValue(12 * gib);
+      const twelve = trackedBuilds();
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only", "--concurrency=auto"],
+        execFile: execFile as typeof execFileSync,
+        runAppBuild: twelve.runAppBuild,
+      });
+      // 12 GiB less the reserve fits 2 builds, not the 3 raw memory suggests.
+      expect(twelve.maxInFlight()).toBe(2);
+
+      totalmem.mockReturnValue(8 * gib);
+      execFile.mockClear();
+      const eight = trackedBuilds();
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only", "--concurrency=auto"],
+        execFile: execFile as typeof execFileSync,
+        runAppBuild: eight.runAppBuild,
+      });
+      // 8 GiB less the reserve fits one build, so builds stay sequential.
+      expect(eight.runAppBuild).not.toHaveBeenCalled();
+      expect(execFile.mock.calls).toHaveLength(4);
+
+      totalmem.mockReturnValue(16 * gib);
       constrained.mockReturnValue(4 * gib);
       const capped = trackedBuilds();
       execFile.mockClear();
@@ -2012,6 +2037,30 @@ describe("workspace deploy build concurrency", () => {
         execFile: execFile as typeof execFileSync,
       }),
     ).rejects.toThrow('--concurrency must be a positive integer or "auto"');
+  });
+
+  it("keeps the previous build's outputs when concurrency is invalid", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    const markers = [
+      [".vercel/output/static/marker", "--preset=vercel"],
+      ["dist/marker", "--preset=netlify"],
+      [".netlify/functions-internal/marker", "--preset=netlify"],
+    ] as const;
+    for (const [marker, preset] of markers) {
+      fs.mkdirSync(path.dirname(path.join(tmpDir, marker)), {
+        recursive: true,
+      });
+      fs.writeFileSync(path.join(tmpDir, marker), "previous build");
+
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          args: [preset, "--build-only", "--concurrency=0"],
+          execFile: execFile as typeof execFileSync,
+        }),
+      ).rejects.toThrow('--concurrency must be a positive integer or "auto"');
+      expect(fs.existsSync(path.join(tmpDir, marker))).toBe(true);
+    }
   });
 
   it("rejects --concurrency without a value instead of falling back to config", async () => {
