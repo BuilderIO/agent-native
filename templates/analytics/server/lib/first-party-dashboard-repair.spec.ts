@@ -61,6 +61,8 @@ import {
   FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
+  repairCanonicalFirstPartyDashboardQueries,
   repairFirstPartyBigQueryDashboardQueries,
 } from "./canonical-first-party-dashboard-repair";
 import {
@@ -77,6 +79,9 @@ import {
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL,
+  PRE_CUSTOM_RETENTION_OVER_TIME_SQL,
+  PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
   FIRST_PARTY_TEMPLATE_NAMES,
   buildPanel,
 } from "./first-party-metric-catalog";
@@ -462,6 +467,15 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(panels[1].sql).toBe(FIRST_PARTY_BIGQUERY_RETENTION_SQL);
     expect(panels[1].sql).toContain("coverage_dates AS");
     expect(panels[1].sql).toContain(
+      "DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 5 DAY)",
+    );
+    expect(panels[1].sql).toContain(
+      "LEAST(DATE_ADD(DATE('{{timeRangeEnd}}'), INTERVAL 14 DAY), CURRENT_DATE())",
+    );
+    expect(panels[1].sql).toContain(
+      "DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)",
+    );
+    expect(panels[1].sql).toContain(
       "coverage.observed_days = coverage.expected_days",
     );
     expect(panels[0].source).toBe("bigquery");
@@ -506,6 +520,39 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       "event_name IN ('session status', 'session_status')",
     );
     expect(panel.sql).toContain("event_name = 'app_entered'");
+  });
+
+  it("repairs a persisted prior-seed SQL filter and preserves customized SQL", () => {
+    const totalSignups = requiredFirstPartyPanel("total-signups");
+    const priorSeedSql = totalSignups.sql.replace(
+      " OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}')",
+      "",
+    );
+    const repaired = repairCanonicalFirstPartyDashboardQueries({
+      panels: [{ ...totalSignups, sql: priorSeedSql }],
+    });
+
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      totalSignups.sql,
+    );
+
+    const customized = repairCanonicalFirstPartyDashboardQueries({
+      panels: [{ ...totalSignups, sql: `${priorSeedSql} /* custom */` }],
+    });
+    expect(customized.changed).toBe(false);
+  });
+
+  it("repairs the previous canonical Postgres retention query", () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairCanonicalFirstPartyDashboardQueries({
+      panels: [{ ...retention, sql: PRE_CUSTOM_RETENTION_OVER_TIME_SQL }],
+    });
+
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      retention.sql,
+    );
   });
 
   it("repairs the persisted BigQuery retention query after a data gap", async () => {
@@ -554,6 +601,35 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
             ...weekly,
             source: "bigquery",
             sql: malformedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      FIRST_PARTY_BIGQUERY_WAU_SQL,
+    );
+  });
+
+  it("repairs the previous canonical BigQuery wau query with the current activity filter", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
           },
         ],
       }),
@@ -676,6 +752,52 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     >;
     expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
       signups.sql,
+    );
+  });
+
+  it("repairs the exact pre-spine custom signups query", async () => {
+    const signups = requiredFirstPartyPanel("signups-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [{ ...signups, sql: PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL }],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      signups.sql,
+    );
+  });
+
+  it("repairs the exact pre-cohort-history retention query", async () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          { ...retention, sql: PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      retention.sql,
     );
   });
 

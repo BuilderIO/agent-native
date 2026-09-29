@@ -32,9 +32,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AuthPage,
   isAgentNativeDesktop,
   isElectron,
   normalizeOAuthReturnPath,
@@ -50,7 +53,15 @@ import {
 import { safeReturnPath } from "./auth.js";
 import { normalizeEmbedTargetPath } from "./embed-session.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml as getCoreOnboardingHtml } from "./onboarding-html.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(createElement(AuthPage, props))),
+  });
 
 interface JourneyRuntime {
   normalizeAppPath: (raw: string | null | undefined) => string | null;
@@ -552,9 +563,26 @@ describe("sign-in matrix", () => {
         .readdirSync(path.join(repoRoot, ".github/workflows"))
         .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
         .map((f) => read(`.github/workflows/${f}`));
+      const actionsDir = path.join(repoRoot, ".github/actions");
+      const signInActions = fs
+        .readdirSync(actionsDir)
+        .filter((name) =>
+          fs.existsSync(path.join(actionsDir, name, "action.yml")),
+        )
+        .filter((name) =>
+          read(`.github/actions/${name}/action.yml`).includes(
+            "pnpm qa:sign-in",
+          ),
+        );
       expect(
-        workflows.some((w) => w.includes("pnpm qa:sign-in")),
-        "some workflow must run `pnpm qa:sign-in`",
+        workflows.some(
+          (w) =>
+            w.includes("pnpm qa:sign-in") ||
+            signInActions.some((name) =>
+              w.includes(`uses: ./.github/actions/${name}`),
+            ),
+        ),
+        "some workflow must run `pnpm qa:sign-in`, directly or through a local composite action",
       ).toBe(true);
     });
   });

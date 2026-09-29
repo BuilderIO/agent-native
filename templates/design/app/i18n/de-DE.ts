@@ -166,14 +166,10 @@ export default {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     openAgentSettings: "Agent verwalten",
-    languageTitle: "Sprache",
-    languageDescription: "Wähle die Oberflächensprache für Design.",
-    languageLabel: "Oberflächensprache",
-    labs: "Labs",
-    labsIntro:
-      "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    mcpAbout:
+      "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
   pages: {
     presentEmpty: "Keine Inhalte zum Präsentieren",
@@ -182,8 +178,6 @@ export default {
     notFoundDescription: "Die gesuchte Seite existiert nicht.",
     notFoundSignIn: "Anmelden",
     notFoundBackToDesigns: "Zurück zu Designs",
-    teamCreateOrgDescription:
-      "Richte ein Team ein, um Designs mit deinen Kollegen zu teilen.",
   },
   onboarding: {
     fileStorage: {
@@ -226,6 +220,7 @@ export default {
     },
   },
   common: {
+    loading: "Wird geladen...",
     genericError: "Etwas ist schief gelaufen",
   },
   editPanel: {
@@ -323,6 +318,8 @@ export default {
       bottomLeft: "UL",
       bottomRight: "UR",
       blend: "Mischung",
+      blendMode: "Mischmodus",
+      removeBlendMode: "Mischmodus entfernen",
       border: "Rahmen",
       outline: "Kontur",
       inside: "Innen",
@@ -1503,6 +1500,13 @@ export default {
         "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
       connectionNotConfirmed:
         "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
+      permissionPromptTitle: "Lokale Bildschirme verbinden",
+      permissionPromptDescription:
+        "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
+      permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
+      permissionPromptSettingsInstructions:
+        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
+      permissionPromptRetry: "Verbindung wiederholen",
     },
   },
   multiScreenCanvas: {

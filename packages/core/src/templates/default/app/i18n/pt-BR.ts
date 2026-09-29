@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "Desconectando…",
   },
   settings: {
-    title: "Configurações",
-    description: "Preferências de idioma e workspace para este app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     agentTitle: "Configurações do agente",
     agentDescription:
       "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
@@ -33,7 +27,6 @@ const messages = {
       "Gerencie o acesso da equipe e os recursos do espaço de trabalho compartilhado.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    backHome: "Voltar ao início",
     emailChange: "Alterar e-mail",
     emailChangeSent: "Verifique seu e-mail para confirmar esta alteração.",
     emailChangeError: "Não foi possível enviar a confirmação.",
@@ -230,6 +223,9 @@ const messages = {
       noErrorMessage: "(sem mensagem de erro)",
     },
   },
+  settingsShortcut: {
+    command: "Configurações",
+  },
   agentPanel: {
     useBuilder: "Usar o Construtor",
     openDesktopToEditCode: "Abra o Desktop para editar o código",
@@ -245,6 +241,7 @@ const messages = {
     newChat: "Novo chat",
     newTerminal: "Novo terminal",
     panelOptions: "Opções do painel do agente",
+    integrations: "Integrações",
     collapseSidebar: "Recolher barra lateral",
     widenChat: "Ampliar o chat",
     returnChatToLayout: "Retornar o chat ao layout",
@@ -270,6 +267,8 @@ const messages = {
     sharedKeyInEffect: "Uma chave compartilhada está em uso.",
     useOrganizationKey: "Usar chave da organização",
     keyStatusUnavailable: "Não foi possível consultar o status da chave.",
+    saveScopeRoleUnavailable:
+      "Não foi possível carregar sua função na organização, então ainda não é possível salvar chaves.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -660,6 +659,12 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Voltar à lista",
+    promoteMustContain: "A resposta deve conter…",
+    promoteMustContainOptional: "Texto opcional a verificar na resposta…",
+    promoteMustContainLabel:
+      "Texto a verificar na resposta da avaliação promovida",
+    promoteNeedsContains:
+      "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",
     type: "Tipo",
     name: "Nome",

@@ -19,19 +19,19 @@ import {
   AgentNativeIcon,
   buildSignInReturnHref,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import { planPathForKind } from "@shared/plan-routes";
 import {
   IconClipboardCheck,
   IconEdit,
   IconMessageCircle,
   IconPlus,
   IconRefresh,
-  IconSettings,
+  IconNews,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -57,6 +57,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEditionsLab } from "@/hooks/use-editions-lab";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
 import { planReturnPathFromLocation } from "@/lib/plan-return-path";
@@ -91,10 +92,6 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/chat" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
-];
-
-const bottomNavItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 interface SidebarProps {
@@ -423,10 +420,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
         <div className="grid gap-0.5">
           {plans.map((plan) => {
             const isActive = plan.id === selectedPlanId;
-            const href =
-              plan.kind === "recap"
-                ? `/recaps/${plan.id}`
-                : `/plans/${plan.id}`;
+            const href = planPathForKind(plan.id, plan.kind);
             return (
               <Link
                 key={plan.id}
@@ -581,16 +575,8 @@ export function Sidebar({
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
+  const editionsEnabled = useEditionsLab();
   const returnPath = planReturnPathFromLocation(location);
-
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: pathname.startsWith("/settings"),
-    },
-  ];
 
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
@@ -640,7 +626,6 @@ export function Sidebar({
           {!collapsed ? <BrandingCustomizePopover /> : null}
         </div>
       }
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={<DevDatabaseLink />}
@@ -672,6 +657,17 @@ export function Sidebar({
           <PlansSidebarSection collapsed={collapsed} />
         ) : null}
       </div>
+
+      {editionsEnabled ? (
+        <div>
+          <AppSidebarNavItem
+            to="/editions"
+            label={t("edition.nav.label")}
+            icon={IconNews}
+            active={pathname.startsWith("/editions")}
+          />
+        </div>
+      ) : null}
     </AppSidebar>
   );
 }

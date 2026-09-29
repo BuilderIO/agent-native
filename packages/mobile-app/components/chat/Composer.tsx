@@ -930,7 +930,7 @@ export function Composer({
 
             {isStreaming ? (
               <Pressable
-                className="w-8 h-8 rounded-xl bg-primary items-center justify-center active:opacity-75"
+                className="w-8 h-8 rounded-full bg-primary items-center justify-center active:opacity-75"
                 onPress={onStop}
                 accessibilityRole="button"
                 accessibilityLabel="Stop generating"
@@ -939,7 +939,7 @@ export function Composer({
               </Pressable>
             ) : (
               <Pressable
-                className={`w-8 h-8 rounded-xl items-center justify-center active:opacity-75 ${
+                className={`w-8 h-8 rounded-full items-center justify-center active:opacity-75 ${
                   canSend ? "bg-primary" : "bg-zinc-800/80"
                 }`}
                 onPress={submit}

@@ -1467,6 +1467,26 @@ export function App({
     }
   }, [serverUrl]);
 
+  const pushMeetingsSession = useCallback(async () => {
+    const cookie = typeof document !== "undefined" ? document.cookie || "" : "";
+    const authToken = loadDesktopAuthToken(serverUrl);
+    try {
+      await invoke("meetings_watcher_set_session", { cookie, authToken });
+    } catch {
+      // coercion-ok: older Clips builds do not expose the optional watcher command.
+    }
+  }, [serverUrl]);
+
+  const resumePolling = useCallback(async () => {
+    if (document.hidden) return;
+    const authResult = await checkAuth();
+    if (authResult.state !== "authenticated") return;
+    await pushMeetingsSession();
+    await invoke("meetings_watcher_resume_polling").catch(() => {
+      // Older builds may not expose this command yet — best-effort.
+    });
+  }, [checkAuth, pushMeetingsSession]);
+
   useEffect(() => {
     void checkAuth();
   }, [checkAuth]);
@@ -1478,21 +1498,16 @@ export function App({
   }, [serverUrl]);
 
   useEffect(() => {
-    function pushSession() {
-      const cookie =
-        typeof document !== "undefined" ? document.cookie || "" : "";
-      const authToken = loadDesktopAuthToken(serverUrl);
-      invoke("meetings_watcher_set_session", { cookie, authToken }).catch(
-        () => {
-          // Older builds may not expose this command yet — best-effort.
-        },
-      );
-    }
-    pushSession();
+    void pushMeetingsSession();
     let unlisten: (() => void) | null = null;
-    listen("meetings:auth-needed", () => {
+    listen("meetings:auth-needed", async () => {
       console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
-      pushSession();
+      // Never resume the pollers here: every rejection fires this event, so a
+      // session check that passes while actions still 401/403 would reset the
+      // rejection budget each time and poll forever. A refreshed token changes
+      // the credentials, which the pollers already retry on their own.
+      const authResult = await checkAuth();
+      if (authResult.state === "authenticated") await pushMeetingsSession();
     })
       .then((u) => {
         unlisten = u;
@@ -1507,7 +1522,16 @@ export function App({
         }
       }
     };
-  }, [signedInAs, serverUrl]);
+  }, [signedInAs, serverUrl, checkAuth, pushMeetingsSession]);
+
+  useEffect(() => {
+    if (authStatus !== "authed") return;
+    void resumePolling();
+    document.addEventListener("visibilitychange", resumePolling);
+    return () => {
+      document.removeEventListener("visibilitychange", resumePolling);
+    };
+  }, [authStatus, resumePolling]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -5701,7 +5725,7 @@ type VoiceProviderStatus = {
 
 function keyForByokProvider(provider: ByokVoiceProvider): string {
   return {
-    gemini: "GEMINI_API_KEY",
+    gemini: "GOOGLE_GENERATIVE_AI_API_KEY",
     groq: "GROQ_API_KEY",
   }[provider];
 }

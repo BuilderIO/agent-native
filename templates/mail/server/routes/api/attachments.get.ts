@@ -1,8 +1,4 @@
-import {
-  getOAuthTokens,
-  saveOAuthTokens,
-  listOAuthAccountsByOwner,
-} from "@agent-native/core/oauth-tokens";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -11,52 +7,11 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { gmailGetAttachment } from "../../lib/google-api.js";
 import {
-  createOAuth2Client,
-  gmailGetAttachment,
-} from "../../lib/google-api.js";
-import { getOAuth2Credentials, isConnected } from "../../lib/google-auth.js";
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
-
-async function getAccessToken(accountEmail: string): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch {
-      // Use existing token
-    }
-  }
-
-  return tokens.access_token;
-}
+  getClientForConnectedAccount,
+  isConnected,
+} from "../../lib/google-auth.js";
 
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);
@@ -97,10 +52,13 @@ export default defineEventHandler(async (event) => {
   const accounts = await listOAuthAccountsByOwner("google", userEmail);
   for (const account of accounts) {
     try {
-      const accessToken = await getAccessToken(account.accountId);
-      if (!accessToken) continue;
+      const client = await getClientForConnectedAccount(
+        userEmail,
+        account.accountId,
+      );
+      if (!client) continue;
 
-      const res = await gmailGetAttachment(accessToken, messageId, id);
+      const res = await gmailGetAttachment(client.accessToken, messageId, id);
       const data = res.data;
       if (!data) {
         continue;

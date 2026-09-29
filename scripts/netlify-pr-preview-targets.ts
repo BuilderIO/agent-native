@@ -141,7 +141,7 @@ function dependencyNames(pkg: PackageJson): string[] {
   ].flatMap((deps) => (deps ? Object.keys(deps) : []));
 }
 
-function packageDependsOn(
+export function packageDependsOn(
   packages: Map<string, WorkspacePackage>,
   fromName: string,
   targetName: string,
@@ -157,7 +157,7 @@ function packageDependsOn(
   );
 }
 
-function packageNameForDir(
+export function packageNameForDir(
   packages: Map<string, WorkspacePackage>,
   dir: string,
 ): string | undefined {
@@ -197,6 +197,14 @@ function sitesDependingOnPackageDir(
 
 export function previewEligibleSiteNames(repoRoot = REPO_ROOT): string[] {
   return withDocsSite(buildableSites(repoRoot), repoRoot);
+}
+
+export function previewSiteFromCommand(body: string): string | undefined {
+  const normalizedBody = body.toLowerCase();
+  const match = normalizedBody.match(/^\/preview ([a-z][a-z0-9-]*)$/);
+  // JavaScript's $ can match before a final line terminator.
+  if (!match || match[0] !== normalizedBody) return undefined;
+  return previewEligibleSiteNames().includes(match[1]) ? match[1] : undefined;
 }
 
 export function previewSitesForChangedPaths(

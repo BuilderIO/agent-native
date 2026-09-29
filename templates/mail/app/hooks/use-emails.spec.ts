@@ -25,6 +25,7 @@ import {
   suppressThread,
   hasFreshOptimisticOverrideEvidence,
   keepLatestEmailPage,
+  emailListRefetchInterval,
   markThreadReadRetryAfterMs,
   shouldRetryMarkThreadRead,
 } from "./use-emails";
@@ -80,6 +81,31 @@ describe("keepLatestEmailPage", () => {
 
     expect(keepLatestEmailPage(stale, confirmed)).toBe(confirmed);
     expect(keepLatestEmailPage(confirmed, stale)).toBe(confirmed);
+  });
+});
+
+describe("emailListRefetchInterval", () => {
+  it("stops background polling after a quota response", () => {
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: Object.assign(new Error("quota"), { status: 429 }),
+      }),
+    ).toBe(false);
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: new Error("temporary failure"),
+      }),
+    ).toBe(4 * 60_000);
+    expect(
+      emailListRefetchInterval(
+        { status: "success", fetchFailureCount: 0, error: null },
+        "search term",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -689,8 +715,17 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("rebasePinnedLabelsUpdate(");
     expect(source).toContain("resetPinnedLabelsState(owner)");
     expect(source).toContain("settingsLoading || !prev || !owner");
-    expect(source).toContain('if ("showAllTab" in variables)');
-    expect(source).toContain("invalidations.push(invalidateInboxThreads(qc))");
+    expect(source).toContain('"pinnedLabels" in variables ||');
+    expect(source).toContain('"combineInbox" in variables ||');
+    expect(source).toContain('"showAllTab" in variables ||');
+    expect(source).toContain('"savedFilters" in variables ||');
+    expect(source).toContain('"labelAliases" in variables');
+    expect(source).toContain(
+      "qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY })",
+    );
+    expect(source).toContain(
+      'qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] })',
+    );
     expect(source).toContain("requestSource: TAB_ID");
   });
 });

@@ -23,28 +23,31 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
-  bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
-  callAction: (...args: unknown[]) => mocks.callAction(...args),
-  getChangeVersion: mocks.getChangeVersion,
-  useChangeVersions: () => 0,
-}));
+vi.mock("@agent-native/core/client/hooks", async () => {
+  const React = await import("react");
+  return {
+    bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
+    callAction: (...args: unknown[]) => mocks.callAction(...args),
+    getChangeVersion: mocks.getChangeVersion,
+    useChangeVersion: () => 0,
+    // Stands in for React Query: the action is served by the same `callAction`
+    // mock the tests configure, and `refetch` resolves with the new data.
+    useActionQuery: (name: string, args: unknown) => {
+      const [data, setData] = React.useState<unknown>();
+      const refetch = React.useCallback(async () => {
+        const next = await mocks.callAction(name, args, { method: "GET" });
+        setData(next);
+        return { data: next };
+      }, []);
+      React.useEffect(() => {
+        void refetch();
+      }, [refetch]);
+      return { data, refetch };
+    },
+  };
+});
 vi.mock("@shared/clips-ai-prefs", () => ({
   fullVideoAiModelSelection: () => null,
-}));
-vi.mock("./use-library", () => ({
-  useRecordings: () => ({
-    data: {
-      recordings: [
-        {
-          id: "rec_123",
-          title: "Demo recording",
-          status: "ready",
-          createdAt: "2026-07-14T12:00:00.000Z",
-        },
-      ],
-    },
-  }),
 }));
 
 import { aiRequestTabId } from "@shared/ai-request-status";
@@ -78,6 +81,7 @@ beforeEach(async () => {
               message: "Generate an email summary",
             },
           ],
+          titleCandidates: [],
         };
       }
       if (payload?.operation === "track") {
@@ -166,6 +170,7 @@ describe("workflow generation cancellation", () => {
                 message: "Generate an email summary",
               },
             ],
+            titleCandidates: [],
           };
         }
         if (payload?.operation === "track") {
@@ -229,6 +234,7 @@ describe("workflow generation cancellation", () => {
                 message: "Generate an email summary",
               },
             ],
+            titleCandidates: [],
           };
         }
         return payload?.operation === "track"
@@ -266,6 +272,7 @@ describe("workflow generation cancellation", () => {
                 message: "Generate an email summary",
               },
             ],
+            titleCandidates: [],
           };
         }
         return payload?.operation === "consume"
@@ -296,7 +303,9 @@ describe("workflow generation cancellation", () => {
     let stopAttempts = 0;
     mocks.callAction.mockImplementation(
       async (name: string, payload?: { operation?: string }) => {
-        if (name === "list-ai-requests") return { requests: [] };
+        if (name === "list-ai-requests") {
+          return { requests: [], titleCandidates: [] };
+        }
         if (payload?.operation === "stop" && stopAttempts++ === 0) {
           throw new Error("connection dropped");
         }
@@ -389,6 +398,7 @@ describe("workflow generation cancellation", () => {
               message: "Generate chapters",
             },
           ],
+          titleCandidates: [],
         };
       }
       return { cancelled: true };
@@ -439,6 +449,7 @@ describe("workflow generation cancellation", () => {
               message: "Generate chapters",
             },
           ],
+          titleCandidates: [],
         };
       }
       return { status: "failed" };
@@ -489,6 +500,7 @@ describe("workflow generation cancellation", () => {
               message: "Generate chapters",
             },
           ],
+          titleCandidates: [],
         };
       }
       return { status: "completed" };

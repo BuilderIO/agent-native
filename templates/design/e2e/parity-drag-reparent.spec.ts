@@ -43,6 +43,52 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
+const SCREEN_DEEP_CLIPPED = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Deep clipped reparent</title></head>
+  <body style="margin:0;position:relative;min-height:1000px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="clip-outer" data-agent-native-layer-name="Outer clip" data-an-primitive="frame"
+          style="position:absolute;left:40px;top:60px;width:360px;height:300px;overflow:hidden;background:#1f2937">
+      <section data-agent-native-node-id="clip-middle" data-agent-native-layer-name="Middle clip" data-an-primitive="frame"
+               style="position:absolute;left:20px;top:20px;width:300px;height:240px;overflow:hidden;background:#374151">
+        <div data-agent-native-node-id="clip-inner" data-agent-native-layer-name="Inner auto layout" data-an-primitive="frame"
+             style="position:absolute;left:20px;top:20px;width:240px;height:180px;display:flex;flex-direction:column;gap:12px;overflow:hidden;background:#4b5563">
+          <div data-agent-native-node-id="deep-item" data-agent-native-layer-name="Deep item"
+               style="flex:0 0 auto;width:120px;height:48px;background:#3b82f6"></div>
+          <div data-agent-native-node-id="deep-sibling" data-agent-native-layer-name="Deep sibling"
+               style="flex:0 0 auto;width:120px;height:48px;background:#7c3aed"></div>
+        </div>
+      </section>
+    </main>
+    <span data-agent-native-node-id="root-drop-point" data-agent-native-layer-name="Root drop point"
+          style="position:absolute;left:600px;top:600px;width:80px;height:60px;pointer-events:none"></span>
+  </body>
+</html>`;
+
+const SCREEN_DEEP_ROOT_FLEX = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Deep root auto layout</title></head>
+  <body style="margin:0;box-sizing:border-box;min-height:1000px;width:900px;padding:40px;display:flex;flex-direction:row;align-items:flex-start;gap:80px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <div data-agent-native-node-id="root-before" data-agent-native-layer-name="Root before"
+         style="flex:0 0 auto;width:80px;height:60px;background:#1f2937"></div>
+    <main data-agent-native-node-id="clip-outer" data-agent-native-layer-name="Outer clip" data-an-primitive="frame"
+          style="position:relative;flex:0 0 auto;width:360px;height:300px;overflow:hidden;background:#1f2937">
+      <section data-agent-native-node-id="clip-middle" data-agent-native-layer-name="Middle clip" data-an-primitive="frame"
+               style="position:absolute;left:20px;top:20px;width:300px;height:240px;overflow:hidden;background:#374151">
+        <div data-agent-native-node-id="clip-inner" data-agent-native-layer-name="Inner auto layout" data-an-primitive="frame"
+             style="position:absolute;left:20px;top:20px;width:240px;height:180px;display:flex;flex-direction:column;gap:12px;overflow:hidden;background:#4b5563">
+          <div data-agent-native-node-id="deep-item" data-agent-native-layer-name="Deep item"
+               style="flex:0 0 auto;width:120px;height:48px;background:#3b82f6"></div>
+          <div data-agent-native-node-id="deep-sibling" data-agent-native-layer-name="Deep sibling"
+               style="flex:0 0 auto;width:120px;height:48px;background:#7c3aed"></div>
+        </div>
+      </section>
+    </main>
+    <div data-agent-native-node-id="root-after" data-agent-native-layer-name="Root after"
+         style="flex:0 0 auto;width:80px;height:60px;background:#374151"></div>
+  </body>
+</html>`;
+
 const STYLE_CARRY_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Style Carry Source</title>
@@ -82,7 +128,10 @@ async function postAction(
   return res.json();
 }
 
-async function newTwoScreenDesign(page: Page): Promise<string> {
+async function newTwoScreenDesign(
+  page: Page,
+  screenOneHtml = SCREEN_ONE,
+): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "parity drag reparent",
     projectType: "prototype",
@@ -92,7 +141,7 @@ async function newTwoScreenDesign(page: Page): Promise<string> {
   await postAction(page, "create-file", {
     designId: id,
     filename: "index.html",
-    content: SCREEN_ONE,
+    content: screenOneHtml,
     fileType: "html",
   });
   await postAction(page, "create-file", {
@@ -502,6 +551,203 @@ test.describe("drag reparent parity", () => {
           : "missing";
       })
       .toBeNull();
+  });
+
+  test("moving a deeply nested flow child through clipped ancestors preserves root placement and history", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page, SCREEN_DEEP_CLIPPED);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+    const beforeHtml = await fileContent(page, id, "index.html");
+    const beforeStyle = styleOf(beforeHtml, "deep-item");
+    expect(parentOf(beforeHtml, "deep-item")).toBe("clip-inner");
+
+    const source = await boxFor(page, screenId, "deep-item");
+    const dropSurface = await boxFor(page, screenId, "root-drop-point");
+    const grabPoint = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    const dropPoint = {
+      x: dropSurface.x + dropSurface.width / 2,
+      y: dropSurface.y + dropSurface.height / 2,
+    };
+    await page.mouse.move(grabPoint.x, grabPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(grabPoint.x + 20, grabPoint.y + 4, { steps: 5 });
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
+    await page.waitForTimeout(400);
+    const trace = await dumpTrace(page);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    const guideBox = await guide.boundingBox().catch(() => null);
+    const heldHtml = await fileContent(page, id, "index.html");
+    expect(
+      heldHtml,
+      `held drag must not persist a structure change before release. Trace: ${trace.slice(-800)}`,
+    ).toBe(beforeHtml);
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a root insertion preview while the child is held outside both clipped ancestors; got ${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
+
+    await page.mouse.up();
+    let movedHtml = "";
+    await expect
+      .poll(
+        async () => {
+          movedHtml = await fileContent(page, id, "index.html");
+          return (
+            movedHtml.includes('data-agent-native-node-id="deep-item"') &&
+            parentOf(movedHtml, "deep-item") === null
+          );
+        },
+        {
+          timeout: 10_000,
+          message: `deep flow child should move to the screen root after release, got parent ${parentOf(movedHtml, "deep-item")}. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
+
+    const moved = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="deep-item"]',
+    );
+    await expect(moved).toBeVisible();
+    expect(
+      await moved.evaluate(
+        (element) => element.parentElement === document.body,
+      ),
+    ).toBe(true);
+    const movedBox = await moved.boundingBox();
+    expect(movedBox).not.toBeNull();
+    expect(movedBox!.x + movedBox!.width / 2).toBeCloseTo(dropPoint.x, 0);
+    expect(movedBox!.y + movedBox!.height / 2).toBeCloseTo(dropPoint.y, 0);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    let undoHtml = "";
+    await expect
+      .poll(async () => {
+        undoHtml = await fileContent(page, id, "index.html");
+        return parentOf(undoHtml, "deep-item");
+      })
+      .toBe("clip-inner");
+    expect(styleOf(undoHtml, "deep-item")).toBe(beforeStyle);
+
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const redoHtml = await fileContent(page, id, "index.html");
+        return (
+          redoHtml.includes('data-agent-native-node-id="deep-item"') &&
+          parentOf(redoHtml, "deep-item") === null
+        );
+      })
+      .toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    const reloaded = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="deep-item"]',
+    );
+    await expect(reloaded).toBeVisible();
+    expect(
+      await reloaded.evaluate(
+        (element) => element.parentElement === document.body,
+      ),
+    ).toBe(true);
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return (
+          html.includes('data-agent-native-node-id="deep-item"') &&
+          parentOf(html, "deep-item") === null
+        );
+      })
+      .toBe(true);
+  });
+
+  test("moving a deeply nested flow child into the root auto-layout uses the pointer slot", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page, SCREEN_DEEP_ROOT_FLEX);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+    const beforeHtml = await fileContent(page, id, "index.html");
+    expect(parentOf(beforeHtml, "deep-item")).toBe("clip-inner");
+
+    const [source, before, outer] = await Promise.all([
+      boxFor(page, screenId, "deep-item"),
+      boxFor(page, screenId, "root-before"),
+      boxFor(page, screenId, "clip-outer"),
+    ]);
+    const grabPoint = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    const dropPoint = {
+      x: (before.x + before.width + outer.x) / 2,
+      y: before.y + before.height / 2,
+    };
+
+    await page.mouse.move(grabPoint.x, grabPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(grabPoint.x + 20, grabPoint.y + 4, { steps: 5 });
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 20 });
+    await page.waitForTimeout(400);
+    const trace = await dumpTrace(page);
+    const guideBox = await designFrame(page, screenId)
+      .locator("[data-agent-native-insertion-guide]")
+      .boundingBox()
+      .catch(() => null);
+    expect(await fileContent(page, id, "index.html")).toBe(beforeHtml);
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a root auto-layout insertion preview, got ${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
+    expect(
+      Math.abs(guideBox!.x + guideBox!.width / 2 - (before.x + before.width)),
+      `expected the insertion guide after root-before; guide=${JSON.stringify(guideBox)}, root-before=${JSON.stringify(before)}, outer=${JSON.stringify(outer)}, drop=${JSON.stringify(dropPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThan(4);
+
+    await page.mouse.up();
+    const bodyOrder = () =>
+      designFrame(page, screenId)
+        .locator("body")
+        .evaluate((body) =>
+          Array.from(body.children)
+            .map((child) => child.getAttribute("data-agent-native-node-id"))
+            .filter((nodeId): nodeId is string => nodeId !== null),
+        );
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return parentOf(html, "deep-item") === null ? bodyOrder() : [];
+      })
+      .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(() =>
+        fileContent(page, id, "index.html").then((html) =>
+          parentOf(html, "deep-item"),
+        ),
+      )
+      .toBe("clip-inner");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return parentOf(html, "deep-item") === null ? bodyOrder() : [];
+      })
+      .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect
+      .poll(bodyOrder)
+      .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({

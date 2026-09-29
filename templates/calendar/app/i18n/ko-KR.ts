@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "연결",
@@ -5,7 +7,6 @@ export default {
     connecting: "연결 중...",
     clipboardUnavailable: "클립보드 접근을 사용할 수 없습니다",
     disconnect: "연결 해제",
-    notConnected: "연결되지 않음",
     loadFailed: "이 데이터를 불러올 수 없습니다.",
     retry: "다시 시도",
     saving: "저장 중...",
@@ -46,11 +47,6 @@ export default {
     couldNotLoadEvent: "이벤트를 불러올 수 없습니다",
     noEventId: "이벤트 ID가 없습니다. URL에 ?id=<eventId>를 추가하세요.",
     openCalendar: "캘린더 열기",
-  },
-  eventCreation: {
-    created: "일정이 생성되었습니다",
-    zoomNotAdded: "일정은 생성되었지만 Zoom을 추가하지 못했습니다.",
-    openInCalendar: "Calendar에서 일정 열기",
   },
   agentSidebar: {
     emptyState: "캘린더에 대해 무엇이든 물어보세요",
@@ -199,10 +195,6 @@ export default {
   },
   settings: {
     title: "설정",
-    description: "캘린더와 통합을 구성합니다.",
-    languageTitle: "언어",
-    languageDescription: "Calendar의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
     agentTitle: "에이전트 관리",
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -216,13 +208,8 @@ export default {
     zoomConnectFailed: "Zoom을 연결할 수 없음",
     zoomDisconnected: "Zoom 연결 해제됨",
     zoomDisconnectFailed: "Zoom 연결 해제 실패",
-    general: "일반",
-    generalDescription: "캘린더 기본값과 예약 복사 문구.",
-    timezone: "시간대",
-    saveSettings: "설정 저장",
     saved: "설정 저장됨",
     saveFailed: "설정 저장 실패",
-    appearance: "모양",
     appearanceDescription:
       "워크스페이스 색상 테마를 선택하거나 에이전트에게 요청하세요.",
     desktopNotifications: "데스크톱 알림",
@@ -236,22 +223,14 @@ export default {
     connectGoogleDescription: "이벤트를 동기화하고 한곳에서 관리하세요.",
     zoomDescription:
       "Zoom을 연결해 캘린더 이벤트와 예약용 회의 링크를 만듭니다.",
-    zoomNotConfigured: "구성되지 않음",
     zoomCredentialsPrompt: "연결하려면 Zoom OAuth 자격 증명을 추가하세요.",
-    bookingTitleLabel: "대체 예약 페이지 제목",
     bookingTitlePlaceholder: "회의 예약",
-    bookingTitleHelp:
-      "예약 링크에 제목이 없을 때만 사용됩니다. 예약 링크에서 공개 URL을 만들고 열고 복사하세요.",
-    bookingDescriptionLabel: "대체 예약 페이지 설명",
     bookingDescriptionPlaceholder: "가능한 시간을 선택하세요.",
-    bookingDescriptionHelp: "예약 링크에 자체 설명이 없을 때만 사용됩니다.",
-    defaultDurationLabel: "기본 이벤트 시간(분)",
-    defaultDurationHelp:
-      "새 캘린더 이벤트와 예약 슬롯의 기본 길이입니다. 예약 링크별로 재정의할 수 있습니다.",
     weekStartLabel: "주 시작일",
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
     eventRules: "초대 규칙",
+    eventRulesAutomationLink: "다른 작업을 하려면 자동화를 만드세요.",
     eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
@@ -286,6 +265,38 @@ export default {
     eventRulesConflict:
       "수락 및 거절 규칙이 모두 일치하여 초대를 건너뛰었습니다.",
     eventRulesUnregistered: "이 서버에 Calendar 자동화가 등록되지 않았습니다.",
+  },
+  calendarSettings: {
+    calendarsTab: "캘린더",
+    bookingTab: "예약",
+    eventsGroup: "일정",
+    appearanceGroup: "모양",
+    colorTheme: "색상 테마",
+    timezone: "캘린더 시간대",
+    timezoneDescription: "일정을 표시하고 새 일정을 만들 때 사용됩니다.",
+    defaultDuration: "기본 일정 길이",
+    defaultDurationDescription:
+      "분 단위입니다. 예약 링크마다 따로 설정할 수 있습니다.",
+    durationInvalid: "5분에서 480분 사이의 길이를 입력하세요.",
+    zoom: "Zoom",
+    connectedAs: "{{accounts}}(으)로 연결됨",
+    setUp: "설정",
+    disconnectGoogleTitle: "Google Calendar 연결을 해제할까요?",
+    disconnectGoogleDescription:
+      "Calendar에서 Google 계정의 일정 표시와 동기화가 중지됩니다.",
+    disconnectZoomTitle: "Zoom 연결을 해제할까요?",
+    disconnectZoomDescription:
+      "다시 연결할 때까지 새 일정과 예약에 Zoom 회의 링크를 추가할 수 없습니다.",
+    manage: "관리",
+    edit: "편집",
+    cancel: "취소",
+    save: "저장",
+    fallbackBookingPage: "대체 예약 페이지",
+    fallbackBookingPageDescription:
+      "예약 링크에 자체 제목이나 설명이 없을 때 사용됩니다.",
+    fallbackTitle: "제목",
+    fallbackDescription: "설명",
+    bookingLinksDescription: "예약 링크를 만들고 공개 URL을 복사합니다.",
   },
   eventDialog: {
     eventUpdated: "이벤트가 업데이트되었습니다",
@@ -577,6 +588,7 @@ export default {
     fieldRequired: "{{label}}은(는) 필수입니다",
     linkDisabled: "{{title}} 비활성화됨",
     linkEnabled: "{{title}} 활성화됨",
+    advanced: "고급",
     linkVisibility: "링크 가시성",
     linkVisibilityDescription:
       "공개 페이지를 비활성화하려면 이 기능을 끄십시오.",
@@ -1008,7 +1020,7 @@ export default {
     year: "년",
     zoom: "Zoom",
     zoomAdded: "Zoom 추가됨",
-    zoomAddFailed: "Zoom를 추가하지 못했습니다.",
+    zoomAddFailed: zoomAddFailedMessages["ko-KR"],
     zoomConnectFailed: "Zoom를 연결할 수 없습니다",
     zoomConnectionOpened: "Zoom 연결이 열렸습니다.",
     zoomNotConfigured: "Zoom OAuth가 구성되지 않았습니다.",

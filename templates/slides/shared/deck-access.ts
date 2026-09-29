@@ -2,6 +2,7 @@ export const SLIDES_ACCESS_REQUEST_TOKEN_PREFIX = "slides-access-request";
 export const SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX =
   "slides-access-request-fallback";
 export const SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS = 10 * 60;
+export const SLIDES_ACCESS_REQUEST_NOTE_MAX_LENGTH = 500;
 
 export const SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX = "slides-access-approval";
 export const SLIDES_ACCESS_APPROVAL_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;

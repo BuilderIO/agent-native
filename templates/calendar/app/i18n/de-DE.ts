@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Verbinden",
@@ -5,7 +7,6 @@ export default {
     connecting: "Verbinden...",
     clipboardUnavailable: "Zugriff auf die Zwischenablage ist nicht verfügbar",
     disconnect: "Trennen",
-    notConnected: "Nicht verbunden",
     loadFailed: "Diese Daten konnten nicht geladen werden.",
     retry: "Erneut versuchen",
     saving: "Speichern...",
@@ -47,12 +48,6 @@ export default {
     noEventId:
       "Keine Ereignis-ID angegeben. Fügen Sie der URL ?id=<eventId> hinzu.",
     openCalendar: "Kalender öffnen",
-  },
-  eventCreation: {
-    created: "Termin erstellt",
-    zoomNotAdded:
-      "Der Termin wurde erstellt, aber Zoom konnte nicht hinzugefügt werden.",
-    openInCalendar: "Termin in Calendar öffnen",
   },
   agentSidebar: {
     emptyState: "Frage mich alles zu deinem Kalender",
@@ -209,10 +204,6 @@ export default {
   },
   settings: {
     title: "Einstellungen",
-    description: "Kalender und Integrationen konfigurieren.",
-    languageTitle: "Sprache",
-    languageDescription: "Wähle die Oberflächensprache für Calendar.",
-    languageLabel: "Oberflächensprache",
     agentTitle: "Agent verwalten",
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
@@ -227,13 +218,8 @@ export default {
     zoomConnectFailed: "Zoom konnte nicht verbunden werden",
     zoomDisconnected: "Zoom getrennt",
     zoomDisconnectFailed: "Zoom konnte nicht getrennt werden",
-    general: "Allgemein",
-    generalDescription: "Kalender-Standards und Buchungstexte.",
-    timezone: "Zeitzone",
-    saveSettings: "Einstellungen speichern",
     saved: "Einstellungen gespeichert",
     saveFailed: "Einstellungen konnten nicht gespeichert werden",
-    appearance: "Darstellung",
     appearanceDescription:
       "Wähle ein Farbtheme für deinen Workspace oder frage den Agenten.",
     desktopNotifications: "Desktop-Benachrichtigungen",
@@ -248,24 +234,16 @@ export default {
       "Synchronisiere Termine und verwalte alles an einem Ort.",
     zoomDescription:
       "Verbinde Zoom, um Meeting-Links für Kalenderereignisse und Buchungen zu erstellen.",
-    zoomNotConfigured: "Nicht konfiguriert",
     zoomCredentialsPrompt:
       "Füge Zoom-OAuth-Anmeldedaten hinzu, um die Verbindung zu aktivieren.",
-    bookingTitleLabel: "Fallback-Titel der Buchungsseite",
     bookingTitlePlaceholder: "Meeting buchen",
-    bookingTitleHelp:
-      "Wird nur verwendet, wenn ein Buchungslink keinen Titel hat. Erstelle, öffne und kopiere öffentliche URLs über Buchungslinks.",
-    bookingDescriptionLabel: "Fallback-Beschreibung der Buchungsseite",
     bookingDescriptionPlaceholder: "Wähle eine passende Zeit.",
-    bookingDescriptionHelp:
-      "Wird nur verwendet, wenn ein Buchungslink keine eigene Beschreibung hat.",
-    defaultDurationLabel: "Standarddauer für Ereignisse (Minuten)",
-    defaultDurationHelp:
-      "Standardlänge für neue Kalenderereignisse und Buchungsslots. Buchungslinks können sie pro Link überschreiben.",
     weekStartLabel: "Wochenbeginn",
     weekStartSunday: "Sonntag - Samstag",
     weekStartMonday: "Montag - Sonntag",
     eventRules: "Einladungsregeln",
+    eventRulesAutomationLink:
+      "Für weitere Aktionen eine Automatisierung erstellen.",
     eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
     eventRulesFreeBuilderOrApiKey:
       "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
@@ -304,6 +282,40 @@ export default {
       "Eine Einladung wurde übersprungen, weil Annahme- und Ablehnungsregel übereinstimmten.",
     eventRulesUnregistered:
       "Die Calendar-Automatisierung ist auf diesem Server nicht registriert.",
+  },
+  calendarSettings: {
+    calendarsTab: "Kalender",
+    bookingTab: "Buchung",
+    eventsGroup: "Termine",
+    appearanceGroup: "Darstellung",
+    colorTheme: "Farbschema",
+    timezone: "Kalender-Zeitzone",
+    timezoneDescription:
+      "Wird zum Anzeigen und Erstellen von Terminen verwendet.",
+    defaultDuration: "Standarddauer für Termine",
+    defaultDurationDescription:
+      "In Minuten. Buchungslinks können eine eigene festlegen.",
+    durationInvalid: "Gib eine Dauer von 5 bis 480 Minuten ein.",
+    zoom: "Zoom",
+    connectedAs: "Verbunden als {{accounts}}",
+    setUp: "Einrichten",
+    disconnectGoogleTitle: "Google Kalender trennen?",
+    disconnectGoogleDescription:
+      "Calendar zeigt Termine aus deinen Google-Konten nicht mehr an und synchronisiert sie nicht mehr.",
+    disconnectZoomTitle: "Zoom trennen?",
+    disconnectZoomDescription:
+      "Neue Termine und Buchungen erhalten keine Zoom-Meeting-Links, bis du Zoom wieder verbindest.",
+    manage: "Verwalten",
+    edit: "Bearbeiten",
+    cancel: "Abbrechen",
+    save: "Speichern",
+    fallbackBookingPage: "Standard-Buchungsseite",
+    fallbackBookingPageDescription:
+      "Wird verwendet, wenn ein Buchungslink keinen eigenen Titel und keine eigene Beschreibung hat.",
+    fallbackTitle: "Titel",
+    fallbackDescription: "Beschreibung",
+    bookingLinksDescription:
+      "Erstelle Buchungslinks und kopiere ihre öffentlichen URLs.",
   },
   eventDialog: {
     eventUpdated: "Ereignis aktualisiert",
@@ -610,6 +622,7 @@ export default {
     fieldRequired: "{{label}} ist erforderlich",
     linkDisabled: "{{title}} deaktiviert",
     linkEnabled: "{{title}} aktiviert",
+    advanced: "Erweitert",
     linkVisibility: "Link-Sichtbarkeit",
     linkVisibilityDescription:
       "Deaktivieren Sie diese Option, um die öffentliche Seite zu deaktivieren.",
@@ -1058,7 +1071,7 @@ export default {
     year: "Jahr",
     zoom: "Zoom",
     zoomAdded: "Zoom hinzugefügt",
-    zoomAddFailed: "Zoom konnte nicht hinzugefügt werden",
+    zoomAddFailed: zoomAddFailedMessages["de-DE"],
     zoomConnectFailed: "Zoom konnte nicht verbunden werden",
     zoomConnectionOpened: "Zoom-Verbindung geöffnet",
     zoomNotConfigured: "Zoom OAuth ist nicht konfiguriert.",

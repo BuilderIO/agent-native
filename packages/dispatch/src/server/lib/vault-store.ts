@@ -18,6 +18,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { asc, gt } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -880,34 +881,56 @@ function groupSecretsByTenant(
 }
 
 /**
- * Re-sync every vault secret across every tenant into the shared credential
- * store, regardless of which request/ctx is currently active.
+ * Re-sync one bounded page of vault secrets across tenants into the shared
+ * credential store. Continue with `nextCursor` only from an explicit
+ * maintenance caller; this must not run automatically during process startup.
  *
  * `syncSecretsToCredentialStore` normally only runs on `createSecret` /
  * `updateSecret`, so it only re-encrypts the rows a user happens to touch.
  * When the shared `app_secrets` encryption format changes underneath it
  * (e.g. a new dual-write format, or a change to how key material is
  * derived), existing rows are stuck on the old format until someone
- * manually re-saves each vault secret. This walks every `vault_secrets`
- * row directly — bypassing the ctx-scoped `listSecrets()` — groups them by
- * their (orgId, ownerEmail) tenant, and re-runs the sync per group so every
- * row regains fresh ciphertext.
+ * manually re-saves each vault secret. This reads a keyset page directly —
+ * bypassing the ctx-scoped `listSecrets()` — groups the rows by their
+ * (orgId, ownerEmail) tenant, and re-runs the sync per group.
  *
  * A failure syncing one tenant's group is caught and logged (key NAMES
- * only, never values) so it can't block the rest of the resync.
+ * only, never values) so it can't block the rest of the resync. If a group
+ * fails, `nextCursor` rewinds to before its first row so the next pass retries
+ * it; check `failedGroups` before treating a null cursor as completion.
  */
-export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
+export async function resyncVaultSecretsToCredentialStorePage(
+  options: {
+    afterId?: string;
+    limit?: number;
+  } = {},
+): Promise<{
   groups: number;
   failedGroups: number;
   syncedKeys: number;
+  nextCursor: string | null;
 }> {
+  const requestedLimit = options.limit ?? 100;
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
+    : 100;
   const db = getDb();
-  const rows = await db.select().from(schema.vaultSecrets);
+  const rowsWithNext = await db
+    .select()
+    .from(schema.vaultSecrets)
+    .where(
+      options.afterId ? gt(schema.vaultSecrets.id, options.afterId) : undefined,
+    )
+    .orderBy(asc(schema.vaultSecrets.id))
+    .limit(limit + 1);
+  const hasMore = rowsWithNext.length > limit;
+  const rows = hasMore ? rowsWithNext.slice(0, limit) : rowsWithNext;
 
   const groups = groupSecretsByTenant(rows, ctxForRow);
 
   let failedGroups = 0;
   let syncedKeys = 0;
+  let firstFailedRowIndex = Number.POSITIVE_INFINITY;
 
   for (const { ctx, rows: groupRows } of groups) {
     try {
@@ -915,6 +938,10 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
       syncedKeys += result.keys.length;
     } catch (error) {
       failedGroups++;
+      const firstRowIndex = rows.findIndex(
+        (row) => row.id === groupRows[0]?.id,
+      );
+      firstFailedRowIndex = Math.min(firstFailedRowIndex, firstRowIndex);
       const keyNames = groupRows.map((row) => row.credentialKey).join(", ");
       console.warn(
         `[dispatch] vault boot resync failed for org=${ctx.orgId ?? "(solo)"} owner=${ctx.ownerEmail}; affected keys: ${keyNames}`,
@@ -923,7 +950,17 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
     }
   }
 
-  return { groups: groups.length, failedGroups, syncedKeys };
+  return {
+    groups: groups.length,
+    failedGroups,
+    syncedKeys,
+    nextCursor:
+      failedGroups > 0
+        ? (rows[firstFailedRowIndex - 1]?.id ?? options.afterId ?? null)
+        : hasMore
+          ? (rows.at(-1)?.id ?? null)
+          : null,
+  };
 }
 
 export async function cleanupSyncedCredentialKeysIfUnused(

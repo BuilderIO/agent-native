@@ -1,6 +1,7 @@
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
@@ -652,6 +653,9 @@ export interface AgentChatRuntimeErrorEvent extends AgentChatRuntimeEventBase<"e
   readonly cause?: unknown;
 }
 
+export type AgentChatRuntimeContinuationEvent =
+  AgentChatRuntimeEventBase<"continuation">;
+
 export type AgentChatRuntimeDoneReason =
   | "complete"
   | "cancelled"
@@ -695,6 +699,7 @@ export type AgentChatRuntimeKnownEvent =
   | AgentChatRuntimeFileEvent
   | AgentChatRuntimeUsageEvent
   | AgentChatRuntimeErrorEvent
+  | AgentChatRuntimeContinuationEvent
   | AgentChatRuntimeDoneEvent;
 
 export type AgentChatRuntimeEvent<
@@ -1567,6 +1572,46 @@ interface AgentNativeMessageProjectionState {
   };
 }
 
+function pendingApprovalStructuredHistory(
+  state: AgentNativeMessageProjectionState,
+) {
+  return state.message.content.flatMap<AgentChatStructuredMessage>((part) => {
+    if (part.type === "text") {
+      return [
+        {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: part.text }],
+        },
+      ];
+    }
+    if (part.type !== "tool-call" || part.result === undefined) return [];
+    return [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            id: part.toolCallId,
+            name: part.toolName,
+            input: part.args,
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: part.toolCallId,
+            content: part.result,
+            ...(part.isError ? { isError: true } : {}),
+          },
+        ],
+      },
+    ];
+  });
+}
+
 function definedMetadata(
   values: AgentChatRuntimeMetadata,
 ): AgentChatRuntimeMetadata | undefined {
@@ -1688,6 +1733,9 @@ function mapAgentNativeEvent(
     turnId: input.turnId,
     ...(ev.seq !== undefined ? { metadata: { seq: ev.seq } } : {}),
   };
+  if (ev.type === "auto_continue") {
+    return [{ type: "continuation", ...base }];
+  }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
     const type = ev.type === "text" ? "text" : "reasoning";
@@ -2511,7 +2559,7 @@ export function createAgentNativeChatRuntime(
     }
   };
 
-  return createHttpAgentChatRuntime({
+  const nativeRuntime = createHttpAgentChatRuntime({
     id: runtimeId,
     kind: "agent-native",
     label: options.label ?? "Agent-Native",
@@ -2567,15 +2615,34 @@ export function createAgentNativeChatRuntime(
       if (continuationMessageState) {
         messageStates.set(turnId, continuationMessageState);
       }
+      const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const pendingApprovalHistory =
+        approvedToolCalls && continuationMessageState
+          ? pendingApprovalStructuredHistory(continuationMessageState)
+          : [];
       return {
         message: prompt,
         displayMessage: prompt,
-        history: nativeHistoryFromMessages(turn.messages, prompt),
+        history,
+        ...(pendingApprovalHistory.length
+          ? {
+              structuredHistory: [
+                ...history.map(({ role, content }) => ({
+                  role,
+                  content: [{ type: "text" as const, text: content }],
+                })),
+                ...pendingApprovalHistory,
+              ],
+            }
+          : {}),
         turnId: continuationTurnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
         ...(turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
         true
           ? { internalContinuation: true }
+          : {}),
+        ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
+          ? { skipPendingSelectionContext: true }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
@@ -2719,6 +2786,49 @@ export function createAgentNativeChatRuntime(
         ? `${apiUrl}/runs/${encodeURIComponent(input.runId)}/events?after=${input.after ?? 0}`
         : null,
   });
+
+  return {
+    ...nativeRuntime,
+    resume: async (input) => {
+      const threadId = input.sessionId ?? options.threadId;
+      if (!threadId || !input.turnId || !input.runId) {
+        return nativeRuntime.resume!(input);
+      }
+
+      const query = new URLSearchParams({ threadId, turnId: input.turnId });
+      const headers = await resolveHeaders(options.headers, input);
+      headers.set("x-agent-native-surface", options.surface ?? "app");
+      const response = await runtimeFetch(
+        `${apiUrl.replace(/\/+$/, "")}/runs/latest?${query}`,
+        {
+          headers,
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: input.abortSignal,
+        },
+      );
+      if (!response.ok) throw await readHttpRuntimeError(response);
+
+      const latestRun = asRecord(await response.json());
+      const runId = latestRun?.runId;
+      if (typeof runId !== "string" || !runId.trim()) {
+        throw new TypeError(
+          "Agent chat latest-run response must include a run ID.",
+        );
+      }
+      const events = await nativeRuntime.subscribe!({
+        ...input,
+        runId,
+        after: runId === input.runId ? input.after : 0,
+      });
+      return {
+        id: input.turnId,
+        sessionId: threadId,
+        runId,
+        events,
+      };
+    },
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

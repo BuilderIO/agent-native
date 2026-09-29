@@ -55,6 +55,7 @@ export type ContentPart =
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
+      chatUIResult?: unknown;
       activity?: boolean;
       repeatCount?: number;
       /**
@@ -116,6 +117,7 @@ export interface SSEEvent {
   connectionReason?: "connect" | "grant" | "reauthorize" | "admin_required";
   appId?: string;
   error?: string;
+  message?: string;
   seq?: number;
   agent?: string;
   status?: string;
@@ -1902,7 +1904,14 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
-          detail: { tool: doneTool, result: ev.result },
+          detail: {
+            tool: doneTool,
+            result: ev.result,
+            isError: ev.isError === true,
+            completedSideEffect: ev.completedSideEffect === true,
+            tabId,
+            eventId: ev.eventId ?? ev.id,
+          },
         }),
       );
     }
@@ -1926,6 +1935,9 @@ export function processEvent(
         }
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         if (ev.chatUI) part.chatUI = ev.chatUI;
+        if (ev.chatUIResult !== undefined) {
+          part.chatUIResult = ev.chatUIResult;
+        }
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
@@ -2313,6 +2325,28 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: { custom: { userStopped: true } },
+        } as ChatModelRunResult,
+      };
+    }
+    if (ev.reason === "loop_breaker") {
+      const finalResponseWarning = appendMissingFinalResponseWarning(
+        content,
+        state ? state.completedToolsAfterLastAssistantText : undefined,
+      );
+      return {
+        action: "done",
+        result: {
+          content: contentSnapshot(content),
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: {
+            custom: {
+              runWarning: {
+                errorCode: "tool_loop_stopped",
+                ...(ev.message ? { message: ev.message } : {}),
+                ...(finalResponseWarning ? { finalResponseWarning } : {}),
+              },
+            },
+          },
         } as ChatModelRunResult,
       };
     }

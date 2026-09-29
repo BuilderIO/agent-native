@@ -155,7 +155,7 @@ async function fetchThreadById(
     const res = await fetch(
       `${apiUrl}/threads/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
     );
-    if (res.status === 404) return null;
+    if (res.status === 403 || res.status === 404) return null;
     if (!res.ok) return undefined;
     return (await res.json()) as ChatThreadSummary;
   } catch {
@@ -365,6 +365,7 @@ export function useChatThreads(
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
   const [restoredThreadIdOnListFailure, setRestoredThreadIdOnListFailure] =
     useState<string | null>(null);
+  const [evictedThreadIds, setEvictedThreadIds] = useState<string[]>([]);
   const nextThreadsOffsetRef = useRef(0);
   const latestFetchRequestRef = useRef(0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
@@ -375,6 +376,7 @@ export function useChatThreads(
       ? new Set([initialActiveThreadRef.current.id])
       : new Set(),
   );
+  const explicitlyOpenedThreadIdsRef = useRef<Set<string>>(new Set());
   const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
@@ -642,21 +644,64 @@ export function useChatThreads(
               ),
             )
           : loaded;
+        const explicitlyOpened = await Promise.all(
+          [...explicitlyOpenedThreadIdsRef.current]
+            .filter((id) => !visibleLoaded.some((thread) => thread.id === id))
+            .map(async (id) => ({
+              id,
+              thread: await fetchThreadById(apiUrl, id, null),
+            })),
+        );
+        if (requestId !== latestFetchRequestRef.current) return undefined;
+        const evictedExplicitIds = new Set<string>();
+        const revalidatedExplicit = explicitlyOpened.flatMap(
+          ({ id, thread }) => {
+            if (thread === undefined) {
+              const retained = threadsRef.current.find(
+                (candidate) => candidate.id === id,
+              );
+              return retained ? [retained] : [];
+            }
+            if (!thread || thread.archivedAt) {
+              explicitlyOpenedThreadIdsRef.current.delete(id);
+              evictedExplicitIds.add(id);
+              return [];
+            }
+            knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+            serverConfirmedThreadIdsRef.current.add(thread.id);
+            return [thread];
+          },
+        );
+        const visibleWithExplicit = [...visibleLoaded, ...revalidatedExplicit];
+        if (
+          activeThreadIdRef.current &&
+          evictedExplicitIds.has(activeThreadIdRef.current)
+        ) {
+          localStorage.removeItem(activeThreadKey);
+          localStorage.removeItem(activeThreadSeenKey);
+          setActiveThreadId(null);
+        }
+        if (evictedExplicitIds.size > 0) {
+          setEvictedThreadIds((prev) => [
+            ...new Set([...prev, ...evictedExplicitIds]),
+          ]);
+        }
         setThreads((prev) => {
-          const loadedIds = new Set(visibleLoaded.map((t) => t.id));
-          const optimisticOnly = prev.filter(
+          const loadedIds = new Set(visibleWithExplicit.map((t) => t.id));
+          const locallyRetained = prev.filter(
             (t) =>
-              newlyCreatedRef.current.has(t.id) &&
               !loadedIds.has(t.id) &&
               !t.archivedAt &&
-              (!isolateHistory ||
-                threadCanStayVisibleInHistory(
-                  t.scope,
-                  historyScope,
-                  isolateHistory,
-                )),
+              (explicitlyOpenedThreadIdsRef.current.has(t.id) ||
+                (newlyCreatedRef.current.has(t.id) &&
+                  (!isolateHistory ||
+                    threadCanStayVisibleInHistory(
+                      t.scope,
+                      historyScope,
+                      isolateHistory,
+                    )))),
           );
-          const merged = visibleLoaded.map((server) => {
+          const merged = visibleWithExplicit.map((server) => {
             const local = prev.find((t) => t.id === server.id);
             if (!local) return server;
             const next = { ...server };
@@ -690,9 +735,9 @@ export function useChatThreads(
               ...merged.filter((t) => !existingIds.has(t.id)),
             ]);
           }
-          return [...optimisticOnly, ...merged];
+          return [...locallyRetained, ...merged];
         });
-        return visibleLoaded;
+        return visibleWithExplicit;
       } catch {
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!options?.append) {
@@ -701,7 +746,14 @@ export function useChatThreads(
         return undefined;
       }
     },
-    [apiUrl, historyScope, includeExternal, isolateHistory],
+    [
+      activeThreadKey,
+      activeThreadSeenKey,
+      apiUrl,
+      historyScope,
+      includeExternal,
+      isolateHistory,
+    ],
   );
 
   const loadedHistoryScopeKeyRef = useRef(historyScopeKey);
@@ -716,6 +768,7 @@ export function useChatThreads(
     setThreads((prev) =>
       prev.filter(
         (thread) =>
+          explicitlyOpenedThreadIdsRef.current.has(thread.id) ||
           !isolateHistory ||
           threadCanStayVisibleInHistory(
             thread.scope,
@@ -1188,6 +1241,41 @@ export function useChatThreads(
     [persistActiveThreadId],
   );
 
+  const openThread = useCallback(
+    async (id: string): Promise<"opened" | "missing" | "unavailable"> => {
+      const thread = await fetchThreadById(apiUrl, id, null);
+      if (thread === undefined) return "unavailable";
+      if (thread === null || thread.archivedAt) {
+        explicitlyOpenedThreadIdsRef.current.delete(id);
+        setEvictedThreadIds((prev) =>
+          prev.includes(id) ? prev : [...prev, id],
+        );
+        setThreads((prev) => prev.filter((candidate) => candidate.id !== id));
+        if (activeThreadIdRef.current === id) {
+          localStorage.removeItem(activeThreadKey);
+          localStorage.removeItem(activeThreadSeenKey);
+          setActiveThreadId(null);
+        }
+        return "missing";
+      }
+      knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+      serverConfirmedThreadIdsRef.current.add(thread.id);
+      clearClientDraftThreadMarker(thread.id);
+      newlyCreatedRef.current.delete(thread.id);
+      explicitlyOpenedThreadIdsRef.current.add(id);
+      setEvictedThreadIds((prev) => prev.filter((evicted) => evicted !== id));
+      setThreads((prev) =>
+        prev.some((candidate) => candidate.id === thread.id)
+          ? prev.map((candidate) =>
+              candidate.id === thread.id ? thread : candidate,
+            )
+          : [thread, ...prev],
+      );
+      return "opened";
+    },
+    [activeThreadKey, activeThreadSeenKey, apiUrl],
+  );
+
   const removeThread = useCallback(
     async (id: string) => {
       try {
@@ -1563,6 +1651,7 @@ export function useChatThreads(
     activeThreadId,
     isLoading,
     createThread,
+    openThread,
     switchThread,
     deleteThread: removeThread,
     detachThread,
@@ -1582,6 +1671,7 @@ export function useChatThreads(
     isLoadingMoreThreads,
     threadsLoadError,
     restoredThreadIdOnListFailure,
+    evictedThreadIds,
     isNewThread,
   };
 }

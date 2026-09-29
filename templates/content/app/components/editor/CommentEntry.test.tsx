@@ -20,6 +20,7 @@ vi.mock("@/hooks/use-comments", () => ({
     mutateAsync: createRetry,
   }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
@@ -48,21 +49,31 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
 }));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
     onChange,
+    onCancel,
     ariaLabel,
   }: {
     value: string;
     onChange: (value: string) => void;
+    onCancel?: () => void;
     ariaLabel: string;
   }) => (
-    <textarea
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <>
+      <textarea
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
+    </>
   ),
 }));
 
@@ -98,6 +109,7 @@ function DraftProbe() {
   editDraft = useCommentDraft("edit:comment-1", {
     text: comment.content,
     mentions: [],
+    aiDraft: null,
   });
   return null;
 }
@@ -243,4 +255,84 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(
     "comments.saveUnconfirmed",
   );
+});
+
+it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "agent",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+
+  expect(container.textContent).toContain("GPT");
+  const badge = container.querySelector("[data-comment-agent-badge]");
+  expect(badge?.textContent).toBe("comments.agentBadge");
+  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  const time = container.querySelector("time");
+  expect(time?.getAttribute("datetime")).toBe(comment.created_at);
+  // The time truncates before a short author name does.
+  expect(time?.className).toContain("truncate");
+  expect(time?.className).toContain("whitespace-nowrap");
+});
+
+it("places thread actions inline after the comment menu", async () => {
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          members={[]}
+          headerActions={<button data-testid="resolve">resolve</button>}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  const actions = container.querySelector("[data-comment-row-actions]");
+  const buttons = [...(actions?.querySelectorAll("button") ?? [])];
+  expect(buttons[buttons.length - 1]?.dataset.testid).toBe("resolve");
+  expect(
+    buttons.some(
+      (button) =>
+        button.getAttribute("aria-label") === "comments.commentActions",
+    ),
+  ).toBe(true);
+});
+
+it("keeps the exact AI conversation link in the comment overflow", async () => {
+  const onOpenAiConversation = vi.fn();
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          members={[]}
+          onOpenAiConversation={onOpenAiConversation}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  await click("comments.aiOpenConversation");
+  expect(onOpenAiConversation).toHaveBeenCalledOnce();
 });

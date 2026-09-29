@@ -7,10 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   eventRulesStatusMock,
   eventRulesStatusOptionsMock,
+  googleStatusState,
   requestMeetingStartNotificationPermissionMock,
-  undoEventRuleActivityMock,
   settingsMock,
-  updateSettingsMock,
+  settingsTabsPageProps,
+  undoEventRuleActivityMock,
+  updateSettingsMutateMock,
+  zoomDisconnectMock,
+  zoomStatusState,
 } = vi.hoisted(() => ({
   eventRulesStatusMock: {
     data: {
@@ -32,8 +36,10 @@ const {
   eventRulesStatusOptionsMock: {
     options: undefined as Record<string, unknown> | undefined,
   },
+  googleStatusState: {
+    data: { connected: false, accounts: [] as Array<{ email: string }> },
+  } as Record<string, unknown>,
   requestMeetingStartNotificationPermissionMock: vi.fn(async () => "granted"),
-  undoEventRuleActivityMock: vi.fn(),
   settingsMock: {
     data: {
       bookingPageDescription: "",
@@ -54,7 +60,13 @@ const {
       weekStart: "sunday",
     },
   },
-  updateSettingsMock: vi.fn(),
+  settingsTabsPageProps: { current: null as Record<string, unknown> | null },
+  undoEventRuleActivityMock: vi.fn(),
+  updateSettingsMutateMock: vi.fn(),
+  zoomDisconnectMock: vi.fn(),
+  zoomStatusState: {
+    data: { accounts: [], configured: true, connected: false },
+  } as Record<string, unknown>,
 }));
 
 vi.mock("@agent-native/core/client/changelog", () => ({
@@ -68,23 +80,26 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     mutate: undoEventRuleActivityMock,
   }),
   useActionQuery: (
-    _name: string,
+    name: string,
     _params?: unknown,
     options?: Record<string, unknown>,
   ) => {
+    if (name !== "get-event-rules-status") {
+      return { data: undefined, isError: false, isLoading: false };
+    }
     eventRulesStatusOptionsMock.options = options;
     return eventRulesStatusMock;
   },
   actionErrorMessage: () => null,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  LanguagePicker: () => null,
-  useT: () => (key: string) => key,
+vi.mock("@agent-native/core/client/integrations", () => ({
+  startWorkspaceProviderOAuth: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
-  TeamPage: () => null,
+vi.mock("@agent-native/core/client/i18n", () => ({
+  LanguagePicker: () => <span>language-picker</span>,
+  useT: () => (key: string) => key,
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
@@ -112,31 +127,30 @@ vi.mock("@agent-native/core/client/settings", () => ({
       {control}
     </div>
   ),
-  SettingsTabsPage: ({
-    general,
-    extraTabs = [],
-  }: {
-    general: React.ReactNode;
+  SettingsTabsPage: (props: {
+    generalGroups?: React.ReactNode;
     extraTabs?: Array<{
       id: string;
       label: string;
       content: React.ReactNode;
+      icon?: unknown;
     }>;
+    appAreas?: Array<{ id: string; content: React.ReactNode; icon?: unknown }>;
+    notifications?: React.ReactNode;
   }) => {
-    const [activeTab, setActiveTab] = React.useState("general");
-    const active = extraTabs.find((tab) => tab.id === activeTab);
+    settingsTabsPageProps.current = props;
+    // Mirrors the real shell: the groups, each area, and the Notifications
+    // page.
     return (
-      <>
-        <nav>
-          <button onClick={() => setActiveTab("general")}>General</button>
-          {extraTabs.map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}>
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-        <main>{active ? active.content : general}</main>
-      </>
+      <main>
+        <section data-page="app">{props.generalGroups}</section>
+        {props.appAreas?.map((area) => (
+          <section key={area.id} data-area={area.id}>
+            {area.content}
+          </section>
+        ))}
+        <section data-page="notifications">{props.notifications}</section>
+      </main>
     );
   },
   useAgentSettingsTabs: () => [],
@@ -153,6 +167,59 @@ vi.mock("@/components/calendar/GoogleSetupWizard", () => ({
 
 vi.mock("@/components/TimezoneCombobox", () => ({
   TimezoneCombobox: () => null,
+}));
+
+vi.mock("@/components/ui/alert-dialog", () => {
+  const Part = ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  );
+  return {
+    AlertDialog: ({
+      open,
+      children,
+    }: {
+      open: boolean;
+      children: React.ReactNode;
+    }) => (open ? <div role="alertdialog">{children}</div> : null),
+    AlertDialogAction: ({
+      children,
+      onClick,
+    }: {
+      children: React.ReactNode;
+      onClick?: () => void;
+    }) => <button onClick={onClick}>{children}</button>,
+    AlertDialogCancel: ({ children }: { children: React.ReactNode }) => (
+      <button>{children}</button>
+    ),
+    AlertDialogContent: Part,
+    AlertDialogDescription: Part,
+    AlertDialogFooter: Part,
+    AlertDialogHeader: Part,
+    AlertDialogTitle: Part,
+  };
+});
+
+vi.mock("@/components/ui/dialog", () => {
+  const Part = ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  );
+  return {
+    Dialog: ({
+      open,
+      children,
+    }: {
+      open: boolean;
+      children: React.ReactNode;
+    }) => (open ? <div role="dialog">{children}</div> : null),
+    DialogContent: Part,
+    DialogFooter: Part,
+    DialogHeader: Part,
+    DialogTitle: Part,
+  };
+});
+
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: () => <span data-skeleton />,
 }));
 
 vi.mock("@/components/ui/button", () => ({
@@ -214,18 +281,33 @@ vi.mock("@/components/ui/separator", () => ({
 }));
 
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  Select: ({
+    children,
+    value,
+    onValueChange,
+  }: {
+    children: React.ReactNode;
+    value?: string;
+    onValueChange?: (value: string) => void;
+  }) => (
+    <select
+      value={value}
+      onChange={(event) => onValueChange?.(event.target.value)}
+    >
+      {children}
+    </select>
   ),
   SelectContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+    <>{children}</>
   ),
-  SelectItem: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => (
-    <button>{children}</button>
-  ),
+  SelectItem: ({
+    children,
+    value,
+  }: {
+    children: React.ReactNode;
+    value: string;
+  }) => <option value={value}>{children}</option>,
+  SelectTrigger: () => null,
   SelectValue: () => null,
 }));
 
@@ -237,9 +319,7 @@ vi.mock("@/components/ui/textarea", () => ({
 
 vi.mock("@/hooks/use-google-auth", () => ({
   useDisconnectGoogle: () => ({ mutateAsync: vi.fn(async () => undefined) }),
-  useGoogleAuthStatus: () => ({
-    data: { connected: false, accounts: [] },
-  }),
+  useGoogleAuthStatus: () => googleStatusState,
   useGoogleAuthUrl: () => ({
     data: undefined,
     error: null,
@@ -257,7 +337,7 @@ vi.mock("@/hooks/use-settings", () => ({
   useSettings: () => settingsMock,
   useUpdateSettings: () => ({
     isPending: false,
-    mutate: updateSettingsMock,
+    mutate: updateSettingsMutateMock,
   }),
 }));
 
@@ -269,10 +349,8 @@ vi.mock("@/hooks/use-meeting-start-notifications", () => ({
 
 vi.mock("@/hooks/use-zoom-auth", () => ({
   useConnectZoom: () => ({ isPending: false, mutate: vi.fn() }),
-  useDisconnectZoom: () => ({ isPending: false, mutate: vi.fn() }),
-  useZoomStatus: () => ({
-    data: { accounts: [], configured: true, connected: false },
-  }),
+  useDisconnectZoom: () => ({ isPending: false, mutate: zoomDisconnectMock }),
+  useZoomStatus: () => zoomStatusState,
 }));
 
 vi.mock("@/lib/google-oauth-setup", () => ({
@@ -289,7 +367,15 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
 import Settings from "./Settings";
+
+function buttonNamed(container: HTMLElement, name: string) {
+  return Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === name,
+  );
+}
 
 describe("Calendar Settings", () => {
   let container: HTMLDivElement;
@@ -313,7 +399,6 @@ describe("Calendar Settings", () => {
     eventRulesStatusMock.isLoading = false;
     eventRulesStatusOptionsMock.options = undefined;
     settingsMock.data.eventRules = { accept: "", decline: "", hide: "" };
-    updateSettingsMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -324,27 +409,148 @@ describe("Calendar Settings", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    for (const key of Object.keys(googleStatusState)) {
+      delete googleStatusState[key];
+    }
+    googleStatusState.data = { connected: false, accounts: [] };
+    zoomStatusState.data = { accounts: [], configured: true, connected: false };
+    settingsTabsPageProps.current = null;
   });
 
-  it("links to availability from General settings", async () => {
+  async function renderSettings() {
+    const queryClient = new QueryClient();
     await act(async () => {
-      root.render(<Settings />);
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Settings />
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  it("splits Settings into General, Calendars, Booking, Rules, and Notifications", async () => {
+    await renderSettings();
+
+    const props = settingsTabsPageProps.current;
+    expect(
+      (props?.appAreas as Array<{ id: string }>).map((area) => area.id),
+    ).toEqual(["calendars", "booking", "rules"]);
+    expect(
+      (props?.appAreas as Array<{ id: string; icon?: unknown }>).find(
+        (area) => area.id === "rules",
+      )?.icon,
+    ).toBeDefined();
+
+    const general = container.querySelector('[data-page="app"]');
+    // Calendar's own zone must not read as the account-wide Preferences one.
+    expect(general?.querySelector("#timezone")?.textContent).toContain(
+      "calendarSettings.timezone",
+    );
+    expect(
+      (
+        props?.generalSearchEntries as Array<{ id: string; label: string }>
+      ).find((entry) => entry.id === "calendar-timezone")?.label,
+    ).toBe("calendarSettings.timezone");
+    expect(general?.querySelector("#week-start")).not.toBeNull();
+    expect(general?.querySelector("#default-duration")).not.toBeNull();
+    expect(general?.querySelector("#appearance")).not.toBeNull();
+    // Interface language lives on Account › Preferences.
+    expect(container.textContent).not.toContain("language-picker");
+
+    const calendars = container.querySelector('[data-area="calendars"]');
+    expect(calendars?.querySelector("#zoom")).not.toBeNull();
+    const booking = container.querySelector('[data-area="booking"]');
+    expect(
+      booking?.querySelector('a[href="/booking-links?tab=availability"]'),
+    ).not.toBeNull();
+    expect(booking?.querySelector("#booking-page")).not.toBeNull();
+    const rules = container.querySelector('[data-area="rules"]');
+    expect(rules?.querySelector("#event-rule-accept")).not.toBeNull();
+
+    const notifications = container.querySelector(
+      '[data-page="notifications"]',
+    );
+    expect(
+      notifications?.querySelector("#desktop-notifications"),
+    ).not.toBeNull();
+  });
+
+  it("saves the week start as soon as it changes", async () => {
+    await renderSettings();
+
+    const select =
+      container.querySelector<HTMLSelectElement>("#week-start select");
+    expect(select).not.toBeNull();
+    await act(async () => {
+      select!.value = "monday";
+      select!.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
+    expect(updateSettingsMutateMock).toHaveBeenCalledWith(
+      { weekStart: "monday" },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+  });
+
+  it("asks before disconnecting Zoom", async () => {
+    zoomStatusState.data = {
+      accounts: [{ id: "zoom-1", email: "person@example.com" }],
+      configured: true,
+      connected: true,
+    };
+    await renderSettings();
+
+    const zoomRow = container.querySelector<HTMLElement>(
+      '[data-area="calendars"] #zoom',
+    );
+    expect(zoomRow?.textContent).toContain("calendarSettings.connectedAs");
+    await act(async () => {
+      buttonNamed(zoomRow!, "common.disconnect")?.click();
+    });
+    expect(zoomDisconnectMock).not.toHaveBeenCalled();
+
+    const confirm = container.querySelector<HTMLElement>(
+      '[role="alertdialog"]',
+    );
+    expect(confirm?.textContent).toContain(
+      "calendarSettings.disconnectZoomTitle",
+    );
+    await act(async () => {
+      buttonNamed(confirm!, "common.disconnect")?.click();
+    });
+    expect(zoomDisconnectMock).toHaveBeenCalledOnce();
+  });
+
+  it("shows a retry row when the Google status can't load", async () => {
+    const refetch = vi.fn();
+    googleStatusState.data = undefined;
+    googleStatusState.isError = true;
+    googleStatusState.refetch = refetch;
+    await renderSettings();
+
+    const googleRow = container.querySelector<HTMLElement>(
+      '[data-area="calendars"] #google-calendar',
+    );
+    expect(googleRow?.textContent).toContain("common.loadFailed");
+    await act(async () => {
+      buttonNamed(googleRow!, "common.retry")?.click();
+    });
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("links to availability from the Booking area", async () => {
+    await renderSettings();
+
     const availabilityLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/booking-links?tab=availability"]',
+      '[data-area="booking"] a[href="/booking-links?tab=availability"]',
     );
 
     expect(availabilityLink).not.toBeNull();
-    expect(availabilityLink?.textContent).toContain(
-      "bookingLinks.availability",
-    );
+    expect(availabilityLink?.textContent).toContain("calendarSettings.manage");
   });
 
   it("renders the week-start setting in General settings", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
+    await renderSettings();
 
     expect(container.textContent).toContain("settings.weekStartLabel");
     expect(container.textContent).toContain("settings.weekStartSunday");
@@ -352,14 +558,7 @@ describe("Calendar Settings", () => {
   });
 
   it("shows localized prompt help when the invitation rules help button is focused", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "settings.eventRules")
-        ?.click();
-    });
+    await renderSettings();
 
     const helpButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="settings.eventRulesHelpLabel"]',
@@ -375,15 +574,7 @@ describe("Calendar Settings", () => {
   });
 
   it("separates invitation rules and recent activity into tabs", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
-
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "settings.eventRules")
-        ?.click();
-    });
+    await renderSettings();
 
     expect(container.textContent).toContain("settings.eventRulesTabRules");
     expect(container.textContent).toContain(
@@ -415,13 +606,22 @@ describe("Calendar Settings", () => {
       "settings.eventRulesNoActivity",
     );
     await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "calendarView.undo")
-        ?.click();
+      buttonNamed(container, "calendarView.undo")?.click();
     });
     expect(undoEventRuleActivityMock).toHaveBeenCalledWith({
       activityId: "activity-1",
     });
+  });
+
+  it("links invitation rules to Automations for other actions", async () => {
+    await renderSettings();
+
+    const automationLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/agent/automations"]',
+    );
+    expect(automationLink?.textContent).toBe(
+      "settings.eventRulesAutomationLink",
+    );
   });
 
   it("shows Builder and API key connection options and disables rule editing without Jev", async () => {
@@ -430,24 +630,15 @@ describe("Calendar Settings", () => {
       jevConfigured: false,
     };
 
-    await act(async () => {
-      root.render(<Settings />);
-    });
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "settings.eventRules")
-        ?.click();
-    });
+    await renderSettings();
 
     expect(container.textContent).toContain("settings.eventRulesConnectJev");
     expect(container.textContent).toContain(
       "settings.eventRulesFreeBuilderOrApiKey",
     );
     expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "settings.eventRulesConnectBuilder",
-      ),
-    ).toBe(true);
+      buttonNamed(container, "settings.eventRulesConnectBuilder"),
+    ).toBeDefined();
     expect(
       Array.from(container.querySelectorAll("a")).some(
         (link) =>
@@ -460,11 +651,9 @@ describe("Calendar Settings", () => {
         (textarea) => textarea.disabled,
       ),
     ).toBe(true);
-    expect(
-      Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "settings.eventRulesSave",
-      )?.disabled,
-    ).toBe(true);
+    expect(buttonNamed(container, "settings.eventRulesSave")?.disabled).toBe(
+      true,
+    );
   });
 
   it("clears saved invitation rules when Jev is disconnected", async () => {
@@ -478,31 +667,20 @@ describe("Calendar Settings", () => {
       hide: "",
     };
 
-    await act(async () => {
-      root.render(<Settings />);
-    });
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "settings.eventRules")
-        ?.click();
-    });
+    await renderSettings();
 
-    const clearButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "settings.eventRulesClearSaved",
-    );
+    const clearButton = buttonNamed(container, "settings.eventRulesClearSaved");
     expect(clearButton).toBeDefined();
     await act(async () => clearButton?.click());
 
-    expect(updateSettingsMock).toHaveBeenCalledWith(
+    expect(updateSettingsMutateMock).toHaveBeenCalledWith(
       { eventRules: { accept: "", decline: "", hide: "" } },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
   });
 
   it("refreshes Jev status when the settings tab regains focus", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
+    await renderSettings();
 
     expect(eventRulesStatusOptionsMock.options).toMatchObject({
       refetchOnWindowFocus: true,
@@ -513,14 +691,7 @@ describe("Calendar Settings", () => {
   it("keeps invitation rule editing disabled when the Jev status read fails", async () => {
     eventRulesStatusMock.isError = true;
 
-    await act(async () => {
-      root.render(<Settings />);
-    });
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "settings.eventRules")
-        ?.click();
-    });
+    await renderSettings();
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "common.loadFailed",
@@ -530,18 +701,14 @@ describe("Calendar Settings", () => {
         (textarea) => textarea.disabled,
       ),
     ).toBe(true);
-    const retry = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "common.retry",
-    );
+    const retry = buttonNamed(container, "common.retry");
     expect(retry).toBeDefined();
     await act(async () => retry?.click());
     expect(eventRulesStatusMock.refetch).toHaveBeenCalledOnce();
   });
 
   it("requests system notification permission from the settings row", async () => {
-    await act(async () => {
-      root.render(<Settings />);
-    });
+    await renderSettings();
 
     const enableButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "settings.enableDesktopNotifications",

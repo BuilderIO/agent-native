@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "第 {{current}} 頁，共 {{total}} 頁",
   },
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
+  common: {
+    loading: "載入中...",
+  },
   root: {
     commandPresentations: "簡報",
     searchDecks: "搜尋幻燈片",
@@ -40,22 +43,20 @@ const messages = {
     brand: "幻燈片",
     decks: "幻燈片",
     designSystems: "設計系統",
-    team: "團隊",
   },
   settings: {
     agentObservability: "代理可觀測性",
     title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
     labLayoutOverflowWarningDescription: "在編輯器中顯示版面溢位警告。",
-    emailNotifications: "郵件通知",
-    emailNotificationsDescription:
-      "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
     saveFailed: "儲存失敗",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
+    notificationsEmail: "電子郵件",
+    commentsAndReplies: "留言和回覆",
+    commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
+    retry: "重試",
+    mcpAbout:
+      "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
@@ -178,7 +179,6 @@ const messages = {
     slideUnavailable: "無法使用幻燈片",
     couldNotLoadSlide: "無法載入幻燈片。",
     openInApp: "在應用中開啟",
-    teamDescription: "設定團隊，與同事共用簡報。",
   },
   designSystems: {
     new: "新建設計系統",
@@ -565,6 +565,7 @@ const messages = {
     generating: "正在生成幻燈片...",
     generate: "生成幻燈片",
   },
+  deckResult: { saved: "已儲存" },
   history: {
     unknownTime: "未知時間",
     justNow: "剛剛",
@@ -629,6 +630,20 @@ const messages = {
     enterFullscreen: "進入全螢幕",
     clickToEnterFullscreen: "點選進入全螢幕",
   },
+  deckAccessPage: {
+    errorCode: "錯誤 403",
+    noAccessTitle: "你沒有存取權限",
+    noAccessDescription: "請向簡報擁有者申請存取權限，或切換到正確的帳號。",
+    noteLabel: "給擁有者新增備註（選填）",
+    notePlaceholder: "我正在審閱這份簡報",
+    requesting: "正在申請",
+    requestFailed: "你的申請未送出，請再試一次。",
+    requestSentDescription:
+      "擁有者核准你的申請後，我們會立即寄送電子郵件通知你。",
+    goHome: "返回首頁",
+    signedInAs: "目前登入帳號",
+    switchAccount: "切換帳號",
+  },
   deckEditor: {
     lookingForDeck: "正在尋找此幻燈片",
     joinTeamToOpen: "加入團隊以開啟此幻燈片",
@@ -671,6 +686,9 @@ const messages = {
     accessApprovalTitle: "已授予存取權限",
     accessApprovalAlreadyTitle: "已授予存取權限",
     accessApprovalMessage: "{{email}} 現在可以開啟此簡報。",
+    accessApprovalRequesterEmailed: "我們已寄送電子郵件通知對方。",
+    accessApprovalRequesterEmailFailed:
+      "無法寄送電子郵件給 {{email}}。請告知對方現在可以開啟簡報了。",
     accessApprovalAlreadyMessage: "{{email}} 已經可以存取此簡報。",
     accessApprovalErrorTitle: "無法授予存取權限",
     accessApprovalInvalid: "此存取請求無效或已過期。",
@@ -800,6 +818,7 @@ const messages = {
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
       networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      unsupportedFileType: "不支援此檔案類型。請選擇支援的檔案。",
       uploadLimitExceeded:
         "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
@@ -838,6 +857,7 @@ const messages = {
       figma: "Figma 畫框",
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
+      websiteReadFailed: "無法自動讀取此網站。請改為複製並貼上相關文字。",
       figmaReadFailed:
         "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
@@ -987,6 +1007,11 @@ const messages = {
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
     emptyDescription: "使用 AI 產生精美簡報。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
   },
 };
 

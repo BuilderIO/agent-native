@@ -20,6 +20,7 @@ import {
   isEmbedMcpChatBridgeActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
@@ -931,11 +932,7 @@ function LibraryShellHeader({
               aria-label={t("library.primaryKitActions")}
             />
           ) : null}
-          <Button
-            size="sm"
-            className="h-8 shrink-0 gap-1.5"
-            onClick={onCreateKit}
-          >
+          <Button size="sm" className="shrink-0 gap-1.5" onClick={onCreateKit}>
             <IconPhotoPlus className="h-4 w-4" />
             {t("library.newKit")}
           </Button>
@@ -1017,7 +1014,7 @@ function LibraryKitSelector({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 max-w-[18rem] gap-1.5 px-2.5"
+            className="max-w-[18rem] gap-1.5 px-2.5"
           >
             <IconLibraryPhoto className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">
@@ -1115,7 +1112,7 @@ function LibraryKitSelector({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-full justify-start gap-2"
+            className="w-full justify-start gap-2"
             onClick={() => {
               setOpen(false);
               onCreateKit();
@@ -1435,7 +1432,7 @@ function AllAssetsBrowser({
               value={assetTab}
               onValueChange={(value) => handleAssetTabChange(value as AssetTab)}
             >
-              <TabsList className="h-9">
+              <TabsList>
                 <TabsTrigger value="drafts">{t("library.drafts")}</TabsTrigger>
                 <TabsTrigger value="generated">
                   {t("library.generated")}
@@ -1458,7 +1455,7 @@ function AllAssetsBrowser({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 shrink-0 px-2 text-xs"
+                className="shrink-0 px-2 text-xs"
                 onClick={() => toggleAllVisible(!allVisibleSelected)}
                 disabled={deleting}
                 aria-pressed={allVisibleSelected}
@@ -1507,7 +1504,7 @@ function AllAssetsBrowser({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 shrink-0 gap-1.5"
+                className="shrink-0 gap-1.5"
                 onClick={() => copyStandaloneSelection(standaloneSelection)}
               >
                 {standaloneCopyOk ? (
@@ -1521,7 +1518,7 @@ function AllAssetsBrowser({
                 asChild
                 variant="ghost"
                 size="sm"
-                className="h-8 shrink-0 gap-1.5"
+                className="shrink-0 gap-1.5"
               >
                 <Link
                   to={`/asset/${encodeURIComponent(
@@ -1534,10 +1531,10 @@ function AllAssetsBrowser({
               </Button>
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title={t("library.close")}
                 aria-label={t("library.close")}
-                className="h-8 w-8 shrink-0"
+                className="shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
                   setStandaloneCopyOk(false);
@@ -3403,7 +3400,11 @@ export function AssetPickerSurface() {
                 className="h-7 shrink-0 px-2 text-xs"
               >
                 <a
-                  href={absoluteAppUrl("/settings")}
+                  href={absoluteAppUrl(
+                    buildSettingsRoute("app", null, {
+                      anchor: "asset-generation-setup",
+                    }),
+                  )}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -3453,7 +3454,7 @@ export function AssetPickerSurface() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 shrink-0 gap-1.5"
+                className="shrink-0 gap-1.5"
                 onClick={() => copyStandaloneSelection(standaloneSelection)}
               >
                 {standaloneCopyOk ? (
@@ -3468,7 +3469,7 @@ export function AssetPickerSurface() {
                   asChild
                   variant="ghost"
                   size="sm"
-                  className="h-8 shrink-0 gap-1.5"
+                  className="shrink-0 gap-1.5"
                 >
                   <Link
                     to={`/asset/${encodeURIComponent(
@@ -3482,10 +3483,10 @@ export function AssetPickerSurface() {
               )}
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title={t("library.close")}
                 aria-label={t("library.close")}
-                className="h-8 w-8 shrink-0"
+                className="shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
                   setStandaloneCopyOk(false);
@@ -3551,7 +3552,7 @@ export function AssetPickerSurface() {
                 >
                   <SelectTrigger
                     className={cn(
-                      "h-9 w-full border-border/70 bg-background",
+                      "w-full border-border/70 bg-background",
                       !verticalLayout && "sm:w-48",
                     )}
                   >
@@ -3600,7 +3601,7 @@ export function AssetPickerSurface() {
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={t("library.searchMedia", { mediaLabel })}
                 className={cn(
-                  "h-9 border-border/70 bg-background",
+                  "border-border/70 bg-background",
                   !verticalLayout && "sm:max-w-xs",
                 )}
               />

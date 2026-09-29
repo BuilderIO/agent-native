@@ -31,7 +31,12 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { resolveDefault, resolveFilterVars } from "./filter-vars";
+import { DateRangeInput } from "../_shared/components/DateRangeInput";
+import {
+  isDateRangePresetFilter,
+  resolveDefault,
+  resolveFilterVars,
+} from "./filter-vars";
 import type { DashboardFilter } from "./types";
 
 export { resolveFilterVars } from "./filter-vars";
@@ -48,6 +53,13 @@ function hasActiveFilters(
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
     } else {
+      if (
+        isDateRangePresetFilter(f) &&
+        (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start") ||
+          searchParams.has(FILTER_PARAM_PREFIX + f.id + "End"))
+      ) {
+        return true;
+      }
       if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
     }
   }
@@ -70,6 +82,12 @@ export function extractFilterParams(
     } else {
       const v = searchParams.get(FILTER_PARAM_PREFIX + f.id);
       if (v) result[FILTER_PARAM_PREFIX + f.id] = v;
+      if (isDateRangePresetFilter(f)) {
+        for (const key of [f.id + "Start", f.id + "End"]) {
+          const value = searchParams.get(FILTER_PARAM_PREFIX + key);
+          if (value) result[FILTER_PARAM_PREFIX + key] = value;
+        }
+      }
     }
   }
   return result;
@@ -284,24 +302,13 @@ function FilterControl({
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
     return (
-      <div className="flex flex-col gap-1">
-        <label className="text-xs text-muted-foreground font-medium">
-          {filter.label}
-        </label>
-        <div className="flex items-center gap-2">
-          <DatePicker
-            value={vars[startKey] || ""}
-            onChange={(v) => setValue({ [startKey]: v })}
-          />
-          <span className="text-xs text-muted-foreground">
-            {t("sqlDashboard.to")}
-          </span>
-          <DatePicker
-            value={vars[endKey] || ""}
-            onChange={(v) => setValue({ [endKey]: v })}
-          />
-        </div>
-      </div>
+      <DateRangeInput
+        label={filter.label}
+        startDate={vars[startKey] || ""}
+        endDate={vars[endKey] || ""}
+        onStartChange={(v) => setValue({ [startKey]: v })}
+        onEndChange={(v) => setValue({ [endKey]: v })}
+      />
     );
   }
 
@@ -322,6 +329,9 @@ function FilterControl({
   if (filter.type === "select") {
     const current =
       vars[filter.id] || resolveDefault(filter.default, filter.type);
+    const supportsCustomRange = isDateRangePresetFilter(filter);
+    const startKey = filter.id + "Start";
+    const endKey = filter.id + "End";
     return (
       <div className="flex flex-col gap-1">
         <label className="text-xs text-muted-foreground font-medium">
@@ -329,9 +339,22 @@ function FilterControl({
         </label>
         <Select
           value={current}
-          onValueChange={(v) => setValue({ [filter.id]: v })}
+          onValueChange={(v) =>
+            setValue({
+              [filter.id]: v,
+              ...(supportsCustomRange
+                ? {
+                    [startKey]: v === "custom" ? vars[startKey] || "" : "",
+                    [endKey]: v === "custom" ? vars[endKey] || "" : "",
+                  }
+                : {}),
+            })
+          }
         >
-          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+          <SelectTrigger
+            size="sm"
+            className="w-[140px] justify-start gap-2 text-xs"
+          >
             <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
@@ -340,8 +363,23 @@ function FilterControl({
                 {opt.label}
               </SelectItem>
             ))}
+            {supportsCustomRange &&
+              !filter.options?.some((option) => option.value === "custom") && (
+                <SelectItem value="custom" className="text-xs">
+                  {t("sqlDashboard.customRange")}
+                </SelectItem>
+              )}
           </SelectContent>
         </Select>
+        {supportsCustomRange && current === "custom" && (
+          <DateRangeInput
+            label={t("sqlDashboard.customRange")}
+            startDate={vars[startKey] || ""}
+            endDate={vars[endKey] || ""}
+            onStartChange={(v) => setValue({ [startKey]: v })}
+            onEndChange={(v) => setValue({ [endKey]: v })}
+          />
+        )}
       </div>
     );
   }
@@ -356,7 +394,7 @@ function FilterControl({
         <Button
           variant={active ? "default" : "outline"}
           size="sm"
-          className="text-xs h-8 px-3"
+          className="text-xs"
           onClick={() => setValue({ [filter.id]: active ? "" : "true" })}
         >
           {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
@@ -377,7 +415,7 @@ function FilterControl({
           <Button
             variant={active ? "default" : "outline"}
             size="sm"
-            className="text-xs h-8 px-3"
+            className="text-xs"
             onClick={() =>
               setValue({
                 [filter.id]: active
@@ -410,9 +448,10 @@ function FilterControl({
         {filter.label}
       </label>
       <Input
+        size="sm"
         value={vars[filter.id] || ""}
         onChange={(e) => setValue({ [filter.id]: e.target.value })}
-        className="h-8 w-[160px] text-xs"
+        className="w-[160px] text-xs"
       />
     </div>
   );

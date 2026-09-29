@@ -154,7 +154,11 @@ export async function deleteBookingLinkById(id: string) {
   await assertAccess("booking-link", id, "admin");
 
   const toDelete = await getDb()
-    .select({ slug: schema.bookingLinks.slug })
+    .select({
+      slug: schema.bookingLinks.slug,
+      title: schema.bookingLinks.title,
+      duration: schema.bookingLinks.duration,
+    })
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.id, id));
   await getDb()
@@ -166,7 +170,12 @@ export async function deleteBookingLinkById(id: string) {
       .delete(schema.bookingSlugRedirects)
       .where(eq(schema.bookingSlugRedirects.newSlug, toDelete[0].slug));
   }
-  return { ok: true };
+  return {
+    ok: true,
+    ...(toDelete[0]
+      ? { title: toDelete[0].title, duration: toDelete[0].duration }
+      : {}),
+  };
 }
 
 export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {

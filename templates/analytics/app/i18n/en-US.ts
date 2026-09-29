@@ -343,14 +343,11 @@ export default {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
-    account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
-    languageTitle: "Language",
-    languageLabel: "Interface language",
     errorEmailNotifications: "Email new error alerts",
     errorEmailNotificationsDescription:
       "Send an email when a new JavaScript error is captured. Off by default.",
@@ -359,6 +356,9 @@ export default {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
+    notificationsTitle: "Notifications",
+    notificationsEmailGroup: "Email",
+    notificationsSoundGroup: "Sound",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
@@ -392,8 +392,6 @@ export default {
     storageSaved: "Storage settings saved.",
     storageSaveFailed: "Couldn't save storage settings.",
     alertsTitle: "Alerts",
-    alertsDescription:
-      "Manage first-party analytics event rules and notification delivery.",
     alertRunNow: "Run check",
     alertNew: "New alert",
     alertsEmptyTitle: "No alert rules yet",
@@ -541,6 +539,10 @@ export default {
     failedToDecodePanel: "Failed to decode panel",
     untitledAnalysis: "Untitled analysis",
     untitledDashboard: "Untitled dashboard",
+  },
+  analysisResult: {
+    title: "Analysis result",
+    comparisonContext: "{{period}}: {{current}} vs {{previous}}",
   },
   routeTitles: {
     notFound: "Not Found - Analytics",
@@ -752,6 +754,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Custom range",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

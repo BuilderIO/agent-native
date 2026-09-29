@@ -5,8 +5,6 @@ import zhTW from "./i18n/zh-TW";
 const enUS = {
   common: {
     saving: "Saving",
-    saveChanges: "Save changes",
-    saved: "Saved",
   },
   routeTitles: {
     extension: "Extension - Brain",
@@ -57,7 +55,26 @@ const enUS = {
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
   settings: {
-    pageTitle: "Settings",
+    area: {
+      tabBehavior: "Behavior",
+      tabPublishing: "Publishing",
+      tabSafety: "Safety",
+      tabPrivacy: "Privacy",
+      groupNames: "Names",
+      groupAnswers: "Answers",
+      groupDistillation: "Distillation",
+      groupReviewQueue: "Review queue",
+      groupSources: "Sources",
+      groupCaptures: "Captures",
+      groupAdvanced: "Advanced",
+      groupScreening: "Screening",
+      edit: "Edit",
+      cancel: "Cancel",
+      save: "Save",
+      saveFailed: "Couldn't save the change. Try again.",
+      loadFailed: "Couldn't load Brain settings.",
+      retry: "Try again",
+    },
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -66,20 +83,9 @@ const enUS = {
     title: "Customize Brain",
     description:
       "Name the assistant, shape its voice, and set the policies it follows when turning company sources into knowledge.",
-    languageTitle: "Language",
-    languageDescription: "Choose the interface language for Brain.",
-    languageLabel: "Interface language",
-    currentPolicy: "Current Policy",
-    currentPolicyDescription:
-      "The effective settings saved for this Brain workspace.",
     identityTitle: "Identity",
-    identityDescription:
-      "The names Brain uses when it describes itself and the workspace it is protecting.",
     companyName: "Company name",
     assistantName: "Assistant name",
-    assistantBehaviorTitle: "Assistant behavior",
-    assistantBehaviorDescription:
-      "The default voice and source posture for answers and distilled knowledge proposals.",
     toneLabel: "Tone",
     sourcePolicyLabel: "Source policy",
     tone: {
@@ -117,9 +123,6 @@ const enUS = {
     coreInstructions: "Core instructions",
     coreInstructionsDescription:
       "Guidance for turning raw captures into durable institutional knowledge.",
-    publishingReviewTitle: "Publishing and review",
-    publishingReviewDescription:
-      "Defaults for visibility, approval, and connector cadence.",
     defaultPublishTier: "Default publish tier",
     defaultPublishTierDescription:
       "Sets the default visibility for newly distilled knowledge.",
@@ -135,9 +138,6 @@ const enUS = {
     autoArchiveResolved: "Auto-archive resolved review items",
     autoArchiveResolvedDescription:
       "Remove approved or rejected queue items from the active review lane.",
-    safetyEvidenceTitle: "Safety and evidence",
-    safetyEvidenceDescription:
-      "Redaction and citation rules for answers that leave the review queue.",
     sanitizeCaptures: "Sanitize transcript captures before storage",
     sanitizeCapturesDescription:
       "Filter Granola, Clips, webhook, and manual transcript imports down to company-relevant content before saving.",
@@ -156,46 +156,16 @@ const enUS = {
     notifySourceErrors: "Notify on source errors",
     notifySourceErrorsDescription:
       "Surface degraded or failing connectors in the review flow.",
-    policy: {
-      assistant: "Assistant",
-      company: "Company",
-      tone: "Tone",
-      sources: "Sources",
-      publishTier: "Publish tier",
-      approval: "Approval",
-      redaction: "Redaction",
-      preSaveFilter: "Pre-save filter",
-    },
-    notSet: "Not set",
-    required: "Required",
-    notRequired: "Not required",
-    enabled: "Enabled",
-    disabled: "Disabled",
-    autoPublishGateTitle: "Auto-publish gate",
-    autoPublishGateDescription: "Runtime policy for company-tier knowledge.",
-    confidenceThreshold: "Confidence threshold",
-    autoPublishGateDetail:
-      "High-confidence company knowledge can publish automatically when it is new, unredacted, and does not require an explicit proposal.",
-    actionsUnavailableTitle: "Settings actions are not available yet",
-    actionsUnavailableDetail:
-      "This page is wired to get-brain-settings and update-brain-settings and is using defaults for now.",
     numberFieldRange: "Must be between {{min}} and {{max}} minutes.",
-    privacySensitivityTitle: "Privacy and sensitivity",
-    privacySensitivityDescription:
-      "Readiness for the classifier and the metadata-only quarantine boundary.",
-    privacyClassifier: "Privacy classifier",
     privacyModel: "Classifier model",
-    quarantineRetention: "Quarantine retention",
     tightenOnly:
       "Sensitivity controls can only tighten retrieval and handling. Quarantined material is never available to source editors or search results.",
     ready: "Ready",
     readinessPending: "Readiness pending",
-    days: "{{count}} days",
     privacyClassifierModel: "Classifier model",
     privacyClassifierModelPlaceholder: "Default privacy classifier model",
     privacyClassifierEngine: "Classifier engine",
     privacyClassifierEnginePlaceholder: "Default classifier engine",
-    hours: "{{count}} hours",
     privacyClassifierChoice: "Sensitivity classifier",
     privacyClassifierJev: "Jev (recommended)",
     privacyClassifierCustom: "Custom model",
@@ -493,15 +463,6 @@ const enUS = {
     reviewRequired: "Review required",
     reviewRequiredDescription: "Queue extracted knowledge before approval",
     cancel: "Cancel",
-    close: "Close",
-    checkBuilder: "Check Builder embeddings",
-    checkBuilderDescription:
-      "Verify Builder with one synthetic request. No source content is sent or indexed.",
-    checkBuilderConfirm:
-      "Run one synthetic Builder embedding request for {{source}}? This may incur provider usage. No source content is sent, and the vector is not stored.",
-    runBuilderCheck: "Run one check",
-    checkBuilderSuccess:
-      "Builder check passed: {{provider}} / {{model}}, {{dimensions}} dimensions. No vector was stored.",
     saveSource: "Save source",
     createSource: "Create source",
     retryAfter: "Retry after {{date}}",
@@ -922,7 +883,7 @@ const baseMessagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
-    common: { saving: "正在保存", saveChanges: "保存更改", saved: "已保存" },
+    common: { saving: "正在保存" },
     routeTitles: {
       extension: "扩展 - Brain",
       extensions: "扩展 - Brain",
@@ -970,6 +931,26 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "在 Brain 工作界面之间导航。",
     },
     settings: {
+      area: {
+        tabBehavior: "行为",
+        tabPublishing: "发布",
+        tabSafety: "安全",
+        tabPrivacy: "隐私",
+        groupNames: "名称",
+        groupAnswers: "回答",
+        groupDistillation: "提炼",
+        groupReviewQueue: "审核队列",
+        groupSources: "来源",
+        groupCaptures: "捕获内容",
+        groupAdvanced: "高级",
+        groupScreening: "筛查",
+        edit: "编辑",
+        cancel: "取消",
+        save: "保存",
+        saveFailed: "无法保存更改，请重试。",
+        loadFailed: "无法加载 Brain 设置。",
+        retry: "重试",
+      },
       agentTitle: "管理代理",
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
@@ -977,20 +958,11 @@ const baseMessagesByLocale = {
       title: "自定义 Brain",
       description:
         "命名助手、塑造语气，并设置将公司来源转化为知识时遵循的策略。",
-      languageTitle: "语言",
-      languageDescription: "选择 Brain 的界面语言。",
-      languageLabel: "界面语言",
-      currentPolicy: "当前策略",
-      currentPolicyDescription: "此 Brain 工作区已保存的有效设置。",
       identityTitle: "身份",
       companyName: "公司名称",
       assistantName: "助手名称",
-      assistantBehaviorTitle: "助手行为",
       toneLabel: "语气",
       sourcePolicyLabel: "来源策略",
-      publishingReviewTitle: "发布与审核",
-      safetyEvidenceTitle: "安全与证据",
-      autoPublishGateTitle: "自动发布门控",
     },
     review: {
       eyebrow: "审核",
@@ -1015,15 +987,6 @@ const baseMessagesByLocale = {
       provider: "提供方",
       notRequired: "不需要",
       cancel: "取消",
-      close: "关闭",
-      checkBuilder: "检查 Builder 嵌入服务",
-      checkBuilderDescription:
-        "发送一次模拟请求以验证 Builder。不会发送或索引来源内容。",
-      checkBuilderConfirm:
-        "要为 {{source}} 发送一次模拟的 Builder 嵌入请求吗？这可能产生服务费用。不会发送来源内容，也不会保存向量。",
-      runBuilderCheck: "运行一次检查",
-      checkBuilderSuccess:
-        "Builder 检查通过：{{provider}} / {{model}}，{{dimensions}} 维。未保存向量。",
       saveSource: "保存来源",
       createSource: "创建来源",
       retryAfter: "{{date}} 后重试",
@@ -1130,8 +1093,6 @@ const baseMessagesByLocale = {
   "es-ES": mergeMessages({
     common: {
       saving: "Guardando",
-      saveChanges: "Guardar cambios",
-      saved: "Guardado",
     },
     routeTitles: {
       extension: "Extensión - Brain",
@@ -1183,6 +1144,26 @@ const baseMessagesByLocale = {
         "Navega por las superficies de trabajo de Brain.",
     },
     settings: {
+      area: {
+        tabBehavior: "Comportamiento",
+        tabPublishing: "Publicación",
+        tabSafety: "Seguridad",
+        tabPrivacy: "Privacidad",
+        groupNames: "Nombres",
+        groupAnswers: "Respuestas",
+        groupDistillation: "Destilación",
+        groupReviewQueue: "Cola de revisión",
+        groupSources: "Fuentes",
+        groupCaptures: "Capturas",
+        groupAdvanced: "Avanzado",
+        groupScreening: "Detección",
+        edit: "Editar",
+        cancel: "Cancelar",
+        save: "Guardar",
+        saveFailed: "No se pudo guardar el cambio. Inténtalo de nuevo.",
+        loadFailed: "No se pudo cargar la configuración de Brain.",
+        retry: "Reintentar",
+      },
       agentTitle: "Gestionar agente",
       agentDescription:
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
@@ -1191,21 +1172,11 @@ const baseMessagesByLocale = {
       title: "Personalizar Brain",
       description:
         "Nombra el asistente, define su voz y establece las políticas que sigue al convertir fuentes de la empresa en conocimiento.",
-      languageTitle: "Idioma",
-      languageDescription: "Elige el idioma de la interfaz para Brain.",
-      languageLabel: "Idioma de la interfaz",
-      currentPolicy: "Política actual",
-      currentPolicyDescription:
-        "La configuración efectiva guardada para este workspace de Brain.",
       identityTitle: "Identidad",
       companyName: "Nombre de la empresa",
       assistantName: "Nombre del asistente",
-      assistantBehaviorTitle: "Comportamiento del asistente",
       toneLabel: "Tono",
       sourcePolicyLabel: "Política de fuentes",
-      publishingReviewTitle: "Publicación y revisión",
-      safetyEvidenceTitle: "Seguridad y evidencia",
-      autoPublishGateTitle: "Control de autopublicación",
     },
     review: {
       eyebrow: "Revisión",
@@ -1230,15 +1201,6 @@ const baseMessagesByLocale = {
       provider: "Proveedor",
       notRequired: "No requerido",
       cancel: "Cancelar",
-      close: "Cerrar",
-      checkBuilder: "Comprobar embeddings de Builder",
-      checkBuilderDescription:
-        "Verifica Builder con una solicitud de prueba. No se envía ni indexa contenido de la fuente.",
-      checkBuilderConfirm:
-        "¿Enviar una solicitud de prueba de embeddings de Builder para {{source}}? Puede generar costes del proveedor. No se envía contenido de la fuente ni se guarda el vector.",
-      runBuilderCheck: "Realizar una comprobación",
-      checkBuilderSuccess:
-        "Comprobación de Builder correcta: {{provider}} / {{model}}, {{dimensions}} dimensiones. No se guardó ningún vector.",
       saveSource: "Guardar fuente",
       createSource: "Crear fuente",
       retryAfter: "Reintentar después de {{date}}",
@@ -1355,8 +1317,6 @@ const baseMessagesByLocale = {
   "fr-FR": mergeMessages({
     common: {
       saving: "Enregistrement",
-      saveChanges: "Enregistrer",
-      saved: "Enregistré",
     },
     routeTitles: {
       extension: "Module d’extension - Brain",
@@ -1408,6 +1368,26 @@ const baseMessagesByLocale = {
         "Naviguer entre les espaces de travail Brain.",
     },
     settings: {
+      area: {
+        tabBehavior: "Comportement",
+        tabPublishing: "Publication",
+        tabSafety: "Sécurité",
+        tabPrivacy: "Confidentialité",
+        groupNames: "Noms",
+        groupAnswers: "Réponses",
+        groupDistillation: "Synthèse des connaissances",
+        groupReviewQueue: "File de relecture",
+        groupSources: "Sources connectées",
+        groupCaptures: "Captures de contenu",
+        groupAdvanced: "Avancé",
+        groupScreening: "Filtrage",
+        edit: "Modifier",
+        cancel: "Annuler",
+        save: "Enregistrer",
+        saveFailed: "Impossible d'enregistrer la modification. Réessayez.",
+        loadFailed: "Impossible de charger les paramètres de Brain.",
+        retry: "Réessayer",
+      },
       agentTitle: "Gérer l’agent",
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
@@ -1416,21 +1396,11 @@ const baseMessagesByLocale = {
       title: "Personnaliser Brain",
       description:
         "Nommez l'assistant, définissez sa voix et les règles suivies lorsqu'il transforme les sources de l'entreprise en connaissances.",
-      languageTitle: "Langue",
-      languageDescription: "Choisissez la langue de l'interface de Brain.",
-      languageLabel: "Langue de l'interface",
-      currentPolicy: "Politique actuelle",
-      currentPolicyDescription:
-        "Les paramètres effectifs enregistrés pour cet espace Brain.",
       identityTitle: "Identité",
       companyName: "Nom de l'entreprise",
       assistantName: "Nom de l'assistant",
-      assistantBehaviorTitle: "Comportement de l'assistant",
       toneLabel: "Ton",
       sourcePolicyLabel: "Politique des sources",
-      publishingReviewTitle: "Publication et revue",
-      safetyEvidenceTitle: "Sécurité et preuves",
-      autoPublishGateTitle: "Seuil d'autopublication",
     },
     review: {
       eyebrow: "Revue",
@@ -1455,15 +1425,6 @@ const baseMessagesByLocale = {
       provider: "Fournisseur",
       notRequired: "Non requis",
       cancel: "Annuler",
-      close: "Fermer",
-      checkBuilder: "Vérifier les embeddings Builder",
-      checkBuilderDescription:
-        "Vérifiez Builder avec une seule requête de test. Aucun contenu de la source n'est envoyé ni indexé.",
-      checkBuilderConfirm:
-        "Envoyer une requête de test d'embedding Builder pour {{source}} ? Cela peut entraîner des frais du fournisseur. Aucun contenu de la source n'est envoyé et le vecteur n'est pas stocké.",
-      runBuilderCheck: "Lancer une vérification",
-      checkBuilderSuccess:
-        "Vérification Builder réussie : {{provider}} / {{model}}, {{dimensions}} dimensions. Aucun vecteur n'a été stocké.",
       saveSource: "Enregistrer la source",
       createSource: "Créer une source",
       retryAfter: "Réessayer après {{date}}",
@@ -1580,8 +1541,6 @@ const baseMessagesByLocale = {
   "de-DE": mergeMessages({
     common: {
       saving: "Speichern",
-      saveChanges: "Änderungen speichern",
-      saved: "Gespeichert",
     },
     routeTitles: {
       extension: "Erweiterung - Brain",
@@ -1632,6 +1591,27 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Zwischen Brain-Arbeitsflächen wechseln.",
     },
     settings: {
+      area: {
+        tabBehavior: "Verhalten",
+        tabPublishing: "Veröffentlichung",
+        tabSafety: "Sicherheit",
+        tabPrivacy: "Datenschutz",
+        groupNames: "Namen",
+        groupAnswers: "Antworten",
+        groupDistillation: "Destillation",
+        groupReviewQueue: "Prüfwarteschlange",
+        groupSources: "Quellen",
+        groupCaptures: "Erfassungen",
+        groupAdvanced: "Erweitert",
+        groupScreening: "Prüfung",
+        edit: "Bearbeiten",
+        cancel: "Abbrechen",
+        save: "Speichern",
+        saveFailed:
+          "Die Änderung konnte nicht gespeichert werden. Versuche es erneut.",
+        loadFailed: "Brain-Einstellungen konnten nicht geladen werden.",
+        retry: "Erneut versuchen",
+      },
       agentTitle: "Agent verwalten",
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
@@ -1640,21 +1620,11 @@ const baseMessagesByLocale = {
       title: "Brain anpassen",
       description:
         "Benenne den Assistenten, gestalte seine Stimme und lege Richtlinien für die Umwandlung von Unternehmensquellen in Wissen fest.",
-      languageTitle: "Sprache",
-      languageDescription: "Wähle die Oberflächensprache für Brain.",
-      languageLabel: "Oberflächensprache",
-      currentPolicy: "Aktuelle Richtlinie",
-      currentPolicyDescription:
-        "Die wirksamen Einstellungen für diesen Brain-Workspace.",
       identityTitle: "Identität",
       companyName: "Unternehmensname",
       assistantName: "Assistentenname",
-      assistantBehaviorTitle: "Assistentenverhalten",
       toneLabel: "Ton",
       sourcePolicyLabel: "Quellenrichtlinie",
-      publishingReviewTitle: "Veröffentlichung und Prüfung",
-      safetyEvidenceTitle: "Sicherheit und Nachweise",
-      autoPublishGateTitle: "Autoveröffentlichungs-Gate",
     },
     review: {
       eyebrow: "Prüfung",
@@ -1679,15 +1649,6 @@ const baseMessagesByLocale = {
       provider: "Anbieter",
       notRequired: "Nicht erforderlich",
       cancel: "Abbrechen",
-      close: "Schließen",
-      checkBuilder: "Builder-Embeddings prüfen",
-      checkBuilderDescription:
-        "Builder mit einer Testanfrage prüfen. Quellinhalte werden weder gesendet noch indexiert.",
-      checkBuilderConfirm:
-        "Eine Testanfrage für Builder-Embeddings zu {{source}} senden? Dabei können Anbietergebühren anfallen. Quellinhalte werden nicht gesendet und der Vektor wird nicht gespeichert.",
-      runBuilderCheck: "Einmal prüfen",
-      checkBuilderSuccess:
-        "Builder-Prüfung erfolgreich: {{provider}} / {{model}}, {{dimensions}} Dimensionen. Kein Vektor wurde gespeichert.",
       saveSource: "Quelle speichern",
       createSource: "Quelle erstellen",
       retryAfter: "Erneut versuchen nach {{date}}",
@@ -1803,7 +1764,7 @@ const baseMessagesByLocale = {
     },
   }),
   "ja-JP": mergeMessages({
-    common: { saving: "保存中", saveChanges: "変更を保存", saved: "保存済み" },
+    common: { saving: "保存中" },
     routeTitles: {
       extension: "拡張機能 - Brain",
       extensions: "拡張機能 - Brain",
@@ -1851,6 +1812,26 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain の作業画面を移動します。",
     },
     settings: {
+      area: {
+        tabBehavior: "動作",
+        tabPublishing: "公開",
+        tabSafety: "安全性",
+        tabPrivacy: "プライバシー",
+        groupNames: "名前",
+        groupAnswers: "回答",
+        groupDistillation: "抽出",
+        groupReviewQueue: "レビューキュー",
+        groupSources: "ソース",
+        groupCaptures: "キャプチャ",
+        groupAdvanced: "詳細設定",
+        groupScreening: "スクリーニング",
+        edit: "編集",
+        cancel: "キャンセル",
+        save: "保存",
+        saveFailed: "変更を保存できませんでした。もう一度お試しください。",
+        loadFailed: "Brain の設定を読み込めませんでした。",
+        retry: "再試行",
+      },
       agentTitle: "エージェントを管理",
       agentDescription:
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
@@ -1859,21 +1840,11 @@ const baseMessagesByLocale = {
       title: "Brain をカスタマイズ",
       description:
         "アシスタント名、声のトーン、会社ソースをナレッジ化するときのポリシーを設定します。",
-      languageTitle: "言語",
-      languageDescription: "Brain のインターフェース言語を選択します。",
-      languageLabel: "インターフェース言語",
-      currentPolicy: "現在のポリシー",
-      currentPolicyDescription:
-        "この Brain ワークスペースに保存された有効な設定です。",
       identityTitle: "識別情報",
       companyName: "会社名",
       assistantName: "アシスタント名",
-      assistantBehaviorTitle: "アシスタントの動作",
       toneLabel: "トーン",
       sourcePolicyLabel: "ソースポリシー",
-      publishingReviewTitle: "公開とレビュー",
-      safetyEvidenceTitle: "安全性と証拠",
-      autoPublishGateTitle: "自動公開ゲート",
     },
     review: {
       eyebrow: "レビュー",
@@ -1898,15 +1869,6 @@ const baseMessagesByLocale = {
       provider: "プロバイダー",
       notRequired: "不要",
       cancel: "キャンセル",
-      close: "閉じる",
-      checkBuilder: "Builder の埋め込みを確認",
-      checkBuilderDescription:
-        "テスト用のリクエストを 1 回送信して Builder を確認します。ソースの内容は送信もインデックス登録もされません。",
-      checkBuilderConfirm:
-        "{{source}} に対して Builder の埋め込みテストリクエストを 1 回送信しますか？プロバイダーの利用料金が発生する場合があります。ソースの内容は送信されず、ベクトルも保存されません。",
-      runBuilderCheck: "1 回確認する",
-      checkBuilderSuccess:
-        "Builder の確認に成功しました: {{provider}} / {{model}}、{{dimensions}} 次元。ベクトルは保存されていません。",
       saveSource: "ソースを保存",
       createSource: "ソースを作成",
       retryAfter: "{{date}} 後に再試行",
@@ -2020,8 +1982,6 @@ const baseMessagesByLocale = {
   "ko-KR": mergeMessages({
     common: {
       saving: "저장 중",
-      saveChanges: "변경 사항 저장",
-      saved: "저장됨",
     },
     routeTitles: {
       extension: "확장 - Brain",
@@ -2070,6 +2030,26 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain 작업 화면 사이를 이동합니다.",
     },
     settings: {
+      area: {
+        tabBehavior: "동작",
+        tabPublishing: "게시",
+        tabSafety: "안전",
+        tabPrivacy: "개인정보",
+        groupNames: "이름",
+        groupAnswers: "답변",
+        groupDistillation: "정제",
+        groupReviewQueue: "검토 대기열",
+        groupSources: "소스",
+        groupCaptures: "캡처",
+        groupAdvanced: "고급",
+        groupScreening: "검사",
+        edit: "편집",
+        cancel: "취소",
+        save: "저장",
+        saveFailed: "변경 사항을 저장하지 못했습니다. 다시 시도하세요.",
+        loadFailed: "Brain 설정을 불러오지 못했습니다.",
+        retry: "다시 시도",
+      },
       agentTitle: "에이전트 관리",
       agentDescription:
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -2078,21 +2058,11 @@ const baseMessagesByLocale = {
       title: "Brain 사용자 지정",
       description:
         "어시스턴트 이름과 목소리를 정하고, 회사 소스를 지식으로 바꿀 때 따를 정책을 설정합니다.",
-      languageTitle: "언어",
-      languageDescription: "Brain의 인터페이스 언어를 선택하세요.",
-      languageLabel: "인터페이스 언어",
-      currentPolicy: "현재 정책",
-      currentPolicyDescription:
-        "이 Brain 워크스페이스에 저장된 실제 설정입니다.",
       identityTitle: "ID",
       companyName: "회사 이름",
       assistantName: "어시스턴트 이름",
-      assistantBehaviorTitle: "어시스턴트 동작",
       toneLabel: "어조",
       sourcePolicyLabel: "소스 정책",
-      publishingReviewTitle: "게시 및 검토",
-      safetyEvidenceTitle: "안전 및 증거",
-      autoPublishGateTitle: "자동 게시 게이트",
     },
     review: {
       eyebrow: "검토",
@@ -2117,15 +2087,6 @@ const baseMessagesByLocale = {
       provider: "제공자",
       notRequired: "필요 없음",
       cancel: "취소",
-      close: "닫기",
-      checkBuilder: "Builder 임베딩 확인",
-      checkBuilderDescription:
-        "테스트 요청 한 번으로 Builder를 확인합니다. 소스 내용은 전송하거나 인덱싱하지 않습니다.",
-      checkBuilderConfirm:
-        "{{source}}에 대해 Builder 임베딩 테스트 요청을 한 번 보내시겠습니까? 제공업체 사용 요금이 발생할 수 있습니다. 소스 내용은 전송하지 않으며 벡터도 저장하지 않습니다.",
-      runBuilderCheck: "한 번 확인하기",
-      checkBuilderSuccess:
-        "Builder 확인 성공: {{provider}} / {{model}}, {{dimensions}}차원. 벡터는 저장되지 않았습니다.",
       saveSource: "소스 저장",
       createSource: "소스 만들기",
       retryAfter: "{{date}} 후 다시 시도",
@@ -2237,8 +2198,6 @@ const baseMessagesByLocale = {
   "pt-BR": mergeMessages({
     common: {
       saving: "Salvando",
-      saveChanges: "Salvar alterações",
-      saved: "Salvo",
     },
     routeTitles: {
       extension: "Extensão - Brain",
@@ -2289,6 +2248,26 @@ const baseMessagesByLocale = {
         "Navegue entre as superfícies de trabalho do Brain.",
     },
     settings: {
+      area: {
+        tabBehavior: "Comportamento",
+        tabPublishing: "Publicação",
+        tabSafety: "Segurança",
+        tabPrivacy: "Privacidade",
+        groupNames: "Nomes",
+        groupAnswers: "Respostas",
+        groupDistillation: "Destilação",
+        groupReviewQueue: "Fila de revisão",
+        groupSources: "Fontes",
+        groupCaptures: "Capturas",
+        groupAdvanced: "Avançado",
+        groupScreening: "Triagem",
+        edit: "Editar",
+        cancel: "Cancelar",
+        save: "Salvar",
+        saveFailed: "Não foi possível salvar a alteração. Tente novamente.",
+        loadFailed: "Não foi possível carregar as configurações do Brain.",
+        retry: "Tentar novamente",
+      },
       agentTitle: "Gerenciar agente",
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
@@ -2297,21 +2276,11 @@ const baseMessagesByLocale = {
       title: "Personalizar Brain",
       description:
         "Nomeie o assistente, defina sua voz e as políticas usadas ao transformar fontes da empresa em conhecimento.",
-      languageTitle: "Idioma",
-      languageDescription: "Escolha o idioma da interface do Brain.",
-      languageLabel: "Idioma da interface",
-      currentPolicy: "Política atual",
-      currentPolicyDescription:
-        "As configurações efetivas salvas para este workspace Brain.",
       identityTitle: "Identidade",
       companyName: "Nome da empresa",
       assistantName: "Nome do assistente",
-      assistantBehaviorTitle: "Comportamento do assistente",
       toneLabel: "Tom",
       sourcePolicyLabel: "Política de fontes",
-      publishingReviewTitle: "Publicação e revisão",
-      safetyEvidenceTitle: "Segurança e evidências",
-      autoPublishGateTitle: "Portão de autopublicação",
     },
     review: {
       eyebrow: "Revisão",
@@ -2336,15 +2305,6 @@ const baseMessagesByLocale = {
       provider: "Provedor",
       notRequired: "Não obrigatório",
       cancel: "Cancelar",
-      close: "Fechar",
-      checkBuilder: "Verificar embeddings do Builder",
-      checkBuilderDescription:
-        "Verifique o Builder com uma solicitação de teste. O conteúdo da fonte não é enviado nem indexado.",
-      checkBuilderConfirm:
-        "Enviar uma solicitação de teste de embeddings do Builder para {{source}}? Isso pode gerar custos do provedor. O conteúdo da fonte não é enviado e o vetor não é armazenado.",
-      runBuilderCheck: "Executar uma verificação",
-      checkBuilderSuccess:
-        "Verificação do Builder concluída: {{provider}} / {{model}}, {{dimensions}} dimensões. Nenhum vetor foi armazenado.",
       saveSource: "Salvar fonte",
       createSource: "Criar fonte",
       retryAfter: "Tentar novamente após {{date}}",
@@ -2461,8 +2421,6 @@ const baseMessagesByLocale = {
   "hi-IN": mergeMessages({
     common: {
       saving: "सहेज रहे हैं",
-      saveChanges: "बदलाव सहेजें",
-      saved: "सहेजा गया",
     },
     routeTitles: {
       extension: "एक्सटेंशन - Brain",
@@ -2512,6 +2470,26 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain कार्य सतहों के बीच जाएं।",
     },
     settings: {
+      area: {
+        tabBehavior: "व्यवहार",
+        tabPublishing: "प्रकाशन",
+        tabSafety: "सुरक्षा",
+        tabPrivacy: "गोपनीयता",
+        groupNames: "नाम",
+        groupAnswers: "उत्तर",
+        groupDistillation: "सार निकालना",
+        groupReviewQueue: "समीक्षा कतार",
+        groupSources: "स्रोत",
+        groupCaptures: "कैप्चर",
+        groupAdvanced: "उन्नत",
+        groupScreening: "जांच",
+        edit: "संपादित करें",
+        cancel: "रद्द करें",
+        save: "सहेजें",
+        saveFailed: "बदलाव सहेजा नहीं जा सका। फिर से कोशिश करें।",
+        loadFailed: "Brain सेटिंग्स लोड नहीं हो सकीं।",
+        retry: "फिर से कोशिश करें",
+      },
       agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
@@ -2520,21 +2498,11 @@ const baseMessagesByLocale = {
       title: "Brain कस्टमाइज़ करें",
       description:
         "असिस्टेंट का नाम, आवाज़ और कंपनी स्रोतों को ज्ञान में बदलते समय पालन की जाने वाली नीतियां सेट करें।",
-      languageTitle: "भाषा",
-      languageDescription: "Brain की इंटरफ़ेस भाषा चुनें।",
-      languageLabel: "इंटरफ़ेस भाषा",
-      currentPolicy: "वर्तमान नीति",
-      currentPolicyDescription:
-        "इस Brain workspace के लिए सहेजी गई प्रभावी सेटिंग्स।",
       identityTitle: "पहचान",
       companyName: "कंपनी का नाम",
       assistantName: "असिस्टेंट का नाम",
-      assistantBehaviorTitle: "असिस्टेंट व्यवहार",
       toneLabel: "स्वर",
       sourcePolicyLabel: "स्रोत नीति",
-      publishingReviewTitle: "प्रकाशन और समीक्षा",
-      safetyEvidenceTitle: "सुरक्षा और प्रमाण",
-      autoPublishGateTitle: "ऑटो-पब्लिश गेट",
     },
     review: {
       eyebrow: "समीक्षा",
@@ -2559,15 +2527,6 @@ const baseMessagesByLocale = {
       provider: "प्रदाता",
       notRequired: "आवश्यक नहीं",
       cancel: "रद्द करें",
-      close: "बंद करें",
-      checkBuilder: "Builder एम्बेडिंग जाँचें",
-      checkBuilderDescription:
-        "एक परीक्षण अनुरोध से Builder की जाँच करें। स्रोत की सामग्री भेजी या इंडेक्स नहीं की जाती।",
-      checkBuilderConfirm:
-        "{{source}} के लिए Builder एम्बेडिंग का एक परीक्षण अनुरोध भेजें? प्रदाता का शुल्क लग सकता है। स्रोत की सामग्री नहीं भेजी जाएगी और वेक्टर सहेजा नहीं जाएगा।",
-      runBuilderCheck: "एक बार जाँचें",
-      checkBuilderSuccess:
-        "Builder जाँच सफल: {{provider}} / {{model}}, {{dimensions}} आयाम। कोई वेक्टर सहेजा नहीं गया।",
       saveSource: "स्रोत सहेजें",
       createSource: "स्रोत बनाएं",
       retryAfter: "{{date}} के बाद फिर कोशिश करें",
@@ -2680,8 +2639,6 @@ const baseMessagesByLocale = {
   "ar-SA": mergeMessages({
     common: {
       saving: "جارٍ الحفظ",
-      saveChanges: "حفظ التغييرات",
-      saved: "تم الحفظ",
     },
     routeTitles: {
       extension: "إضافة - Brain",
@@ -2730,6 +2687,26 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "التنقل بين مساحات عمل Brain.",
     },
     settings: {
+      area: {
+        tabBehavior: "السلوك",
+        tabPublishing: "النشر",
+        tabSafety: "الأمان",
+        tabPrivacy: "الخصوصية",
+        groupNames: "الأسماء",
+        groupAnswers: "الإجابات",
+        groupDistillation: "الاستخلاص",
+        groupReviewQueue: "قائمة المراجعة",
+        groupSources: "المصادر",
+        groupCaptures: "الالتقاطات",
+        groupAdvanced: "متقدم",
+        groupScreening: "الفحص",
+        edit: "تعديل",
+        cancel: "إلغاء",
+        save: "حفظ",
+        saveFailed: "تعذّر حفظ التغيير. حاول مرة أخرى.",
+        loadFailed: "تعذّر تحميل إعدادات Brain.",
+        retry: "إعادة المحاولة",
+      },
       agentTitle: "إدارة الوكيل",
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -2738,20 +2715,11 @@ const baseMessagesByLocale = {
       title: "تخصيص Brain",
       description:
         "سمّ المساعد وشكّل صوته وحدد السياسات التي يتبعها عند تحويل مصادر الشركة إلى معرفة.",
-      languageTitle: "اللغة",
-      languageDescription: "اختر لغة واجهة Brain.",
-      languageLabel: "لغة الواجهة",
-      currentPolicy: "السياسة الحالية",
-      currentPolicyDescription: "الإعدادات الفعلية المحفوظة لمساحة Brain هذه.",
       identityTitle: "الهوية",
       companyName: "اسم الشركة",
       assistantName: "اسم المساعد",
-      assistantBehaviorTitle: "سلوك المساعد",
       toneLabel: "النبرة",
       sourcePolicyLabel: "سياسة المصادر",
-      publishingReviewTitle: "النشر والمراجعة",
-      safetyEvidenceTitle: "السلامة والأدلة",
-      autoPublishGateTitle: "بوابة النشر التلقائي",
     },
     review: {
       eyebrow: "المراجعة",
@@ -2776,15 +2744,6 @@ const baseMessagesByLocale = {
       provider: "المزوّد",
       notRequired: "غير مطلوب",
       cancel: "إلغاء",
-      close: "إغلاق",
-      checkBuilder: "التحقق من تضمينات Builder",
-      checkBuilderDescription:
-        "تحقّق من Builder بطلب اختباري واحد. لن يُرسل محتوى المصدر أو يُفهرس.",
-      checkBuilderConfirm:
-        "هل تريد إرسال طلب اختباري واحد لتضمينات Builder من أجل {{source}}؟ قد تترتب رسوم من المزوّد. لن يُرسل محتوى المصدر ولن يُحفظ المتجه.",
-      runBuilderCheck: "إجراء تحقق واحد",
-      checkBuilderSuccess:
-        "نجح التحقق من Builder: {{provider}} / {{model}}، {{dimensions}} بُعدًا. لم يُحفظ أي متجه.",
       saveSource: "حفظ المصدر",
       createSource: "إنشاء مصدر",
       retryAfter: "إعادة المحاولة بعد {{date}}",
@@ -3047,21 +3006,12 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "لماذا هذا المتطابقة",
     },
     settings: {
-      actionsUnavailableDetail:
-        "هذه الصفحة متصلة بـ get-brain-settings وupdate-brain-settings وتستخدم الإعدادات الافتراضية في الوقت الحالي.",
-      actionsUnavailableTitle: "إجراءات الإعدادات غير متاحة بعد",
-      assistantBehaviorDescription:
-        "الصوت الافتراضي ووضعية المصدر للإجابات ومقترحات المعرفة المقطرة.",
       autoArchiveResolvedDescription:
         "قم بإزالة عناصر قائمة الانتظار المعتمدة أو المرفوضة من مسار المراجعة النشط.",
       autoArchiveResolved: "الأرشفة التلقائية لعناصر المراجعة التي تم حلها",
-      autoPublishGateDescription: "سياسة وقت التشغيل للمعرفة على مستوى الشركة.",
-      autoPublishGateDetail:
-        "يمكن نشر معرفة الشركة عالية الثقة تلقائيًا عندما تكون جديدة وغير منقحة ولا تتطلب اقتراحًا صريحًا.",
       autoRedactEmailsDescription:
         "قم بإزالة عناوين البريد الإلكتروني من المعرفة المقطرة ما لم تكن أدلة أساسية.",
       autoRedactEmails: "تنقيح رسائل البريد الإلكتروني تلقائيًا",
-      confidenceThreshold: "عتبة الثقة",
       connectorPollInterval: "الفاصل الزمني لاستقصاء الرابط",
       coreInstructionsDescription:
         "إرشادات لتحويل المواد الخام إلى معرفة مؤسسية دائمة.",
@@ -3069,27 +3019,15 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "يضبط الرؤية الافتراضية للمعرفة المقطرة حديثًا.",
       defaultPublishTier: "طبقة النشر الافتراضية",
-      identityDescription:
-        "الأسماء Brain تستخدم عندما تصف نفسها ومساحة العمل التي تحميها.",
-      notRequired: "غير مطلوب",
-      notSet: "لم يتم ضبطه",
       notifySourceErrorsDescription:
         "سطح الموصلات المتدهورة أو الفاشلة في تدفق المراجعة.",
       notifySourceErrors: "إخطار على أخطاء المصدر",
-      policy: {
-        preSaveFilter: "مرشح الحفظ المسبق",
-        publishTier: "نشر الطبقة",
-      },
-      publishingReviewDescription:
-        "الإعدادات الافتراضية للرؤية والموافقة وإيقاع الموصل.",
       requireApprovalDescription:
         "قم بوضع المرشحين ذوي المعرفة على مستوى الشركة في قائمة الانتظار للمراجعة البشرية قبل النشر.",
       requireApproval: "تتطلب الموافقة على معرفة الشركة",
       requireCitationsDescription:
         "يجب أن يستشهد السؤال Brain بصفوف المصدر المعتمدة للحصول على الإجابات الواقعية.",
       requireCitations: "تتطلب الاستشهادات",
-      safetyEvidenceDescription:
-        "قواعد التنقيح والاقتباس للإجابات التي تخرج من قائمة انتظار المراجعة.",
       sanitizationInstructions: "تعليمات التعقيم",
       sanitizationModelDescription:
         "تجاوز اختياري لتمرير التصفية للحفظ المسبق.",
@@ -3480,23 +3418,13 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "Warum das zusammenpasste",
     },
     settings: {
-      actionsUnavailableDetail:
-        "Diese Seite ist mit get-brain-settings und update-brain-settings verbunden und verwendet derzeit die Standardeinstellungen.",
-      actionsUnavailableTitle: "Einstellungsaktionen sind noch nicht verfügbar",
-      assistantBehaviorDescription:
-        "Die standardmäßige Sprach- und Quellenhaltung für Antworten und destillierte Wissensvorschläge.",
       autoArchiveResolvedDescription:
         "Entfernen Sie genehmigte oder abgelehnte Warteschlangenelemente aus der aktiven Überprüfungsspur.",
       autoArchiveResolved:
         "Aufgelöste Bewertungselemente automatisch archivieren",
-      autoPublishGateDescription:
-        "Laufzeitrichtlinie für Wissen auf Unternehmensebene.",
-      autoPublishGateDetail:
-        "Unternehmenswissen mit hoher Zuverlässigkeit kann automatisch veröffentlicht werden, wenn es neu und nicht redigiert ist und kein expliziter Vorschlag erforderlich ist.",
       autoRedactEmailsDescription:
         "Entfernen Sie E-Mail-Adressen aus destilliertem Wissen, es sei denn, sie stellen einen wesentlichen Beweis dar.",
       autoRedactEmails: "E-Mails automatisch schwärzen",
-      confidenceThreshold: "Vertrauensschwelle",
       connectorPollInterval: "Connector-Abfrageintervall",
       coreInstructionsDescription:
         "Anleitung zur Umwandlung von Rohdaten in dauerhaftes institutionelles Wissen.",
@@ -3504,19 +3432,9 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "Legt die Standardsichtbarkeit für neu destilliertes Wissen fest.",
       defaultPublishTier: "Standardveröffentlichungsebene",
-      identityDescription:
-        "Die Namen, die Brain verwendet, wenn es sich selbst und den Arbeitsbereich beschreibt, den es schützt.",
-      notRequired: "Nicht erforderlich",
-      notSet: "Nicht festgelegt",
       notifySourceErrorsDescription:
         "Oberflächenbeeinträchtigung oder fehlerhafte Anschlüsse im Überprüfungsablauf.",
       notifySourceErrors: "Bei Quellfehlern benachrichtigen",
-      policy: {
-        preSaveFilter: "Vorspeicherfilter",
-        publishTier: "Veröffentlichungsstufe",
-      },
-      publishingReviewDescription:
-        "Standardwerte für Sichtbarkeit, Genehmigung und Connector-Taktfrequenz.",
       requireApprovalDescription:
         "Stellen Sie unternehmensweite Wissenskandidaten vor der Veröffentlichung zur menschlichen Prüfung in die Warteschlange.",
       requireApproval:
@@ -3524,8 +3442,6 @@ const exactEnglishDebtOverrides: Partial<
       requireCitationsDescription:
         "Bitten Sie Brain, für sachliche Antworten müssen genehmigte Quellenzeilen zitiert werden.",
       requireCitations: "Erfordern Zitate",
-      safetyEvidenceDescription:
-        "Schwärzungs- und Zitierregeln für Antworten, die die Überprüfungswarteschlange verlassen.",
       sanitizationInstructions: "Anweisungen zur Desinfektion",
       sanitizationModelDescription:
         "Optionale Überschreibung für den Filterdurchlauf vor dem Speichern.",
@@ -3934,24 +3850,13 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "¿Por qué esto coincide?",
     },
     settings: {
-      actionsUnavailableDetail:
-        "Esta página está conectada a get-brain-settings y update-brain-settings y utiliza los valores predeterminados por ahora.",
-      actionsUnavailableTitle:
-        "Las acciones de configuración aún no están disponibles",
-      assistantBehaviorDescription:
-        "La voz predeterminada y la postura de la fuente para respuestas y propuestas de conocimiento destilado.",
       autoArchiveResolvedDescription:
         "Elimine los elementos de la cola aprobados o rechazados del carril de revisión activo.",
       autoArchiveResolved:
         "Archivar automáticamente elementos de revisión resueltos",
-      autoPublishGateDescription:
-        "Política de tiempo de ejecución para el conocimiento a nivel de empresa.",
-      autoPublishGateDetail:
-        "El conocimiento empresarial de alta confianza se puede publicar automáticamente cuando es nuevo, no está redactado y no requiere una propuesta explícita.",
       autoRedactEmailsDescription:
         "Elimine las direcciones de correo electrónico del conocimiento destilado a menos que sean evidencia esencial.",
       autoRedactEmails: "Redactar correos electrónicos automáticamente",
-      confidenceThreshold: "Umbral de confianza",
       connectorPollInterval: "Intervalo de sondeo del conector",
       coreInstructionsDescription:
         "Orientación para convertir las capturas en bruto en conocimiento institucional duradero.",
@@ -3959,27 +3864,15 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "Establece la visibilidad predeterminada para el conocimiento recién destilado.",
       defaultPublishTier: "Nivel de publicación predeterminado",
-      identityDescription:
-        "Los nombres que utiliza Brain cuando se describe a sí mismo y al espacio de trabajo que protege.",
-      notRequired: "No requerido",
-      notSet: "No establecido",
       notifySourceErrorsDescription:
         "Conectores de superficie degradada o defectuosos en el flujo de revisión.",
       notifySourceErrors: "Notificar sobre errores de origen",
-      policy: {
-        preSaveFilter: "Filtro de guardado previo",
-        publishTier: "Nivel de publicación",
-      },
-      publishingReviewDescription:
-        "Valores predeterminados para visibilidad, aprobación y cadencia de conector.",
       requireApprovalDescription:
         "Ponga en cola a los candidatos con conocimientos de toda la empresa para su revisión humana antes de publicarlos.",
       requireApproval: "Requerir aprobación para conocimiento de la empresa.",
       requireCitationsDescription:
         "Ask Brain debe citar filas de fuentes aprobadas para obtener respuestas objetivas.",
       requireCitations: "Requerir citas",
-      safetyEvidenceDescription:
-        "Reglas de redacción y citación para respuestas que salen de la cola de revisión.",
       sanitizationInstructions: "Instrucciones de higienización",
       sanitizationModelDescription:
         "Anulación opcional para el pase de filtrado previo al guardado.",
@@ -4387,24 +4280,13 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "Pourquoi cela correspondait",
     },
     settings: {
-      actionsUnavailableDetail:
-        "Cette page est connectée à get-brain-settings et update-brain-settings et utilise les valeurs par défaut pour le moment.",
-      actionsUnavailableTitle:
-        "Les actions de paramètres ne sont pas encore disponibles",
-      assistantBehaviorDescription:
-        "La position vocale et source par défaut pour les réponses et les propositions de connaissances distillées.",
       autoArchiveResolvedDescription:
         "Supprimez les éléments de file d'attente approuvés ou rejetés de la voie de révision active.",
       autoArchiveResolved:
         "Archiver automatiquement les éléments de révision résolus",
-      autoPublishGateDescription:
-        "Politique d'exécution pour les connaissances au niveau de l'entreprise.",
-      autoPublishGateDetail:
-        "Les connaissances d'entreprise hautement fiables peuvent être publiées automatiquement lorsqu'elles sont nouvelles, non expurgées et ne nécessitent pas de proposition explicite.",
       autoRedactEmailsDescription:
         "Supprimez les adresses e-mail des connaissances distillées, à moins qu'elles ne constituent des preuves essentielles.",
       autoRedactEmails: "Rédiger automatiquement les e-mails",
-      confidenceThreshold: "Seuil de confiance",
       connectorPollInterval: "Intervalle d'interrogation du connecteur",
       coreInstructionsDescription:
         "Conseils pour transformer les captures brutes en connaissances institutionnelles durables.",
@@ -4412,19 +4294,9 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "Définit la visibilité par défaut des connaissances nouvellement distillées.",
       defaultPublishTier: "Niveau de publication par défaut",
-      identityDescription:
-        "Les noms que Brain utilise lorsqu'il se décrit et décrit l'espace de travail qu'il protège.",
-      notRequired: "Non requis",
-      notSet: "Non défini",
       notifySourceErrorsDescription:
         "Surface des connecteurs dégradés ou défaillants dans le flux de révision.",
       notifySourceErrors: "Notifier sur les erreurs sources",
-      policy: {
-        preSaveFilter: "Filtre de pré-enregistrement",
-        publishTier: "Niveau de publication",
-      },
-      publishingReviewDescription:
-        "Valeurs par défaut pour la visibilité, l’approbation et la cadence des connecteurs.",
       requireApprovalDescription:
         "Mettez en file d'attente les candidats aux connaissances à l'échelle de l'entreprise pour un examen humain avant de les publier.",
       requireApproval:
@@ -4432,8 +4304,6 @@ const exactEnglishDebtOverrides: Partial<
       requireCitationsDescription:
         "Demandez à Brain de citer les lignes de sources approuvées pour des réponses factuelles.",
       requireCitations: "Exiger des citations",
-      safetyEvidenceDescription:
-        "Règles de rédaction et de citation pour les réponses qui quittent la file d'attente de révision.",
       sanitizationInstructions: "Instructions de désinfection",
       sanitizationModelDescription:
         "Remplacement facultatif pour la passe de filtrage de pré-enregistrement.",
@@ -4831,21 +4701,12 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "यह क्यों मेल खाता है",
     },
     settings: {
-      actionsUnavailableDetail:
-        "यह पृष्ठ get-brain-settings और update-brain-settings से जुड़ा है और अभी डिफ़ॉल्ट का उपयोग कर रहा है।",
-      actionsUnavailableTitle: "सेटिंग क्रियाएँ अभी तक उपलब्ध नहीं हैं",
-      assistantBehaviorDescription:
-        "उत्तर और आसुत ज्ञान प्रस्तावों के लिए डिफ़ॉल्ट आवाज और स्रोत मुद्रा।",
       autoArchiveResolvedDescription:
         "सक्रिय समीक्षा लेन से स्वीकृत या अस्वीकृत कतार आइटम हटाएं।",
       autoArchiveResolved: "समाधानित समीक्षा आइटमों को स्वतः संग्रहित करें",
-      autoPublishGateDescription: "कंपनी-स्तरीय ज्ञान के लिए रनटाइम नीति।",
-      autoPublishGateDetail:
-        "उच्च-विश्वास वाली कंपनी का ज्ञान तब स्वचालित रूप से प्रकाशित हो सकता है जब वह नया हो, अप्रकाशित हो और उसे किसी स्पष्ट प्रस्ताव की आवश्यकता न हो।",
       autoRedactEmailsDescription:
         "आसुत ज्ञान से ईमेल पते हटा दें जब तक कि वे आवश्यक साक्ष्य न हों।",
       autoRedactEmails: "ईमेल को स्वतः संशोधित करें",
-      confidenceThreshold: "आत्मविश्वास की सीमा",
       connectorPollInterval: "कनेक्टर पोल अंतराल",
       coreInstructionsDescription:
         "कच्ची जानकारी को टिकाऊ संस्थागत ज्ञान में बदलने के लिए मार्गदर्शन।",
@@ -4853,25 +4714,14 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "नव आसुत ज्ञान के लिए डिफ़ॉल्ट दृश्यता सेट करता है।",
       defaultPublishTier: "डिफ़ॉल्ट प्रकाशन स्तर",
-      identityDescription:
-        "Brain नामों का उपयोग तब किया जाता है जब वह स्वयं का और उस कार्यक्षेत्र का वर्णन करता है जिसकी वह सुरक्षा कर रहा है।",
-      notRequired: "आवश्यक नहीं",
-      notSet: "सेट नहीं",
       notifySourceErrorsDescription: "समीक्षा प्रवाह में सतह ख़राब या विफल कनेक्टर।",
       notifySourceErrors: "स्रोत त्रुटियों पर सूचित करें",
-      policy: {
-        preSaveFilter: "फ़िल्टर को पहले से सहेजें",
-        publishTier: "टियर प्रकाशित करें",
-      },
-      publishingReviewDescription: "दृश्यता, अनुमोदन और कनेक्टर ताल के लिए डिफ़ॉल्ट।",
       requireApprovalDescription:
         "प्रकाशन से पहले मानव समीक्षा के लिए कंपनी-व्यापी ज्ञान वाले उम्मीदवारों की कतार लगाएं।",
       requireApproval: "कंपनी के ज्ञान के लिए अनुमोदन की आवश्यकता है",
       requireCitationsDescription:
         "पूछें Brain को तथ्यात्मक उत्तरों के लिए अनुमोदित स्रोत पंक्तियों का हवाला देना चाहिए।",
       requireCitations: "उद्धरणों की आवश्यकता है",
-      safetyEvidenceDescription:
-        "समीक्षा कतार छोड़ने वाले उत्तरों के लिए संशोधन और उद्धरण नियम।",
       sanitizationInstructions: "सैनिटाइजेशन के निर्देश",
       sanitizationModelDescription: "प्री-सेव फ़िल्टरिंग पास के लिए वैकल्पिक ओवरराइड।",
       sanitizationModelPlaceholder: "डिफ़ॉल्ट एजेंट मॉडल या सस्ता फ़्लैश मॉडल",
@@ -5254,21 +5104,12 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "なぜこれが一致したのか",
     },
     settings: {
-      actionsUnavailableDetail:
-        "このページは get-brain-settings および update-brain-settings に接続されており、現時点ではデフォルトを使用しています。",
-      actionsUnavailableTitle: "設定アクションはまだ利用できません",
-      assistantBehaviorDescription:
-        "回答と抽出された知識の提案に対するデフォルトの音声とソースの姿勢。",
       autoArchiveResolvedDescription:
         "承認または拒否されたキュー項目をアクティブなレビュー レーンから削除します。",
       autoArchiveResolved: "解決されたレビュー項目を自動アーカイブする",
-      autoPublishGateDescription: "企業層のナレッジの実行時ポリシー。",
-      autoPublishGateDetail:
-        "信頼性の高い企業ナレッジは、新しく編集されておらず、明示的な提案を必要としない場合に自動的に公開できます。",
       autoRedactEmailsDescription:
         "重要な証拠でない限り、抽出された知識から電子メール アドレスを削除します。",
       autoRedactEmails: "メールを自動編集する",
-      confidenceThreshold: "信頼閾値",
       connectorPollInterval: "コネクタのポーリング間隔",
       coreInstructionsDescription:
         "生のキャプチャを永続的な組織の知識に変えるためのガイダンス。",
@@ -5276,26 +5117,15 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "新しく抽出された知識のデフォルトの可視性を設定します。",
       defaultPublishTier: "デフォルトの公開層",
-      identityDescription:
-        "Brain という名前は、それ自体と保護しているワークスペースを説明するときに使用されます。",
-      notRequired: "不要",
-      notSet: "未設定",
       notifySourceErrorsDescription:
         "レビュー フローでの表面の劣化または故障したコネクタ。",
       notifySourceErrors: "ソースエラーを通知する",
-      policy: {
-        preSaveFilter: "事前保存フィルター",
-        publishTier: "パブリッシュ層",
-      },
-      publishingReviewDescription: "可視性、承認、コネクタの頻度のデフォルト。",
       requireApprovalDescription:
         "公開する前に、全社的なナレッジの候補者をキューに入れて人によるレビューを受けます。",
       requireApproval: "社内知識の承認が必要",
       requireCitationsDescription:
         "Ask Brain は、事実に基づく回答として承認されたソース行を引用する必要があります。",
       requireCitations: "引用を要求する",
-      safetyEvidenceDescription:
-        "レビューキューから出た回答に対する編集と引用のルール。",
       sanitizationInstructions: "消毒手順",
       sanitizationModelDescription:
         "保存前フィルタリング パスのオプションのオーバーライド。",
@@ -5686,21 +5516,12 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "이것이 일치하는 이유",
     },
     settings: {
-      actionsUnavailableDetail:
-        "이 페이지는 get-brain-settings 및 update-brain-settings에 연결되어 있으며 현재는 기본값을 사용하고 있습니다.",
-      actionsUnavailableTitle: "아직 설정 작업을 사용할 수 없습니다.",
-      assistantBehaviorDescription:
-        "답변 및 정제된 지식 제안에 대한 기본 음성 및 소스 자세입니다.",
       autoArchiveResolvedDescription:
         "활성 검토 레인에서 승인되거나 거부된 대기열 항목을 제거합니다.",
       autoArchiveResolved: "해결된 리뷰 항목 자동 보관",
-      autoPublishGateDescription: "회사 계층 지식에 대한 런타임 정책입니다.",
-      autoPublishGateDetail:
-        "신뢰도가 높은 회사 지식은 새롭고 수정되지 않은 것이며 명시적인 제안이 필요하지 않은 경우 자동으로 게시될 수 있습니다.",
       autoRedactEmailsDescription:
         "필수 증거가 아닌 이상 정제된 지식에서 이메일 주소를 제거하세요.",
       autoRedactEmails: "이메일 자동 수정",
-      confidenceThreshold: "신뢰도 임계값",
       connectorPollInterval: "커넥터 폴링 간격",
       coreInstructionsDescription:
         "원시 캡처를 내구성 있는 제도적 지식으로 전환하기 위한 지침입니다.",
@@ -5708,27 +5529,15 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "새로 정제된 지식에 대한 기본 가시성을 설정합니다.",
       defaultPublishTier: "기본 게시 계층",
-      identityDescription:
-        "Brain이 자신과 보호하는 작업 공간을 설명할 때 사용하는 이름입니다.",
-      notRequired: "필요하지 않음",
-      notSet: "설정되지 않음",
       notifySourceErrorsDescription:
         "검토 흐름에서 표면 성능이 저하되거나 커넥터에 오류가 발생했습니다.",
       notifySourceErrors: "소스 오류 알림",
-      policy: {
-        preSaveFilter: "사전 저장 필터",
-        publishTier: "게시 등급",
-      },
-      publishingReviewDescription:
-        "가시성, 승인 및 커넥터 흐름에 대한 기본값입니다.",
       requireApprovalDescription:
         "게시하기 전에 사람의 검토를 위해 전사적 지식 후보를 대기열에 추가하세요.",
       requireApproval: "회사 지식에 대한 승인이 필요합니다.",
       requireCitationsDescription:
         "Ask Brain은 사실 답변에 대해 승인된 소스 행을 인용해야 합니다.",
       requireCitations: "인용이 필요합니다",
-      safetyEvidenceDescription:
-        "검토 대기열을 떠나는 답변에 대한 수정 및 인용 규칙입니다.",
       sanitizationInstructions: "소독 지침",
       sanitizationModelDescription:
         "사전 저장 필터링 패스에 대한 선택적 재정의.",
@@ -6116,24 +5925,13 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "Por que isso combinou",
     },
     settings: {
-      actionsUnavailableDetail:
-        "Esta página está conectada a get-brain-settings e update-brain-settings e está usando padrões por enquanto.",
-      actionsUnavailableTitle:
-        "As ações de configuração ainda não estão disponíveis",
-      assistantBehaviorDescription:
-        "A voz padrão e a postura de origem para respostas e propostas de conhecimento destilado.",
       autoArchiveResolvedDescription:
         "Remova itens da fila aprovados ou rejeitados da via de revisão ativa.",
       autoArchiveResolved:
         "Arquivar automaticamente itens de revisão resolvidos",
-      autoPublishGateDescription:
-        "Política de tempo de execução para conhecimento no nível da empresa.",
-      autoPublishGateDetail:
-        "O conhecimento da empresa de alta confiança pode ser publicado automaticamente quando for novo, não editado e não exigir uma proposta explícita.",
       autoRedactEmailsDescription:
         "Remova endereços de e-mail do conhecimento destilado, a menos que sejam evidências essenciais.",
       autoRedactEmails: "Redação automática de e-mails",
-      confidenceThreshold: "Limite de confiança",
       connectorPollInterval: "Intervalo de pesquisa do conector",
       coreInstructionsDescription:
         "Orientação para transformar capturas brutas em conhecimento institucional durável.",
@@ -6141,27 +5939,15 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTierDescription:
         "Define a visibilidade padrão para conhecimento recém-destilado.",
       defaultPublishTier: "Camada de publicação padrão",
-      identityDescription:
-        "Os nomes que Brain usa quando descreve a si mesmo e ao espaço de trabalho que está protegendo.",
-      notRequired: "Não obrigatório",
-      notSet: "Não definido",
       notifySourceErrorsDescription:
         "Superfície de conectores degradados ou com falha no fluxo de revisão.",
       notifySourceErrors: "Notificar sobre erros de origem",
-      policy: {
-        preSaveFilter: "Filtro de pré-salvamento",
-        publishTier: "Publicar nível",
-      },
-      publishingReviewDescription:
-        "Padrões para visibilidade, aprovação e cadência do conector.",
       requireApprovalDescription:
         "Coloque na fila os candidatos de conhecimento de toda a empresa para revisão humana antes de publicar.",
       requireApproval: "Exigir aprovação para conhecimento da empresa",
       requireCitationsDescription:
         "Ask Brain deve citar linhas de origem aprovadas para respostas factuais.",
       requireCitations: "Exigir citações",
-      safetyEvidenceDescription:
-        "Regras de redação e citação para respostas que saem da fila de revisão.",
       sanitizationInstructions: "Instruções de higienização",
       sanitizationModelDescription:
         "Substituição opcional para a passagem de filtragem pré-salvamento.",
@@ -6548,42 +6334,25 @@ const exactEnglishDebtOverrides: Partial<
       whyMatched: "为什么这个匹配",
     },
     settings: {
-      actionsUnavailableDetail:
-        "此页面连接到 get-brain-settings 和 update-brain-settings 并且目前使用默认值。",
-      actionsUnavailableTitle: "设置操作尚不可用",
-      assistantBehaviorDescription: "答案和提炼知识建议的默认语音和源姿势。",
       autoArchiveResolvedDescription:
         "从活动审核通道中删除批准或拒绝的队列项目。",
       autoArchiveResolved: "自动存档已解决的审阅项目",
-      autoPublishGateDescription: "公司级知识的运行时策略。",
-      autoPublishGateDetail:
-        "高可信度的公司知识可以在新的、未经编辑的情况下自动发布，并且不需要明确的建议。",
       autoRedactEmailsDescription:
         "从蒸馏知识中删除电子邮件地址，除非它们是必要的证据。",
       autoRedactEmails: "自动编辑电子邮件",
-      confidenceThreshold: "置信阈值",
       connectorPollInterval: "连接器轮询间隔",
       coreInstructionsDescription: "将原始捕获转化为持久的机构知识的指南。",
       coreInstructions: "核心指令",
       defaultPublishTierDescription: "设置新提取的知识的默认可见性。",
       defaultPublishTier: "默认发布层",
-      identityDescription: "Brain 在描述自身及其所保护的工作空间时使用的名称。",
-      notRequired: "不需要",
-      notSet: "未设置",
       notifySourceErrorsDescription: "审查流程中表面退化或失效的连接器。",
       notifySourceErrors: "通知源错误",
-      policy: {
-        preSaveFilter: "预保存过滤器",
-        publishTier: "发布层",
-      },
-      publishingReviewDescription: "可见性、批准和连接器节奏的默认值。",
       requireApprovalDescription:
         "在发布之前对全公司范围内的知识候选者进行排队以供人工审核。",
       requireApproval: "需要公司知识的批准",
       requireCitationsDescription:
         "询问 Brain 必须引用经批准的源行以获得事实答案。",
       requireCitations: "需要引用",
-      safetyEvidenceDescription: "离开审核队列的答案的编辑和引用规则。",
       sanitizationInstructions: "消毒说明",
       sanitizationModelDescription: "预保存过滤过程的可选覆盖。",
       sanitizationModelPlaceholder: "默认代理模型或更便宜的闪存模型",
@@ -6802,22 +6571,15 @@ const privacySearchLocalizationOverrides: Partial<
 > = {
   "ar-SA": {
     settings: {
-      privacySensitivityTitle: "الخصوصية والحساسية",
-      privacySensitivityDescription:
-        "جاهزية المصنّف وحد العزل الذي يحتفظ بالبيانات الوصفية فقط.",
-      privacyClassifier: "مصنّف الخصوصية",
       privacyModel: "نموذج المصنّف",
-      quarantineRetention: "مدة الاحتفاظ بالعزل",
       tightenOnly:
         "لا يمكن لضوابط الحساسية إلا تشديد الاسترجاع والمعالجة. المواد المعزولة لا تظهر لمحرري المصادر أو نتائج البحث.",
       ready: "جاهز",
       readinessPending: "الجاهزية قيد الانتظار",
-      days: "{{count}} يومًا",
       privacyClassifierModel: "نموذج مصنّف الخصوصية",
       privacyClassifierModelPlaceholder: "نموذج مصنّف الخصوصية الافتراضي",
       privacyClassifierEngine: "محرك المصنّف",
       privacyClassifierEnginePlaceholder: "محرك المصنّف الافتراضي",
-      hours: "{{count}} ساعة",
       privacyClassifierChoice: "مصنّف الحساسية",
       privacyClassifierJev: "Jev (موصى به)",
       privacyClassifierCustom: "نموذج مخصص",
@@ -6878,23 +6640,16 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "de-DE": {
     settings: {
-      privacySensitivityTitle: "Datenschutz und Sensibilität",
-      privacySensitivityDescription:
-        "Bereitschaft des Klassifikators und Grenze der reinen Metadaten-Quarantäne.",
-      privacyClassifier: "Datenschutzklassifikator",
       privacyModel: "Klassifikatormodell",
-      quarantineRetention: "Quarantäne-Aufbewahrung",
       tightenOnly:
         "Sensibilitätskontrollen können Abruf und Verarbeitung nur verschärfen. Quarantänematerial ist nie für Quellenbearbeitung oder Suche verfügbar.",
       ready: "Bereit",
       readinessPending: "Bereitschaft ausstehend",
-      days: "{{count}} Tage",
       privacyClassifierModel: "Modell des Datenschutzklassifikators",
       privacyClassifierModelPlaceholder:
         "Standardmodell für Datenschutzklassifizierung",
       privacyClassifierEngine: "Klassifikator-Engine",
       privacyClassifierEnginePlaceholder: "Standard-Engine für Klassifizierung",
-      hours: "{{count}} Stunden",
       privacyClassifierChoice: "Sensibilitätsklassifikator",
       privacyClassifierJev: "Jev (empfohlen)",
       privacyClassifierCustom: "Eigenes Modell",
@@ -6956,24 +6711,17 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "es-ES": {
     settings: {
-      privacySensitivityTitle: "Privacidad y sensibilidad",
-      privacySensitivityDescription:
-        "Disponibilidad del clasificador y límite de cuarentena solo con metadatos.",
-      privacyClassifier: "Clasificador de privacidad",
       privacyModel: "Modelo de clasificador",
-      quarantineRetention: "Retención de cuarentena",
       tightenOnly:
         "Los controles de sensibilidad solo pueden reforzar la recuperación y el tratamiento. El material en cuarentena nunca está disponible para editores de fuentes ni resultados de búsqueda.",
       ready: "Listo",
       readinessPending: "Disponibilidad pendiente",
-      days: "{{count}} días",
       privacyClassifierModel: "Modelo del clasificador de privacidad",
       privacyClassifierModelPlaceholder:
         "Modelo predeterminado del clasificador",
       privacyClassifierEngine: "Motor del clasificador",
       privacyClassifierEnginePlaceholder:
         "Motor de clasificación predeterminado",
-      hours: "{{count}} horas",
       privacyClassifierChoice: "Clasificador de sensibilidad",
       privacyClassifierJev: "Jev (recomendado)",
       privacyClassifierCustom: "Modelo personalizado",
@@ -7036,22 +6784,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "fr-FR": {
     settings: {
-      privacySensitivityTitle: "Confidentialité et sensibilité",
-      privacySensitivityDescription:
-        "État du classificateur et limite de quarantaine avec métadonnées seulement.",
-      privacyClassifier: "Classificateur de confidentialité",
       privacyModel: "Modèle de classificateur",
-      quarantineRetention: "Conservation en quarantaine",
       tightenOnly:
         "Les contrôles de sensibilité ne peuvent que renforcer la recherche et le traitement. Le contenu en quarantaine n'est jamais disponible aux éditeurs de sources ni aux résultats de recherche.",
       ready: "Prêt",
       readinessPending: "État en attente",
-      days: "{{count}} jours",
       privacyClassifierModel: "Modèle du classificateur de confidentialité",
       privacyClassifierModelPlaceholder: "Modèle de classification par défaut",
       privacyClassifierEngine: "Moteur du classificateur",
       privacyClassifierEnginePlaceholder: "Moteur de classification par défaut",
-      hours: "{{count}} heures",
       privacyClassifierChoice: "Classificateur de sensibilité",
       privacyClassifierJev: "Jev (recommandé)",
       privacyClassifierCustom: "Modèle personnalisé",
@@ -7113,22 +6854,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "hi-IN": {
     settings: {
-      privacySensitivityTitle: "गोपनीयता और संवेदनशीलता",
-      privacySensitivityDescription:
-        "क्लासिफ़ायर की तैयारी और केवल मेटाडेटा वाली क्वारंटीन सीमा।",
-      privacyClassifier: "गोपनीयता क्लासिफ़ायर",
       privacyModel: "क्लासिफ़ायर मॉडल",
-      quarantineRetention: "क्वारंटीन अवधारण",
       tightenOnly:
         "संवेदनशीलता नियंत्रण केवल पुनर्प्राप्ति और हैंडलिंग को सख्त कर सकते हैं। क्वारंटीन सामग्री स्रोत संपादकों या खोज परिणामों को कभी उपलब्ध नहीं होती।",
       ready: "तैयार",
       readinessPending: "तैयारी लंबित है",
-      days: "{{count}} दिन",
       privacyClassifierModel: "गोपनीयता क्लासिफ़ायर मॉडल",
       privacyClassifierModelPlaceholder: "डिफ़ॉल्ट गोपनीयता क्लासिफ़ायर मॉडल",
       privacyClassifierEngine: "क्लासिफ़ायर इंजन",
       privacyClassifierEnginePlaceholder: "डिफ़ॉल्ट क्लासिफ़ायर इंजन",
-      hours: "{{count}} घंटे",
       privacyClassifierChoice: "संवेदनशीलता क्लासिफ़ायर",
       privacyClassifierJev: "Jev (अनुशंसित)",
       privacyClassifierCustom: "कस्टम मॉडल",
@@ -7188,22 +6922,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "ja-JP": {
     settings: {
-      privacySensitivityTitle: "プライバシーと機密性",
-      privacySensitivityDescription:
-        "分類器の準備状況とメタデータのみの隔離境界です。",
-      privacyClassifier: "プライバシー分類器",
       privacyModel: "分類器モデル",
-      quarantineRetention: "隔離の保持期間",
       tightenOnly:
         "機密性コントロールは取得と処理を厳しくすることしかできません。隔離された資料はソース編集者や検索結果に提供されません。",
       ready: "準備完了",
       readinessPending: "準備中",
-      days: "{{count}} 日",
       privacyClassifierModel: "プライバシー分類モデル",
       privacyClassifierModelPlaceholder: "既定のプライバシー分類モデル",
       privacyClassifierEngine: "分類エンジン",
       privacyClassifierEnginePlaceholder: "既定の分類エンジン",
-      hours: "{{count}} 時間",
       privacyClassifierChoice: "機密度分類器",
       privacyClassifierJev: "Jev (推奨)",
       privacyClassifierCustom: "カスタムモデル",
@@ -7267,22 +6994,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "ko-KR": {
     settings: {
-      privacySensitivityTitle: "개인정보 및 민감도",
-      privacySensitivityDescription:
-        "분류기 준비 상태와 메타데이터 전용 격리 경계입니다.",
-      privacyClassifier: "개인정보 분류기",
       privacyModel: "분류기 모델",
-      quarantineRetention: "격리 보존 기간",
       tightenOnly:
         "민감도 제어는 검색과 처리를 더 엄격하게만 만들 수 있습니다. 격리된 자료는 소스 편집자나 검색 결과에 절대 제공되지 않습니다.",
       ready: "준비됨",
       readinessPending: "준비 상태 대기 중",
-      days: "{{count}}일",
       privacyClassifierModel: "개인정보 분류 모델",
       privacyClassifierModelPlaceholder: "기본 개인정보 분류 모델",
       privacyClassifierEngine: "분류 엔진",
       privacyClassifierEnginePlaceholder: "기본 분류 엔진",
-      hours: "{{count}}시간",
       privacyClassifierChoice: "민감도 분류기",
       privacyClassifierJev: "Jev (권장)",
       privacyClassifierCustom: "사용자 지정 모델",
@@ -7343,22 +7063,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "pt-BR": {
     settings: {
-      privacySensitivityTitle: "Privacidade e sensibilidade",
-      privacySensitivityDescription:
-        "Prontidão do classificador e limite de quarentena somente com metadados.",
-      privacyClassifier: "Classificador de privacidade",
       privacyModel: "Modelo do classificador",
-      quarantineRetention: "Retenção da quarentena",
       tightenOnly:
         "Os controles de sensibilidade só podem reforçar a recuperação e o tratamento. Material em quarentena nunca fica disponível para editores de fontes ou resultados de busca.",
       ready: "Pronto",
       readinessPending: "Prontidão pendente",
-      days: "{{count}} dias",
       privacyClassifierModel: "Modelo do classificador de privacidade",
       privacyClassifierModelPlaceholder: "Modelo padrão do classificador",
       privacyClassifierEngine: "Mecanismo do classificador",
       privacyClassifierEnginePlaceholder: "Mecanismo de classificação padrão",
-      hours: "{{count}} horas",
       privacyClassifierChoice: "Classificador de sensibilidade",
       privacyClassifierJev: "Jev (recomendado)",
       privacyClassifierCustom: "Modelo personalizado",
@@ -7420,22 +7133,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "zh-CN": {
     settings: {
-      privacySensitivityTitle: "隐私与敏感性",
-      privacySensitivityDescription:
-        "分类器就绪状态以及仅保留元数据的隔离边界。",
-      privacyClassifier: "隐私分类器",
       privacyModel: "分类器模型",
-      quarantineRetention: "隔离保留期",
       tightenOnly:
         "敏感性控制只能收紧检索和处理。隔离材料绝不会提供给来源编辑者或搜索结果。",
       ready: "已就绪",
       readinessPending: "就绪状态待定",
-      days: "{{count}} 天",
       privacyClassifierModel: "隐私分类器模型",
       privacyClassifierModelPlaceholder: "默认隐私分类器模型",
       privacyClassifierEngine: "分类器引擎",
       privacyClassifierEnginePlaceholder: "默认分类器引擎",
-      hours: "{{count}} 小时",
       privacyClassifierChoice: "敏感度分类器",
       privacyClassifierJev: "Jev（推荐）",
       privacyClassifierCustom: "自定义模型",
@@ -7493,22 +7199,15 @@ const privacySearchLocalizationOverrides: Partial<
   },
   "zh-TW": {
     settings: {
-      privacySensitivityTitle: "隱私與敏感性",
-      privacySensitivityDescription:
-        "分類器整備狀態與僅保留中繼資料的隔離邊界。",
-      privacyClassifier: "隱私分類器",
       privacyModel: "分類器模型",
-      quarantineRetention: "隔離保留期",
       tightenOnly:
         "敏感性控制只能收緊擷取和處理。隔離材料絕不會提供給來源編輯者或搜尋結果。",
       ready: "已就緒",
       readinessPending: "整備狀態待定",
-      days: "{{count}} 天",
       privacyClassifierModel: "隱私分類器模型",
       privacyClassifierModelPlaceholder: "預設隱私分類器模型",
       privacyClassifierEngine: "分類器引擎",
       privacyClassifierEnginePlaceholder: "預設分類器引擎",
-      hours: "{{count}} 小時",
       privacyClassifierChoice: "敏感度分類器",
       privacyClassifierJev: "Jev（建議）",
       privacyClassifierCustom: "自訂模型",

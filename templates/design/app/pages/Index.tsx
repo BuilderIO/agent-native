@@ -1,9 +1,12 @@
 import {
   BuilderSetupCard,
+  fetchAgentEngineConfiguredState,
+  type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
+  PromptComposer,
   snapshotComposerContextItems,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
@@ -166,6 +169,7 @@ export default function Index() {
   );
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -231,6 +235,18 @@ export default function Index() {
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
   useEffect(() => {
+    if (
+      accessibleDesignsSummary.isSuccess &&
+      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0 &&
+      !homeLibraryTabWasSelectedRef.current
+    ) {
+      setHomeSection("recent");
+    }
+  }, [
+    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignsSummary.isSuccess,
+  ]);
+  useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
   }, [hasSearchResultsSection]);
   const {
@@ -261,15 +277,47 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const agentEngineConfigured = agentEngine.state === "configured";
+  const [preflightAgentEngineState, setPreflightAgentEngineState] =
+    useState<AgentEngineConfiguredState | null>(null);
+  const preflightRequestIdRef = useRef(0);
+  const effectiveAgentEngineState =
+    preflightAgentEngineState ?? agentEngine.state;
+  const agentEngineConfigured = effectiveAgentEngineState === "configured";
+  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const canChatRef = useRef(agentEngineConfigured);
+  canChatRef.current = agentEngineConfigured;
+  useEffect(() => {
+    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
+      preflightRequestIdRef.current += 1;
+      setPreflightAgentEngineState(null);
+    }
+  }, [agentEngine.state]);
+  const ensureAgentEngineConfigured = useCallback(async () => {
+    if (agentEngineConfigured) return true;
+    const requestId = ++preflightRequestIdRef.current;
+    let nextState: AgentEngineConfiguredState;
+    try {
+      nextState = await fetchAgentEngineConfiguredState();
+    } catch {
+      nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+    }
+    if (requestId !== preflightRequestIdRef.current) {
+      return canChatRef.current;
+    }
+    setPreflightAgentEngineState(nextState);
+    canChatRef.current = nextState === "configured";
+    return canChatRef.current;
+  }, [agentEngine.state, agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
-    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+    if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
+    preflightRequestIdRef.current += 1;
+    setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
-  const quickActionsEnabled = agentEngineConfigured && !agentEngine.missing;
+  const quickActionsEnabled = agentEngineConfigured;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -633,7 +681,7 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      if (agentEngine.state !== "configured") return;
+      if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
@@ -809,7 +857,6 @@ export default function Index() {
       void navigate(`/design/${id}`);
     },
     [
-      agentEngine.state,
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
@@ -1042,12 +1089,13 @@ export default function Index() {
     <div className="relative w-full">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
+        size="sm"
         value={search}
         onChange={(event) => handleSearchChange(event.target.value)}
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
         data-home-search="true"
-        className="h-8 w-full pe-3 ps-8"
+        className="w-full pe-3 ps-8"
       />
     </div>,
   );
@@ -1057,8 +1105,9 @@ export default function Index() {
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
+        connectionAttached={agentEngineMissing}
         connection={
-          agentEngineConfigured ? null : agentEngine.missing ? (
+          agentEngineConfigured ? null : agentEngineMissing ? (
             <BuilderSetupCard
               attached
               fullWidth
@@ -1066,24 +1115,25 @@ export default function Index() {
               bouncePulse={setupCardBouncePulse}
               onConnected={retryAgentEngineStatus}
             />
-          ) : (
+          ) : effectiveAgentEngineState === "unavailable" ? (
             <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
               <span role="status">
-                {t(
-                  agentEngine.state === "unknown"
-                    ? "agentChat.setup.checkingProvider"
-                    : "agentChat.setup.providerStatusUnavailable",
-                )}
+                {t("agentChat.setup.providerStatusUnavailable")}
               </span>
-              {agentEngine.state === "unavailable" ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={retryAgentEngineStatus}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={retryAgentEngineStatus}
+              >
+                {t("agentChat.common.retry")}
+              </button>
+            </div>
+          ) : (
+            <div className="mb-2 flex justify-center">
+              <Spinner
+                aria-label={t("common.loading")}
+                className="size-4 text-muted-foreground"
+              />
             </div>
           )
         }
@@ -1091,7 +1141,7 @@ export default function Index() {
           <div
             data-design-home-composer
             className={
-              agentEngine.missing
+              agentEngineMissing
                 ? "agent-composer-area--attached-above"
                 : undefined
             }
@@ -1102,11 +1152,11 @@ export default function Index() {
               inline
               open
               onOpenChange={() => {}}
+              composerComponent={PromptComposer}
               composerRef={composerRef}
-              disabled={!agentEngineConfigured}
-              submissionDisabled={!agentEngineConfigured}
+              onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={false}
+              modelStatusChecksEnabled={agentEngineConfigured}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={
@@ -1207,7 +1257,10 @@ export default function Index() {
         ) : null}
         <PromptHomeLibrary
           value={homeSection}
-          onValueChange={setHomeSection}
+          onValueChange={(value) => {
+            homeLibraryTabWasSelectedRef.current = true;
+            setHomeSection(value);
+          }}
           labels={{
             templates: t("navigation.templates"),
             recent: t("home.recent"),
@@ -1287,14 +1340,14 @@ export default function Index() {
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="icon-sm"
                               onClick={toggleVisibleSelection}
                               aria-label={
                                 allVisibleSelected
                                   ? t("home.clearVisibleSelection")
                                   : t("home.selectVisibleDesigns")
                               }
-                              className="h-8 w-8 cursor-pointer"
+                              className="cursor-pointer"
                             >
                               <IconChecks className="w-4 h-4" />
                             </Button>
@@ -1309,10 +1362,10 @@ export default function Index() {
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="icon-sm"
                               onClick={clearSelection}
                               aria-label={t("home.clearSelection")}
-                              className="h-8 w-8 cursor-pointer"
+                              className="cursor-pointer"
                             >
                               <IconX className="w-4 h-4" />
                             </Button>
@@ -1599,7 +1652,7 @@ export default function Index() {
             }}
             placeholder={t("home.designName")}
             aria-label={t("home.designName")}
-            className="h-9 text-sm"
+            className="text-sm"
           />
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">

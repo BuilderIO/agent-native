@@ -20,10 +20,6 @@ const messages = {
   },
   settings: {
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -33,6 +29,7 @@ const messages = {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     openAgentSettings: "एजेंट प्रबंधित करें",
+    editorGroupTitle: "एडिटर",
     editorTitle: "VS Code एक्सटेंशन",
     editorDescription:
       "अलग ब्राउज़र टैब के बजाय VS Code के साइड पैनल में योजनाएँ खोलें और उनकी समीक्षा करें।",
@@ -764,6 +761,85 @@ const messages = {
     banner:
       "You're browsing as a guest. साइन इन करें to create plans, leave comments, and keep your work.",
     signIn: "साइन इन करें",
+  },
+  edition: {
+    rail: {
+      notes: "टिप्पणियाँ",
+      inThisBuild: "इस बिल्ड में",
+      threads: "सूत्र",
+      partial: "* आंशिक: कुछ पुल रिक्वेस्ट ने डिफ़ नहीं बताया",
+    },
+    promise: {
+      readTime: "~{{minutes}} मिनट",
+      unavailable: "उपलब्ध नहीं",
+      analysed_one: "{{count}} पुल रिक्वेस्ट का विश्लेषण",
+      analysed_other: "{{count}} पुल रिक्वेस्ट का विश्लेषण",
+      storyCount_one: "{{count}} कहानी",
+      storyCount_other: "{{count}} कहानियाँ",
+      areaCount_one: "{{count}} क्षेत्र",
+      areaCount_other: "{{count}} क्षेत्र",
+    },
+    nav: {
+      label: "संस्करण",
+    },
+    masthead: {
+      issue: "अंक {{number}}",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "इंजीनियरिंग डेली",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "क्या शिप हुआ",
+      fileCount_one: "{{count}} फ़ाइल",
+      fileCount_other: "{{count}} फ़ाइलें",
+      sources: "स्रोत",
+      quickLinks: "त्वरित लिंक",
+      authors: "लेखक: {{names}}",
+      prCount_one: "{{count}} PR",
+      prCount_other: "{{count}} PR",
+      whyAndHow: "क्यों और यह कैसे काम करता है",
+      why: "क्यों",
+      howItWorks: "यह कैसे काम करता है",
+      diffUnavailable: "डिफ़ आकार उपलब्ध नहीं",
+    },
+    coverage: {
+      unresolvedBlocks: "हल न होने वाले उद्धृत ब्लॉक: {{total}}",
+      label: "कवरेज",
+      reposLabel: "रिपॉजिटरी",
+      reposUnavailable: "रिपॉजिटरी उपलब्ध नहीं",
+      staleNote:
+        "इन मर्ज किए गए पुल रिक्वेस्ट का रीकैप मौजूद है, लेकिन मर्ज के समय उसे दोबारा प्रकाशित नहीं किया गया, इसलिए वह बदलाव की पुरानी स्थिति बता सकता है।",
+      missingNote:
+        "इन मर्ज किए गए पुल रिक्वेस्ट का रीकैप नहीं है, इसलिए यह संस्करण उन्हें कवर नहीं करता।",
+      complete: "इस अवधि में मर्ज किए गए हर पुल रिक्वेस्ट का रीकैप मौजूद है।",
+      unknown: "इस संस्करण की कवरेज दर्ज नहीं हुई, इसलिए अंतर अज्ञात है।",
+    },
+    reader: {
+      loading: "संस्करण लोड हो रहा है",
+      error: "यह संस्करण लोड नहीं हो सका।",
+      retry: "पुन: प्रयास करें",
+      notFound: "वह संस्करण उपलब्ध नहीं है।",
+      noStories: "इस संस्करण में कोई कहानी नहीं है।",
+    },
+    listen: {
+      voice: "आवाज़",
+      play: "सुनें",
+      pause: "रोकें",
+      resume: "जारी रखें",
+      stop: "पढ़ना बंद करें",
+      preparing: "तैयार हो रहा है…",
+      failed: "इस संस्करण को सुनाया नहीं जा सका: {reason}",
+    },
+    signIn: {
+      prompt: "अख़बार पढ़ने के लिए साइन इन करें।",
+    },
+    archive: {
+      build: "आज का संस्करण बनाएँ",
+      loading: "संस्करण लोड हो रहे हैं",
+      error: "संस्करण संग्रह लोड नहीं हो सका।",
+      retry: "पुन: प्रयास करें",
+      empty: "अभी कोई संस्करण नहीं।",
+    },
   },
 };
 

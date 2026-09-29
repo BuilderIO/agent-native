@@ -20,6 +20,9 @@ const messages = {
     slidePosition: "スライド {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ja-JP"],
+  common: {
+    loading: "読み込み中...",
+  },
   root: {
     commandPresentations: "プレゼンテーション",
     searchDecks: "デッキを検索",
@@ -41,24 +44,22 @@ const messages = {
     brand: "スライド",
     decks: "デッキ",
     designSystems: "デザインシステム",
-    team: "チーム",
   },
   settings: {
     agentObservability: "エージェントの可観測性",
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
     labLayoutOverflowWarningDescription:
       "エディターでレイアウトのはみ出し警告を表示します。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
+    notificationsEmail: "メール",
+    commentsAndReplies: "コメントと返信",
+    commentsAndRepliesDescription:
+      "誰かがあなたのデッキにコメントまたは返信したとき。",
+    retry: "再試行",
+    mcpAbout:
+      "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -186,8 +187,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "アプリで開く",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -581,6 +580,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "保存済み" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -646,6 +646,21 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "エラー 403",
+    noAccessTitle: "アクセス権がありません",
+    noAccessDescription:
+      "デッキのオーナーにアクセスをリクエストするか、正しいアカウントに切り替えてください。",
+    noteLabel: "オーナーへのメモを追加（任意）",
+    notePlaceholder: "このデッキを確認しています",
+    requesting: "リクエスト中",
+    requestFailed: "リクエストを送信できませんでした。もう一度お試しください。",
+    requestSentDescription:
+      "オーナーがリクエストを承認したら、すぐにメールでお知らせします。",
+    goHome: "ホームへ",
+    signedInAs: "ログイン中のアカウント:",
+    switchAccount: "アカウントを切り替える",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
@@ -691,6 +706,9 @@ const messages = {
     accessApprovalTitle: "アクセスを許可しました",
     accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
     accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalRequesterEmailed: "メールでお知らせしました。",
+    accessApprovalRequesterEmailFailed:
+      "{{email}} にメールを送信できませんでした。デッキを開けるようになったことを伝えてください。",
     accessApprovalAlreadyMessage:
       "{{email}} はすでにこのデッキにアクセスできます。",
     accessApprovalErrorTitle: "アクセスを許可できませんでした",
@@ -833,6 +851,8 @@ const messages = {
         "インポートがタイムアウトしたか、ネットワーク接続が切断されました。接続を確認して、もう一度お試しください。",
       notStarted:
         "必要なサインインを完了してから、インポートを再試行してください。",
+      unsupportedFileType:
+        "このファイル形式はサポートされていません。対応しているファイルを選択してください。",
       uploadLimitExceeded:
         "アップロードが許可された上限を超えています。ファイルを小さくするか、選択するファイルを減らして再試行してください。",
     },
@@ -874,6 +894,8 @@ const messages = {
       notReady:
         "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
       emptySource: "このソースには利用可能なコンテキストがありません。",
+      websiteReadFailed:
+        "このウェブサイトを自動で読み取れませんでした。関連するテキストをコピーして貼り付けてください。",
       figmaReadFailed:
         "Design でこの Figma 参照を読み込めませんでした。Design に保存されている Figma アクセストークンと、紐づくアカウントでファイルを開けることを確認して、もう一度お試しください。",
       tooMany: "参照は20件まで選択できます。",
@@ -1029,6 +1051,11 @@ const messages = {
     emptyTitle: "まだデッキがありません",
     createFirstDeck: "最初のデッキを作成",
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
   },
 };
 

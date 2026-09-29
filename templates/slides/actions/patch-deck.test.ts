@@ -54,9 +54,12 @@ const mockDb = {
     }),
   }),
   update: () => ({
-    set: (fields: { data?: string }) => ({
+    set: (fields: Record<string, unknown>) => ({
       where: async () => {
-        lastUpdatedDeckData = fields.data;
+        if (typeof fields.data === "string") {
+          lastUpdatedDeckData = fields.data;
+        }
+        if (mockDeckRow) mockDeckRow = { ...mockDeckRow, ...fields };
         return { rowsAffected: 1 };
       },
     }),
@@ -73,6 +76,9 @@ vi.mock("../server/db/index.js", () => ({
       title: "decks.title",
       data: "decks.data",
       designSystemId: "decks.designSystemId",
+      lastWriteClientId: "decks.lastWriteClientId",
+      lastWriteClientSequence: "decks.lastWriteClientSequence",
+      lastWriteRevision: "decks.lastWriteRevision",
       updatedAt: "decks.updatedAt",
     },
   },
@@ -3282,5 +3288,74 @@ describe("run() — explicit dismissal survives a content change", () => {
     expect(
       JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
     ).toBeUndefined();
+  });
+});
+
+describe("run() — client write ordering", () => {
+  const baseRevision = "2026-01-01T00:00:00.000Z";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: baseRevision,
+      lastWriteClientId: null,
+      lastWriteClientSequence: null,
+      lastWriteRevision: null,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: baseRevision,
+        slides: [{ id: "slide-1", content: "base" }],
+      }),
+    };
+  });
+
+  it("rebases a newer write and rejects an older request that arrives later", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "editor-tab",
+          sequence: 2,
+          expectedUpdatedAt: baseRevision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "newest" },
+          },
+        ],
+      },
+      {},
+    );
+
+    await expect(
+      patchDeckAction.run(
+        {
+          deckId: "deck-1",
+          clientWrite: {
+            clientId: "editor-tab",
+            sequence: 1,
+            expectedUpdatedAt: baseRevision,
+          },
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "older" },
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
+      "newest",
+    );
   });
 });

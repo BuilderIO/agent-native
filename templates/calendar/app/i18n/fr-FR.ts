@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Connecter",
@@ -5,7 +7,6 @@ export default {
     connecting: "Connexion...",
     clipboardUnavailable: "L’accès au presse-papiers n’est pas disponible",
     disconnect: "Déconnecter",
-    notConnected: "Non connecté",
     loadFailed: "Impossible de charger ces données.",
     retry: "Réessayer",
     saving: "Enregistrement...",
@@ -46,11 +47,6 @@ export default {
     couldNotLoadEvent: "Impossible de charger l'événement",
     noEventId: "Aucun ID d'événement fourni. Ajoutez ?id=<eventId> à l'URL.",
     openCalendar: "Ouvrir le calendrier",
-  },
-  eventCreation: {
-    created: "Événement créé",
-    zoomNotAdded: "L’événement a été créé, mais Zoom n’a pas pu être ajouté.",
-    openInCalendar: "Ouvrir l’événement dans Calendar",
   },
   agentSidebar: {
     emptyState: "Demandez-moi n’importe quoi sur votre calendrier",
@@ -212,10 +208,6 @@ export default {
   },
   settings: {
     title: "Paramètres",
-    description: "Configurez votre calendrier et vos intégrations.",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Calendar.",
-    languageLabel: "Langue de l'interface",
     agentTitle: "Gérer l'agent",
     agentDescription:
       "Gérez le modèle de l'agent, les clés API, les automatisations, la voix et les autres contrôles.",
@@ -230,13 +222,8 @@ export default {
     zoomConnectFailed: "Impossible de connecter Zoom",
     zoomDisconnected: "Zoom déconnecté",
     zoomDisconnectFailed: "Impossible de déconnecter Zoom",
-    general: "Général",
-    generalDescription: "Valeurs par défaut du calendrier et réservations.",
-    timezone: "Fuseau horaire",
-    saveSettings: "Enregistrer",
     saved: "Paramètres enregistrés",
     saveFailed: "Échec de l'enregistrement",
-    appearance: "Apparence",
     appearanceDescription:
       "Choisissez un thème de couleur pour votre espace, ou demandez à l'agent.",
     desktopNotifications: "Notifications de bureau",
@@ -251,24 +238,16 @@ export default {
       "Synchronisez vos événements et gérez tout au même endroit.",
     zoomDescription:
       "Connectez Zoom pour créer des liens de réunion pour les événements et les réservations.",
-    zoomNotConfigured: "Non configuré",
     zoomCredentialsPrompt:
       "Ajoutez les identifiants OAuth Zoom pour activer la connexion.",
-    bookingTitleLabel: "Titre de secours de la page de réservation",
     bookingTitlePlaceholder: "Réserver une réunion",
-    bookingTitleHelp:
-      "Utilisé seulement quand un lien de réservation n'a pas de titre. Créez, ouvrez et copiez les URL publiques depuis Liens de réservation.",
-    bookingDescriptionLabel: "Description de secours de la page de réservation",
     bookingDescriptionPlaceholder: "Choisissez un horaire qui vous convient.",
-    bookingDescriptionHelp:
-      "Utilisé seulement quand un lien de réservation n'a pas sa propre description.",
-    defaultDurationLabel: "Durée d'événement par défaut (minutes)",
-    defaultDurationHelp:
-      "Durée par défaut des nouveaux événements et créneaux de réservation. Chaque lien de réservation peut la remplacer.",
     weekStartLabel: "La semaine commence le",
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",
     eventRules: "Règles d’invitation",
+    eventRulesAutomationLink:
+      "Pour d’autres actions, créez une automatisation.",
     eventRulesConnectJev:
       "Connectez Jev pour appliquer les règles d’invitation",
     eventRulesFreeBuilderOrApiKey:
@@ -308,6 +287,40 @@ export default {
       "Une invitation a été ignorée car les règles d’acceptation et de refus correspondaient.",
     eventRulesUnregistered:
       "L’automatisation Calendar n’est pas enregistrée sur ce serveur.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendriers",
+    bookingTab: "Réservation",
+    eventsGroup: "Événements",
+    appearanceGroup: "Apparence",
+    colorTheme: "Thème de couleur",
+    timezone: "Fuseau horaire du calendrier",
+    timezoneDescription:
+      "Sert à afficher les événements et à en créer de nouveaux.",
+    defaultDuration: "Durée par défaut des événements",
+    defaultDurationDescription:
+      "En minutes. Les liens de réservation peuvent définir la leur.",
+    durationInvalid: "Saisissez une durée de 5 à 480 minutes.",
+    zoom: "Zoom",
+    connectedAs: "Connecté en tant que {{accounts}}",
+    setUp: "Configurer",
+    disconnectGoogleTitle: "Déconnecter Google Calendar ?",
+    disconnectGoogleDescription:
+      "Calendar cesse d'afficher et de synchroniser les événements de vos comptes Google.",
+    disconnectZoomTitle: "Déconnecter Zoom ?",
+    disconnectZoomDescription:
+      "Les nouveaux événements et réservations ne peuvent pas recevoir de lien de réunion Zoom tant que vous ne vous reconnectez pas.",
+    manage: "Gérer",
+    edit: "Modifier",
+    cancel: "Annuler",
+    save: "Enregistrer",
+    fallbackBookingPage: "Page de réservation par défaut",
+    fallbackBookingPageDescription:
+      "Utilisée lorsqu'un lien de réservation n'a ni titre ni description.",
+    fallbackTitle: "Titre",
+    fallbackDescription: "Description",
+    bookingLinksDescription:
+      "Créez des liens de réservation et copiez leurs URL publiques.",
   },
   eventDialog: {
     eventUpdated: "Événement mis à jour",
@@ -612,6 +625,7 @@ export default {
     fieldRequired: "{{label}} est obligatoire",
     linkDisabled: "{{title}} désactivé",
     linkEnabled: "{{title}} activé",
+    advanced: "Avancé",
     linkVisibility: "Visibilité du lien",
     linkVisibilityDescription:
       "Désactivez cette option pour désactiver la page publique.",
@@ -1058,7 +1072,7 @@ export default {
     year: "an",
     zoom: "Zoom",
     zoomAdded: "Zoom ajouté",
-    zoomAddFailed: "Échec de l'ajout du Zoom",
+    zoomAddFailed: zoomAddFailedMessages["fr-FR"],
     zoomConnectFailed: "Impossible de connecter le Zoom",
     zoomConnectionOpened: "Connexion Zoom ouverte",
     zoomNotConfigured: "Zoom OAuth n’est pas configuré.",

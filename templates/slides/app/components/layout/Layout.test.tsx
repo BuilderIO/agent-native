@@ -342,6 +342,18 @@ describe("Slides Layout", () => {
     );
   });
 
+  it("gives Settings the full width", () => {
+    renderLayout("/settings/notifications");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "sidebar.openNavigation" }),
+    ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
   it("renders full-page chat without the sidebar wrapper", () => {
     renderLayout("/chat");
 

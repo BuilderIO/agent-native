@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "Disconnecting…",
   },
   settings: {
-    title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -35,7 +29,6 @@ const messages = {
     emailChange: "Change email",
     emailChangeSent: "Check your email to confirm this change.",
     emailChangeError: "Could not send confirmation.",
-    backHome: "Back to home",
     builderConnection: {
       manage: "Manage Builder.io connection",
     },
@@ -225,6 +218,9 @@ const messages = {
       noErrorMessage: "(no error message)",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
@@ -240,6 +236,7 @@ const messages = {
     newChat: "New chat",
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -265,6 +262,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -645,6 +644,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Optional text to check for in the reply…",
+    promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     spans: "Spans",
     type: "Type",
     name: "Name",

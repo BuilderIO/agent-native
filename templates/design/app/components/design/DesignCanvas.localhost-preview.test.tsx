@@ -20,6 +20,7 @@ import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
 } from "./design-canvas/external-preview";
+import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
@@ -74,6 +75,106 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("keeps Chrome settings help available when the prompt is gone", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+        />,
+      );
+    });
+
+    const permissionHelp = container.querySelector("details");
+    expect(container.textContent).toContain("Retry connection");
+    expect(permissionHelp?.open).toBe(false);
+    expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
+    await act(async () => {
+      permissionHelp?.querySelector("summary")?.click();
+    });
+    expect(permissionHelp?.textContent).toContain(
+      "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+    );
+    expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
+      "/local-network-access-settings.png",
+    );
+  });
+
+  it("shows the Chrome permission prompt and closes from its X button", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={onDismiss}
+          proactive
+        />,
+      );
+    });
+
+    expect(
+      document.querySelector('img[src="/local-network-access-permission.png"]'),
+    ).not.toBeNull();
+    const dismissButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Close");
+    expect(dismissButton).toBeDefined();
+
+    await act(async () => dismissButton?.click());
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("keeps proactive setup open on outside interaction and Escape", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+          proactive
+        />,
+      );
+    });
+
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-state="open"]'),
+    ).find((element) => element.className.includes("backdrop-blur"));
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][data-state="open"]',
+    );
+    expect(overlay?.className).toContain("backdrop-blur-[4px]");
+    expect(overlay?.className).not.toContain("backdrop-blur-[1px]");
+    expect(dialog).not.toBeNull();
+
+    await act(async () => {
+      overlay?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    await act(async () => {
+      dialog?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
     useActionQueryMock.mockReturnValue({
       data: {
@@ -740,6 +841,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       expect(container.textContent).toContain(
         "The running app is shielded until Design connects to the local bridge.",
       );
+      expect(container.textContent).not.toContain("Preparing the live editor");
     });
   });
 
@@ -1002,10 +1104,31 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("Connect your local screens");
+      expect(document.body.textContent).toContain(
+        "Choose Allow in Chrome's prompt to enable live editing.",
+      );
+      expect(document.body.textContent).not.toContain("Allow local access");
+      expect(document.body.textContent).not.toContain("Retry connection");
       expect(document.body.textContent).not.toContain(
         "Can't reach your local dev server",
       );
     });
+    expect(
+      document.querySelector('img[src="/local-network-access-permission.png"]'),
+    ).not.toBeNull();
+    const permissionHelp = document.querySelector("details");
+    expect(permissionHelp?.open).toBe(false);
+    expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
+    await act(async () => {
+      permissionHelp?.querySelector("summary")?.click();
+    });
+    expect(permissionHelp?.open).toBe(true);
+    expect(permissionHelp?.textContent).toContain(
+      "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+    );
+    expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
+      "/local-network-access-settings.png",
+    );
     expect(await getLocalNetworkAccessPermissionState()).toBe("prompt");
   });
 

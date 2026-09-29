@@ -43,6 +43,27 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # A pull request checks out its merge commit, whose first parent is
+          # the base; diffing against it isolates what the PR changes.
+          fetch-depth: 2
+
+      - name: Detect native build input changes
+        id: native
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Shared JavaScript packages reach the app only through the Metro
+          # bundle, which the export step still checks on every run.
+          native_paths="$(git diff --name-only HEAD^1 HEAD -- packages/mobile-app pnpm-lock.yaml .github/workflows/mobile-build-check.yml)"
+          if [ -n "$native_paths" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No native build input changed; skipping the Gradle compile."
+          fi
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -51,13 +72,27 @@ jobs:
           node-version: "22"
           cache: pnpm
 
+      - name: Install native canvas build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
+
       - run: pnpm install --frozen-lockfile
 
       - name: Generate Android project
+        if: steps.native.outputs.changed == 'true'
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo prebuild --platform android --no-install
 
       - name: Cache Gradle home
+        if: steps.native.outputs.changed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -80,6 +115,7 @@ jobs:
         run: pnpm exec expo export --platform android --output-dir .expo-ci-export
 
       - name: Compile Android debug APK
+        if: steps.native.outputs.changed == 'true'
         working-directory: ${{ env.MOBILE_APP_PATH }}/android
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace -PreactNativeArchitectures=arm64-v8a
 
@@ -96,6 +132,18 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+
+      - name: Install native canvas build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
 
       - run: pnpm install --frozen-lockfile
 

@@ -13,6 +13,7 @@ import {
   selectedSites,
   siteById,
 } from "../../lib/fleet";
+import { activeSettingsNavItem } from "../../lib/settings";
 
 skipUnlessAuthed();
 
@@ -215,14 +216,25 @@ test.describe("dispatch workspace", () => {
         'beta.dispatch /apps did not render the "Your apps" section',
       ).toMatch(/your apps/i);
 
-      for (const path of [
-        "/settings/general",
-        "/settings/agent/resources/instructions",
-      ]) {
+      // Legacy links stay in the list because templates and emails still
+      // send them; they land on the new pages.
+      const settingsPaths = [
+        { path: "/settings/general", page: "app" },
+        {
+          path: "/settings/agent/resources/instructions",
+          page: "instructions",
+        },
+        { path: "/settings/instructions", page: "instructions" },
+      ];
+      for (const { path, page: settingsPage } of settingsPaths) {
         await page.goto(`${origin}${path}`, {
           waitUntil: "domcontentloaded",
           timeout: 90_000,
         });
+        await expect(
+          activeSettingsNavItem(page, settingsPage),
+          `beta.dispatch ${path} did not open Settings › ${settingsPage}; landed on ${page.url()}`,
+        ).toBeVisible({ timeout: 30_000 });
         const settingsBody = await renderedText(page, `beta.dispatch ${path}`);
         expect(
           settingsBody,

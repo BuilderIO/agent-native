@@ -26,6 +26,10 @@ function textNodes(root: Node): Text[] {
   return texts;
 }
 
+/**
+ * happy-dom has no Selection.modify; this moves one character across text
+ * nodes inside the editing host, which is what Chrome does for Backspace.
+ */
 beforeAll(() => {
   const proto = Object.getPrototypeOf(window.getSelection()!) as Selection;
   proto.modify = function modify(
@@ -92,6 +96,15 @@ function select(
   window.getSelection()!.addRange(range);
 }
 
+function selectBackward(
+  start: Node,
+  startOffset: number,
+  end: Node,
+  endOffset: number,
+) {
+  window.getSelection()!.setBaseAndExtent(end, endOffset, start, startOffset);
+}
+
 function textOf(element: Element, text: string): Text {
   const found = textNodes(element).find((node) => node.data.includes(text));
   if (!found) throw new Error(`no text node with ${text}`);
@@ -109,6 +122,7 @@ function beforeInput(target: Element, inputType: string, init: object = {}) {
   return event;
 }
 
+/** Types like a browser: the controller may take the input, or let it through. */
 function type(target: Element, text: string) {
   for (const data of text) {
     const event = beforeInput(target, "insertText", { data });
@@ -198,6 +212,28 @@ describe("in-place text session: entering and ending", () => {
     expect(el.outerHTML).toBe(before);
   });
 
+  it("restores the start bytes when editing normalizes a space to NBSP", () => {
+    vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent ?? "";
+      },
+    );
+    const el = mount('<p id="t">Alpha beta</p>');
+    const before = el.outerHTML;
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, 6);
+    type(el, "x");
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      false,
+    );
+    (el.firstChild as Text).deleteData(6, 1);
+    (el.firstChild as Text).data = "Alpha\u00a0beta";
+    expect(session.changed).toBe(false);
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
   it("recreates edited text nodes so Chrome reshapes them, without changing markup", () => {
     const el = mount('<h2 id="t">مراجعة ربع</h2>');
     const before = el.outerHTML;
@@ -205,6 +241,7 @@ describe("in-place text session: entering and ending", () => {
     session = startInPlaceTextSession(el);
     caret(original, 1);
     type(el, "x");
+    // While editing too, or the live text is drawn unlike the saved text.
     const typed = el.firstChild as Text;
     expect(typed).not.toBe(original);
     const range = window.getSelection()!.getRangeAt(0);
@@ -217,7 +254,35 @@ describe("in-place text session: entering and ending", () => {
     expect(el.outerHTML).toBe(before);
   });
 
+  it("recreates an edited Latin node whose last glyph kerns with the next text node", () => {
+    const el = mount(
+      '<p id="t"><b style="font-weight: 700"><span style="font-weight: 700">Abc</span>:</b> rest</p>',
+    );
+    const before = el.outerHTML;
+    const original = textOf(el, "Abc");
+    session = startInPlaceTextSession(el);
+    caret(original, 1);
+    type(el, "x");
+    const typed = el.querySelector("span")!.firstChild as Text;
+    expect(typed).not.toBe(original);
+    const range = window.getSelection()!.getRangeAt(0);
+    expect([range.startContainer, range.startOffset]).toEqual([typed, 2]);
+    typed.deleteData(1, 1);
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
+  it("leaves an edited Latin node alone without an adjacent same-font text run", () => {
+    const el = mount('<p id="t">Alpha</p>');
+    const original = el.firstChild as Text;
+    session = startInPlaceTextSession(el);
+    caret(original, 2);
+    type(el, "x");
+    expect(el.firstChild).toBe(original);
+  });
+
   it("restores the start bytes when typing and deleting only lost indentation", () => {
+    // happy-dom's innerText keeps collapsed whitespace; a browser's does not.
     vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
       function (this: HTMLElement) {
         return (this.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -230,6 +295,30 @@ describe("in-place text session: entering and ending", () => {
     type(el, "x");
     // Chrome drops collapsed whitespace next to the caret while typing.
     (el.firstChild as Text).data = "Speakers\n  ";
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
+  it("restores the start bytes when Chrome rewrites a space as a no-break space", () => {
+    vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent ?? "";
+      },
+    );
+    const el = mount('<p id="t">Alpha beta</p>');
+    const before = el.outerHTML;
+    session = startInPlaceTextSession(el);
+    const original = textOf(el, "Alpha beta");
+    caret(original, 6);
+    type(el, "x");
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      false,
+    );
+    const typed = textOf(el, "Alpha xbeta");
+    typed.deleteData(6, 1);
+    typed.data = typed.data.replace(" ", "\u00a0");
+
+    expect(session.changed).toBe(false);
     session.end();
     expect(el.outerHTML).toBe(before);
   });
@@ -300,6 +389,78 @@ describe("in-place text session: entering and ending", () => {
     expect(window.getSelection()!.toString()).toBe("beta");
   });
 
+  it("preserves an initial backward selection when entering edit mode", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    selectBackward(text, 1, text, 5);
+
+    session = startInPlaceTextSession(el);
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorNode).toBe(text);
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusNode).toBe(text);
+    expect(selection.focusOffset).toBe(1);
+  });
+
+  it("restores backward selection direction after blur and focus", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+
+    el.dispatchEvent(new FocusEvent("blur"));
+    selection.removeAllRanges();
+    el.dispatchEvent(new FocusEvent("focus"));
+
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
+    expect(selection.toString()).toBe("lpha");
+  });
+
+  it("keeps a pointer caret when refocusing after a backward selection", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    caret(text, 7);
+    el.focus();
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+
+    const selection = window.getSelection()!;
+    expect(document.activeElement).toBe(el);
+    expect(selection.isCollapsed).toBe(true);
+    expect([selection.anchorNode, selection.anchorOffset]).toEqual([text, 7]);
+  });
+
+  it("restores the saved selection when a pointer drag ends outside the editor", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    outside.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    window.getSelection()!.removeAllRanges();
+    el.focus();
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
+  });
+
   it("refuses an element that is already editable", () => {
     const el = mount('<p id="t" contenteditable="true">x</p>');
     expect(() => startInPlaceTextSession(el)).toThrow(/already editable/);
@@ -313,6 +474,139 @@ describe("in-place text session: entering and ending", () => {
     expect(beforeInput(el, "insertParagraph").defaultPrevented).toBe(false);
     expect(session.commands.bold()).toBe(false);
     expect(session.undo()).toBe(false);
+  });
+});
+
+describe("in-place text session: the caret at the click point", () => {
+  afterEach(() => {
+    delete (document as { caretPositionFromPoint?: unknown })
+      .caretPositionFromPoint;
+  });
+
+  /** happy-dom has no hit testing; the click point resolves to this position. */
+  function hitAt(node: Node, offset: number) {
+    Object.defineProperty(document, "caretPositionFromPoint", {
+      configurable: true,
+      value: () => ({ offsetNode: node, offset }),
+    });
+  }
+
+  it("puts a click on a bullet's marker at the start of that row's text", () => {
+    const el = mount(
+      `<div id="t">
+        <div style="display: flex"><span>●</span><span>Alpha one</span>
+        </div>
+        <div style="display: flex"><span>●</span>Beta two
+        </div>
+      </div>`,
+    );
+    const [first, second] = Array.from(el.children);
+    for (const [row, text] of [
+      [first, "Alpha one"],
+      [second, "Beta two"],
+    ] as const) {
+      window.getSelection()!.removeAllRanges();
+      hitAt(row.firstElementChild!.firstChild!, 0);
+      session = startInPlaceTextSession(el, { caretPoint: { x: 1, y: 1 } });
+      const range = window.getSelection()!.getRangeAt(0);
+      expect(range.collapsed).toBe(true);
+      expect([range.startContainer, range.startOffset]).toEqual([
+        textOf(row, text),
+        0,
+      ]);
+      session.end();
+    }
+  });
+
+  it("types into the row's text, not its glyph, and steps End off the glyph at a row's start", () => {
+    const el = mount(
+      '<div id="t"><p><span aria-hidden="true" style="display: inline-block">•</span><span>Alpha</span></p><p><span aria-hidden="true" style="display: inline-block">•</span><span>Beta</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const alpha = textOf(el, "Alpha");
+    caret(alpha, 0);
+    expect(key(el, { key: "End" }).defaultPrevented).toBe(false);
+    const range = window.getSelection()!.getRangeAt(0);
+    expect([range.startContainer, range.startOffset]).toEqual([alpha, 1]);
+    caret(alpha, 0);
+    expect(beforeInput(el, "insertText", { data: "x" }).defaultPrevented).toBe(
+      true,
+    );
+    session.end();
+    expect(el.children[0].innerHTML).toBe(
+      '<span aria-hidden="true" style="display: inline-block">•</span><span>xAlpha</span>',
+    );
+  });
+
+  it("keeps a double-clicked word that covers the click point", () => {
+    const el = mount('<p id="t">Alpha beta gamma</p>');
+    const text = el.firstChild as Text;
+    select(text, 6, text, 10);
+    hitAt(text, 8);
+    session = startInPlaceTextSession(el, { caretPoint: { x: 1, y: 1 } });
+    expect(window.getSelection()!.toString()).toBe("beta");
+  });
+
+  it("moves a stale selection elsewhere in the element to the click point", () => {
+    const el = mount('<p id="t">Alpha beta gamma</p>');
+    const text = el.firstChild as Text;
+    select(text, 0, text, 5);
+    hitAt(text, 12);
+    session = startInPlaceTextSession(el, { caretPoint: { x: 1, y: 1 } });
+    const range = window.getSelection()!.getRangeAt(0);
+    expect(range.collapsed).toBe(true);
+    expect([range.startContainer, range.startOffset]).toEqual([text, 12]);
+  });
+
+  it("selects the double-clicked word itself, even from its first letter", () => {
+    const el = mount('<p id="t">Alpha beta gamma</p>');
+    const text = el.firstChild as Text;
+    for (const [offset, word] of [
+      [6, "beta"],
+      [8, "beta"],
+      [0, "Alpha"],
+      [16, "gamma"],
+    ] as const) {
+      window.getSelection()!.removeAllRanges();
+      hitAt(text, offset);
+      session = startInPlaceTextSession(el, {
+        caretPoint: { x: 1, y: 1 },
+        selectWord: true,
+      });
+      expect(window.getSelection()!.toString()).toBe(word);
+      session.end();
+    }
+  });
+
+  it("selects a double-clicked word across adjacent styled runs", () => {
+    const el = mount('<p id="t"><span>trans</span><em>form</em>ation done</p>');
+    const form = textOf(el, "form");
+    hitAt(form, 2);
+    session = startInPlaceTextSession(el, {
+      caretPoint: { x: 1, y: 1 },
+      selectWord: true,
+    });
+    expect(window.getSelection()!.toString()).toBe("transformation");
+  });
+
+  it.each([
+    ["a br", '<p id="t">trans<br>form</p>'],
+    ["adjacent blocks", '<div id="t"><p>trans</p><p>form</p></div>'],
+  ])("keeps fallback word selection within %s", (_boundary, html) => {
+    const el = mount(html);
+    for (const [word, offset] of [
+      ["trans", 1],
+      ["form", 1],
+    ] as const) {
+      const text = textOf(el, word);
+      hitAt(text, offset);
+      session = startInPlaceTextSession(el, {
+        caretPoint: { x: 1, y: 1 },
+        selectWord: true,
+      });
+      expect(window.getSelection()!.toString()).toBe(word);
+      session.end();
+    }
   });
 });
 
@@ -392,6 +686,11 @@ describe("in-place text session: Enter", () => {
     caret(el.firstChild!, 4);
     for (let i = 0; i < 3; i++) beforeInput(el, "insertParagraph");
     type(el, "new line");
+    expect(
+      textNodes(el)
+        .filter((node) => node.data)
+        .at(-1)?.data,
+    ).toBe("new line");
     session.end();
     expect(el.innerHTML).toBe("Text<br><br><br>new line");
   });
@@ -491,6 +790,7 @@ describe("in-place text session: Enter", () => {
   });
 
   it("opens a new line at the end of a flex item with text after it", () => {
+    // Flex items are blockified: the next item's text is not on this line.
     const el = mount(
       '<div id="t" style="display: flex"><span style="display: block">x</span><span style="display: block">Points</span></div>',
     );
@@ -690,6 +990,80 @@ describe("in-place text session: deleting", () => {
     beforeInput(el, "deleteContentBackward");
     session.end();
     expect(el.innerHTML).toBe("Text");
+  });
+});
+
+describe("in-place text session: rows that hold their runs as sibling spans", () => {
+  const para = (runs: string) =>
+    `<p style="padding-left: 22px"><span aria-hidden="true" style="display: inline-block; margin-left: -22px">•</span>${runs}</p>`;
+  const gray = (text: string) => `<span style="color: gray">${text}</span>`;
+  const bold = (text: string) =>
+    `<span style="font-weight: 700">${text}</span>`;
+  const LEAD = para(gray("Lead ") + bold("96%") + gray(", rest"));
+  const NEXT = para(gray("Next ") + bold("bold") + gray(" end"));
+
+  function rowTexts(el: HTMLElement) {
+    return Array.from(el.children).map((row) =>
+      row.textContent!.replaceAll(ZWSP, ""),
+    );
+  }
+
+  it("joins a row split by Enter back whole on Backspace and on Delete", () => {
+    for (const [runText, offset, direction] of [
+      ["Lead", 2, "deleteContentBackward"],
+      ["96%", 1, "deleteContentBackward"],
+      ["Lead", 2, "deleteContentForward"],
+    ] as const) {
+      const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, runText), offset);
+      beforeInput(el, "insertParagraph");
+      expect(el.children).toHaveLength(3);
+      if (direction === "deleteContentForward") {
+        const first = el.children[0].lastElementChild!.firstChild as Text;
+        caret(first, first.length);
+      }
+      beforeInput(el, direction);
+      type(el, "x");
+      session.end();
+      session = null;
+      const joined = `•${runText === "Lead" ? "Lexad " : "Lead 9x6%"}`;
+      expect(rowTexts(el)[0]).toBe(
+        runText === "Lead" ? `${joined}96%, rest` : `${joined}, rest`,
+      );
+      expect(rowTexts(el)[1]).toBe("•Next bold end");
+    }
+  });
+
+  it("deletes the next character, not the row break, at the end of a middle run", () => {
+    const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Lead"), 5);
+    beforeInput(el, "deleteContentForward");
+    session.end();
+    // The Selection.modify stand-in steps into the next run without taking a
+    // character; what matters is that the next row stays where it is.
+    expect(rowTexts(el)).toEqual(["•Lead 96%, rest", "•Next bold end"]);
+  });
+
+  it("keeps the end row's later runs when a selection across rows is deleted", () => {
+    const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+    session = startInPlaceTextSession(el);
+    select(textOf(el, "Lead"), 2, textOf(el, "bold"), 2);
+    beforeInput(el, "deleteContentBackward");
+    session.end();
+    expect(rowTexts(el)).toEqual(["•Leld end"]);
+  });
+
+  it("returns the caret to the end of the row, not its first run, when an empty row is removed", () => {
+    const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, ", rest"), ", rest".length);
+    beforeInput(el, "insertParagraph");
+    beforeInput(el, "deleteContentBackward");
+    type(el, "X");
+    session.end();
+    expect(rowTexts(el)).toEqual(["•Lead 96%, restX", "•Next bold end"]);
   });
 });
 
@@ -1055,6 +1429,7 @@ describe("in-place text session: clipboard and drag", () => {
     session = startInPlaceTextSession(el);
     const text = el.firstChild as Text;
     select(text, 6, text, 11);
+    // Inside one text node Chrome's own delete runs (it drops a doubled space).
     expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(false);
     text.deleteData(6, 5);
     caret(text, 11);

@@ -59,7 +59,8 @@ Read the relevant skill before deeper work:
 | Action | Purpose |
 | --- | --- |
 | `list-inbox-threads` | Inbox tabs, counts, and rows. |
-| `resync-inbox` | Force a Gmail resync. |
+| `sync-inbox` | Advance Gmail inbox sync by one bounded step. |
+| `resync-inbox` | Reset inbox sync and run one bounded step. |
 | `search-emails` / `list-emails` | Search or list by view/query. |
 | `list-labels` | Mailbox labels. |
 | `get-email` / `get-thread` | Full message or thread. |
@@ -91,7 +92,7 @@ Read the relevant skill before deeper work:
 - `navigate` moves the UI via `view`, `tab` (`label`/`filter` aliases), `sort`
   (`newest` or `priority`), `threadId`, `settingsSection`, `queuedDraftId`,
   or `composeDraftId`.
-- `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
+- `settingsSection` opens a Settings tab: `rules` (inbox rules), `ai-filter`.
 
 Before building common workspace or agent UI, read `agent-native-toolkit`;
 read `customizing-agent-native` before adapting shared UI.

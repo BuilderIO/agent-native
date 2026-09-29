@@ -1,10 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action-ui";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { getAppProductionUrl } from "@agent-native/core/server";
+import {
+  buildDeepLink,
+  getAppProductionUrl,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
@@ -98,6 +102,28 @@ function countRecipients(...values: Array<string | undefined>): number {
     .filter((value) => value.trim()).length;
 }
 
+function sentMessageId(result: unknown): string | undefined {
+  if (typeof result !== "string") return undefined;
+  const match = result.match(/^Email sent successfully \(id: ([^)]+)\)$/);
+  if (match?.[1]) return match[1];
+  try {
+    const localResult: unknown = JSON.parse(result);
+    if (
+      localResult &&
+      typeof localResult === "object" &&
+      !Array.isArray(localResult) &&
+      (localResult as Record<string, unknown>).isSent === true &&
+      typeof (localResult as Record<string, unknown>).id === "string"
+    ) {
+      return (localResult as Record<string, string>).id;
+    }
+  } catch {
+    // coercion-ok: plain Gmail result text has no local message id to project.
+    return undefined;
+  }
+  return undefined;
+}
+
 const attachmentSchema = z.object({
   filename: z
     .string()
@@ -144,6 +170,30 @@ export default defineAction({
         "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
       ),
   }),
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => Boolean(sentMessageId(result)),
+    projectResult: (args, result) => {
+      const messageId = sentMessageId(result);
+      const subject =
+        typeof args.subject === "string" ? args.subject.trim() : "";
+      const to = typeof args.to === "string" ? args.to.trim() : "";
+      if (!messageId || (!subject && !to)) return null;
+      return {
+        change: {
+          verb: "sent",
+          kind: "email",
+          title: (subject || to).slice(0, 180),
+          ...(to ? { detail: to.slice(0, 500) } : {}),
+          url: buildDeepLink({
+            app: "mail",
+            view: "sent",
+            params: { messageId },
+          }),
+        },
+      };
+    },
+  },
   needsApproval: (_args, ctx?: ActionRunContext) =>
     requiresEmailSendApproval(ctx),
   run: async (args, ctx) => {

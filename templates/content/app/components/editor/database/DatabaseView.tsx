@@ -4152,7 +4152,10 @@ export function databaseSelectionCapabilities(args: {
 export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
-      property.editable && !isComputedPropertyType(property.definition.type),
+      property.editable &&
+      !isComputedPropertyType(property.definition.type) &&
+      // Row mutations do not accept relation values yet.
+      property.definition.type !== "relation",
   );
 }
 
@@ -5020,8 +5023,7 @@ function DatabaseItemPreview({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8"
+              size="icon-sm"
               disabled={!previousItem || transitionPending}
               aria-label={dbText("previousDatabasePage")}
               onClick={() => {
@@ -5033,8 +5035,7 @@ function DatabaseItemPreview({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8"
+              size="icon-sm"
               disabled={!nextItem || transitionPending}
               aria-label={dbText("nextDatabasePage")}
               onClick={() => {
@@ -5047,7 +5048,7 @@ function DatabaseItemPreview({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 px-2 text-xs"
+              className="gap-1.5 px-2 text-xs"
               disabled={transitionPending}
               onClick={onOpenPage}
             >
@@ -5065,7 +5066,7 @@ function DatabaseItemPreview({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 gap-1.5 px-2 text-xs"
+                    className="gap-1.5 px-2 text-xs"
                     aria-label={`Preview actions for ${previewTitle}`}
                   >
                     <IconTable className="size-3.5" />
@@ -8960,7 +8961,7 @@ function DatabaseSettingsSourcePanel({
             type="button"
             size="sm"
             variant="outline"
-            className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+            className="mt-2 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || selectedSourceDisconnectControlPending}
             onClick={() => onDisconnectSource(selectedSource.id)}
           >
@@ -9449,7 +9450,7 @@ function SecondarySourceLeaf({
           type="button"
           size="sm"
           variant="outline"
-          className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+          className="mt-2 text-xs text-destructive hover:text-destructive"
           disabled={!canEdit || pending}
           onClick={onDisconnect}
         >
@@ -9616,7 +9617,7 @@ function SourceRoleCard({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={!canEdit || pending}
               onClick={onChooseFields}
             >
@@ -9627,7 +9628,7 @@ function SourceRoleCard({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs"
+                className="text-xs"
                 disabled={!canEdit || pending}
                 onClick={onAddItems}
               >
@@ -9640,7 +9641,7 @@ function SourceRoleCard({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 text-xs"
+            className="text-xs"
             disabled={!canEdit || pending}
             onClick={onAddDetails}
           >
@@ -10366,12 +10367,13 @@ function BuilderSpaceModelsView({
       <div className="relative min-w-0">
         <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
+          size="sm"
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={dbText("searchModels")}
           aria-label={dbText("searchBuilderModels")}
-          className="h-8 min-w-0 pl-7 text-sm"
+          className="min-w-0 pl-7 text-sm"
         />
       </div>
 
@@ -11321,7 +11323,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, true)}
             >
@@ -11331,7 +11333,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, false)}
             >
@@ -11923,7 +11925,7 @@ export function DatabaseNoMatchingPages({
         type="button"
         size="sm"
         variant="ghost"
-        className="h-8 px-2 text-xs"
+        className="px-2 text-xs"
         onClick={onClear}
       >
         {dbText("clearSearchAndFilters")}
@@ -12945,6 +12947,7 @@ function DatabaseBoardColumnHeader({
                 {dbText("groupName")}
               </DropdownMenuLabel>
               <Input
+                size="sm"
                 value={name}
                 disabled={disabled}
                 aria-label={`Rename board group ${group.label}`}
@@ -12962,7 +12965,6 @@ function DatabaseBoardColumnHeader({
                     event.currentTarget.blur();
                   }
                 }}
-                className="h-8"
               />
             </div>
             <DropdownMenuSeparator />
@@ -14191,7 +14193,9 @@ function databaseTableCellDisplayValue(
     );
   }
 
-  return displayValue(property, undefined, wrapCells ? "wrapped" : "compact");
+  return displayValue(property, undefined, wrapCells ? "wrapped" : "compact", {
+    interactiveRelations: true,
+  });
 }
 
 export function isDatabasePropertyVisibleInView(
@@ -15394,14 +15398,14 @@ function DatabaseViewTabs({
                   onKeyDown={(event) => event.stopPropagation()}
                 >
                   <Input
+                    size="sm"
                     ref={renameInputRef}
                     autoFocus
                     value={renameValue}
                     aria-label={dbText("viewName")}
                     onChange={(event) => setRenameValue(event.target.value)}
-                    className="h-8"
                   />
-                  <Button type="submit" size="sm" className="h-8">
+                  <Button type="submit" size="sm">
                     {dbText("renameView")}
                   </Button>
                 </form>
@@ -15521,12 +15525,12 @@ function DatabaseViewTabs({
               onKeyDown={(event) => event.stopPropagation()}
             >
               <Input
+                size="sm"
                 autoFocus
                 value={newViewName}
                 placeholder="Table"
                 aria-label={dbText("newViewName")}
                 onChange={(event) => setNewViewName(event.target.value)}
-                className="h-8"
               />
               <div className="grid grid-cols-2 gap-1">
                 {DATABASE_VIEW_TYPES.map((type) => {
@@ -15538,7 +15542,7 @@ function DatabaseViewTabs({
                       type={type === "table" ? "submit" : "button"}
                       size="sm"
                       variant={type === "table" ? "default" : "secondary"}
-                      className="h-8 gap-1.5"
+                      className="gap-1.5"
                       onClick={
                         type === "table" ? undefined : () => createView(type)
                       }
@@ -15964,7 +15968,7 @@ function DatabaseBulkScalarValueEditor({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 justify-start gap-1.5"
+            className="justify-start gap-1.5"
             disabled={disabled}
             onClick={() =>
               void onApply({
@@ -15983,7 +15987,7 @@ function DatabaseBulkScalarValueEditor({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 justify-start gap-1.5"
+            className="justify-start gap-1.5"
             disabled={disabled}
             onClick={() =>
               void onApply({
@@ -17243,7 +17247,7 @@ function SortMenu({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={addSort}
               >
                 <IconPlus className="mr-1 size-3.5" />
@@ -17253,7 +17257,7 @@ function SortMenu({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 disabled={sorts.length === 0}
                 onClick={() => onSortsChange([])}
               >

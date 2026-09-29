@@ -60,7 +60,10 @@ import {
 import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
 import {
   assertDeckWriteApplied,
+  assertDeckClientWriteCurrent,
   deckRevisionWhere,
+  deckClientWriteFields,
+  deckClientWriteSchema,
   nextDeckRevision,
 } from "./_deck-write.js";
 import {
@@ -797,7 +800,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Before a multi-slide content patch, read all target source with one get-deck compact=false call so every patch has its exact contentHash; use compact=true only for orientation when full source is not needed. Call get-design-system once for the full linked context. For new deck generation, use add-slide once per newly generated slide so its per-slide Creative Context provenance is preserved; reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Before a multi-slide content patch, read all target source with one get-deck compact=false call so every patch has its exact contentHash; use compact=true only for orientation when full source is not needed. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
@@ -816,11 +819,12 @@ export default defineAction({
     "is rejected, so re-read those slides and send content that differs " +
     "instead of retrying the same HTML. Content writes " +
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
-    "get-layout-overflows later when you need the browser's fit result. " +
+    "Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. " +
     "Agents can add, delete, and reorder slides through operations in this action. " +
     "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    clientWrite: deckClientWriteSchema.optional(),
     rewriteSource: z
       .boolean()
       .optional()
@@ -858,6 +862,7 @@ export default defineAction({
   run: async (
     {
       deckId,
+      clientWrite,
       operations,
       requireAllSourceSlides,
       rewriteSource,
@@ -881,6 +886,22 @@ export default defineAction({
           errorCode: "deck_not_found",
           statusCode: 404,
         });
+
+      const writeDisposition = assertDeckClientWriteCurrent(
+        row,
+        deckId,
+        clientWrite,
+      );
+      if (writeDisposition === "already-applied") {
+        return {
+          ok: true,
+          deckId,
+          updatedAt: row.updatedAt,
+          applied: false,
+          updatedSlideIds: [],
+          deletedSlideIds: [],
+        };
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
@@ -1348,6 +1369,13 @@ export default defineAction({
             "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
           );
         }
+        if (clientWrite) {
+          const updateResult = await db
+            .update(schema.decks)
+            .set(deckClientWriteFields(clientWrite, row.updatedAt))
+            .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+          assertDeckWriteApplied(updateResult, deckId, "deck patch replay");
+        }
         return {
           ok: true,
           deckId,
@@ -1385,6 +1413,7 @@ export default defineAction({
             data: JSON.stringify(deck),
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
+            ...deckClientWriteFields(clientWrite, now),
           })
           .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
         assertDeckWriteApplied(updateResult, deckId, "deck patch");

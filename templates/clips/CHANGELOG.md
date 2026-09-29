@@ -3,6 +3,40 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+## 2026-09-28
+
+### Added
+
+- Clips can capture screenshots, annotate them, redact sensitive details, and share them.
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- The chat sidebar matches the app navigation color, with tighter composer spacing.
+- The recording viewer keeps Agent, comments, and transcripts together, and the app sidebar now moves the full page.
+- Viewers can share recordings with agents from shared recording menus
+
+### Fixed
+
+- Clip share previews show a branded image while the recording thumbnail is unavailable.
+- Meeting and feature-flag polling resumes after your session is accepted again
+- Older recording links preserve the selected viewer tab when panel and Agent sidebar state are both present
+- Opening Agent from a recording keeps the latest selected text attached to your prompt.
+- Stop repeated Clips requests after session expiry
+- Agent links stay valid when clip details change
+
+### Security
+
+- Password changes immediately invalidate old recording links
+- Password-protected recording links stop working when the password changes
+
 ## 2026-09-26
 
 ### Improved
@@ -16,6 +50,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Removing a member from your organization now completes instead of failing with a pending cleanup error
 - Clips asks you to connect storage only when you choose an upload
 - Clips can play recordings from public S3-compatible storage in more hosted environments.
 - Dismissing storage setup now cancels queued uploads.
@@ -31,6 +66,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Clips settings are reorganized in the new Settings: General with Recordings and Meetings tabs, Notifications, and Slack link previews under Channels.
+- The account menu at the bottom of the sidebar shows your photo, name, and organization, and holds Settings, Usage, Get apps and extensions, and Log out
+- Video storage now uses the shared storage form, and Clear credentials asks before it removes your storage keys
 - Connect Builder storage by creating an account in one click.
 - Public clip embeds and meeting notes show richer link previews.
 - The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
@@ -38,6 +76,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
 - Clips checks storage before upload and offers Builder.io or your own S3-compatible keys when storage is missing.
 - Clips desktop sign-in now accepts authenticator codes when two-step verification is enabled.
 - Keep Builder login state after blocked popups and show feedback while retrying storage connection checks

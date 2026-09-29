@@ -169,14 +169,10 @@ export default {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
-    languageTitle: "言語",
-    languageDescription: "Design のインターフェース言語を選択します。",
-    languageLabel: "インターフェース言語",
-    labs: "Labs",
-    labsIntro:
-      "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    mcpAbout:
+      "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
   pages: {
     presentEmpty: "プレゼンするコンテンツがありません",
@@ -185,8 +181,6 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
-    teamCreateOrgDescription:
-      "同僚とデザインを共有するためのチームを設定します。",
   },
   onboarding: {
     fileStorage: {
@@ -229,6 +223,7 @@ export default {
     },
   },
   common: {
+    loading: "読み込み中...",
     genericError: "何か問題が発生しました",
   },
   editPanel: {
@@ -326,6 +321,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "ブレンド",
+      blendMode: "描画モード",
+      removeBlendMode: "描画モードを削除",
       border: "境界線",
       outline: "アウトライン",
       inside: "内側",
@@ -1489,6 +1486,13 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
+      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptDescription:
+        "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
+      permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
+      permissionPromptSettingsInstructions:
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+      permissionPromptRetry: "接続を再試行",
     },
   },
   multiScreenCanvas: {

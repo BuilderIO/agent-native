@@ -20,10 +20,6 @@ const messages = {
   },
   settings: {
     title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
@@ -31,6 +27,7 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
+    editorGroupTitle: "编辑器",
     editorTitle: "VS Code 扩展",
     editorDescription:
       "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",
@@ -737,6 +734,79 @@ const messages = {
   guest: {
     banner: "你正以访客身份浏览。登录即可创建计划、留下评论并保存你的工作。",
     signIn: "登录",
+  },
+  edition: {
+    rail: {
+      notes: "备注",
+      inThisBuild: "本次构建",
+      threads: "主题",
+      partial: "* 部分数据：部分拉取请求未报告差异",
+    },
+    promise: {
+      readTime: "约 {{minutes}} 分钟",
+      unavailable: "不可用",
+      analysed_other: "已分析 {{count}} 个拉取请求",
+      storyCount_other: "{{count}} 篇报道",
+      areaCount_other: "{{count}} 个领域",
+    },
+    nav: {
+      label: "日报",
+    },
+    masthead: {
+      issue: "第 {{number}} 期",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "工程日报",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "交付内容",
+      fileCount_other: "{{count}} 个文件",
+      sources: "来源",
+      quickLinks: "快讯",
+      authors: "作者：{{names}}",
+      prCount_other: "{{count}} 个 PR",
+      whyAndHow: "原因与工作原理",
+      why: "原因",
+      howItWorks: "工作原理",
+      diffUnavailable: "差异规模不可用",
+    },
+    coverage: {
+      unresolvedBlocks: "无法解析的引用区块：{{total}}",
+      label: "覆盖范围",
+      reposLabel: "仓库",
+      reposUnavailable: "仓库信息不可用",
+      staleNote:
+        "这些已合并的拉取请求有回顾，但在合并时从未重新发布，因此可能描述的是更改的较早状态。",
+      missingNote: "这些已合并的拉取请求没有回顾，因此本期未覆盖它们。",
+      complete: "此时间范围内每个已合并的拉取请求都有回顾。",
+      unknown: "本期未记录覆盖范围，因此缺口未知。",
+    },
+    reader: {
+      loading: "正在加载本期",
+      error: "无法加载本期。",
+      retry: "重试",
+      notFound: "该期不可用。",
+      noStories: "本期没有报道。",
+    },
+    listen: {
+      voice: "语音",
+      play: "朗读",
+      pause: "暂停",
+      resume: "继续",
+      stop: "停止朗读",
+      preparing: "准备中…",
+      failed: "无法朗读这一期：{reason}",
+    },
+    signIn: {
+      prompt: "登录后即可阅读这份报纸。",
+    },
+    archive: {
+      build: "生成今天的日报",
+      loading: "正在加载各期",
+      error: "无法加载往期存档。",
+      retry: "重试",
+      empty: "暂无往期。",
+    },
   },
 };
 

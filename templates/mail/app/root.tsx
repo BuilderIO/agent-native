@@ -32,11 +32,13 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import "@/components/onboarding/register-first-run";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -48,9 +50,6 @@ import {
 } from "@/lib/integration-status";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
-import "@/lib/register-chat-renderers";
-import "@/lib/mail-gmail-filter-confirmation";
-import "@/lib/register-mail-draft-card";
 
 import { i18nCatalog } from "./i18n";
 
@@ -342,8 +341,44 @@ type MailSyncEvent = {
   requestSource?: string;
 };
 
+const MAIL_QUERY_MUTATION_ACTIONS = new Set([
+  "apply-ai-filter",
+  "archive-email",
+  "bulk-archive",
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "manage-draft",
+  "mark-read",
+  "mark-thread-read",
+  "move-email",
+  "resync-inbox",
+  "retry-uncertain-scheduled-email",
+  "send-email",
+  "send-queued-drafts",
+  "send-scheduled-email-now",
+  "star-email",
+  "trash-email",
+  "unarchive-email",
+  "untrash-email",
+  "update-queued-draft",
+]);
+
+const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "retry-uncertain-scheduled-email",
+  "send-scheduled-email-now",
+]);
+
 export function createMailSyncEventHandler(qc: QueryClient) {
   let refreshSignalInvalidationScheduled = false;
+  let actionQueryInvalidationScheduled = false;
+  let settingsInvalidationScheduled = false;
+  const pendingSettingsInvalidations = new Set<
+    "settings" | "mail-inbox" | "agent-engines"
+  >();
 
   return (data: MailSyncEvent) => {
     const isOwnEvent = data.requestSource === TAB_ID;
@@ -396,17 +431,53 @@ export function createMailSyncEventHandler(qc: QueryClient) {
       }
     } else if (data.source === "settings") {
       if (!isOwnEvent) {
-        void qc.invalidateQueries({ queryKey: ["settings"] });
-        void qc.invalidateQueries({ queryKey: ["aliases"] });
-        void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["email"] });
-        invalidateSettingsSurfaces();
+        const key = data.key ?? "";
+        if (!key || key === "*") pendingSettingsInvalidations.add("settings");
+        if (key === "agent-engine" || key.endsWith(":agent-engine")) {
+          pendingSettingsInvalidations.add("agent-engines");
+        }
+        if (key === "mail-settings" || key.endsWith(":mail-settings")) {
+          pendingSettingsInvalidations.add("settings");
+          pendingSettingsInvalidations.add("mail-inbox");
+        }
+        if (
+          pendingSettingsInvalidations.size > 0 &&
+          !settingsInvalidationScheduled
+        ) {
+          settingsInvalidationScheduled = true;
+          queueMicrotask(() => {
+            settingsInvalidationScheduled = false;
+            const invalidations = [...pendingSettingsInvalidations];
+            pendingSettingsInvalidations.clear();
+            if (invalidations.includes("settings")) {
+              void qc.invalidateQueries({ queryKey: ["settings"] });
+            }
+            if (invalidations.includes("mail-inbox")) {
+              void qc.invalidateQueries({
+                queryKey: ["action", "list-inbox-threads"],
+              });
+              void qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] });
+            }
+            if (invalidations.includes("agent-engines")) {
+              void qc.invalidateQueries({ queryKey: ["agent-engines"] });
+            }
+          });
+        }
       }
     } else if (data.source === "action") {
-      // The core sync hook already refreshes action-backed queries for action
-      // events. Email and label reads are refreshed by the explicit
-      // refresh-signal app-state event so generic action changes do not
-      // cancel and restart Gmail list requests.
+      if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
+      if (SCHEDULED_JOB_MUTATION_ACTIONS.has(data.key)) {
+        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      }
+      if (!actionQueryInvalidationScheduled) {
+        actionQueryInvalidationScheduled = true;
+        queueMicrotask(() => {
+          actionQueryInvalidationScheduled = false;
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        });
+      }
     } else if (data.source === "screen-refresh") {
       if (!isOwnEvent) {
         markExternalEmailRefresh();
@@ -420,6 +491,7 @@ export function createMailSyncEventHandler(qc: QueryClient) {
 
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   const onEvent = useMemo(() => createMailSyncEventHandler(qc), [qc]);
 
   useDbSync({
@@ -428,8 +500,30 @@ function DbSyncSetup() {
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     ignoreSource: TAB_ID,
     onEvent,
+    realtime: isPrivateInboxPath(location.pathname)
+      ? { reason: "new mail arrives while the inbox is open" }
+      : undefined,
+    pauseWhenHidden: true,
   });
   return null;
+}
+
+const PRIVATE_MAIL_VIEWS = new Set([
+  "inbox",
+  "unread",
+  "starred",
+  "snoozed",
+  "scheduled",
+  "sent",
+  "drafts",
+  "archive",
+  "trash",
+  "all",
+]);
+
+export function isPrivateInboxPath(pathname: string): boolean {
+  const view = pathname.split("/").filter(Boolean)[0];
+  return view !== undefined && PRIVATE_MAIL_VIEWS.has(view);
 }
 
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;

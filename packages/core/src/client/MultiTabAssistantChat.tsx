@@ -43,10 +43,7 @@ import {
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import { agentNativePath, appPath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
-import {
-  buildChatModelGroups,
-  type EngineModelGroup,
-} from "./chat-model-groups.js";
+import { type EngineModelGroup } from "./chat-model-groups.js";
 import {
   ChatHistoryList,
   type ChatHistoryItem,
@@ -57,10 +54,6 @@ import type {
   AssistantChatHandle,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
-import {
-  fetchBuilderStatus,
-  fetchEnvironmentStatus,
-} from "./client-status-requests.js";
 import {
   Popover,
   PopoverAnchor,
@@ -74,11 +67,11 @@ import {
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
 import { DEFAULT_LOCALE, useOptionalLocale, useT } from "./i18n.js";
-import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
 import {
   CHAT_MODEL_SELECTION_CHANGED_EVENT,
   chatModelSelectionStorageKey,
+  loadChatModelCatalog,
 } from "./use-chat-models.js";
 import {
   useChatThreads,
@@ -146,11 +139,23 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
       ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
       : {}),
   };
-  if (Object.keys(options).length > 0) {
-    ref.sendMessage(send.message, send.images, options);
-  } else {
-    ref.sendMessage(send.message, send.images);
-  }
+  const submission =
+    Object.keys(options).length > 0
+      ? ref.sendMessage(send.message, send.images, options)
+      : ref.sendMessage(send.message, send.images);
+  void submission.then(
+    (result) => {
+      if (result.status === "rejected") {
+        reportAgentChatSubmitResult(send.submitMessageId, false, result.reason);
+      }
+    },
+    () =>
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "submission-failed",
+      ),
+  );
 }
 
 function readStoredModelSelection(key: string): ModelSelection | undefined {
@@ -1028,6 +1033,7 @@ export function MultiTabAssistantChat({
     activeThreadId,
     isLoading,
     createThread,
+    openThread,
     switchThread: switchThreadState,
     forkThread,
     saveThreadData,
@@ -1039,6 +1045,7 @@ export function MultiTabAssistantChat({
     isLoadingMoreThreads,
     threadsLoadError,
     restoredThreadIdOnListFailure,
+    evictedThreadIds,
     isNewThread,
     pinThread,
     renameThread,
@@ -1075,6 +1082,7 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const latestOpenThreadRequestRef = useRef(0);
 
   useEffect(() => {
     setPageOverlayScrolled(false);
@@ -1344,47 +1352,23 @@ export function MultiTabAssistantChat({
   const refreshEngines = useCallback(() => {
     if (hostManagedModels) return;
     setModelListLoading(true);
-    Promise.all([
-      callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
-        () => null,
-      ),
-      fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
-      fetchBuilderStatus<{ configured?: boolean }>(),
-    ])
-      .then(([enginesData, envResult, builderResult]) => {
-        if (!enginesData?.engines) {
-          // Leaves `availableModels` empty for the session, so an override with
-          // no engine of its own has nothing to resolve against.
-          console.warn(
-            "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
-          );
+    loadChatModelCatalog()
+      .then((catalog) => {
+        if (catalog.state !== "available") {
+          if (catalog.enginesUnavailable) {
+            // Leaves `availableModels` empty for the session, so an override
+            // with no engine of its own has nothing to resolve against.
+            console.warn(
+              "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
+            );
+          }
           return;
         }
-        if (
-          envResult.state !== "available" ||
-          builderResult.state !== "available"
-        ) {
-          return;
-        }
-        const envKeys = envResult.value;
-        const builderStatus = builderResult.value;
-        const configuredKeys = new Set(
-          envKeys.filter((k) => k.configured).map((k) => k.key),
-        );
-        const builderConnected = builderStatus?.configured === true;
-        const currentEngineName: string | undefined =
-          enginesData.current?.engine;
-        const currentModel: string | undefined = enginesData.current?.model;
-
-        const groups = buildChatModelGroups({
-          engines: enginesData.engines,
-          configuredKeys,
-          builderConnected,
-          currentEngineName,
-          currentModel,
+        setDiscoveredModels(catalog.groups);
+        setDefaultModel(catalog.defaultModel);
+        void catalog.loadLiveGroups().then((liveGroups) => {
+          if (liveGroups) setDiscoveredModels(liveGroups);
         });
-        setDiscoveredModels(groups);
-        setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
       .catch(() => {})
       .finally(() => setModelListLoading(false));
@@ -2280,6 +2264,7 @@ export function MultiTabAssistantChat({
     );
     pendingContextItems.current.delete(tabId);
     newThreadIds.current.delete(tabId);
+    mountedTabsRef.current.delete(tabId);
     threadModelRef.current.delete(tabId);
     // Clean up parent map and sub-agent names
     setParentMap((prev) => {
@@ -2298,6 +2283,14 @@ export function MultiTabAssistantChat({
       return rest;
     });
   }, []);
+
+  useEffect(() => {
+    if (evictedThreadIds.length === 0) return;
+    for (const threadId of evictedThreadIds) cleanupClosedTab(threadId);
+    setOpenTabIds((prev) =>
+      prev.filter((threadId) => !evictedThreadIds.includes(threadId)),
+    );
+  }, [cleanupClosedTab, evictedThreadIds, setOpenTabIds]);
 
   const closeTab = useCallback(
     (tabId: string) => {
@@ -2433,7 +2426,7 @@ export function MultiTabAssistantChat({
   }, [closeTab, closeAllTabs, addTab]);
 
   useEffect(() => {
-    const handleOpenThread = (event: Event) => {
+    const handleOpenThread = async (event: Event) => {
       const detail = (event as CustomEvent).detail as
         | {
             threadId?: unknown;
@@ -2447,6 +2440,7 @@ export function MultiTabAssistantChat({
         typeof detail?.threadId === "string" ? detail.threadId : "";
       if (!detail || !threadId) return;
       if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
+      const requestGeneration = ++latestOpenThreadRequestRef.current;
 
       const onlyIfActiveThreadId =
         typeof detail.onlyIfActiveThreadId === "string"
@@ -2461,18 +2455,6 @@ export function MultiTabAssistantChat({
         return;
       }
 
-      const prefill =
-        typeof detail.prefill === "string" ? detail.prefill.trim() : "";
-      if (prefill) {
-        const send = { message: prefill, submit: false };
-        const ref = chatRefs.current.get(threadId);
-        if (ref) {
-          setTimeout(() => deliverPendingSend(ref, send), 50);
-        } else {
-          pendingDeliveries.current.push({ threadId, send });
-        }
-      }
-
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
         void createThread(threadId).then((createdId) => {
@@ -2484,6 +2466,33 @@ export function MultiTabAssistantChat({
         });
         return;
       }
+      const activeThreadBeforeLookup = activeThreadIdRef.current;
+      const openResult = await openThread(threadId);
+      if (openResult === "missing") {
+        cleanupClosedTab(threadId);
+        return;
+      }
+      if (openResult === "unavailable") return;
+      if (
+        requestGeneration !== latestOpenThreadRequestRef.current ||
+        activeThreadIdRef.current !== activeThreadBeforeLookup ||
+        (onlyIfActiveThreadId &&
+          activeThreadIdRef.current &&
+          activeThreadIdRef.current !== onlyIfActiveThreadId)
+      ) {
+        return;
+      }
+      const prefill =
+        typeof detail.prefill === "string" ? detail.prefill.trim() : "";
+      if (prefill) {
+        const send = { message: prefill, submit: false };
+        const ref = chatRefs.current.get(threadId);
+        if (ref) {
+          setTimeout(() => deliverPendingSend(ref, send), 50);
+        } else {
+          pendingDeliveries.current.push({ threadId, send });
+        }
+      }
       mountedTabsRef.current.add(threadId);
       setOpenTabIds((prev) =>
         prev.includes(threadId) ? prev : [...prev, threadId],
@@ -2494,7 +2503,13 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-chat:open-thread", handleOpenThread);
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-  }, [createThread, switchThread, writeThreadUrl]);
+  }, [
+    cleanupClosedTab,
+    createThread,
+    openThread,
+    switchThread,
+    writeThreadUrl,
+  ]);
 
   const clearActiveTab = useCallback(() => {
     const tabIdToClear = activeThreadIdRef.current;

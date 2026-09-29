@@ -28,6 +28,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Spinner } from "../ui/spinner.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
@@ -54,6 +55,7 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
@@ -61,6 +63,7 @@ import {
 } from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
+  MentionItem,
   Reference,
   SkillResult,
   SlashCommand,
@@ -214,8 +217,17 @@ export interface PromptComposerProps {
   onModelSelectorOpenChange?: (open: boolean) => void;
   /** Enable server-backed model/provider status checks. Defaults on, except for a selected local runtime. */
   modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  mentionItems?: MentionItem[];
+  mentionPopoverDensity?: "default" | "stacked";
+  includeDefaultMentionSearch?: boolean;
+  onReferencesChange?: (references: Reference[]) => void;
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
   /** Called whenever the composer resolves a model, engine, or effort choice. */
@@ -311,7 +323,7 @@ function formatInlineTextFile(name: string, text: string): string {
     .join("\n");
 }
 
-/** Chat stays closed until the provider check confirms it can run. */
+/** Submissions stay blocked until the provider check confirms the engine can run. */
 export function shouldGateComposerForEngine(
   state: ComposerAgentEngineState,
 ): boolean {
@@ -641,7 +653,16 @@ function PromptComposerInner({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine = true,
   onTextChange,
+  mentionItems,
+  mentionPopoverDensity,
+  includeDefaultMentionSearch,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
   onAttachmentsChange,
   onModelSelectionChange,
   onConnectProvider,
@@ -723,37 +744,31 @@ function PromptComposerInner({
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
   const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
-    resolvedModelStatusChecksEnabled,
+    requireAgentEngine && resolvedModelStatusChecksEnabled,
   );
-  const engineState = resolvedModelStatusChecksEnabled
+  const engineStatusChecksEnabled =
+    requireAgentEngine && resolvedModelStatusChecksEnabled;
+  const engineState = engineStatusChecksEnabled
     ? agentEngineConfigured.state
     : "configured";
-  const missingApiKey =
-    resolvedModelStatusChecksEnabled && engineState === "missing";
+  const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
   const engineStatusUnresolved =
-    resolvedModelStatusChecksEnabled &&
+    engineStatusChecksEnabled &&
     (engineState === "unknown" || engineState === "unavailable");
-  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
-  const bounceMissingKeySetup = useCallback(() => {
-    setMissingKeyBouncePulse((pulse) => pulse + 1);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-    }
-  }, []);
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
   const useInlineMissingKeySetup = layoutVariant === "compact";
-  const gateComposer = shouldGateComposerForEngine(engineState);
+  const engineSubmissionBlocked = shouldGateComposerForEngine(engineState);
   const retryEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
   useEffect(() => {
-    if (!autoFocus || disabled || gateComposer) return;
+    if (!autoFocus || disabled) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -762,7 +777,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, disabled, gateComposer, handleRef]);
+  }, [autoFocus, disabled, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -806,7 +821,6 @@ function PromptComposerInner({
       {missingApiKey && !useInlineMissingKeySetup && BuilderSetupCard ? (
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
-          bouncePulse={missingKeyBouncePulse}
           attached
           fullWidth
           layout="sidebar"
@@ -821,16 +835,19 @@ function PromptComposerInner({
         </div>
       ) : null}
       {engineStatusUnresolved ? (
-        <div
-          className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-          role="status"
-        >
-          <span>
-            {engineState === "unknown"
-              ? t("agentChat.setup.checkingProvider")
-              : t("agentChat.setup.providerStatusUnavailable")}
-          </span>
-          {engineState === "unavailable" ? (
+        engineState === "unknown" ? (
+          <div className="mb-2 flex justify-center">
+            <Spinner
+              aria-label={t("common.loading")}
+              className="size-4 text-muted-foreground"
+            />
+          </div>
+        ) : (
+          <div
+            className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
             <button
               type="button"
               className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -838,14 +855,13 @@ function PromptComposerInner({
             >
               {t("agentChat.common.retry")}
             </button>
-          ) : null}
-        </div>
+          </div>
+        )
       ) : null}
       <AgentComposerFrame
         className={cn(
           "text-start",
-          (gateComposer || onDisabledClick) &&
-            "agent-composer-area--attached-above",
+          onDisabledClick && "agent-composer-area--attached-above",
           className,
         )}
         rootClassName={rootClassName}
@@ -853,19 +869,13 @@ function PromptComposerInner({
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
         onClick={
-          gateComposer
-            ? missingApiKey
-              ? bounceMissingKeySetup
-              : retryEngineStatus
-            : disabled && onDisabledClick
-              ? () => onDisabledClick()
-              : undefined
+          disabled && onDisabledClick ? () => onDisabledClick() : undefined
         }
       >
         <PromptAttachmentStrip />
         <TiptapComposer
           contextItems={contextItems}
-          contextMenuItems={gateComposer ? undefined : contextMenuItems}
+          contextMenuItems={contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
@@ -874,21 +884,13 @@ function PromptComposerInner({
           contextButtonTooltipDisabled={contextButtonTooltipDisabled}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
-          disabled={disabled || gateComposer}
-          submissionDisabled={submissionDisabled || gateComposer}
-          submitting={submitting}
+          disabled={disabled}
+          submissionDisabled={submissionDisabled || engineSubmissionBlocked}
+          submitting={submitting || engineState === "unknown"}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
-          placeholder={
-            gateComposer
-              ? engineStatusUnresolved
-                ? t("agentChat.setup.checkingProvider")
-                : t("agentChat.composer.connectAbove", {
-                    defaultValue: "Connect AI above to continue...",
-                  })
-              : placeholder
-          }
+          placeholder={placeholder}
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
@@ -897,20 +899,14 @@ function PromptComposerInner({
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
-            gateComposer
-              ? attachmentsEnabled || onAttachmentRequest
-                ? "upload-only"
-                : "hidden"
-              : (plusMenuMode ??
-                (attachmentsEnabled || onAttachmentRequest
-                  ? "upload-only"
-                  : "hidden"))
+            plusMenuMode ??
+            (attachmentsEnabled || onAttachmentRequest
+              ? "upload-only"
+              : "hidden")
           }
           terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}
-          attachButton={
-            gateComposer || !attachmentsEnabled ? null : attachButton
-          }
+          attachButton={attachmentsEnabled ? attachButton : null}
           modeControl={modeControl}
           execMode={execMode}
           onExecModeChange={onExecModeChange}
@@ -928,6 +924,14 @@ function PromptComposerInner({
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
+          mentionItems={mentionItems}
+          mentionPopoverDensity={mentionPopoverDensity}
+          includeDefaultMentionSearch={includeDefaultMentionSearch}
+          onReferencesChange={onReferencesChange}
+          onEscape={onEscape}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSelectionChange={onSelectionChange}
           draftScope={draftScope}
           selectedModel={composerModel}
           selectedEngine={composerEngine}
@@ -980,11 +984,9 @@ function PromptComposerRuntime(props: PromptComposerProps) {
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },
   });
-  const resetKey = [
-    props.draftScope ?? "",
-    props.initialTextKey ?? "",
-    props.initialText ?? "",
-  ].join(":");
+  const resetKey = [props.draftScope ?? "", props.initialTextKey ?? ""].join(
+    ":",
+  );
 
   return (
     <TooltipProvider delayDuration={200}>

@@ -93,6 +93,11 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -182,8 +187,8 @@ function slugify(value: string) {
 const PRODUCTION_DOMAIN = "calendar.agent-native.com";
 const PREVIEW_COLLAPSED_STORAGE_KEY = "calendar.bookingLinks.previewCollapsed";
 const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
-const BRAND_ICON_LINK_CLASS =
-  "text-[#00B5FF] hover:bg-[#00B5FF]/10 hover:text-[#33C4FF]";
+const ICON_ACTION_CLASS =
+  "text-muted-foreground hover:bg-accent/60 hover:text-foreground";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOOKING_SLOT_STEP_MINUTES = 30;
 
@@ -1244,7 +1249,7 @@ export default function BookingLinksPage({
               type="button"
               size="sm"
               onClick={handleCreate}
-              className="h-8 gap-2"
+              className="gap-2"
             >
               <IconPlus className="h-4 w-4" />
               {t("bookingLinks.newBookingLink")}
@@ -1297,9 +1302,9 @@ export default function BookingLinksPage({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="icon-sm"
                   onClick={() => void copyPreviewUrl(draft.slug)}
-                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                  className={ICON_ACTION_CLASS}
                   aria-label={t("bookingLinks.copyBookingLink")}
                 >
                   <IconCopy className="h-4 w-4" />
@@ -1312,8 +1317,8 @@ export default function BookingLinksPage({
                 <Button
                   asChild
                   variant="ghost"
-                  size="icon"
-                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                  size="icon-sm"
+                  className={ICON_ACTION_CLASS}
                   aria-label={t("bookingLinks.openBookingLink")}
                 >
                   <a
@@ -1334,7 +1339,6 @@ export default function BookingLinksPage({
               size="sm"
               onClick={() => void handleSaveRef.current()}
               disabled={updateBookingLink.isPending || !hasUnsavedChanges}
-              className="h-8 px-3"
             >
               {updateBookingLink.isPending
                 ? t("common.saving")
@@ -1446,7 +1450,7 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Description */}
-                <div className="space-y-2.5 border-t border-border pt-8">
+                <div className="space-y-2.5 border-t border-border pt-8 pb-4">
                   <Label htmlFor="booking-link-description">
                     {t("eventForm.description")}{" "}
                     <span className="text-muted-foreground font-normal">
@@ -1468,7 +1472,7 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Duration options — multi-select */}
-                <div className="space-y-3 border-t border-border pt-8">
+                <div className="space-y-3 border-t border-border pt-8 pb-4">
                   <Label>{t("bookingLinks.durationOptions")}</Label>
                   <p className="text-xs text-muted-foreground">
                     {t("bookingLinks.durationOptionsDescription")}
@@ -1574,7 +1578,6 @@ export default function BookingLinksPage({
                           }
                         }}
                         placeholder={t("bookingLinks.minutes")}
-                        className="h-9"
                       />
                       <Button
                         type="button"
@@ -1601,7 +1604,7 @@ export default function BookingLinksPage({
                   )}
                 </div>
 
-                <div className="space-y-2.5 border-t border-border pt-8">
+                <div className="space-y-2.5 border-t border-border pt-8 pb-4">
                   <div className="flex items-center justify-between gap-3">
                     <Label>{t("bookingLinks.url")}</Label>
                     <Tooltip>
@@ -1609,8 +1612,8 @@ export default function BookingLinksPage({
                         <Button
                           asChild
                           variant="ghost"
-                          size="icon"
-                          className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                          size="icon-sm"
+                          className={ICON_ACTION_CLASS}
                           aria-label={t("bookingLinks.openBookingPageNewTab")}
                         >
                           <a
@@ -1682,7 +1685,7 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Conferencing — Zoom uses real OAuth */}
-                <div className="border-t border-border pt-8">
+                <div className="border-t border-border pt-8 pb-4">
                   <BookingConferencingSelect
                     value={draft.conferencing}
                     onChange={(conferencing) =>
@@ -1713,91 +1716,115 @@ export default function BookingLinksPage({
                     zoomPending={connectZoom.isPending}
                   />
                 </div>
-
-                <div className="border-t border-border pt-8">
-                  <BookingHostsEditor
-                    bookingLinkId={hostOverlayBookingLinkId}
-                    isNewDraft={isNewBookingLinkDraft}
-                    hosts={draft.hosts}
-                    onChange={(update) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        hosts:
-                          typeof update === "function"
-                            ? update(prev.hosts)
-                            : update,
-                      }))
-                    }
-                  />
-                </div>
-
-                {/* Custom fields editor — shared package component */}
-                <div className="border-t border-border pt-8">
-                  <SharedCustomFieldsEditor
-                    fields={draft.customFields}
-                    onChange={(fields) =>
-                      setDraft((prev) => ({ ...prev, customFields: fields }))
-                    }
-                  />
-                </div>
-
-                {/* Lower-risk settings */}
-                <div className="space-y-5 border-t border-border pt-8">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {t("bookingLinks.linkVisibility")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("bookingLinks.linkVisibilityDescription")}
-                      </p>
-                    </div>
-                    <Switch
-                      aria-label={t("bookingLinks.linkVisibility")}
-                      checked={draft.isActive}
-                      onCheckedChange={(checked) =>
-                        setDraft((prev) => ({ ...prev, isActive: checked }))
-                      }
-                    />
-                  </div>
-                  {canDeleteSelectedLink && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
-                        >
-                          <IconTrash className="h-3.5 w-3.5" />
-                          {t("eventForm.delete")}
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            {t("bookingLinks.deleteBookingLink")}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t("bookingLinks.deleteDescriptionPrefix")}{" "}
-                            <span className="font-medium text-foreground">
-                              {draft.title}
-                            </span>{" "}
-                            {t("bookingLinks.deleteDescriptionSuffix")}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>
-                            {t("eventForm.cancel")}
-                          </AlertDialogCancel>
-                          <AlertDialogAction onClick={handleDelete}>
-                            {t("eventForm.delete")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </div>
               </fieldset>
             ) : null}
+
+            {!isLoading && selectedLink && (
+              <Collapsible className="border-t border-border pt-5">
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="group h-9 w-full justify-between px-2 font-normal text-muted-foreground hover:text-foreground"
+                  >
+                    {t("bookingLinks.advanced")}
+                    <IconChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-6 pb-4">
+                  <fieldset
+                    disabled={!canEditSelectedLink}
+                    className="contents space-y-8"
+                  >
+                    <BookingHostsEditor
+                      bookingLinkId={hostOverlayBookingLinkId}
+                      isNewDraft={isNewBookingLinkDraft}
+                      hosts={draft.hosts}
+                      onChange={(update) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          hosts:
+                            typeof update === "function"
+                              ? update(prev.hosts)
+                              : update,
+                        }))
+                      }
+                    />
+
+                    <div className="border-t border-border pt-6">
+                      <SharedCustomFieldsEditor
+                        fields={draft.customFields}
+                        onChange={(fields) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            customFields: fields,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-5 border-t border-border pt-6 pb-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t("bookingLinks.linkVisibility")}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {t("bookingLinks.linkVisibilityDescription")}
+                          </p>
+                        </div>
+                        <Switch
+                          aria-label={t("bookingLinks.linkVisibility")}
+                          checked={draft.isActive}
+                          onCheckedChange={(checked) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              isActive: checked,
+                            }))
+                          }
+                        />
+                      </div>
+                      {canDeleteSelectedLink && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                            >
+                              <IconTrash className="h-3.5 w-3.5" />
+                              {t("eventForm.delete")}
+                            </button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                {t("bookingLinks.deleteBookingLink")}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("bookingLinks.deleteDescriptionPrefix")}{" "}
+                                <span className="font-medium text-foreground">
+                                  {draft.title}
+                                </span>{" "}
+                                {t("bookingLinks.deleteDescriptionSuffix")}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>
+                                {t("eventForm.cancel")}
+                              </AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDelete}>
+                                {t("eventForm.delete")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </div>
+                  </fieldset>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </div>
 
           {/* Right — Live booking page preview */}
@@ -2007,7 +2034,7 @@ export default function BookingLinksPage({
                                 asChild
                                 variant="outline"
                                 size="icon"
-                                className="h-9 w-9 rounded-full"
+                                className="rounded-full"
                                 aria-label={t("bookingLinks.openBookingLink")}
                               >
                                 <a
@@ -2175,7 +2202,7 @@ export default function BookingLinksPage({
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                                  className="px-2 text-muted-foreground hover:text-destructive"
                                   onClick={() => removeDaySlot(key, slotIndex)}
                                 >
                                   <IconTrash className="mr-1.5 h-3.5 w-3.5" />
@@ -2188,7 +2215,7 @@ export default function BookingLinksPage({
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 px-2"
+                            className="px-2"
                             onClick={() => addDaySlot(key)}
                           >
                             <IconPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -2625,7 +2652,7 @@ function BookingPreview({
                     onClick={onCopy}
                     className={cn(
                       "flex h-6 w-6 items-center justify-center rounded",
-                      BRAND_ICON_LINK_CLASS,
+                      ICON_ACTION_CLASS,
                     )}
                   >
                     <IconCopy className="h-3.5 w-3.5" />
@@ -2643,7 +2670,7 @@ function BookingPreview({
                     rel="noopener noreferrer"
                     className={cn(
                       "flex h-6 w-6 items-center justify-center rounded",
-                      BRAND_ICON_LINK_CLASS,
+                      ICON_ACTION_CLASS,
                     )}
                   >
                     <IconExternalLink className="h-3.5 w-3.5" />
@@ -2657,9 +2684,18 @@ function BookingPreview({
           </div>
         </div>
         {bookingUrl && (
-          <p className="text-[11px] font-mono font-semibold text-[#00B5FF] truncate">
+          <a
+            href={bookingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={t("bookingLinks.openBookingPageNewTab")}
+            className={cn(
+              "block truncate font-mono text-[11px] focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              BRAND_LINK_CLASS,
+            )}
+          >
             {bookingUrl.replace(/^https?:\/\//, "")}
-          </p>
+          </a>
         )}
       </div>
 
@@ -3005,12 +3041,13 @@ function BookingPreview({
                   {t("bookingLinks.name")}
                 </Label>
                 <Input
+                  size="sm"
                   id="preview-booking-name"
                   value={previewForm.name}
                   onChange={(event) =>
                     updatePreviewForm({ name: event.target.value })
                   }
-                  className="h-8 text-xs"
+                  className="text-xs"
                   required
                 />
               </div>
@@ -3019,13 +3056,14 @@ function BookingPreview({
                   {t("bookingLinks.email")}
                 </Label>
                 <Input
+                  size="sm"
                   id="preview-booking-email"
                   type="email"
                   value={previewForm.email}
                   onChange={(event) =>
                     updatePreviewForm({ email: event.target.value })
                   }
-                  className="h-8 text-xs"
+                  className="text-xs"
                   required
                 />
               </div>
@@ -3112,7 +3150,7 @@ function BookingPreview({
               type="button"
               variant="outline"
               size="sm"
-              className="mt-4 h-8 text-xs"
+              className="mt-4 text-xs"
               onClick={resetPreviewFlow}
             >
               {t("bookingLinks.tryAgain")}
@@ -3163,7 +3201,7 @@ function PreviewCustomFieldInput({
           {optionalLabel}
         </Label>
         <Select value={strValue} onValueChange={onChange}>
-          <SelectTrigger id={id} className="h-8 text-xs">
+          <SelectTrigger size="sm" id={id} className="text-xs">
             <span
               className={cn("truncate", !strValue && "text-muted-foreground")}
             >
@@ -3209,6 +3247,7 @@ function PreviewCustomFieldInput({
         {optionalLabel}
       </Label>
       <Input
+        size="sm"
         id={id}
         type={
           field.type === "url"
@@ -3222,7 +3261,7 @@ function PreviewCustomFieldInput({
         value={strValue}
         onChange={(event) => onChange(event.target.value)}
         placeholder={field.placeholder}
-        className="h-8 text-xs"
+        className="text-xs"
       />
     </div>
   );

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
 import {
+  assembleA2AFinalResponse,
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
   filterDelegatedA2ACapabilityActions,
@@ -26,6 +27,29 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
     ...overrides,
   };
 }
+
+describe("assembleA2AFinalResponse", () => {
+  it("preserves the agent loop error code as structured terminal data", () => {
+    let thrown: unknown;
+    try {
+      assembleA2AFinalResponse([], [], {
+        outcome: {
+          state: "failed",
+          code: "missing_credentials",
+          retryable: false,
+          message: "The provider connection is missing.",
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      message: "The provider connection is missing.\ncode: missing_credentials",
+      agentNativeErrorCode: "missing_credentials",
+    });
+  });
+});
 
 describe("filterDirectA2AActions", () => {
   it("publishes input schemas for public and authenticated skill cards", () => {

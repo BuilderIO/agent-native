@@ -264,8 +264,22 @@ async function freshSessionReplay() {
   return import("./session-replay.js");
 }
 
+function mockMissingReplayRecorder() {
+  vi.doMock("../shared/optional-peer.js", async (importOriginal) => {
+    const optionalPeer =
+      await importOriginal<typeof import("../shared/optional-peer.js")>();
+    return {
+      ...optionalPeer,
+      loadOptionalPeer: async (packageName: string) => {
+        throw new optionalPeer.OptionalPeerDependencyError(packageName);
+      },
+    };
+  });
+}
+
 describe("session replay", () => {
   afterEach(() => {
+    vi.doUnmock("../shared/optional-peer.js");
     vi.resetModules();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -290,6 +304,52 @@ describe("session replay", () => {
     await tick();
 
     expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("returns import-failed and install guidance when the rrweb peer is missing", async () => {
+    installBrowser();
+    mockMissingReplayRecorder();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({ publicKey: "anpk_test" });
+
+    expect(result).toMatchObject({
+      started: false,
+      reason: "import-failed",
+      sampled: true,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[agent-native] Session replay cannot start:",
+      expect.stringContaining("pnpm add @rrweb/record"),
+    );
+  });
+
+  it("logs install guidance when configured replay auto-start lacks the rrweb peer", async () => {
+    installBrowser();
+    mockMissingReplayRecorder();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.resetModules();
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({
+      publicKey: "anpk_test",
+      sessionReplay: { requireSignedInUser: false },
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+    });
+
+    await waitForAssertion(() =>
+      expect(consoleError).toHaveBeenCalledWith(
+        "[agent-native] Session replay cannot start:",
+        expect.stringContaining("pnpm add @rrweb/record"),
+      ),
+    );
   });
 
   it("adds content-free agent-chat correlation markers to active replay", async () => {

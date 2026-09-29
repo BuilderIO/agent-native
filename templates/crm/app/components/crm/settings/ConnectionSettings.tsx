@@ -1,5 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { IconAlertTriangle, IconPlugConnected } from "@tabler/icons-react";
 import { Link } from "react-router";
 
@@ -36,15 +37,8 @@ export function ConnectionSettings() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-xl font-semibold tracking-tight">
-        {t("connection.title")}
-      </h1>
-      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-        {t("connection.description")}
-      </p>
-
-      <div className="mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4">
+    <div className="w-full">
+      <div className="grid gap-3 rounded-lg border border-border/70 bg-card p-4">
         <p className="text-sm font-medium">{t("connection.modesTitle")}</p>
         {SELECTABLE_CRM_CONNECTION_MODES.map((mode) => (
           <div key={mode} className="grid gap-0.5">
@@ -127,7 +121,7 @@ export function ConnectionSettings() {
           <Link to="/setup">{t("connection.openSetup")}</Link>
         </Button>
         <Button asChild variant="outline" size="sm">
-          <Link to="/settings/connections">
+          <Link to={buildSettingsRoute("integrations")}>
             {t("connection.openWorkspaceConnections")}
           </Link>
         </Button>

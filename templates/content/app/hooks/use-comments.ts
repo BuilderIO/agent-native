@@ -4,6 +4,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useContentActionMutation } from "./use-content-action-mutation";
+
 export interface CommentMention {
   email: string;
   name: string;
@@ -15,6 +17,12 @@ export interface CommentMutationState {
   status: "pending" | "error";
   error?: Error;
   ambiguous?: boolean;
+}
+
+export interface CommentReaction {
+  reaction: string;
+  count: number;
+  reactedByMe: boolean;
 }
 
 export interface Comment {
@@ -37,6 +45,9 @@ export interface Comment {
   notion_comment_id: string | null;
   submission_source?: string | null;
   submission_run_id?: string | null;
+  /** Emoji reactions in first-reacted order. */
+  reactions?: CommentReaction[];
+  author_model?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -828,7 +839,95 @@ export function useResolveComment() {
 }
 
 export function useDeleteComment() {
-  return useActionMutation<{ ok: boolean }, { id: string; documentId: string }>(
-    "delete-comment",
-  );
+  return useContentActionMutation<
+    { ok: boolean },
+    { id: string; documentId: string }
+  >("delete-comment", {
+    invalidates: (_data, { documentId }) => [
+      commentQueryKey(documentId),
+      ["action", "list-comment-ai-requests", { documentId }],
+    ],
+  });
+}
+
+export interface ReactToCommentVariables {
+  documentId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+}
+
+/** Apply one person's reaction toggle to a comment's reaction summary. */
+export function toggleCommentReaction(
+  reactions: CommentReaction[] | undefined,
+  reaction: string,
+  active: boolean,
+): CommentReaction[] {
+  const current = reactions ?? [];
+  const existing = current.find((entry) => entry.reaction === reaction);
+  if (active) {
+    if (existing?.reactedByMe) return current;
+    return existing
+      ? current.map((entry) =>
+          entry.reaction === reaction
+            ? { ...entry, count: entry.count + 1, reactedByMe: true }
+            : entry,
+        )
+      : [...current, { reaction, count: 1, reactedByMe: true }];
+  }
+  if (!existing?.reactedByMe) return current;
+  return current
+    .map((entry) =>
+      entry.reaction === reaction
+        ? { ...entry, count: entry.count - 1, reactedByMe: false }
+        : entry,
+    )
+    .filter((entry) => entry.count > 0);
+}
+
+export function useReactToComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { commentId: string; reaction: string; active: boolean },
+    ReactToCommentVariables
+  >("react-to-comment", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      const queryKey = commentQueryKey(variables.documentId);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const previous = queryClient.getQueryData<CommentListResponse>(queryKey);
+      queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
+        updateComments(response, (comments) =>
+          comments.map((comment) =>
+            comment.id === variables.commentId
+              ? {
+                  ...comment,
+                  reactions: toggleCommentReaction(
+                    comment.reactions,
+                    variables.reaction,
+                    variables.active,
+                  ),
+                }
+              : comment,
+          ),
+        ),
+      );
+      return { previous };
+    },
+    onError: (_error, variables, context) => {
+      const previous = (
+        context as { previous?: CommentListResponse } | undefined
+      )?.previous;
+      if (previous !== undefined)
+        queryClient.setQueryData(
+          commentQueryKey(variables.documentId),
+          previous,
+        );
+    },
+    onSettled: (_data, _error, variables) =>
+      queryClient.invalidateQueries({
+        queryKey: commentQueryKey(variables.documentId),
+        exact: true,
+      }),
+  });
 }

@@ -282,6 +282,35 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.breadcrumbs-and-link-targets",
+    surface: "editor",
+    label:
+      "Show page breadcrumbs and peer menus, and resolve page-link blocks and local-source reference previews",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/editor/ContentReferencePreview.tsx",
+      "app/hooks/use-content-links.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Breadcrumbs read the bounded active-item navigation context and load peer menus from the Files navigation page when opened; page-link blocks and reference previews resolve only their own targets instead of listing the workspace.",
+    status: "action-backed",
+    actions: ["resolve-content-links"],
+    exception:
+      "resolve-content-links is hidden with agentTool: false because it only resolves link targets for rendering; agents read linked pages with get-document and search-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-links.db.test.ts",
+      "app/hooks/use-content-links.test.ts",
+      "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -581,6 +610,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-personal-view",
       "list-document-properties",
       "reorder-document-property",
+      "search-content-database-rows",
       "set-document-property",
       "update-content-database-personal-view",
       "update-content-database-view",
@@ -905,23 +935,26 @@ export const parityMatrix: ParityRow[] = [
     id: "comments.ai-intents",
     surface: "comments",
     label:
-      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+      "Mention AI in a comment to reply, suggest an edit, or apply it and resolve feedback, then undo an applied change",
     uiEntrypoints: [
       "app/components/editor/CommentsSidebar.tsx",
       "app/components/editor/comment-ai.tsx",
     ],
     durableEffect:
-      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+      "Requests retain the submitted mode, selected provider and model, source feedback, and document revisions. Auto persists one classified intent before a separately scoped execution run records the reply, suggestion, or verified edit receipt. An applied edit keeps a bounded before/after preview, and its requester can reverse the exact edits and reopen the thread.",
     uiImplementation:
-      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+      "A structured AI recipient in the Comment composer starts the request through the shared action surface. Auto classification can submit only a finite intent; execution can call only the context action and the operation bound to that persisted intent.",
     status: "action-backed",
     actions: [
       "apply-comment-ai-request",
       "create-comment-ai-suggestion",
       "get-comment-ai-context",
       "list-comment-ai-requests",
+      "reconcile-comment-ai-session",
       "reply-to-comment-ai-request",
       "start-comment-ai-request",
+      "submit-comment-ai-classification",
+      "undo-comment-ai-request",
     ],
     exception: null,
     reliabilityRisk: "none",
@@ -930,9 +963,59 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/comment-ai-flow.test.ts",
+      "actions/undo-comment-ai-request.db.test.ts",
       "app/components/editor/comment-ai.test.tsx",
       "server/lib/comment-ai-progress.test.ts",
     ],
+  },
+  {
+    id: "comments.email-preferences",
+    surface: "comments",
+    label:
+      "Read and turn the current user's comment, reply, and mention emails on or off",
+    uiEntrypoints: [
+      "app/components/settings/notification-settings.tsx",
+      "app/routes/_app.settings.tsx",
+    ],
+    durableEffect:
+      "The per-user content-user-prefs setting stores emailNotifications, which the comment senders read before emailing each recipient.",
+    uiImplementation:
+      "Settings reads the preference and saves the switch optimistically, with rollback, through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "get-content-notification-prefs",
+      "update-content-notification-prefs",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-notification-prefs.test.ts",
+      "app/components/settings/notification-settings.test.tsx",
+    ],
+  },
+  {
+    id: "comments.reactions",
+    surface: "comments",
+    label: "React to a comment or reply with an emoji, or remove your reaction",
+    uiEntrypoints: [
+      "app/components/editor/CommentEntry.tsx",
+      "app/components/editor/CommentReactions.tsx",
+    ],
+    durableEffect:
+      "One row per person, emoji, and comment in document_comment_reactions; list-comments returns per-comment counts with the viewer's own reactions, and deleting a comment removes its reactions.",
+    uiImplementation:
+      "The reaction chips and add-reaction picker call react-to-comment with an optimistic update, and agents use the same action.",
+    status: "action-backed",
+    actions: ["react-to-comment", "list-comments"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/react-to-comment.db.test.ts"],
   },
   {
     id: "comments.threads",

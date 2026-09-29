@@ -166,14 +166,11 @@ export default {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     openAgentSettings: "Agent verwalten",
-    account: "Konto",
     signedInAs: "Angemeldet als",
     credentials: "Datenquellen-Anmeldedaten",
     credentialsDescription:
       "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
     manageDataSources: "Datenquellen verwalten",
-    languageTitle: "Sprache",
-    languageLabel: "Oberflächensprache",
     errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
     errorEmailNotificationsDescription:
       "Eine E-Mail senden, wenn ein neuer JavaScript-Fehler erfasst wird. Standardmäßig deaktiviert.",
@@ -183,6 +180,9 @@ export default {
     bellSoundDescription:
       "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
     bellSoundSaveFailed: "Die Toneinstellung konnte nicht gespeichert werden.",
+    notificationsTitle: "Benachrichtigungen",
+    notificationsEmailGroup: "E-Mail",
+    notificationsSoundGroup: "Ton",
     replayStorage: "Speicher für Sitzungswiedergabe",
     replayStorageDescription:
       "Aufzeichnungen der Sitzungswiedergabe benötigen einen konfigurierten Datei-Upload-Anbieter. Verbinden Sie Builder.io für Objektspeicher im kostenlosen Kontingent oder verwenden Sie Ihren eigenen S3-kompatiblen Bucket.",
@@ -217,8 +217,6 @@ export default {
     storageSaved: "Speichereinstellungen gesichert.",
     storageSaveFailed: "Speichereinstellungen konnten nicht gesichert werden.",
     alertsTitle: "Warnungen",
-    alertsDescription:
-      "Verwalte Regeln für First-Party-Analytics-Ereignisse und Benachrichtigungen.",
     alertRunNow: "Prüfung starten",
     alertNew: "Neue Warnung",
     alertsEmptyTitle: "Noch keine Warnregeln",
@@ -983,6 +981,10 @@ export default {
     recentSales: "Aktuelle Verkäufe",
     recentSalesDescription: "Du hast diesen Monat 265 Verkäufe erzielt.",
   },
+  analysisResult: {
+    title: "Analyseergebnis",
+    comparisonContext: "{{period}}: {{current}} gegenüber {{previous}}",
+  },
   routeTitles: {
     notFound: "Nicht gefunden – Analytics",
     analysis: "Analyse - Analytics",
@@ -1101,6 +1103,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Benutzerdefinierter Zeitraum",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",

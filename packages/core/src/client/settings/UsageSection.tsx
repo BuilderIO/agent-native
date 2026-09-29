@@ -84,7 +84,6 @@ interface UsageRecentMetric extends RecentPromptEntry {
 }
 
 interface UsageMetricsData {
-  builderCreditUsageEnabled: boolean;
   billing: UsageBilling;
   app: string;
   viewScope: UsageScope;
@@ -122,7 +121,7 @@ interface UsageMetricsData {
   recent: UsageRecentMetric[];
 }
 
-interface BuilderCreditUsageData {
+export interface BuilderCreditUsageData {
   plan: "free" | "paid";
   balance: number;
   quota: {
@@ -549,7 +548,7 @@ function UsageLoadingState() {
   );
 }
 
-function BuilderCreditUsageSkeleton() {
+export function BuilderCreditUsageSkeleton() {
   return (
     <section
       aria-hidden="true"
@@ -563,14 +562,18 @@ function BuilderCreditUsageSkeleton() {
   );
 }
 
-function BuilderCreditUsagePanel({ usage }: { usage: BuilderCreditUsageData }) {
+export function BuilderCreditUsagePanel({
+  usage,
+}: {
+  usage: BuilderCreditUsageData;
+}) {
   const t = useT();
   const quotaLabel =
     usage.quota.period === "daily"
-      ? t("agentChat.usage.dailyFreeLimit", {
-          defaultValue: "Free daily limit",
+      ? t("agentChat.usage.dailyDefaultLimit", {
+          defaultValue: "Default daily limit",
         })
-      : t("agentChat.usage.monthlyPlan", { defaultValue: "Monthly plan" });
+      : t("agentChat.usage.monthlyLimit", { defaultValue: "Monthly limit" });
   const canAddCredits = usage.quota.remaining === 0;
   const used = usage.quota.used.toLocaleString(undefined, {
     maximumFractionDigits: 2,
@@ -1003,11 +1006,11 @@ export function UsageSection({
     scope,
     userEmail:
       scope === "workspace" ? (selectedUserEmail ?? undefined) : undefined,
-    appId: appId ?? undefined,
+    ...(appId == null ? { app: "current" } : { appId }),
   });
   const data = query.data;
   const canViewBuilderCreditUsage = Boolean(
-    !appId && data?.builderCreditUsageEnabled && data.access.canViewWorkspace,
+    !appId && data?.access.canViewWorkspace,
   );
   const builderCreditUsageQuery = useActionQuery<BuilderCreditUsageData | null>(
     "get-builder-credit-usage",

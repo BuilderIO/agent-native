@@ -30,7 +30,11 @@ import type {
   SuggestionDecision,
 } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import type { Document, DocumentSyncStatus } from "@shared/api";
+import type {
+  ContentNavigationPathEntry,
+  Document,
+  DocumentSyncStatus,
+} from "@shared/api";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -101,6 +105,7 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
+  useContentNavigationContext,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -178,10 +183,15 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentProperties } from "./DocumentProperties";
 import { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
-import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
+import {
+  DocumentToolbar,
+  type ToolbarBreadcrumbItem,
+  type ToolbarBreadcrumbOpen,
+} from "./DocumentToolbar";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
+import { useRegisterLiveEditorSession } from "./live-editor-session";
 import {
   classifyLocalSourceRead,
   localSourceRevisionForQueuedEdit,
@@ -197,6 +207,7 @@ import {
 import { PageDraftRecovery } from "./PageDraftRecovery";
 import {
   mayClearRecoveryDraft,
+  ownRecoveryDraftSupersededBySave,
   savePageWithRecovery,
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
@@ -227,7 +238,6 @@ import {
 } from "./useDocumentReconcileRecovery";
 import { VisualEditor } from "./VisualEditor";
 import type {
-  NotionPageLink,
   VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
@@ -586,6 +596,27 @@ export function shouldAttestUnchangedEditorSave(args: {
   );
 }
 
+/**
+ * Whether the page title moved away from this save's base because someone
+ * else renamed it. The document can already hold this editor's own
+ * optimistic title, which is not a conflict.
+ */
+export function titleRenamedByAnotherWriter({
+  documentTitle,
+  titleBase,
+  title,
+}: {
+  documentTitle: string;
+  titleBase: string | undefined;
+  title: string;
+}): boolean {
+  return (
+    titleBase !== undefined &&
+    documentTitle !== titleBase &&
+    documentTitle !== title
+  );
+}
+
 export function refreshUnchangedContentSaveWatermark(args: {
   serverContent: string;
   serverUpdatedAt: string | null;
@@ -601,6 +632,51 @@ export function refreshUnchangedContentSaveWatermark(args: {
   }
 
   return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
+}
+
+export type OwnContentSaveLineage = Map<
+  string,
+  { baseRevision: string; editGeneration: number }
+>;
+
+const OWN_CONTENT_SAVE_LINEAGE_LIMIT = 32;
+
+export function recordOwnContentSave(
+  lineage: OwnContentSaveLineage,
+  revision: string,
+  link: { baseRevision: string; editGeneration: number },
+) {
+  lineage.delete(revision);
+  lineage.set(revision, link);
+  while (lineage.size > OWN_CONTENT_SAVE_LINEAGE_LIMIT) {
+    lineage.delete(lineage.keys().next().value as string);
+  }
+}
+
+// Edits made while an earlier save is in flight capture the pre-save base.
+// The server's positional intent merge treats this editor's own committed
+// blocks as a concurrent edit, so any inserted or removed block is preserved
+// to History instead of saved. Advance the base only across revisions this
+// editor session committed verbatim at an earlier generation.
+export function ownConfirmedContentBase(args: {
+  captured: DocumentContentBase;
+  latest: ContentSaveWatermark;
+  lineage: ReadonlyMap<
+    string,
+    { baseRevision: string; editGeneration: number }
+  >;
+  editGeneration: number;
+}): ContentSaveWatermark | null {
+  const target = args.captured.revision;
+  let revision = args.latest.revision;
+  if (!target || !revision || revision === target) return null;
+  for (let step = 0; step < args.lineage.size; step++) {
+    const link = args.lineage.get(revision);
+    if (!link || link.editGeneration >= args.editGeneration) return null;
+    if (link.baseRevision === target) return args.latest;
+    revision = link.baseRevision;
+  }
+  return null;
 }
 
 function adoptConfirmedSaveWatermarks({
@@ -932,6 +1008,7 @@ function DocumentCommentDraftProvider({
     <CommentDraftProvider
       documentId={documentId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
     >
       {children}
     </CommentDraftProvider>
@@ -1593,11 +1670,18 @@ export function documentEditorBreadcrumbNavigationItems(
     catalogDocumentId: string | null;
     workspacesTitle: string;
   },
+  navigationPath: Pick<
+    ContentNavigationPathEntry,
+    "id" | "parentId" | "databaseId"
+  >[] = [], // i18n-ignore type expression
 ): ToolbarBreadcrumbItem[] {
   const peerDocuments = documents.filter(
     (item) => !item.database?.systemRole && item.source?.kind !== "folder",
   );
   const documentById = new Map(documents.map((item) => [item.id, item]));
+  const pathEntryById = new Map(
+    navigationPath.map((entry) => [entry.id, entry]),
+  );
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
   );
@@ -1617,7 +1701,24 @@ export function documentEditorBreadcrumbNavigationItems(
     }
 
     const current = item.id ? documentById.get(item.id) : null;
-    if (!current) return item;
+    if (!current) {
+      const entry = item.id ? pathEntryById.get(item.id) : undefined;
+      // Peers of an item under an unreadable parent are not listable.
+      if (
+        !entry?.databaseId ||
+        (entry.parentId !== null && !pathEntryById.has(entry.parentId))
+      ) {
+        return item;
+      }
+      return {
+        ...item,
+        filesDatabaseId: entry.databaseId,
+        siblings: {
+          filesDatabaseId: entry.databaseId,
+          parentId: entry.parentId,
+        },
+      };
+    }
     const membershipDocumentId =
       current.databaseMembership?.databaseDocumentId ?? null;
     const siblings = peerDocuments
@@ -1634,13 +1735,16 @@ export function documentEditorBreadcrumbNavigationItems(
           left.position - right.position ||
           left.title.localeCompare(right.title),
       );
-    if (siblings.length < 2) return item;
+    const filesDatabaseId = current.databaseMembership?.databaseId ?? null;
+    if (siblings.length < 2) return { ...item, filesDatabaseId };
     return {
       ...item,
+      filesDatabaseId,
       menuItems: siblings.map((sibling) => ({
         id: sibling.id,
         title: sibling.title,
         icon: sibling.icon,
+        filesDatabaseId: sibling.databaseMembership?.databaseId ?? null,
       })),
     };
   });
@@ -1755,10 +1859,25 @@ function PageEditorSessionBody({
   const canEditRef = useRef(canEdit);
   const navigate = useNavigate();
   const location = useLocation();
-  const documentsQuery = useDocuments();
-  const documents: Document[] = documentsQuery.data ?? [];
   const contentSpacesQuery = useContentSpaces();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
+  const localWorkspaceMode =
+    contentSpacesQuery.data?.sourceMode === "local-files";
+  const localDocumentsQuery = useDocuments({ enabled: localWorkspaceMode });
+  const localDocuments = useMemo<Document[]>(
+    () => (localWorkspaceMode ? (localDocumentsQuery.data ?? []) : []),
+    [localDocumentsQuery.data, localWorkspaceMode],
+  );
+  const navigationContextQuery = useContentNavigationContext(
+    host === "page" ? documentId : null,
+  );
+  const navigationPath = useMemo(
+    () =>
+      navigationContextQuery.data?.document.id === documentId
+        ? navigationContextQuery.data.path
+        : [],
+    [documentId, navigationContextQuery.data],
+  );
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const [, setStoredSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -1900,7 +2019,6 @@ function PageEditorSessionBody({
   const canSuggest = suggestionCapability.canStart;
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
-  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -2103,6 +2221,7 @@ function PageEditorSessionBody({
     content: string;
     editorSessionId: string | null;
     editGeneration: number | null;
+    supersedable?: boolean;
   } | null>(null);
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
@@ -2122,10 +2241,12 @@ function PageEditorSessionBody({
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
+  const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
   }
+  useRegisterLiveEditorSession(editorSessionIdRef.current);
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
     save: (draft, base) => reconcileSaveRef.current(draft, base),
@@ -2260,16 +2381,6 @@ function PageEditorSessionBody({
   );
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
-  const notionPageLinks = useMemo<NotionPageLink[]>(
-    () =>
-      documents.map((doc) => ({
-        notionPageId: doc.notionPageId || doc.id,
-        documentId: doc.id,
-        title: doc.title || "Untitled",
-        icon: doc.icon,
-      })),
-    [documents],
-  );
   const handleOpenNotionPageLink = useCallback(
     (linkedDocumentId: string) => {
       void navigate(`/page/${linkedDocumentId}`, { flushSync: true });
@@ -2494,6 +2605,7 @@ function PageEditorSessionBody({
     if (!document) return;
     if (prevDocIdRef.current !== documentId) {
       historySessionRef.current.reset();
+      ownContentSaveLineageRef.current.clear();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -3048,6 +3160,36 @@ function PageEditorSessionBody({
         serverUpdatedAt: documentUpdatedAtRef.current,
         lastSaved: lastSavedContentRef.current,
       });
+      const ownBase = (captured: DocumentContentBase) =>
+        ownConfirmedContentBase({
+          captured,
+          latest: lastSavedContentRef.current,
+          lineage: ownContentSaveLineageRef.current,
+          editGeneration: editorEditGeneration,
+        });
+      const ownContentBase =
+        options.contentBase && ownBase(options.contentBase);
+      const intent = options.authoredContentIntent;
+      const ownIntentBase =
+        intent &&
+        ownBase({
+          content: intent.baseContent,
+          updatedAt: null,
+          revision: intent.baseRevision,
+        });
+      options = {
+        ...options,
+        ...(ownContentBase ? { contentBase: { ...ownContentBase } } : {}),
+        ...(intent && ownIntentBase
+          ? {
+              authoredContentIntent: {
+                ...intent,
+                baseRevision: ownIntentBase.revision,
+                baseContent: ownIntentBase.content,
+              },
+            }
+          : {}),
+      };
       const titleIsStale =
         !isLinkedLocalSourceDocument &&
         options.titleBase === undefined &&
@@ -3056,8 +3198,11 @@ function PageEditorSessionBody({
         documentUpdatedAtRef.current > lastSavedTitleRef.current.updatedAt;
       const contentBase = options.contentBase ?? lastSavedContentRef.current;
       if (
-        options.titleBase !== undefined &&
-        documentTitleRef.current !== options.titleBase
+        titleRenamedByAnotherWriter({
+          documentTitle: documentTitleRef.current,
+          titleBase: options.titleBase,
+          title,
+        })
       ) {
         return { contentPersisted: false };
       }
@@ -3157,6 +3302,7 @@ function PageEditorSessionBody({
                   contentBase,
                   titleBase:
                     options.titleBase ?? lastSavedTitleRef.current.title,
+                  authoredContentIntent: options.authoredContentIntent,
                 });
               }
               return persistDocumentUpdates(
@@ -3250,6 +3396,17 @@ function PageEditorSessionBody({
         lastSavedContentRef,
       });
       if (
+        updates.content !== undefined &&
+        saved.revision &&
+        contentBase.revision &&
+        saved.content === options.editorSnapshotContent
+      ) {
+        recordOwnContentSave(ownContentSaveLineageRef.current, saved.revision, {
+          baseRevision: contentBase.revision,
+          editGeneration: editorEditGeneration,
+        });
+      }
+      if (
         contentEditVersionRef.current === contentEditVersion &&
         contentObservationEpochRef.current === contentObservationEpoch
       ) {
@@ -3306,6 +3463,7 @@ function PageEditorSessionBody({
       editorSessionId: string,
       editGeneration: number,
       contentBase: DocumentContentBase = lastSavedContentRef.current,
+      supersedable = false,
     ) => {
       const current = recoveryDraftRef.current;
       const result = await updatePreviewDocumentDraftRef.current({
@@ -3335,6 +3493,7 @@ function PageEditorSessionBody({
           content,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
+          supersedable,
         };
         return;
       }
@@ -3350,6 +3509,7 @@ function PageEditorSessionBody({
           content,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
+          supersedable,
         };
         return;
       }
@@ -3389,14 +3549,22 @@ function PageEditorSessionBody({
     [retainRecoveryDraft],
   );
   const clearRecoveryDraft = useCallback(
-    async (persistedTitle: string, persistedContent: string) => {
+    async (
+      persistedTitle: string,
+      persistedContent: string,
+      persistedBy?: { editorSessionId: string; editGeneration: number },
+    ) => {
       const current = recoveryDraftRef.current;
       if (
         !current ||
-        !mayClearRecoveryDraft(current, {
-          title: persistedTitle,
-          content: persistedContent,
-        })
+        !(
+          mayClearRecoveryDraft(current, {
+            title: persistedTitle,
+            content: persistedContent,
+          }) ||
+          (persistedBy &&
+            ownRecoveryDraftSupersededBySave(current, persistedBy))
+        )
       ) {
         return;
       }
@@ -3484,12 +3652,15 @@ function PageEditorSessionBody({
                     revision: recovery.baseRevision,
                   }
                 : contentBase,
+              // The editor keeps this text and a later save of it lands.
+              true,
             );
           },
           clear: () =>
             clearRecoveryDraft(
               lastSavedTitleRef.current.title,
               lastSavedContentRef.current.content,
+              { editorSessionId, editGeneration },
             ),
         }),
       );
@@ -5191,6 +5362,10 @@ function PageEditorSessionBody({
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
     useState<HTMLElement | null>(null);
+  const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
+  const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelFocusGenerationRef = useRef(0);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -5242,6 +5417,27 @@ function PageEditorSessionBody({
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
   );
+  const commentAi = useCommentAiRequests(documentId, {
+    enabled: !isLocalFileDocument && canComment,
+  });
+  // While AI's result is on screen, a thread it just resolved highlights the
+  // text it wrote, so the card sits beside the change it describes.
+  const editorCommentThreads = useMemo(() => {
+    const fresh = commentAi.freshResolutions;
+    if (!threads || fresh.size === 0) return threads ?? [];
+    return threads.map((thread) => {
+      const change = fresh.get(thread.threadId)?.result?.changes?.[0];
+      if (!thread.resolved || !change?.after || change.truncated) return thread;
+      return {
+        ...thread,
+        resolved: false,
+        quotedText: change.after,
+        prefix: null,
+        suffix: null,
+        startOffset: null,
+      };
+    });
+  }, [commentAi.freshResolutions, threads]);
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -5256,9 +5452,14 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
+  // A suggestion whose text is gone lives in the comments panel only, so it
+  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) => suggestion.status === "pending",
+      (suggestion) =>
+        suggestion.status === "pending" &&
+        (!anchoredSuggestionIds ||
+          anchoredSuggestionIds.includes(suggestion.id)),
     ) || draftSuggestions.length > 0;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
@@ -5438,6 +5639,15 @@ function PageEditorSessionBody({
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
+      ++utilityPanelFocusGenerationRef.current;
+      const activeElement = globalThis.document.activeElement;
+      if (
+        nextPanel &&
+        activeElement instanceof HTMLElement &&
+        activeElement !== globalThis.document.body
+      ) {
+        utilityPanelSheetTriggerRef.current = activeElement;
+      }
       if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
@@ -5807,8 +6017,11 @@ function PageEditorSessionBody({
   const toolbarBreadcrumbItems = useMemo(
     () =>
       documentEditorBreadcrumbNavigationItems(
-        documentEditorBreadcrumbItems(document, documents),
-        documents,
+        documentEditorBreadcrumbItems(
+          document,
+          localWorkspaceMode ? localDocuments : navigationPath,
+        ),
+        localDocuments,
         contentSpaces,
         {
           currentDocumentId: document.id,
@@ -5817,23 +6030,25 @@ function PageEditorSessionBody({
           catalogDocumentId: contentSpacesQuery.data?.catalogDocumentId ?? null,
           workspacesTitle: t("sidebar.workspaces"),
         },
+        navigationPath,
       ),
     [
       contentSpaces,
       contentSpacesQuery.data?.catalogDocumentId,
       document,
-      documents,
+      localDocuments,
+      localWorkspaceMode,
+      navigationPath,
       t,
     ],
   );
 
-  const handleOpenToolbarBreadcrumb = useCallback(
-    (targetId: string) => {
-      const targetDocument = documents.find((item) => item.id === targetId);
-      const filesDocumentId =
-        targetDocument?.databaseMembership?.databaseDocumentId ?? targetId;
+  const handleOpenToolbarBreadcrumb = useCallback<ToolbarBreadcrumbOpen>(
+    (targetId, filesDatabaseId) => {
       const space = contentSpaces.find(
-        (candidate) => candidate.filesDocumentId === filesDocumentId,
+        (candidate) =>
+          candidate.filesDocumentId === targetId ||
+          (!!filesDatabaseId && candidate.filesDatabaseId === filesDatabaseId),
       );
       if (!space) {
         void navigate(`/page/${targetId}`, { flushSync: true });
@@ -5862,13 +6077,14 @@ function PageEditorSessionBody({
           toast.error(error instanceof Error ? error.message : String(error));
         });
     },
-    [contentSpaces, documents, navigate, setStoredSpaceId],
+    [contentSpaces, navigate, setStoredSpaceId],
   );
 
   const renderCommentsSidebar = (
     visibleThreadId?: string | null,
     alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
+    surface?: "rail" | "popover" | "panel",
   ) => (
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
@@ -5902,6 +6118,7 @@ function PageEditorSessionBody({
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
       canComment={canComment}
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
@@ -6072,6 +6289,8 @@ function PageEditorSessionBody({
       commentAi={commentAi}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
+      surface={surface}
+      onClose={surface === "popover" ? handleEditorEscape : undefined}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -6134,11 +6353,38 @@ function PageEditorSessionBody({
       >
         <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
           <h2
-            className="text-sm font-semibold"
+            className="sr-only"
             aria-hidden={!hasUtilityRailSpace || undefined}
           >
             {utilityPanelTitle}
           </h2>
+          <div
+            role="tablist"
+            aria-label={t("comments.panelTabs")}
+            className="flex h-full items-stretch gap-5"
+            data-utility-panel-tabs
+          >
+            {(["comments", "info"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={panel === tab}
+                onClick={() => {
+                  if (panel !== tab) handleUtilityPanelChange(tab);
+                }}
+                className={cn(
+                  "relative inline-flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
+                  panel === tab && "text-foreground after:bg-foreground",
+                )}
+              >
+                {tab === "comments"
+                  ? t("comments.title")
+                  : t("editor.toolbar.info")}
+              </button>
+            ))}
+          </div>
           {panel === "comments" ? (
             <button
               type="button"
@@ -6160,6 +6406,7 @@ function PageEditorSessionBody({
           ) : null}
           {hasUtilityRailSpace || inSheet ? (
             <button
+              ref={inSheet ? utilityPanelSheetCloseRef : undefined}
               type="button"
               className={cn(
                 "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -6214,6 +6461,10 @@ function PageEditorSessionBody({
         data-page-editor-owner={pageEditorOwner}
         onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
+          // React bubbles portal clicks (the @ menu, emoji picker, model menu)
+          // through this tree even though they render outside it. Those are
+          // interactions with an open comment, not clicks on the page.
+          if (target && !event.currentTarget.contains(target)) return;
           const commentHighlight = target?.closest("[data-comment-thread]");
           const threadId = commentHighlight?.getAttribute(
             "data-comment-thread",
@@ -6296,6 +6547,7 @@ function PageEditorSessionBody({
             commentsHistoryOpen={showCommentsHistoryDrawer}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
+            commentsTriggerRef={commentsHistoryTriggerRef}
             onOpenBreadcrumbItem={
               host === "page" ? handleOpenToolbarBreadcrumb : undefined
             }
@@ -6788,7 +7040,7 @@ function PageEditorSessionBody({
                               isLocalFileDocument ? document.source?.path : null
                             }
                             onComment={canComment ? handleComment : undefined}
-                            commentThreads={threads ?? []}
+                            commentThreads={editorCommentThreads}
                             activeThreadId={selectedThreadId}
                             hoveredThreadId={hoveredThreadId}
                             pendingHighlight={pendingComment?.range ?? null}
@@ -6816,7 +7068,6 @@ function PageEditorSessionBody({
                             }
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
-                            notionPageLinks={notionPageLinks}
                             onOpenNotionPageLink={handleOpenNotionPageLink}
                             notionPageId={document.notionPageId}
                             onHistoryControllerChange={
@@ -6944,6 +7195,8 @@ function PageEditorSessionBody({
                     {renderCommentsSidebar(
                       pendingComment ? "__pending-only__" : selectedThreadId,
                       false,
+                      "inline",
+                      "popover",
                     )}
                   </div>
                 </aside>
@@ -6976,11 +7229,10 @@ function PageEditorSessionBody({
         </aside>
 
         <Sheet
+          modal
           open={showUtilityPanelSheet}
           onOpenChange={(open) => {
-            if (!open) {
-              handleUtilityPanelChange(null);
-            }
+            if (!open) handleUtilityPanelChange(null);
           }}
         >
           <SheetContent
@@ -6988,12 +7240,38 @@ function PageEditorSessionBody({
             side="right"
             inert={!showUtilityPanelSheet || undefined}
             onOpenAutoFocus={(event) => {
-              if (hasFocusedCommentReply) event.preventDefault();
+              const activeElement = globalThis.document.activeElement;
+              if (
+                !utilityPanelSheetTriggerRef.current &&
+                activeElement instanceof HTMLElement &&
+                activeElement !== globalThis.document.body &&
+                !utilityPanelSheetContainer?.contains(activeElement)
+              ) {
+                utilityPanelSheetTriggerRef.current = activeElement;
+              }
+              event.preventDefault();
+              const focusedReply = hasFocusedCommentReply
+                ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
+                    "[data-comment-reply-composer] [contenteditable=true]",
+                  )
+                : null;
+              (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();
             }}
             onCloseAutoFocus={(event) => {
-              if (hasInlineCommentSpace && hasFocusedCommentReply) {
-                event.preventDefault();
-              }
+              event.preventDefault();
+              if (hasInlineCommentSpace && hasFocusedCommentReply) return;
+              const focusGeneration = utilityPanelFocusGenerationRef.current;
+              const restoreTarget = utilityPanelSheetTriggerRef.current;
+              const fallbackTarget = commentsHistoryTriggerRef.current;
+              globalThis.setTimeout(() => {
+                if (utilityPanelFocusGenerationRef.current !== focusGeneration)
+                  return;
+                (restoreTarget?.isConnected
+                  ? restoreTarget
+                  : fallbackTarget
+                )?.focus();
+                utilityPanelSheetTriggerRef.current = null;
+              }, 0);
             }}
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}

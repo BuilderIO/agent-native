@@ -107,7 +107,19 @@ export function Layout({ children }: LayoutProps) {
     );
   }
 
-  const appFrame = (
+  // The Settings shell brings its own nav, back link, and agent toggle, so
+  // the app's sidebar and header would double them.
+  const settingsFullBleed =
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
+
+  const appFrame = settingsFullBleed ? (
+    <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+      <main className="agent-native-app-main min-h-0 min-w-0 flex-1 overflow-hidden">
+        {children}
+      </main>
+    </div>
+  ) : (
     <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
       {mobileSidebarOpen && (
         <div

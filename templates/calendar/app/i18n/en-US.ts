@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Connect",
@@ -5,7 +7,6 @@ export default {
     connecting: "Connecting...",
     clipboardUnavailable: "Clipboard access is unavailable",
     disconnect: "Disconnect",
-    notConnected: "Not connected",
     loadFailed: "Could not load this data.",
     retry: "Retry",
     saving: "Saving...",
@@ -46,11 +47,6 @@ export default {
     couldNotLoadEvent: "Could not load event",
     noEventId: "No event id provided. Add ?id=<eventId> to the URL.",
     openCalendar: "Open calendar",
-  },
-  eventCreation: {
-    created: "Event created",
-    zoomNotAdded: "The event was created, but Zoom could not be added.",
-    openInCalendar: "Open event in Calendar",
   },
   agentSidebar: {
     emptyState: "Ask me anything about your calendar",
@@ -200,10 +196,6 @@ export default {
   },
   settings: {
     title: "Settings",
-    description: "Configure your calendar and integrations.",
-    languageTitle: "Language",
-    languageDescription: "Choose the interface language for Calendar.",
-    languageLabel: "Interface language",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -217,13 +209,8 @@ export default {
     zoomConnectFailed: "Could not connect Zoom",
     zoomDisconnected: "Zoom disconnected",
     zoomDisconnectFailed: "Failed to disconnect Zoom",
-    general: "General",
-    generalDescription: "Calendar defaults and fallback booking copy.",
-    timezone: "Timezone",
-    saveSettings: "Save Settings",
     saved: "Settings saved",
     saveFailed: "Failed to save settings",
-    appearance: "Appearance",
     appearanceDescription:
       "Pick a color theme for your workspace. Or just ask the agent.",
     desktopNotifications: "Desktop notifications",
@@ -238,23 +225,14 @@ export default {
       "Sync your events and manage everything in one place.",
     zoomDescription:
       "Connect Zoom to create meeting links for calendar events and bookings.",
-    zoomNotConfigured: "Not configured",
     zoomCredentialsPrompt: "Add Zoom OAuth credentials to enable connection.",
-    bookingTitleLabel: "Fallback booking page title",
     bookingTitlePlaceholder: "Book a Meeting",
-    bookingTitleHelp:
-      "Used only when a booking link has no title. Create, open, and copy public URLs from Booking links.",
-    bookingDescriptionLabel: "Fallback booking page description",
     bookingDescriptionPlaceholder: "Pick a time that works for you.",
-    bookingDescriptionHelp:
-      "Used only when a booking link has no description of its own.",
-    defaultDurationLabel: "Default event duration (minutes)",
-    defaultDurationHelp:
-      "Default length for new calendar events and booking slots. Booking links can override this per link.",
     weekStartLabel: "Week starts on",
     weekStartSunday: "Sunday - Saturday",
     weekStartMonday: "Monday - Sunday",
     eventRules: "Invitation rules",
+    eventRulesAutomationLink: "For other actions, create an automation",
     eventRulesConnectJev: "Connect Jev to run invitation rules",
     eventRulesFreeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
     eventRulesConnectBuilder: "Connect Builder.io",
@@ -290,6 +268,37 @@ export default {
       "An invitation was skipped because accept and decline both matched.",
     eventRulesUnregistered:
       "Calendar automation is not registered in this server.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendars",
+    bookingTab: "Booking",
+    eventsGroup: "Events",
+    appearanceGroup: "Appearance",
+    colorTheme: "Color theme",
+    timezone: "Calendar timezone",
+    timezoneDescription: "Used to show events and create new ones.",
+    defaultDuration: "Default event duration",
+    defaultDurationDescription: "In minutes. Booking links can set their own.",
+    durationInvalid: "Enter a duration from 5 to 480 minutes.",
+    zoom: "Zoom",
+    connectedAs: "Connected as {{accounts}}",
+    setUp: "Set up",
+    disconnectGoogleTitle: "Disconnect Google Calendar?",
+    disconnectGoogleDescription:
+      "Calendar stops showing and syncing events from your Google accounts.",
+    disconnectZoomTitle: "Disconnect Zoom?",
+    disconnectZoomDescription:
+      "New events and bookings can't get Zoom meeting links until you connect again.",
+    manage: "Manage",
+    edit: "Edit",
+    cancel: "Cancel",
+    save: "Save",
+    fallbackBookingPage: "Fallback booking page",
+    fallbackBookingPageDescription:
+      "Used when a booking link has no title or description of its own.",
+    fallbackTitle: "Title",
+    fallbackDescription: "Description",
+    bookingLinksDescription: "Create booking links and copy their public URLs.",
   },
   eventDialog: {
     eventUpdated: "Event updated",
@@ -584,6 +593,7 @@ export default {
     fieldRequired: "{{label}} is required",
     linkDisabled: "{{title}} disabled",
     linkEnabled: "{{title}} enabled",
+    advanced: "Advanced",
     linkVisibility: "Link visibility",
     linkVisibilityDescription: "Turn this off to disable the public page.",
     loadingMeetingTypes: "Loading meeting types",
@@ -1013,7 +1023,7 @@ export default {
     year: "year",
     zoom: "Zoom",
     zoomAdded: "Zoom added",
-    zoomAddFailed: "Failed to add Zoom",
+    zoomAddFailed: zoomAddFailedMessages["en-US"],
     zoomConnectFailed: "Could not connect Zoom",
     zoomConnectionOpened: "Zoom connection opened",
     zoomNotConfigured: "Zoom OAuth is not configured.",

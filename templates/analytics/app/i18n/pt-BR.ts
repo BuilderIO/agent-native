@@ -158,14 +158,11 @@ export default {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     openAgentSettings: "Gerenciar agente",
-    account: "Conta",
     signedInAs: "Conectado como",
     credentials: "Credenciais de fontes de dados",
     credentialsDescription:
       "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
     manageDataSources: "Gerenciar fontes de dados",
-    languageTitle: "Idioma",
-    languageLabel: "Idioma da interface",
     errorEmailNotifications: "Receber novos alertas de erro por e-mail",
     errorEmailNotificationsDescription:
       "Envie um e-mail quando um novo erro de JavaScript for capturado. Desativado por padrão.",
@@ -175,6 +172,9 @@ export default {
     bellSoundDescription:
       "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
     bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
+    notificationsTitle: "Notificações",
+    notificationsEmailGroup: "E-mail",
+    notificationsSoundGroup: "Som",
     replayStorage: "Armazenamento de replay de sessão",
     replayStorageDescription:
       "As gravações de replay de sessão precisam de um provedor de upload de arquivos configurado. Conecte o Builder.io para armazenamento de objetos no plano gratuito ou use seu próprio bucket compatível com S3.",
@@ -210,8 +210,6 @@ export default {
     storageSaveFailed:
       "Não foi possível salvar as configurações de armazenamento.",
     alertsTitle: "Alertas",
-    alertsDescription:
-      "Gerencie regras de eventos de analytics próprios e a entrega de notificações.",
     alertRunNow: "Executar verificação",
     alertNew: "Novo alerta",
     alertsEmptyTitle: "Nenhuma regra de alerta ainda",
@@ -968,6 +966,10 @@ export default {
     recentSales: "Vendas recentes",
     recentSalesDescription: "Você fez 265 vendas este mês.",
   },
+  analysisResult: {
+    title: "Resultado da análise",
+    comparisonContext: "{{period}}: {{current}} em comparação com {{previous}}",
+  },
   routeTitles: {
     notFound: "Não encontrado - Analytics",
     analysis: "Análise - Analytics",
@@ -1086,6 +1088,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Intervalo personalizado",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

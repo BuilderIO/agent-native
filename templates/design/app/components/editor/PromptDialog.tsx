@@ -4,14 +4,15 @@ import {
   type AgentChatContextItem,
   type ComposerContextMenuItem,
   type ComposerContextSnapshot,
+  type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
 import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import { useOrg } from "@agent-native/core/client/org";
+import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
 import {
   IconApps,
   IconArtboard,
@@ -23,6 +24,7 @@ import {
 import {
   lazy,
   Suspense,
+  type ComponentType,
   useState,
   useEffect,
   useCallback,
@@ -65,15 +67,6 @@ import { createDesignPromptAttachmentAdapter } from "@/lib/prompt-attachment-ada
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
-const loadPromptComposer = () =>
-  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
-    default: PromptComposer,
-  }));
-const LazyPromptComposer = lazy(loadPromptComposer);
-export function preloadPromptComposer() {
-  void loadPromptComposer().catch(() => {});
-}
-
 export interface UploadedFile {
   path: string;
   originalName: string;
@@ -100,6 +93,15 @@ const IMAGE_COMPRESSION_PASSES = [
   { maxDimension: 1024, jpegQuality: 0.7 },
   { maxDimension: 768, jpegQuality: 0.65 },
 ];
+
+const loadPromptComposer = () =>
+  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+    default: PromptComposer,
+  }));
+const LazyPromptComposer = lazy(loadPromptComposer);
+export function preloadPromptComposer() {
+  void loadPromptComposer().catch(() => {});
+}
 
 function dataUrlBytes(dataUrl: string): number {
   return new TextEncoder().encode(dataUrl).byteLength;
@@ -189,6 +191,7 @@ async function readChatImageAttachment(
 export type PromptCreationMode = "design" | "app";
 
 interface PromptPopoverProps {
+  composerComponent?: ComponentType<PromptComposerProps>;
   inline?: boolean;
   submissionIdentity?: string;
   contextItems?: AgentChatContextItem[];
@@ -218,6 +221,7 @@ interface PromptPopoverProps {
     files: UploadedFile[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -281,6 +285,7 @@ function hasOpenNestedPromptPopoverSurface() {
 }
 
 export default function PromptPopover({
+  composerComponent,
   inline = false,
   submissionIdentity,
   contextItems,
@@ -304,6 +309,7 @@ export default function PromptPopover({
   skipLabel,
   offerStartChoice = false,
   onSubmit,
+  onBeforeSubmit,
   loading = false,
   anchorRef,
   centered = false,
@@ -357,6 +363,7 @@ export default function PromptPopover({
   const skipInFlightRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const [checkingProvider, setCheckingProvider] = useState(false);
   const draftTextRef = useRef<string | undefined>(undefined);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [restoredPrompt, setRestoredPrompt] = useState<{
@@ -596,6 +603,16 @@ export default function PromptPopover({
     ],
   );
 
+  const handleBeforeSubmit = useCallback(async () => {
+    if (!onBeforeSubmit) return true;
+    setCheckingProvider(true);
+    try {
+      return await onBeforeSubmit();
+    } finally {
+      setCheckingProvider(false);
+    }
+  }, [onBeforeSubmit]);
+
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
   const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
   if (open) {
@@ -635,6 +652,46 @@ export default function PromptPopover({
   const showCreativeContextPicker =
     Boolean(onCreativeContextChange) &&
     (creativeContextsLoading || creativeContexts.length > 0);
+  const Composer = composerComponent ?? LazyPromptComposer;
+  const promptComposer = (
+    <Composer
+      key={
+        inline ? orgScopedDraftScope : (placeholder ?? t("home.describeBuild"))
+      }
+      autoFocus
+      attachmentsEnabled
+      attachmentAdapter={attachmentAdapter}
+      inlineTextAttachments={false}
+      maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
+      disabled={disabled || loading || submitting}
+      submissionDisabled={submissionDisabled}
+      submitting={submitting || checkingProvider}
+      layoutVariant={inline ? "hero" : undefined}
+      className={inline ? "design-home-prompt-composer-area" : undefined}
+      composerRef={composerRef}
+      ariaLabel={placeholder ?? t("home.describeBuild")}
+      showModelSelector={showModelSelector}
+      modelStatusChecksEnabled={modelStatusChecksEnabled}
+      placeholder={placeholder ?? t("home.describeBuild")}
+      onSubmit={handleSubmit}
+      onBeforeSubmit={handleBeforeSubmit}
+      onTextChange={(text) => {
+        draftTextRef.current = text;
+      }}
+      contextItems={contextItems}
+      onRemoveContextItem={onRemoveContextItem}
+      onRetryContextItem={onRetryContextItem}
+      onAttachmentsChange={handleAttachmentsChange}
+      draftScope={orgScopedDraftScope}
+      initialText={activeRestoredPrompt?.text ?? initialText}
+      initialTextKey={
+        activeRestoredPrompt
+          ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
+          : `seed:${initialTextKey ?? 0}`
+      }
+      contextMenuItems={contextMenuItems ?? []}
+    />
+  );
 
   const content = (
     <>
@@ -738,45 +795,7 @@ export default function PromptPopover({
               </div>
             }
           >
-            <LazyPromptComposer
-              key={
-                inline
-                  ? orgScopedDraftScope
-                  : (placeholder ?? t("home.describeBuild"))
-              }
-              autoFocus
-              attachmentsEnabled
-              attachmentAdapter={attachmentAdapter}
-              inlineTextAttachments={false}
-              maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-              disabled={disabled || loading || submitting}
-              submissionDisabled={submissionDisabled}
-              layoutVariant={inline ? "hero" : undefined}
-              className={
-                inline ? "design-home-prompt-composer-area" : undefined
-              }
-              composerRef={composerRef}
-              ariaLabel={placeholder ?? t("home.describeBuild")}
-              showModelSelector={showModelSelector}
-              modelStatusChecksEnabled={modelStatusChecksEnabled}
-              placeholder={placeholder ?? t("home.describeBuild")}
-              onSubmit={handleSubmit}
-              onTextChange={(text) => {
-                draftTextRef.current = text;
-              }}
-              contextItems={contextItems}
-              onRemoveContextItem={onRemoveContextItem}
-              onRetryContextItem={onRetryContextItem}
-              onAttachmentsChange={handleAttachmentsChange}
-              draftScope={orgScopedDraftScope}
-              initialText={activeRestoredPrompt?.text ?? initialText}
-              initialTextKey={
-                activeRestoredPrompt
-                  ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
-                  : `seed:${initialTextKey ?? 0}`
-              }
-              contextMenuItems={contextMenuItems ?? []}
-            />
+            {promptComposer}
           </Suspense>
         </LazyChunkErrorBoundary>
       </div>
@@ -816,7 +835,7 @@ export default function PromptPopover({
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="size-9 shrink-0"
+                        className="shrink-0"
                         onClick={() => {
                           trackEvent("design_system_creator_opened", {
                             app_name: "design",
@@ -852,7 +871,7 @@ export default function PromptPopover({
                       if (!nextOpen) markNestedSelectJustClosed();
                     }}
                   >
-                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                    <SelectTrigger className="min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
                       <IconBrain className="size-4 shrink-0 text-muted-foreground" />
                       <span
                         className="min-w-0 flex-1 truncate text-start"

@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "顧客フィードバック調査を作成",
     suggestionSubmissions: "日別の送信を表示",
     suggestionExport: "回答を CSV にエクスポート",
+    topSignal: "主な傾向",
+    draftFollowUp: "追加質問を下書き",
   },
   sidebar: {
     collapseSidebar: "サイドバーを折りたたむ",

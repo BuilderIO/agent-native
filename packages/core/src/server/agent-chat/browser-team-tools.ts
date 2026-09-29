@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 
+import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+  normalizeAgentTeamProgressResult,
+} from "../../action-ui.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
-  buildMergedConfig,
   setBuiltinMcpCapabilityEnabled,
   type BuiltinMcpCapabilityId,
 } from "../../mcp-client/index.js";
@@ -14,9 +17,76 @@ import {
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
 import { getRequestUserEmail } from "../request-context.js";
-import { getGlobalMcpManager } from "./mcp-glue.js";
+import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
+const MAX_AGENT_TEAM_PROGRESS_TASKS = 3;
+
+type AgentTeamDispatchStateReader = (
+  taskId: string,
+) => Promise<{ status: string } | null>;
+
+async function agentTeamTaskStatus(
+  taskId: string,
+  status: string,
+  readDispatchState?: Promise<AgentTeamDispatchStateReader>,
+): Promise<string> {
+  if (status !== "running") return status;
+  const readState = readDispatchState
+    ? await readDispatchState
+    : (await import("../agent-teams-run-queue.js"))
+        .getAgentTeamRunDispatchState;
+  const dispatch = await readState(taskId);
+  if (dispatch?.status === "queued") return "queued";
+  return status;
+}
+
+function projectAgentTeamProgressResult(
+  value: unknown,
+): ReturnType<typeof normalizeAgentTeamProgressResult> {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      // coercion-ok: malformed JSON leaves the ordinary tool row intact.
+      return null;
+    }
+  }
+
+  const values = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>).tasks
+      : null;
+  if (
+    !Array.isArray(values) ||
+    values.length <= MAX_AGENT_TEAM_PROGRESS_TASKS
+  ) {
+    return normalizeAgentTeamProgressResult(value);
+  }
+
+  const visible = values.slice(0, MAX_AGENT_TEAM_PROGRESS_TASKS);
+  const last = visible[MAX_AGENT_TEAM_PROGRESS_TASKS - 1];
+  if (last && typeof last === "object" && !Array.isArray(last)) {
+    const record = last as Record<string, unknown>;
+    const detail = [
+      record.detail,
+      record.currentStep,
+      record.preview,
+      record.summary,
+    ].find((candidate) => typeof candidate === "string");
+    const overflow = `… +${values.length - MAX_AGENT_TEAM_PROGRESS_TASKS}`;
+    const detailText = typeof detail === "string" ? detail.trim() : "";
+    const separator = detailText ? " · " : "";
+    visible[visible.length - 1] = {
+      ...record,
+      detail: `${detailText.slice(0, 240 - separator.length - overflow.length)}${separator}${overflow}`,
+    };
+  }
+
+  return normalizeAgentTeamProgressResult(visible);
+}
 
 interface ExtensionPromotionArtifact {
   id: string;
@@ -106,10 +176,7 @@ export function createBuilderBrowserTool(deps: {
       id,
       enabled,
     );
-    const manager = getGlobalMcpManager();
-    if (manager) {
-      await manager.reconfigure(await buildMergedConfig());
-    }
+    await getMcpManagerForCurrentRequest(true);
     return { ok: true, enabledIds: enabledIds ?? [] };
   };
 
@@ -374,13 +441,7 @@ export function createBuilderBrowserTool(deps: {
           });
         }
 
-        const manager = getGlobalMcpManager();
-        if (!manager) {
-          return JSON.stringify({
-            error: "no-mcp-manager",
-            message: "MCP manager is not available.",
-          });
-        }
+        const manager = await getMcpManagerForCurrentRequest();
 
         const currentConfig = manager.getConfig();
         const servers = { ...(currentConfig?.servers ?? {}) };
@@ -479,6 +540,15 @@ export function createTeamTools(deps: {
           required: ["action"],
         },
       },
+      chatUI: {
+        renderer: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+        // Spawn keeps the live task card with stop and thread controls.
+        when: (args, result) =>
+          ["status", "list"].includes(String(args.action)) &&
+          projectAgentTeamProgressResult(result) !== null,
+        projectResult: (_args, result) =>
+          projectAgentTeamProgressResult(result),
+      },
       planMode: {
         effect: (args) =>
           args.action === "status" ||
@@ -545,7 +615,7 @@ export function createTeamTools(deps: {
             taskId: task.taskId,
             threadId: task.threadId,
             runId: task.runId,
-            status: task.status,
+            status: await agentTeamTaskStatus(task.taskId, task.status),
             parentThreadId: task.parentThreadId,
             state: "launched_pending_completion",
             message:
@@ -564,7 +634,7 @@ export function createTeamTools(deps: {
             taskId: task.taskId,
             threadId: task.threadId,
             parentThreadId: task.parentThreadId,
-            status: task.status,
+            status: await agentTeamTaskStatus(task.taskId, task.status),
             description: task.description,
             name: task.name,
             preview: task.preview,
@@ -581,7 +651,7 @@ export function createTeamTools(deps: {
           if (!task) return JSON.stringify({ error: "Task not found" });
           if (task.status === "running") {
             return JSON.stringify({
-              status: "running",
+              status: await agentTeamTaskStatus(task.taskId, task.status),
               taskId: task.taskId,
               threadId: task.threadId,
               parentThreadId: task.parentThreadId,
@@ -616,8 +686,29 @@ export function createTeamTools(deps: {
           if (tasks.length === 0) {
             return "No background tasks.";
           }
+          const readDispatchState = tasks.some(
+            (task) => task.status === "running",
+          )
+            ? import("../agent-teams-run-queue.js").then(
+                (module) => module.getAgentTeamRunDispatchState,
+              )
+            : undefined;
+          const visibleTasks = await Promise.all(
+            tasks.map(async (task, index) =>
+              index < MAX_AGENT_TEAM_PROGRESS_TASKS
+                ? {
+                    ...task,
+                    status: await agentTeamTaskStatus(
+                      task.taskId,
+                      task.status,
+                      readDispatchState,
+                    ),
+                  }
+                : task,
+            ),
+          );
           return JSON.stringify(
-            tasks.map((t) => ({
+            visibleTasks.map((t) => ({
               taskId: t.taskId,
               threadId: t.threadId,
               parentThreadId: t.parentThreadId,

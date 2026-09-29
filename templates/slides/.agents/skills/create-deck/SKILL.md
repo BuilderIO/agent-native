@@ -17,23 +17,25 @@ Context, reference deck, or source material that the app already provides.
 1. Read the `creative-context` skill and retrieve factual evidence separately
    from presentation structure. Respect `contextMode: "off"`.
 2. Unless the user named a reference deck or design system, call
-   `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
+   `get-workspace-defaults` once and use the available reference and design
+   system defaults. Call `get-design-system` once for the selected system and
+   reuse its context. `create-deck` also resolves and attaches the effective
+   default; use its returned context for later edits.
 3. Plan the slides and write a compact deck brief: audience, thesis, one message
    per slide, visual direction, and the deck-level theme contract.
-4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
-   title derived from the user's request and source material. The action opens
-   the new empty deck through application state. Never use `Untitled Deck` or
-   another placeholder title for a generated deck.
-5. If the connected browser does not consume the navigation command, call
+4. For a short, fully planned deck, call `create-deck` once with every slide
+   in order. Include speaker notes and per-slide Creative Context reuse labels
+   in the payload. Never create an empty deck and then add a finished short
+   deck one slide at a time.
+5. For long or live in-app generation, call `create-deck` with `slides: []`,
+   then add slides sequentially as they are authored so each write preserves
+   its per-slide Creative Context provenance. Wait for each result; after the
+   first slide, read that slide once to verify the visual contract.
+6. If the connected browser does not consume the navigation command, call
    `navigate` with the new deck id.
-6. Add every generated slide with `add-slide` in slide order, waiting for each
-   result so each slide preserves its per-slide Creative Context provenance.
-   After the first slide, read it back with `get-deck` using its returned
-   `slideId` and `compact=false` to verify the visual contract before
-   continuing.
 
 When speaker notes are requested, put presenter-only text in each slide's
-`notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
+   `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
 Preserve existing notes when editing or importing a source deck.
 
 When the UI has already created the empty deck, keep its id and rename it before
@@ -85,14 +87,15 @@ When creative context is available, pass the pre-generation search result's
 Do not omit these fields and let the final write action search after the HTML
 has already been authored; that would fabricate influence. With an empty
 library, omit them. With Library mode Off, omit them and create normally.
-   before adding the next slide
 
 Do not create multiple independent writes in parallel for the same deck. Do not
 spawn sub-agents to write into the same deck at the same time. Every newly
-generated slide must use `add-slide`; reserve `patch-deck` for deck fields,
-existing-slide edits, ordering, or source-preserving work. Sub-agents may
-research or draft slide copy, but one writer owns every deck mutation so the
-editor stays stable and the user can watch progress.
+generated slide in a short, completed deck belongs in the initial `create-deck`
+slides array. Use sequential `add-slide` writes only while a long deck is being
+authored live. Reserve `patch-deck` for deck fields, existing-slide edits,
+ordering, or source-preserving work. Sub-agents may research or draft slide
+copy, but one writer owns every deck mutation so the editor stays stable and the
+user can watch progress.
 
 ## Reference Decks
 
@@ -149,9 +152,9 @@ document, reference deck, or design system is present.
 ## Workspace Defaults
 
 A workspace admin can flag one deck and one design system as the workspace
-default, so a bare "make a deck about X" still comes out on brand. When the user
-did not name a reference deck or design system, call `get-workspace-defaults`
-before planning slides.
+default. Use `get-workspace-defaults` once when needed to identify a workspace
+reference deck or design system; `create-deck` also applies the effective design
+system default when no override is passed.
 
 - `referenceDeck` — call `get-deck-reference-context --id <id>` and treat the
   result exactly like a user-picked reference deck.
@@ -183,7 +186,7 @@ not consume it, navigate explicitly:
 pnpm action navigate --deckId=<id from create-deck output>
 ```
 
-Then add slides one by one:
+For long or live generation, then add slides one by one:
 
 ```bash
 pnpm action add-slide --deckId=<id> --layout title --content "..."
@@ -250,7 +253,14 @@ aspect-ratio dimensions and make one batched review pass. Check hierarchy and
 source fidelity, overflow or clipping, contrast, minimum readable text,
 placeholder remnants, broken or missing images, asset fit, and preserved
 `data-slide-object-id` values. Fix the findings in one correction pass and
-recheck. Do not claim full-deck or pixel-perfect fidelity unless the whole deck
+recheck. After all slide writes, call `get-layout-overflows` once; after a
+measured-overflow repair, call it once more. If status is unknown, name the
+unmeasured slide numbers and IDs, do not claim the deck fits, and do not repeat
+the call this turn unless the editor has produced a new measurement. Then, as
+the last step before the final response, call
+`audit-contrast` for the deck and follow the Contrast section of
+`slide-editing`; never judge contrast by eye or from hex values. Do not claim
+full-deck or pixel-perfect fidelity unless the whole deck
 was rendered and compared.
 
 ## Ready-to-Use Templates
@@ -300,12 +310,12 @@ and can later be replaced with a generated image:
 <div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius);">[Description of what image should show]</div>
 ```
 
-## Bulk Replacement Only
+## Batch and incremental generation
 
-Use a non-empty `create-deck --slides '[...]'` payload only for imports or an
-intentional atomic bulk replacement. For normal AI-generated decks, use the
-empty-deck workflow above: sequential `add-slide` calls for every generated
-slide.
+Use a non-empty `create-deck --slides '[...]'` payload for a short, fully
+planned generated deck, imports, or an intentional atomic bulk replacement.
+For long or live in-app generation, use the empty-deck workflow above and add
+each completed slide sequentially.
 
 For a bulk replacement, pass the same fully styled HTML templates in the
 `slides` array. After creating, navigate to the deck:

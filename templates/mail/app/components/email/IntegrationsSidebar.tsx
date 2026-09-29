@@ -742,6 +742,7 @@ function ApolloSection({ email }: { email: string }) {
       <div className="px-4 pt-4 pb-3 flex items-start gap-3">
         {shouldLoadRemotePhoto ? (
           <img
+            data-an-block
             src={person.photo_url}
             alt=""
             className="h-9 w-9 rounded-full object-cover shrink-0 mt-0.5"
@@ -781,6 +782,7 @@ function ApolloSection({ email }: { email: string }) {
             <div className="flex items-center gap-2 mb-1.5">
               {shouldLoadRemoteLogo ? (
                 <img
+                  data-an-block
                   src={person.organization.logo_url}
                   alt=""
                   className="h-4 w-4 rounded object-contain shrink-0"

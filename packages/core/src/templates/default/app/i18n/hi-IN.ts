@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "डिस्कनेक्ट हो रहा है…",
   },
   settings: {
-    title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह प्राथमिकता आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     agentTitle: "एजेंट सेटिंग्स",
     agentDescription:
       "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "टीम पहुंच और साझा कार्यक्षेत्र संसाधनों को प्रबंधित करें।",
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
-    backHome: "होम पर वापस जाएं",
     emailChange: "ईमेल बदलें",
     emailChangeSent: "इस बदलाव की पुष्टि करने के लिए अपना ईमेल देखें।",
     emailChangeError: "पुष्टिकरण नहीं भेजा जा सका।",
@@ -217,6 +211,9 @@ const messages = {
       noErrorMessage: "(कोई त्रुटि संदेश नहीं)",
     },
   },
+  settingsShortcut: {
+    command: "सेटिंग्स",
+  },
   agentPanel: {
     useBuilder: "बिल्डर का प्रयोग करें",
     openDesktopToEditCode: "कोड संपादित करने के लिए डेस्कटॉप खोलें",
@@ -232,6 +229,7 @@ const messages = {
     newChat: "नई चैट",
     newTerminal: "नया टर्मिनल",
     panelOptions: "एजेंट पैनल विकल्प",
+    integrations: "इंटीग्रेशन",
     collapseSidebar: "साइडबार समेटें",
     widenChat: "चैट को चौड़ा करें",
     returnChatToLayout: "चैट को लेआउट में वापस लाएँ",
@@ -257,6 +255,8 @@ const messages = {
     sharedKeyInEffect: "साझा कुंजी उपयोग में है।",
     useOrganizationKey: "संगठन की कुंजी इस्तेमाल करें",
     keyStatusUnavailable: "कुंजी की स्थिति उपलब्ध नहीं है।",
+    saveScopeRoleUnavailable:
+      "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -637,6 +637,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "सूची पर वापस जाएँ",
+    promoteMustContain: "जवाब में यह होना चाहिए…",
+    promoteMustContainOptional: "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
+    promoteMustContainLabel: "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+    promoteNeedsContains:
+      "इस रन में कोई सफल टूल कॉल नहीं है। eval में प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
     spans: "Spans",
     type: "प्रकार",
     name: "नाम",

@@ -20,6 +20,9 @@ const messages = {
     slidePosition: "Folie {{current}} von {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["de-DE"],
+  common: {
+    loading: "Wird geladen...",
+  },
   root: {
     commandPresentations: "Präsentationen",
     searchDecks: "Decks suchen",
@@ -41,24 +44,22 @@ const messages = {
     brand: "Folien",
     decks: "Decks",
     designSystems: "Designsysteme",
-    team: "Team",
   },
   settings: {
     agentObservability: "Agentenbeobachtbarkeit",
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
     labs: "Labs",
     labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
     labLayoutOverflowWarningDescription:
       "Die Layout-Überlaufwarnung im Editor anzeigen.",
-    emailNotifications: "E-Mail-Benachrichtigungen",
-    emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
     saveFailed: "Speichern fehlgeschlagen",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
+    notificationsEmail: "E-Mail",
+    commentsAndReplies: "Kommentare und Antworten",
+    commentsAndRepliesDescription:
+      "Wenn jemand dein Deck kommentiert oder darin antwortet.",
+    retry: "Erneut versuchen",
+    mcpAbout:
+      "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -189,8 +190,6 @@ const messages = {
     slideUnavailable: "Folie nicht verfügbar",
     couldNotLoadSlide: "Folie konnte nicht geladen werden.",
     openInApp: "In App öffnen",
-    teamDescription:
-      "Richte ein Team ein, um Präsentationen mit Kolleginnen und Kollegen zu teilen.",
   },
 
   designSystems: {
@@ -590,6 +589,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Gespeichert" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -657,6 +657,22 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Fehler 403",
+    noAccessTitle: "Du hast keinen Zugriff",
+    noAccessDescription:
+      "Bitte die Person, der das Deck gehört, um Zugriff, oder wechsle zum richtigen Konto.",
+    noteLabel: "Notiz für die Eigentümerin oder den Eigentümer (optional)",
+    notePlaceholder: "Ich prüfe dieses Deck",
+    requesting: "Wird angefragt",
+    requestFailed:
+      "Deine Anfrage wurde nicht gesendet. Bitte versuche es erneut.",
+    requestSentDescription:
+      "Wir schicken dir eine E-Mail, sobald die Person, der das Deck gehört, deine Anfrage genehmigt.",
+    goHome: "Zur Startseite",
+    signedInAs: "Angemeldet als",
+    switchAccount: "Konto wechseln",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -705,6 +721,10 @@ const messages = {
     accessApprovalTitle: "Zugriff gewährt",
     accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
     accessApprovalMessage: "{{email}} kann dieses Deck jetzt öffnen.",
+    accessApprovalRequesterEmailed:
+      "Wir haben die Person per E-Mail benachrichtigt.",
+    accessApprovalRequesterEmailFailed:
+      "Wir konnten {{email}} keine E-Mail senden. Gib Bescheid, dass das Deck jetzt geöffnet werden kann.",
     accessApprovalAlreadyMessage:
       "{{email}} hat bereits Zugriff auf dieses Deck.",
     accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",
@@ -848,6 +868,8 @@ const messages = {
       networkFailed:
         "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      unsupportedFileType:
+        "Dieser Dateityp wird nicht unterstützt. Wähle eine unterstützte Datei aus.",
       uploadLimitExceeded:
         "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
@@ -889,6 +911,8 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      websiteReadFailed:
+        "Diese Website konnte nicht automatisch gelesen werden. Kopieren Sie stattdessen den relevanten Text und fügen Sie ihn ein.",
       figmaReadFailed:
         "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
@@ -1047,6 +1071,11 @@ const messages = {
     createFirstDeck: "Erstelle dein erstes Deck",
     emptyDescription:
       "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
   },
 };
 

@@ -166,14 +166,10 @@ export default {
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
     openAgentSettings: "Gestionar agente",
-    languageTitle: "Idioma",
-    languageDescription: "Elige el idioma de la interfaz de Design.",
-    languageLabel: "Idioma de la interfaz",
-    labs: "Labs",
-    labsIntro:
-      "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
     labTweaks: "Ajustes de diseño",
     labTweaksDescription: "Prueba los ajustes de diseño con IA.",
+    mcpAbout:
+      "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },
   pages: {
     presentEmpty: "No hay contenido para presentar",
@@ -182,8 +178,6 @@ export default {
     notFoundDescription: "La página que buscas no existe.",
     notFoundSignIn: "Iniciar sesión",
     notFoundBackToDesigns: "Volver a diseños",
-    teamCreateOrgDescription:
-      "Configura un equipo para compartir diseños con tus compañeros.",
   },
   onboarding: {
     fileStorage: {
@@ -226,6 +220,7 @@ export default {
     },
   },
   common: {
+    loading: "Cargando...",
     genericError: "algo salió mal",
   },
   editPanel: {
@@ -323,6 +318,8 @@ export default {
       bottomLeft: "II",
       bottomRight: "ID",
       blend: "Mezcla",
+      blendMode: "Modo de fusión",
+      removeBlendMode: "Quitar modo de fusión",
       border: "Borde",
       outline: "Contorno",
       inside: "Interior",
@@ -1488,6 +1485,13 @@ export default {
         "El puente del editor en vivo no confirmó la conexión tras varios intentos.",
       connectionNotConfirmed:
         "El puente del editor en vivo no confirmó la conexión. ¿Sigue ejecutándose el servidor de desarrollo local?",
+      permissionPromptTitle: "Conecta tus pantallas locales",
+      permissionPromptDescription:
+        "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
+      permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
+      permissionPromptSettingsInstructions:
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y permite el acceso a las aplicaciones de tu dispositivo.",
+      permissionPromptRetry: "Reintentar conexión",
     },
   },
   multiScreenCanvas: {

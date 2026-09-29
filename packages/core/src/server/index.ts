@@ -271,9 +271,9 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
 export {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -631,6 +631,49 @@ export {
   type ResolvedSecretDetail,
 } from "./credential-provider.js";
 export {
+  GEMINI_API_KEY,
+  LEGACY_GEMINI_API_KEY,
+  canonicalSecretKey,
+  readGeminiDeployCredentialEnv,
+  resolveGeminiApiKey,
+  resolveGeminiApiKeyDetailed,
+  resolveSecretWithAliases,
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+  type ResolvedAliasedSecret,
+} from "./secret-key-aliases.js";
+export {
+  SERVICE_IDS,
+  SERVICE_PROVIDERS_SETTING_KEY,
+  SERVICE_PROVIDER_KEYS,
+  SERVICE_PROVIDER_OPTIONS,
+  isServiceProviderOption,
+  readServiceProviderChoice,
+  readServiceProviderSettings,
+  serviceProviderOrder,
+  writeServiceProviderChoice,
+  type ServiceId,
+  type ServiceProviderChoices,
+  type ServiceProviderId,
+  type ServiceProviderSettings,
+} from "./service-providers.js";
+export {
+  getInfrastructureStatus,
+  type InfrastructureApp,
+  type InfrastructureDatabase,
+  type InfrastructureDatabaseProvider,
+  type InfrastructureHosting,
+  type InfrastructureSetupTag,
+  type InfrastructureSetupTags,
+  type InfrastructureStatus,
+  type InfrastructureVariable,
+  type InfrastructureVariableKey,
+} from "./infrastructure-status.js";
+export {
+  resolveDeployPlatform,
+  type DeployPlatform,
+} from "./deploy-environment.js";
+export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
@@ -738,9 +781,19 @@ export {
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,
+  renderTransactionalEmailPreviewAsync,
   type TransactionalEmailDefinition,
   type RegisteredTransactionalEmail,
 } from "../email-catalog/registry.js";
+export {
+  overrideTransactionalEmail,
+  removeTransactionalEmailOverride,
+  type CoreTransactionalEmailArgs,
+  type CoreTransactionalEmailId,
+  type CoreTransactionalEmailProps,
+  type TransactionalEmailOverride,
+  type TransactionalEmailOverrideResult,
+} from "../email-catalog/templates.js";
 export {
   notifyActivity,
   runActivityNotification,
@@ -754,7 +807,10 @@ export {
 export {
   renderEmail,
   emailStrong,
+  emailQuote,
   emailLink,
+  escapeEmailHtml,
+  type EmailTemplateApp,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,
@@ -763,6 +819,7 @@ export {
   hasRecurringSweepHandler,
   registerRecurringSweepHandler,
   runRecurringSweepHandlers,
+  type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
 export {

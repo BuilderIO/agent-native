@@ -1750,6 +1750,80 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 
+  it("reports progress when the durable run row is actually missing", async () => {
+    const provider = vi.fn(() => "evt_run_progress_missing_row");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-progress-missing-row-test",
+      provider,
+    );
+    vi.mocked(bumpRunProgress).mockResolvedValue(false);
+    vi.mocked(getRunStatus).mockResolvedValue(null);
+
+    try {
+      const run = startRun(
+        "run-progress-missing-row",
+        "thread-progress-missing-row",
+        async (send, signal) => {
+          send({ type: "tool_input_delta", text: "{" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message: "Durable progress update affected no running run row",
+          }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "progress",
+              kind: "no-row",
+            }),
+          }),
+        ),
+      );
+      expect(abortRun("run-progress-missing-row")).toBe(true);
+      await vi.waitFor(() => expect(run.status).toBe("aborted"));
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not report progress writes after another worker terminalizes the run", async () => {
+    const provider = vi.fn(() => "evt_run_progress_terminal_race");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-progress-terminal-race-test",
+      provider,
+    );
+    vi.mocked(bumpRunProgress).mockResolvedValue(false);
+    vi.mocked(getRunStatus).mockResolvedValue("completed");
+
+    try {
+      const run = startRun(
+        "run-progress-terminal-race",
+        "thread-progress-terminal-race",
+        async (send, signal) => {
+          send({ type: "tool_input_delta", text: "{" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(run.status).toBe("aborted"));
+      expect(provider).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
   it("surfaces and retries a failed durable progress write", async () => {
     const provider = vi.fn(() => "evt_run_progress");
     const unregister = registerErrorCaptureProvider(
@@ -3709,6 +3783,82 @@ describe("run manager soft timeout", () => {
       terminalReason: "done",
     });
     abortRun(run.runId, "test");
+  });
+
+  it("prefers a terminal in-memory run while its SQL status write is pending", async () => {
+    const run = startRun(
+      "run-sql-status-pending",
+      "thread-sql-status-pending",
+      async () => {},
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-sql-status-pending",
+      threadId: "thread-sql-status-pending",
+      status: "running",
+      startedAt: run.startedAt,
+      heartbeatAt: run.startedAt,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: null,
+      terminalReason: null,
+      diagStage: null,
+    });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-sql-status-pending",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-sql-status-pending",
+      status: "completed",
+    });
+  });
+
+  it("finds a newer continuation when the previous run still looks running in SQL", async () => {
+    const run = startRun(
+      "run-stale-sql-with-successor",
+      "thread-stale-sql-with-successor",
+      async () => {},
+      undefined,
+      { turnId: "turn-stale-sql-with-successor" },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-stale-sql-with-successor",
+        threadId: "thread-stale-sql-with-successor",
+        turnId: "turn-stale-sql-with-successor",
+        status: "running",
+        startedAt: run.startedAt,
+        heartbeatAt: run.startedAt,
+        completedAt: null,
+        lastProgressAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: "run-continuation-successor",
+        threadId: "thread-stale-sql-with-successor",
+        turnId: "turn-stale-sql-with-successor",
+        status: "running",
+        startedAt: run.startedAt + 1,
+        heartbeatAt: run.startedAt + 1,
+        completedAt: null,
+        lastProgressAt: run.startedAt + 1,
+      });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-stale-sql-with-successor",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-continuation-successor",
+      status: "running",
+      turnId: "turn-stale-sql-with-successor",
+    });
   });
 
   it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {

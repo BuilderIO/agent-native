@@ -58,6 +58,7 @@ import {
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import {
   executeIdentityRekey,
   rekeyIdentity,
@@ -81,6 +82,7 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -100,17 +102,10 @@ import {
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
-  isExplicitLocalDeployEnvironment,
-  resolveDeployEnvironment,
-} from "./deploy-environment.js";
+  getMissingAuthSecretKey,
+  MissingAuthSecretError,
+} from "./deploy-settings.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import {
-  renderChangeEmailConfirmationEmail,
-  renderChangeEmailVerificationEmail,
-  renderMagicLinkEmail,
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
@@ -124,6 +119,7 @@ import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
+import { isBuilderPreviewHttpsEnvironment } from "./https-request.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
@@ -135,6 +131,7 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
 
 function identityRekeyDbFromExec(
   exec: Awaited<ReturnType<typeof getDbExec>>,
@@ -162,6 +159,7 @@ export async function resumeIdentityRekeysForEmail(
     email,
     {
       ensureLedger: false,
+      cacheIdle: true,
     },
   );
 }
@@ -545,19 +543,14 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
 
-  const deployEnvironment = resolveDeployEnvironment();
-  const explicitlyLocal = isExplicitLocalDeployEnvironment();
-
   // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
   // signed session cookie on the next cold start (serverless filesystems
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
-  // so the deployer notices.
-  if (
-    deployEnvironment !== "local" ||
-    (process.env.NODE_ENV === "production" && !explicitlyLocal)
-  ) {
+  // so the deployer notices. The setup page that replaces sign-in reports the
+  // same decision through getMissingDeploySettings(), so keep it the only one.
+  if (getMissingAuthSecretKey() !== null) {
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -567,7 +560,7 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
         appName: process.env.APP_NAME,
       },
     );
-    throw new Error(formatRuntimeConfigReport(report));
+    throw new MissingAuthSecretError(formatRuntimeConfigReport(report));
   }
 
   const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));
@@ -2012,6 +2005,11 @@ async function createBetterAuthInstance(
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
     };
   }
+  recordActiveSocialSignInProviders(
+    Object.entries(socialProviders)
+      .filter(([, provider]) => Boolean(provider))
+      .map(([id]) => id),
+  );
 
   const database = await buildDatabaseConfig();
 
@@ -2034,7 +2032,10 @@ async function createBetterAuthInstance(
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
-    const { sso } = await import("@better-auth/sso");
+    const { sso } = await loadOptionalPeer(
+      "@better-auth/sso",
+      () => import("@better-auth/sso"),
+    );
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
@@ -2071,7 +2072,10 @@ async function createBetterAuthInstance(
     );
   }
   if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
-    const { scim } = await import("@better-auth/scim");
+    const { scim } = await loadOptionalPeer(
+      "@better-auth/scim",
+      () => import("@better-auth/scim"),
+    );
     // Better Auth intentionally requires a separate 32-character HMAC secret
     // for managed SCIM credentials. Falling back to the deployment auth secret
     // keeps the opt-in feature usable for existing deployments while allowing
@@ -2133,10 +2137,13 @@ async function createBetterAuthInstance(
         });
       }
       const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
-      const { subject, html, text, appSender } = renderMagicLinkEmail({
-        email,
-        magicLinkUrl: deliveredMagicLinkUrl,
-      });
+      const { subject, html, text, appSender } = await renderTransactionalEmail(
+        CORE_MAGIC_LINK_EMAIL_ID,
+        {
+          email,
+          magicLinkUrl: deliveredMagicLinkUrl,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
@@ -2172,10 +2179,11 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}${publicFrameworkPath("/_agent-native/auth/reset")}?token=${encodeURIComponent(token)}`;
-        const { subject, html, text, appSender } = renderResetPasswordEmail({
-          email: user.email,
-          resetUrl,
-        });
+        const { subject, html, text, appSender } =
+          await renderTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, {
+            email: user.email,
+            resetUrl,
+          });
         await sendEmail({
           to: user.email,
           subject,
@@ -2209,9 +2217,12 @@ async function createBetterAuthInstance(
             emailChange.oldEmail,
             emailChange.newEmail,
           );
-        const renderedEmail = emailChange
-          ? renderChangeEmailVerificationEmail({ email: user.email, verifyUrl })
-          : renderVerifySignupEmail({ email: user.email, verifyUrl });
+        const renderedEmail = await renderTransactionalEmail(
+          emailChange
+            ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+            : CORE_VERIFY_SIGNUP_EMAIL_ID,
+          { email: user.email, verifyUrl },
+        );
         await sendEmail({
           to: user.email,
           ...renderedEmail,
@@ -2258,11 +2269,10 @@ async function createBetterAuthInstance(
           const confirmationUrl = confirmationBasePath
             ? url.replace(/(\/\/[^/]+)(\/)/, `$1${confirmationBasePath}$2`)
             : url;
-          const renderedEmail = renderChangeEmailConfirmationEmail({
-            email: user.email,
-            newEmail,
-            confirmationUrl,
-          });
+          const renderedEmail = await renderTransactionalEmail(
+            CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            { email: user.email, newEmail, confirmationUrl },
+          );
           await sendEmail({
             to: user.email,
             ...renderedEmail,
@@ -2478,7 +2488,7 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
-      ...(appUrl.startsWith("https://")
+      ...(appUrl.startsWith("https://") || isBuilderPreviewHttpsEnvironment()
         ? {
             defaultCookieAttributes: {
               sameSite: "none" as const,

@@ -166,14 +166,10 @@ export default {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     openAgentSettings: "Gerenciar agente",
-    languageTitle: "Idioma",
-    languageDescription: "Escolha o idioma da interface do Design.",
-    languageLabel: "Idioma da interface",
-    labs: "Labs",
-    labsIntro:
-      "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
+    mcpAbout:
+      "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
   pages: {
     presentEmpty: "Nenhum conteúdo para apresentar",
@@ -182,8 +178,6 @@ export default {
     notFoundDescription: "A página que você procura não existe.",
     notFoundSignIn: "Entrar",
     notFoundBackToDesigns: "Voltar aos designs",
-    teamCreateOrgDescription:
-      "Configure uma equipe para compartilhar designs com seus colegas.",
   },
   onboarding: {
     fileStorage: {
@@ -227,6 +221,7 @@ export default {
     },
   },
   common: {
+    loading: "Carregando...",
     genericError: "Algo deu errado",
   },
   editPanel: {
@@ -324,6 +319,8 @@ export default {
       bottomLeft: "IE",
       bottomRight: "ID",
       blend: "Mistura",
+      blendMode: "Modo de mesclagem",
+      removeBlendMode: "Remover modo de mesclagem",
       border: "Borda",
       outline: "Contorno",
       inside: "Dentro",
@@ -1487,6 +1484,13 @@ export default {
         "Mesmo após várias tentativas, a ponte do editor em tempo real não confirmou a conexão.",
       connectionNotConfirmed:
         "A ponte do editor em tempo real não confirmou a conexão. O servidor de desenvolvimento local ainda está em execução?",
+      permissionPromptTitle: "Conecte suas telas locais",
+      permissionPromptDescription:
+        "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
+      permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
+      permissionPromptSettingsInstructions:
+        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e permita o acesso aos apps do seu dispositivo.",
+      permissionPromptRetry: "Tentar conexão novamente",
     },
   },
   multiScreenCanvas: {

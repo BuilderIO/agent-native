@@ -670,6 +670,7 @@ export function RootShell({ mounted }: { mounted: boolean }) {
       <Suspense fallback={fallback}>
         {mounted ? (
           <LazyAgentSidebar
+            screenRefreshEnabled={false}
             storageKey="docs"
             position="right"
             defaultOpen={false}

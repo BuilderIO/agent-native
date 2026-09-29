@@ -1347,6 +1347,193 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
+  if (!entry || typeof entry !== "object") return undefined;
+  if (kind === "widget") {
+    const messageId = entry.messageId;
+    const widgetId = entry.widget?.id;
+    return typeof messageId === "string" && typeof widgetId === "string"
+      ? JSON.stringify([messageId, widgetId])
+      : undefined;
+  }
+  return typeof entry.id === "string" ? entry.id : undefined;
+}
+
+function snapshotMessageRunIds(agentKit: any): Map<string, string> {
+  const runIds = new Map<string, string>();
+  for (const event of Array.isArray(agentKit?.events) ? agentKit.events : []) {
+    if (
+      (event?.type === "message.created" ||
+        event?.type === "message.completed") &&
+      event.message?.role === "assistant" &&
+      typeof event.message.id === "string" &&
+      typeof event.runId === "string"
+    ) {
+      runIds.set(event.message.id, event.runId);
+    }
+  }
+  for (const run of Array.isArray(agentKit?.runs) ? agentKit.runs : []) {
+    if (
+      typeof run?.activeMessageId === "string" &&
+      typeof run.id === "string"
+    ) {
+      runIds.set(run.activeMessageId, run.id);
+    }
+  }
+  return runIds;
+}
+
+function snapshotAssistantTextKey(
+  message: any,
+  runIds: Map<string, string>,
+): string | undefined {
+  const runId =
+    (typeof message?.id === "string" ? runIds.get(message.id) : undefined) ??
+    message?.metadata?.runId ??
+    message?.metadata?.custom?.runId;
+  if (
+    message?.role !== "assistant" ||
+    typeof runId !== "string" ||
+    !Array.isArray(message.parts) ||
+    message.parts.length === 0 ||
+    !message.parts.every(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+  ) {
+    return undefined;
+  }
+  return JSON.stringify([
+    runId,
+    message.parts.map((part: any) => [part.text, part.format ?? null]),
+  ]);
+}
+
+function preferIncomingSnapshotEntry(
+  kind: "message" | "toolCall" | "widget",
+  existing: any,
+  incoming: any,
+): boolean {
+  if (kind === "message") {
+    const rank = (message: any) =>
+      message.status === "complete" ? 2 : message.status === "error" ? 1 : 0;
+    if (rank(existing) !== rank(incoming))
+      return rank(incoming) > rank(existing);
+    const partCount = (message: any) =>
+      Array.isArray(message.parts) ? message.parts.length : 0;
+    if (partCount(existing) !== partCount(incoming)) {
+      return partCount(incoming) > partCount(existing);
+    }
+    const textLength = (message: any) =>
+      (Array.isArray(message.parts) ? message.parts : []).reduce(
+        (total: number, part: any) =>
+          total + (typeof part?.text === "string" ? part.text.length : 0),
+        0,
+      );
+    return textLength(incoming) > textLength(existing);
+  }
+  if (kind === "toolCall") {
+    return existing.status === "running" && incoming.status !== "running";
+  }
+  return (
+    existing.widget?.state === "active" && incoming.widget?.state !== "active"
+  );
+}
+
+function mergeAgentKitHistoryArray(
+  existing: unknown,
+  incoming: unknown,
+  kind: "message" | "toolCall" | "widget",
+  existingMessageRunIds: Map<string, string>,
+  incomingMessageRunIds: Map<string, string>,
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const merged = Array.isArray(existing) ? [...existing] : [];
+  const positions = new Map<string, number>();
+  const assistantTextPositions = new Map<string, number[]>();
+  merged.forEach((entry, index) => {
+    const id = snapshotEntryId(entry, kind);
+    if (id && !positions.has(id)) positions.set(id, index);
+    if (kind === "message") {
+      const key = snapshotAssistantTextKey(entry, existingMessageRunIds);
+      if (key) {
+        assistantTextPositions.set(key, [
+          ...(assistantTextPositions.get(key) ?? []),
+          index,
+        ]);
+      }
+    }
+  });
+  const matchedAssistantTextPositions = new Set<number>();
+  for (const entry of Array.isArray(incoming) ? incoming : []) {
+    const id = snapshotEntryId(entry, kind);
+    const idIndex = id ? positions.get(id) : undefined;
+    const textKey =
+      kind === "message"
+        ? snapshotAssistantTextKey(entry, incomingMessageRunIds)
+        : undefined;
+    const textIndex =
+      idIndex === undefined && textKey
+        ? assistantTextPositions
+            .get(textKey)
+            ?.find((candidate) => !matchedAssistantTextPositions.has(candidate))
+        : undefined;
+    const index = idIndex ?? textIndex;
+    if (index === undefined) {
+      if (id) positions.set(id, merged.length);
+      merged.push(entry);
+    } else {
+      if (kind === "message") matchedAssistantTextPositions.add(index);
+      if (id && idIndex === undefined) positions.set(id, index);
+      const preferIncoming = preferIncomingSnapshotEntry(
+        kind,
+        merged[index],
+        entry,
+      );
+      const preferCurrentMessageId =
+        kind === "message" &&
+        textIndex !== undefined &&
+        !preferIncomingSnapshotEntry(kind, entry, merged[index]);
+      if (preferIncoming || preferCurrentMessageId) {
+        merged[index] = entry;
+      }
+    }
+  }
+  return merged;
+}
+
+function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+  if (
+    !existing ||
+    typeof existing !== "object" ||
+    Array.isArray(existing) ||
+    !incoming ||
+    typeof incoming !== "object" ||
+    Array.isArray(incoming)
+  ) {
+    return incoming ?? existing;
+  }
+  const previous = existing as Record<string, unknown>;
+  const next = incoming as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...previous, ...next };
+  const existingMessageRunIds = snapshotMessageRunIds(previous);
+  const incomingMessageRunIds = snapshotMessageRunIds(next);
+  for (const [key, kind] of [
+    ["messages", "message"],
+    ["toolCalls", "toolCall"],
+    ["widgets", "widget"],
+  ] as const) {
+    const entries = mergeAgentKitHistoryArray(
+      previous[key],
+      next[key],
+      kind,
+      existingMessageRunIds,
+      incomingMessageRunIds,
+    );
+    if (entries) merged[key] = entries;
+  }
+  return merged;
+}
+
 function pruneClaimedQueuedMessages(repo: any): any {
   if (!Array.isArray(repo?.queuedMessages)) return repo;
   const claimed = new Set(claimedQueuedMessageIds(repo));
@@ -1397,6 +1584,13 @@ export function mergeThreadDataForClientSave(
     merged.queuedMessages === undefined
   ) {
     merged.queuedMessages = existingNormalized.queuedMessages;
+  }
+
+  if (merged.agentKit !== undefined) {
+    merged.agentKit = mergeAgentKitHistory(
+      existingNormalized?.agentKit,
+      merged.agentKit,
+    );
   }
 
   const existingMessages = Array.isArray(existingNormalized?.messages)
@@ -1938,8 +2132,14 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
 export function foldAssistantTurn(
   repo: any,
   assistantMsg: AssistantMessage,
-  options: { turnId?: string; runId?: string; parentId?: string | null },
+  options: {
+    turnId?: string;
+    runId?: string;
+    parentId?: string | null;
+    agentKitOwnsContinuation?: boolean;
+  },
 ): any {
+  if (options.agentKitOwnsContinuation) return repo;
   const turnId = options.turnId;
   const runId = options.runId;
   if (!turnId)

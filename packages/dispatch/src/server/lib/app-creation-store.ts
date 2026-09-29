@@ -941,6 +941,7 @@ async function assertWorkspaceAppIdRegisteredFree(
 ): Promise<void> {
   let existing: { id?: unknown }[];
   try {
+    // guard:allow-unscoped — app IDs are a global public namespace; this probe returns only whether the requested ID is taken
     const result = await getDbExec().execute({
       sql: "SELECT id FROM workspace_apps WHERE id = ? LIMIT 1",
       args: [appId],

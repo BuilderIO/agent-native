@@ -8,8 +8,12 @@ import {
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
+import { QueryClientContext } from "@tanstack/react-query";
 import {
+  lazy,
+  Suspense,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -23,13 +27,21 @@ import { appMountPath, appMountedPath } from "../../client/api-path.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import type { LabDefinition } from "../../labs/registry.js";
 import {
-  buildSettingsRoute,
+  buildSettingsEntryRoute,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
+import { legacySettingsTabIdsForPage } from "../../navigation/settings-redirects.js";
 import { useT } from "../i18n.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
-import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { cn } from "../utils.js";
+import { withAppSettingsTabs } from "./app-settings-tabs.js";
+import { SettingsShellSkeleton } from "./shell/SettingsShellSkeleton.js";
+
+const SettingsShell = lazy(() =>
+  import("./shell/SettingsShell.js").then((module) => ({
+    default: module.SettingsShell,
+  })),
+);
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
 
@@ -54,10 +66,66 @@ export interface SettingsTabItem {
   groupLabel?: string;
   keywords?: string;
   searchEntries?: SettingsSearchEntry[];
+  /**
+   * Where the redesigned Settings shell puts this app tab. By default it
+   * becomes its own page in the app's group;
+   * `"app-area"` makes it a tab on the app's General page (`/settings/app/<id>`).
+   * Ignored by today's tabs.
+   */
+  settingsPlacement?: "page" | "app-area";
+  /**
+   * For a core tab whose page the redesigned Settings shell rebuilt: the
+   * template-supplied part of `content` that page still renders, since the
+   * rest of `content` is the old layout it replaces. Ignored by today's tabs.
+   */
+  shellExtraContent?: ReactNode;
+}
+
+/**
+ * One of the app's own areas. The redesigned Settings shows it as a tab on
+ * the app's General page (`/settings/app/<id>`); today's tabs show it as its
+ * own tab.
+ */
+export interface SettingsAppArea {
+  /** Route segment, lowercase and hyphenated: `/settings/app/<id>`. */
+  id: string;
+  label: string;
+  content: ReactNode;
+  /** `false` hides the area, for example while the lab behind it is off. */
+  visible?: boolean;
+  /** Today's tab icon. */
+  icon?: SettingsTabIcon;
+  keywords?: string;
+  /** Row-level search hits. `hash` is the row's `SettingsRow` id. */
+  searchEntries?: SettingsSearchEntry[];
 }
 
 export interface SettingsTabsPageProps {
-  general: ReactNode;
+  /**
+   * The tabbed page's General tab, for surfaces that opt out of the Settings
+   * shell (`redesign={false}`). The shell's app General page shows
+   * `generalGroups` instead when a template passes both.
+   */
+  general?: ReactNode;
+  /**
+   * The app's own groups on its General page in the Settings shell, between
+   * core's Agent and This browser groups. Only the shell renders these: they
+   * may call `useSettingsShell()`, which throws outside it.
+   */
+  generalGroups?: ReactNode;
+  /** The app's own areas, as tabs on its General page (see `SettingsAppArea`). */
+  appAreas?: readonly SettingsAppArea[];
+  /** The app's notification settings. The Notifications page shows only when passed. */
+  notifications?: ReactNode;
+  /** Today's Notifications tab label. */
+  notificationsLabel?: string;
+  /** Row-level search hits on the Notifications page. */
+  notificationsSearchEntries?: SettingsSearchEntry[];
+  /**
+   * The MCP server page's about line, naming what an MCP host can do in this
+   * app. Already translated.
+   */
+  mcpAbout?: string;
   account?: ReactNode;
   team?: ReactNode;
   whatsNew?: ReactNode;
@@ -81,6 +149,19 @@ export interface SettingsTabsPageProps {
   generalSearchEntries?: SettingsSearchEntry[];
   value?: string;
   onValueChange?: (tabId: string) => void;
+  /** The redesigned shell's app group label. Defaults to the template's display name. */
+  appName?: string;
+  /** The redesigned shell's app group icon. Defaults to the template's icon. */
+  appIcon?: SettingsTabIcon;
+  /** App id for the redesigned shell (changelog unread state, usage). Defaults to the template id. */
+  appId?: string;
+  /** Raw CHANGELOG.md, for the redesigned shell's What's new unread dot. */
+  whatsNewMarkdown?: string;
+  /**
+   * Set false on surfaces that are not an app's Settings (the desktop shell's
+   * own settings) so they never adopt the redesigned shell.
+   */
+  redesign?: boolean;
 }
 
 interface ResolvedSearchEntry extends SettingsSearchEntry {
@@ -193,7 +274,14 @@ function resolveTabId(
     if (tabs.some((tab) => tab.id === "organization")) return "organization";
     if (tabs.some((tab) => tab.id === "team")) return "team";
   }
-  return null;
+  // A link built from a redesigned page id (`/settings/model`) opens the tab
+  // that holds that page's content today.
+  const [pageId = "", sub] = normalized.split(":");
+  return (
+    legacySettingsTabIdsForPage(pageId, sub).find((id) =>
+      tabs.some((tab) => tab.id === id),
+    ) ?? null
+  );
 }
 
 function activeTabFromLocation(
@@ -242,20 +330,6 @@ function appLocalPathname(pathname?: string): string {
   return currentPathname;
 }
 
-function buildSettingsEntryRoute(tabId: string, section?: string): string {
-  const normalizedSection = section?.replace(/^#/, "").trim();
-  if (!normalizedSection || normalizedSection === tabId) {
-    return buildSettingsRoute(tabId);
-  }
-  if (normalizedSection.startsWith("agent:")) {
-    return buildSettingsRoute(normalizedSection);
-  }
-  if (normalizedSection.startsWith(`${tabId}:`)) {
-    return buildSettingsRoute(normalizedSection);
-  }
-  return buildSettingsRoute(`${tabId}:${normalizedSection}`);
-}
-
 function updateRouteForTab(tabId: string, section?: string) {
   if (typeof window === "undefined") return;
   const route = buildSettingsEntryRoute(
@@ -286,7 +360,11 @@ function SettingsTabsPageContent({
   account,
   team,
   whatsNew,
-  extraTabs = [],
+  extraTabs: templateTabs,
+  appAreas,
+  notifications,
+  notificationsLabel,
+  notificationsSearchEntries,
   generalLabel = "General",
   accountLabel = "Account",
   teamLabel = "Team",
@@ -313,6 +391,30 @@ function SettingsTabsPageContent({
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
   const t = useT();
+  const notificationsFallbackLabel = t(
+    "agentChat.settingsShell.page.notifications",
+  );
+  const extraTabs = useMemo(
+    () =>
+      withAppSettingsTabs(
+        templateTabs,
+        {
+          appAreas,
+          notifications,
+          notificationsLabel,
+          notificationsSearchEntries,
+        },
+        notificationsFallbackLabel,
+      ),
+    [
+      appAreas,
+      notifications,
+      notificationsFallbackLabel,
+      notificationsLabel,
+      notificationsSearchEntries,
+      templateTabs,
+    ],
+  );
   const visibleLabs = useMemo(() => {
     if (labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)) {
       return labs;
@@ -340,11 +442,7 @@ function SettingsTabsPageContent({
         label: accountLabel,
         icon: IconUserCircle,
         content: account,
-        keywords: [
-          "profile photo avatar identity signed in email name",
-          ...SIGN_OUT_SEARCH_TERMS,
-          t("agentChat.auth.logOut"),
-        ].join(" "),
+        keywords: "profile photo avatar identity signed in email name",
       });
     }
     next.push(...inlineTabs);
@@ -889,11 +987,58 @@ function SettingsTabsPageWithRouter(props: SettingsTabsPageProps) {
   return <SettingsTabsPageContent {...props} routerLocation={location} />;
 }
 
-export function SettingsTabsPage(props: SettingsTabsPageProps) {
+function LegacySettingsTabsPage(props: SettingsTabsPageProps) {
   const inRouterContext = useInRouterContext();
   return inRouterContext ? (
     <SettingsTabsPageWithRouter {...props} />
   ) : (
     <SettingsTabsPageContent {...props} />
   );
+}
+
+function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
+  const initialValueRef = useRef(props.value);
+  return (
+    <Suspense fallback={<SettingsShellSkeleton className={props.className} />}>
+      <SettingsShell
+        general={props.general}
+        generalGroups={props.generalGroups}
+        appAreas={props.appAreas}
+        notifications={props.notifications}
+        notificationsLabel={props.notificationsLabel}
+        notificationsSearchEntries={props.notificationsSearchEntries}
+        mcpAbout={props.mcpAbout}
+        account={props.account}
+        team={props.team}
+        whatsNew={props.whatsNew}
+        extraTabs={props.extraTabs}
+        labs={props.labs}
+        labsLabel={props.labsLabel}
+        labsIntro={props.labsIntro}
+        generalSearchEntries={props.generalSearchEntries}
+        searchEntries={props.searchEntries}
+        enableSearch={props.enableSearch}
+        className={props.className}
+        navClassName={props.navClassName}
+        contentClassName={props.contentClassName}
+        value={props.value}
+        initialValue={initialValueRef.current}
+        onValueChange={props.onValueChange}
+        appName={props.appName}
+        appIcon={props.appIcon}
+        appId={props.appId}
+        whatsNewMarkdown={props.whatsNewMarkdown}
+      />
+    </Suspense>
+  );
+}
+
+export function SettingsTabsPage(props: SettingsTabsPageProps) {
+  // The shell's pages read through the action surface, which needs a query
+  // client; without one only today's tabs can render.
+  const queryClient = useContext(QueryClientContext);
+  if (props.redesign === false || !queryClient) {
+    return <LegacySettingsTabsPage {...props} />;
+  }
+  return <RedesignedSettingsTabsPage {...props} />;
 }

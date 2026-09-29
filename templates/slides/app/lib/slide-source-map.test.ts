@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { renderRawSlideHtml } from "@/components/deck/SlideRenderer";
+import { stripCopiedIdentity } from "@/components/editor/bullet-editing";
 
 import {
   mergeRenderedEdits,
@@ -128,6 +129,15 @@ describe("mergeRenderedEdits", () => {
     '  <ul class="points"><li data-pptx-paragraph="1" style="color:#111">One</li><li>Two</li></ul>\n' +
     '  <div class="card" style="left:10px;top:20px"><img src="https://img.logo.dev/acme.com" alt="Acme"><p>Body</p><svg width="4"><circle r="2"/></svg></div>\n' +
     "</div>";
+
+  it("persists a zero border-width style edit", () => {
+    const border =
+      '<div class="fmd-slide"><div class="card" style="border: 2px solid #222">Card</div></div>';
+    const { root, save } = mount(border);
+    q(root, ".card").style.setProperty("border-width", "0px");
+
+    expect(save().html).toContain("border-width: 0px");
+  });
 
   it("appends typed text inside the edited element only", () => {
     const { root, save } = mount(stored);
@@ -333,6 +343,47 @@ describe("mergeRenderedEdits", () => {
     expect(out.match(/<svg/g)).toHaveLength(1);
     expect(out.match(/<!-- n -->/g)).toHaveLength(1);
     expect(out.match(/Item/g)).toHaveLength(1);
+  });
+
+  describe("a legacy contenteditable on a stored element", () => {
+    const row = (text: string, span = "<span>") =>
+      `<div style="display:flex"><span>*</span>${span}${text}</span></div>`;
+    const legacy = (span: string) =>
+      `<div class="fmd-slide"><div style="display:flex;flex-direction:column">${row("a")}${row("b")}${row("c", span)}</div></div>`;
+    const cloneLastRow = (root: Element) => {
+      const last = q(root, '[style*="column"]').lastElementChild!;
+      const clone = last.cloneNode(true) as HTMLElement;
+      stripCopiedIdentity(clone);
+      clone.lastElementChild!.textContent = "new";
+      last.after(clone);
+    };
+
+    it("is not copied into a clone of its unchanged row", () => {
+      const stored = legacy('<span contenteditable="false">');
+      const { root, save } = mount(stored);
+      cloneLastRow(root);
+      const out = save().html;
+      expect(out.match(/contenteditable/g)).toHaveLength(1);
+      expect(out).toContain("<span>new</span>");
+    });
+
+    it("is not copied into a clone whose stored id was stripped", () => {
+      const stored = legacy('<span id="k" contenteditable="false">');
+      const { root, save } = mount(stored);
+      cloneLastRow(root);
+      const out = save().html;
+      expect(out.match(/contenteditable/g)).toHaveLength(1);
+      expect(out.match(/id="k"/g)).toHaveLength(1);
+    });
+
+    it("keeps its stored bytes when its own text is edited", () => {
+      const stored = legacy('<span contenteditable="false">');
+      const { root, save } = mount(stored);
+      q(root, '[style*="column"]').lastElementChild!.lastElementChild!.append(
+        " ok",
+      );
+      expect(save().html).toBe(stored.replace("c</span>", "c ok</span>"));
+    });
   });
 
   it("reads <noscript> content as markup, as the sanitizer does", () => {

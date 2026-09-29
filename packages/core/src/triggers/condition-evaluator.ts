@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { createTtlCache } from "../shared/ttl-cache.js";
 
 const CONDITION_EVAL_VERSION = "v2";
+const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
@@ -48,6 +49,7 @@ export async function evaluateCondition(
   condition: string | undefined,
   payload: unknown,
   apiKey: string,
+  options: { deadlineAt?: number; signal?: AbortSignal } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
 
@@ -55,7 +57,52 @@ export async function evaluateCondition(
   const cached = _cache.get(key);
   if (cached !== undefined) return cached;
 
-  const result = await callHaikuClassifier(condition, payload, apiKey);
+  const remainingMs =
+    options.deadlineAt === undefined
+      ? CONDITION_EVALUATION_TIMEOUT_MS
+      : Math.min(
+          CONDITION_EVALUATION_TIMEOUT_MS,
+          options.deadlineAt - Date.now(),
+        );
+  if (remainingMs <= 0) {
+    throw new Error("Condition evaluation deadline elapsed.");
+  }
+  if (options.signal?.aborted) {
+    throw new Error("Condition evaluation aborted.");
+  }
+
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let removeAbortListener: (() => void) | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("Condition evaluation timed out."));
+      controller.abort();
+    }, remainingMs);
+  });
+  const aborted = options.signal
+    ? new Promise<never>((_resolve, reject) => {
+        const onAbort = () => {
+          reject(new Error("Condition evaluation aborted."));
+          controller.abort();
+        };
+        options.signal!.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () =>
+          options.signal!.removeEventListener("abort", onAbort);
+      })
+    : null;
+
+  let result: boolean;
+  try {
+    result = await Promise.race([
+      callHaikuClassifier(condition, payload, apiKey, controller.signal),
+      timeout,
+      ...(aborted ? [aborted] : []),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    removeAbortListener?.();
+  }
 
   _cache.set(key, result);
   return result;
@@ -65,6 +112,7 @@ async function callHaikuClassifier(
   condition: string,
   payload: unknown,
   apiKey: string,
+  signal: AbortSignal,
 ): Promise<boolean> {
   let payloadStr: string;
   try {
@@ -99,6 +147,7 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
+      signal,
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 10,
@@ -106,6 +155,7 @@ Does the event payload satisfy the condition above? Respond with ONLY "yes" or "
       }),
     });
   } catch (err) {
+    if (signal.aborted) throw err;
     console.error("[triggers] Condition eval error:", err);
     throw new Error(
       err instanceof Error

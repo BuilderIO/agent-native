@@ -75,7 +75,6 @@ const messages = {
     create: "Criar",
     save: "Salvar",
     saving: "Salvando…",
-    saveChanges: "Salvar alterações",
     connected: "Conectado",
     notConnected: "Não conectado",
     disconnect: "Desconectar",
@@ -120,6 +119,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Biblioteca",
+    screenshots: "Capturas de tela",
     sharedWithMe: "Compartilhado comigo",
     spaces: "Espaços",
     meetings: "Reuniões",
@@ -813,7 +813,6 @@ const messages = {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     agentTitle: "Gerenciar agente",
-    title: "Configurações",
     pageTitle: "Configurações · Clips",
     labs: "Labs",
     labsIntro:
@@ -826,12 +825,6 @@ const messages = {
     labWisprFlow: "Ditado por voz",
     labWisprFlowDescription:
       "Mostre ou oculte o ditado por voz no Clips Desktop.",
-    intro: "Preferências e serviços conectados para este espaço do Clips.",
-    preferencesTitle: "Preferências",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface para esta conta. O Clips lembrará em todos os seus dispositivos.",
-    languageLabel: "Idioma da interface",
     uploadWorkspaceTitle: "Espaço ativo",
     uploadWorkspaceDescription:
       "Escolha o espaço que o Clips usará para novas gravações, incluindo uploads do desktop.",
@@ -853,10 +846,6 @@ const messages = {
     viewAllUpdates: "Ver todas as atualizações",
     expand: "Expandir",
     collapse: "Recolher",
-    playback: "Reprodução",
-    defaultPlaybackSpeed: "Velocidade padrão de reprodução",
-    playbackDescription:
-      "Aplicada automaticamente quando você abre uma gravação.",
     transcript: "Transcrição",
     transcriptCleanup: "Limpeza em segundo plano",
     transcriptCleanupDescription:
@@ -864,27 +853,17 @@ const messages = {
     notifications: "Notificações",
     monthlyRecap: "Resumo mensal",
     sharing: "Compartilhamento",
-    defaultVisibility: "Visibilidade padrão de novas gravações",
-    defaultVisibilityDescription:
-      "Aplicada a cada gravação que você cria. Você ainda pode mudar a visibilidade por gravação.",
     visibilityPrivate: "Privado - somente você",
     visibilityOrg: "Organização - qualquer pessoa do seu espaço",
     visibilityPublic: "Público - qualquer pessoa com o link",
     emailNotifications: "Notificações por e-mail",
     emailNotificationsDescription:
       "Escolha quais e-mails opcionais do Clips você quer receber.",
-    saved: "Configurações salvas",
     saveFailed: "Falha ao salvar",
-    builderConnectedToast: "Builder.io conectado",
-    videoStorage: "Armazenamento de vídeo",
     videoStorageDescription:
       "Builder.io é o caminho principal de armazenamento para uploads do Clips. S3 está disponível quando você precisa trazer seu próprio bucket.",
-    checkingBuilder: "Verificando Builder.io",
     builderConnected: "Builder.io conectado",
     connectBuilder: "Usar Builder.io",
-    builderConnectedFor: "Usando Builder.io para {{orgName}}.",
-    builderConnectedGeneric:
-      "Novos clipes usam o provedor Builder.io conectado.",
     builderIncludes:
       "O nível gratuito do Builder.io inclui armazenamento de objetos, uploads e transcrição gerenciada para novos clipes.",
     s3Title: "Armazenamento compatível com S3",
@@ -892,11 +871,8 @@ const messages = {
     active: "Ativo",
     s3BuilderConnectedDescription:
       "Use isto apenas se este espaço deve enviar para seu próprio bucket em vez de Builder.io.",
-    s3CurrentProvider: "Atualmente usando {{providerName}}.",
     s3OwnBucketDescription:
       "Use seu próprio bucket se não quiser armazenamento Builder.io.",
-    configureS3: "Configurar S3",
-    hideS3: "Ocultar S3",
     saveStorage: "Salvar armazenamento",
     storageSaved: "Configurações de armazenamento salvas",
     storageRequired: "Endpoint, bucket, access key e secret são obrigatórios.",
@@ -911,7 +887,6 @@ const messages = {
     s3BucketInvalid:
       "O nome do bucket deve ter 3–63 letras minúsculas, números ou hifens",
     s3RegionInvalid: 'Deve ser uma região válida (ex.: us-east-1) ou "auto"',
-    apiSetup: "Configuração de IA",
     apiSetupDescription: "Escolha como o Clips se conecta à IA.",
     builderEasySetup: "Créditos grátis da Builder.io",
     builderAiAvailable:
@@ -922,18 +897,11 @@ const messages = {
     providerKeyDescription:
       "Escolha Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere ou Ollama para uso cobrado pelo provedor.",
     providerKeysSet: "{{count}} configuradas",
-    providerActionTitle: "Provedor de IA",
-    providerActionDescription:
-      "O Builder.io inclui um nível gratuito, ou use suas próprias chaves.",
-    providerManage: "Gerenciar",
-    providerCustomKeys: "Chaves próprias",
-    checkingProviderKeys: "Verificando chaves de provedor…",
     keySet: "Configurada",
     keyCleared: "Credenciais de armazenamento limpas",
     clearAllS3: "Limpar credenciais",
     replaceKey: "Substituir chave…",
     pasteProviderKey: "Cole primeiro uma chave de provedor.",
-    apiKeySaved: "Chave de API salva",
     apiKeyFailed: "Falha ao salvar chave",
     slackTitle: "Agent-Native Clips para Slack",
     slackDescription:
@@ -962,6 +930,52 @@ const messages = {
       "O Clips excluirá o token de bot armazenado para {{team}} e deixará de enviar prévias reproduzíveis do Slack.",
     thisWorkspace: "este espaço",
     slackConnected: "Slack conectado",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "O navegador bloqueou o pop-up. Permita pop-ups para este site e tente novamente.",
+    recordingsTab: "Gravações",
+    meetingsTab: "Reuniões",
+    yourDefaults: "Seus padrões",
+    orgDefault: "Padrão de {{org}}",
+    playbackSpeed: "Velocidade de reprodução",
+    playbackSpeedDescription: "Aplicada quando você abre uma gravação.",
+    visibility: "Visibilidade",
+    visibilityDescription:
+      "Aplicada às gravações que você cria. Você pode alterá-la em qualquer gravação.",
+    useOrgDefault: "Usar o padrão de {{org}} ({{visibility}})",
+    useDefault: "Usar o padrão ({{visibility}})",
+    transcriptExport: "Exportação de transcrições",
+    logoDescription:
+      "Exibido nos e-mails de compartilhamento e nas páginas públicas dos clipes.",
+    change: "Alterar",
+    adminsOnly: "Somente proprietários e administradores podem alterar isso.",
+    brandColorInvalid: "Digite um código de cor hexadecimal.",
+    loadFailed: "Não foi possível carregar estas configurações.",
+    emailGroup: "E-mail",
+    calendarGroup: "Agenda",
+    googleCalendar: "Google Calendar",
+    connect: "Conectar",
+    reconnect: "Reconectar",
+    connectedAs: "Conectado como {{account}}",
+    needsReconnect: "É preciso reconectar {{account}}.",
+    disconnectFailed: "Não foi possível desconectar a agenda.",
+    disconnectCalendarDescription:
+      "O Clips deixa de sincronizar as próximas reuniões de {{account}}.",
+    calendarApp: "App do Google Calendar",
+    desktopGroup: "Área de trabalho",
+    meetingCapture: "Captura de reuniões",
+    meetingCaptureDescription:
+      "Notas, início automático e notificações são definidos em cada dispositivo no Clips Desktop.",
+    openClipsDesktop: "Abrir o Clips Desktop",
+    keySaved: "Salva",
+    keyNotSaved: "Não salva",
+    manage: "Gerenciar",
+    add: "Adicionar",
+    linkPreviews: "Prévias de links",
+    addWorkspace: "Adicionar espaço de trabalho",
+    storageAskAdmin:
+      "Peça a um proprietário ou administrador para configurar o armazenamento.",
   },
   insightsHub: {
     title: "Insights",
@@ -1006,9 +1020,6 @@ const messages = {
     noOrganization:
       "Ainda não há organização. Crie uma no seletor de organização para começar.",
     description: "Administração da organização: marca, membros, convites.",
-    adminsOnlyBranding: "Somente administradores podem editar a marca.",
-    brandingLoadFailed:
-      "Não foi possível carregar a identidade da organização.",
     members: "Membros",
     pendingInvites: "Convites pendentes",
     noPendingInvites: "Nenhum convite pendente.",
@@ -1576,7 +1587,7 @@ const messages = {
     deleteKey: "Delete",
     exportUnredactedTitle: "Aplique as tarjas primeiro",
     exportUnredactedWarning:
-      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas — e esta cópia também mostraria. Aplique-as e isto volta a ficar disponível.",
+      "{{count}} ocultação(ões) foram desenhadas nesta gravação, mas ainda não foram aplicadas, então o arquivo continua mostrando tudo o que está por baixo, e esta cópia também mostraria. Aplique-as e isto volta a ficar disponível.",
     redact: "Tarjar",
     redactHint: "Cubra algo na imagem. Nada fica oculto até você aplicar.",
     redactOn: "Tarjando",
@@ -1636,10 +1647,98 @@ const messages = {
     startWithoutMic: "Gravar sem áudio",
     unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
+    takeScreenshot: "Fazer captura de tela",
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
     recordNew: "Nova gravação",
+  },
+  screenshot: {
+    capturing: "Capturando...",
+    saving: "Salvando captura...",
+    saved: "Captura salva",
+    failed: "Falha na captura",
+    dragToSelect: "Arraste para selecionar uma área",
+    blur: "Ocultar",
+    box: "Caixa",
+    arrow: "Seta",
+    text: "Texto",
+    edit: "Editar",
+    deleteMark: "Excluir",
+    textFont: "Fonte",
+    textSize: "Tamanho da fonte",
+    textSizeHint: "Tamanho da fonte, nos pixels da própria captura",
+    textSmaller: "Texto menor",
+    textLarger: "Texto maior",
+    alignLeft: "Alinhar à esquerda",
+    alignCenter: "Centralizar",
+    alignRight: "Alinhar à direita",
+    editSave: "Salvar",
+    editSaved: "Captura atualizada",
+    editConfirm:
+      "Salvar substitui a imagem compartilhada, então todos verão estas marcações. Você ainda poderá movê-las ou removê-las depois. Salvar?",
+    textPlaceholder: "Digite aqui. Clique fora para terminar",
+    undo: "Desfazer",
+    redo: "Refazer",
+    redactSaving: "Salvando...",
+    redactFailed: "Não foi possível salvar a captura",
+    captureInsecure:
+      "A captura de tela exige HTTPS ou localhost. Abra o Clips em uma URL segura e tente novamente.",
+    captureUnavailable:
+      "A captura de tela não está disponível neste navegador.",
+    captureUnsupported:
+      "Seu navegador não oferece suporte à captura de tela. Experimente uma versão recente do Brave, Chrome, Edge, Safari ou Firefox.",
+    captureNoScreen: "Nenhuma tela foi compartilhada.",
+    captureNoCanvas: "Este navegador não conseguiu preparar a imagem.",
+    captureNoPicture:
+      "A tela compartilhada nunca enviou uma imagem. Tente novamente ou compartilhe a tela inteira.",
+    redactLoadFailed: "Não foi possível abrir a captura para edição",
+    saveSelection: "Salvar seleção",
+    saveWholeScreen: "Salvar a tela inteira",
+    fullscreen: "Tela cheia",
+    exitFullscreen: "Sair da tela cheia",
+    resizeHandle: "Arraste para redimensionar",
+    textWidthHandle: "Arraste para definir a largura",
+    crop: "Cortar",
+    cropApply: "Aplicar corte",
+    cropApplyHint:
+      "Mostrar só esta parte. O restante é mantido, então você pode ampliar o corte depois",
+    cropReset: "Mostrar a imagem inteira",
+    kind: {
+      box: "caixa",
+      arrow: "seta",
+      text: "texto",
+      redact: "ocultação",
+    },
+    markToolbar: "Alterar este item ({{kind}})",
+    duplicate: "Duplicar {{kind}}",
+    addText: "Adicionar novo texto",
+    addArrow: "Adicionar nova seta",
+    addBox: "Adicionar nova caixa",
+    addRedaction: "Adicionar nova ocultação",
+    colour: "Cor",
+    fillBox: "Preencher caixa",
+    shadow: "Sombra",
+    thickness: "Espessura da linha",
+    thin: "Fina",
+    thick: "Grossa",
+    align: "Alinhamento",
+    redactionStyle: "Estilo de ocultação",
+    background: "Fundo",
+    backgroundTitle: "Adicionar um fundo",
+    backgroundNone: "Nenhum",
+    notYetBurned:
+      "{{count}} ocultação(ões) posicionadas, mas não aplicadas. Nada está oculto ainda, e ninguém mais pode ver esta captura até você aplicá-las.",
+    editsUnreadable:
+      "O Clips não conseguiu ler as edições salvas da captura de tela.",
+    burnInHint:
+      "Destruir de vez o que as ocultações cobrem e excluir o original",
+    burnInTitle: "Aplicar {{count}} ocultação(ões) nesta captura?",
+    burnInWarning:
+      "As áreas cobertas serão destruídas em uma nova cópia da captura, e o arquivo original será excluído. Isso não pode ser desfeito. Suas caixas, setas e textos continuam móveis. O que já foi baixado mantém o que tem.",
+    burning: "Aplicando…",
+    burned: "Ocultações aplicadas",
+    burnFailed: "Não foi possível aplicar as ocultações",
   },
   playerSettings: {
     title: "Settings",

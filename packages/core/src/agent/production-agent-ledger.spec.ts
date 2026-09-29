@@ -138,11 +138,16 @@ describe("tool-call result ledger", () => {
     currentTurnEventsMock.mockResolvedValue([]);
   });
 
-  it("writes a ledger entry when a zombie write-tool call completes", async () => {
+  it("writes a ledger entry for a dynamically classified write", async () => {
     // Simulate the zombie path: the action promise resolves normally (no race),
     // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
     // must be called with the thread + tool key.
     const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { payload?: string }).payload === "x" ? "write" : "read",
+    };
     const actionResult = {
       draft: {
         subject: "Launch notes",
@@ -313,6 +318,42 @@ describe("tool-call result ledger", () => {
     expect(events.some((event) => event.type === "widget.created")).toBe(false);
   });
 
+  it("opts actions with a standard change result into the shared card", async () => {
+    const result = {
+      draft: { id: "draft-1", subject: "Launch notes" },
+      change: {
+        verb: "created",
+        kind: "email-draft",
+        title: "Launch notes",
+        detail: "ana@example.test",
+        url: "/_agent-native/open?composeDraftId=draft-1",
+      },
+    };
+    const action = makeWriteAction();
+    action.run = vi.fn(async () => result);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-standard-change-widget",
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: JSON.stringify(result, null, 2),
+      chatUI: { renderer: "core.record-change" },
+      chatUIResult: { change: result.change },
+    });
+  });
+
   it("emits raw structured results for matching action widgets", async () => {
     const result = {
       draft: { subject: "Launch notes", to: "ana@example.test", body: "x" },
@@ -476,6 +517,7 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.artifacts).toEqual(artifacts);
 
     const toolResults = events
@@ -850,12 +892,17 @@ describe("tool-call result ledger", () => {
     );
   });
 
-  it("recovers a timed out write from its late zombie ledger result", async () => {
+  it("recovers a timed out dynamically classified write from its ledger", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
 
     const action = makeWriteAction();
+    action.readOnly = true;
+    action.planMode = {
+      effect: (input) =>
+        (input as { content?: string }).content === "slow" ? "write" : "read",
+    };
     const events: any[] = [];
 
     await runAgentLoop({
@@ -1023,6 +1070,7 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.result).toContain("Already completed");
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
     expect(toolDone?.chatUIResult).toEqual(chatUIResult);
     expect(when).not.toHaveBeenCalled();

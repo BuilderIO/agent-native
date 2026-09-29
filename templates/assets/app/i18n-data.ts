@@ -352,7 +352,7 @@ const brandKitDetailEnUS = {
   reference: "Reference",
   saved: "Saved",
   save: "Save",
-  addToReferences: "Add to References",
+  addToReferences: "Use as reference",
   removeFromReferences: "Remove from References",
   close: "Close",
   generated: "Generated",
@@ -621,20 +621,9 @@ const enUS = {
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
     title: "Settings",
-    description: "Asset generation, storage, and brand kit access.",
-    connections: "Connections",
-    connectionsDescription:
-      "Keep Assets ready to generate, save, and share brand-safe media. Builder is the simplest path; manual keys stay available when you need them.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language for this Assets workspace.",
-    languageLabel: "Interface language",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
       "Get an email when a generation you started finishes or fails.",
-    setupTitle: "Assets setup",
-    setupDescription: "Two essentials: generation and durable storage.",
-    setupReady: "ready",
     builderDescriptionReady: "Connected for managed generation.",
     builderDescriptionManaged:
       "Connect Builder for managed image generation and storage. Video generation is available when enabled for your space.",
@@ -642,29 +631,18 @@ const enUS = {
       "Image generation is disabled here; Builder video may still be available.",
     builderLookupFailed:
       "Couldn’t check Builder access. Retry to refresh the connection status.",
-    statusUnavailable: "Status unavailable",
-    optional: "Optional",
-    reconnect: "Reconnect",
     generation: "Generation",
     generationReady: "Ready",
     generationNeedsSetup: "Needs setup",
     manualGenerationKeys: "Manual generation keys",
-    manualGenerationDescription:
-      "Add Gemini for manual video generation, or OpenAI/Gemini as image fallbacks.",
     storage: "Storage",
     storageReady:
       "Originals, thumbnails, videos, and exports have a durable home.",
     storageNeedsSetup:
       "Add S3-compatible storage for production assets and exports.",
     objectStorage: "Object storage",
-    objectStorageDescription:
-      "Use S3, R2, Spaces, Tigris, MinIO, or another compatible provider.",
-    brandKits: "Brand Kits",
-    available: "Available",
     connect: "Connect",
-    connected: "Connected",
     connecting: "Connecting",
-    configure: "Configure",
     manualKeys: "Manual keys",
     provider: "Provider",
     chooseProvider: "Choose a provider",
@@ -680,6 +658,13 @@ const enUS = {
       "Add Builder, Gemini, or OpenAI before generating new assets.",
     enterValueFirst: "Enter a value first.",
     saveFailed: "Save failed",
+    builderConnectedTo: "Connected to {{orgName}}.",
+    manage: "Manage",
+    addKeys: "Add keys",
+    setUp: "Set up",
+    emailGroup: "Email",
+    setupLoadFailed: "Couldn’t load setup status.",
+    notificationsLoadFailed: "Couldn’t load this setting.",
   },
   chat: {
     emptyState: "Describe the asset you want to make",
@@ -857,7 +842,7 @@ const enUS = {
     addAssets: "Add assets",
     addAssetsDescription:
       "Upload source material or generate candidates, then mark only the assets that should guide future generations as references.",
-    addToReferences: "Add to References",
+    addToReferences: "Use as reference",
     addGenerationKey: "Add a generation key in Settings.",
     allAssets: "All assets",
     allAssetsDescription: "Every accessible kit",
@@ -1166,7 +1151,7 @@ const brandKitDetailArSA = {
   addAssetsDescription:
     "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",
   addAssets: "أضف الأصول",
-  addToReferences: "أضف إلى المراجع",
+  addToReferences: "استخدم كمرجع",
   addedToReferences: "تمت إضافتها إلى المراجع.",
   agentUsageDescription:
     "يمكن للوكلاء الآخرين الاتصال بـ Assets عبر A2A باستخدام معرف مجموعة العلامة التجارية هذا.",
@@ -1423,7 +1408,7 @@ const brandKitDetailDeDE = {
   addAssetsDescription:
     "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
   addAssets: "Assets hinzufügen",
-  addToReferences: "Zu Referenzen hinzufügen",
+  addToReferences: "Als Referenz verwenden",
   addedToReferences: "Zu den Referenzen hinzugefügt.",
   agentUsageDescription:
     "Andere Agenten können mit dieser Marken-Kit-ID Assets über A2A anrufen.",
@@ -1689,7 +1674,7 @@ const brandKitDetailEsES = {
   addAssetsDescription:
     "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
   addAssets: "Agregar activos",
-  addToReferences: "Agregar a referencias",
+  addToReferences: "Usar como referencia",
   addedToReferences: "Agregado a Referencias.",
   agentUsageDescription:
     "Otros agentes pueden llamar a Assets a través de A2A con este ID de kit de marca.",
@@ -1956,7 +1941,7 @@ const brandKitDetailFrFR = {
   addAssetsDescription:
     "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
   addAssets: "Ajouter des éléments",
-  addToReferences: "Ajouter aux références",
+  addToReferences: "Utiliser comme référence",
   addedToReferences: "Ajouté aux références.",
   agentUsageDescription:
     "D'autres agents peuvent appeler Assets via A2A avec cet ID de kit de marque.",
@@ -2222,7 +2207,7 @@ const brandKitDetailHiIN = {
   addAssetsDescription:
     "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
   addAssets: "संपत्तियां जोड़ें",
-  addToReferences: "सन्दर्भों में जोड़ें",
+  addToReferences: "संदर्भ के रूप में उपयोग करें",
   addedToReferences: "सन्दर्भों में जोड़ा गया.",
   agentUsageDescription:
     "अन्य एजेंट इस ब्रांड किट आईडी के साथ A2A पर Assets पर कॉल कर सकते हैं।",
@@ -2476,7 +2461,7 @@ const brandKitDetailJaJP = {
   addAssetsDescription:
     "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
   addAssets: "アセットの追加",
-  addToReferences: "参考文献に追加",
+  addToReferences: "参考として使用",
   addedToReferences: "参考文献に追加されました。",
   agentUsageDescription:
     "他のエージェントは、このブランド キット ID を使用して A2A 経由で Assets を呼び出すことができます。",
@@ -2738,7 +2723,7 @@ const brandKitDetailKoKR = {
   addAssetsDescription:
     "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
   addAssets: "자산 추가",
-  addToReferences: "참고자료에 추가",
+  addToReferences: "참고 자료로 사용",
   addedToReferences: "참고자료에 추가되었습니다.",
   agentUsageDescription:
     "다른 상담원은 이 브랜드 키트 ID를 사용하여 A2A를 통해 Assets에 전화할 수 있습니다.",
@@ -2994,7 +2979,7 @@ const brandKitDetailPtBR = {
   addAssetsDescription:
     "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
   addAssets: "Adicionar recursos",
-  addToReferences: "Adicionar às referências",
+  addToReferences: "Usar como referência",
   addedToReferences: "Adicionado às referências.",
   agentUsageDescription:
     "Outros agentes podem ligar para Assets através de A2A com este ID de kit de marca.",
@@ -3747,7 +3732,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "上传源素材或生成候选项，然后只将应指导未来生成的资产标记为参考。",
       addGenerationKey: "在设置中添加生成密钥。",
-      addToReferences: "添加到参考",
+      addToReferences: "用作参考",
       addedAssetsToReferences: "已将 {{count}} 个资产添加到参考。",
       addedToReferences: "已添加到参考。",
       allAssets: "所有资产",
@@ -3976,13 +3961,6 @@ export const messagesByLocale = {
       agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
       openAgentSettings: "管理代理",
       title: "设置",
-      description: "资产生成、存储和品牌套件访问。",
-      connections: "连接",
-      connectionsDescription:
-        "让 Assets 随时可生成、保存并共享品牌安全媒体。Builder 是最简单的路径；需要时也可使用手动密钥。",
-      languageTitle: "语言",
-      languageDescription: "选择此 Assets 工作区的界面语言。",
-      languageLabel: "界面语言",
       emailNotifications: "邮件通知",
       emailNotificationsDescription:
         "当你发起的生成完成或失败时，收到邮件通知。",
@@ -3990,11 +3968,9 @@ export const messagesByLocale = {
       addBuilderGeminiOrOpenAI:
         "在生成新资产之前添加 Builder、Gemini 或 OpenAI。",
       addGeminiOrOpenAI: "在生成新资产之前添加Gemini或OpenAI。",
-      brandKits: "品牌套件",
       builderDescriptionDisabled:
         "此处已停用图像生成；Builder 视频生成功能仍可能可用。",
       builderLookupFailed: "无法检查 Builder 访问权限。重试以刷新连接状态。",
-      statusUnavailable: "状态不可用",
       builderDescriptionManaged:
         "连接 Builder 即可使用托管图像生成和存储。若你的空间已启用视频生成功能，也可使用该功能。",
       builderDescriptionReady: "连接管理一代。",
@@ -4003,19 +3979,22 @@ export const messagesByLocale = {
       chooseProvider: "选择提供商",
       enterValueFirst: "首先输入一个值。",
       generationNeedsSetup: "需要设置",
-      manualGenerationDescription:
-        "添加 Gemini 作为手动视频生成选项，或 OpenAI/Gemini 作为图像后备选项。",
       manualGenerationKeys: "手动生成密钥",
-      manualKeys: "手动按键",
+      manualKeys: "手动密钥",
       noManualOptions: "该项目没有可用的手动设置选项。",
-      objectStorageDescription:
-        "使用 S3、R2、Spaces、Tigris、MinIO 或其他兼容的提供商。",
       objectStorage: "对象存储",
       saveFailed: "保存失败",
+      builderConnectedTo: "已连接到 {{orgName}}。",
+      generation: "生成",
+      storage: "存储",
+      manage: "管理",
+      addKeys: "添加密钥",
+      setUp: "设置",
+      emailGroup: "电子邮件",
+      setupLoadFailed: "无法加载设置状态。",
+      notificationsLoadFailed: "无法加载此设置。",
       saveKey: "保存密钥",
       saveSettings: "保存设置",
-      setupDescription: "两个要素：生成和持久存储。",
-      setupTitle: "Assets 设置",
       storageNeedsSetup: "为生产资产和导出添加与S3兼容的存储。",
       storageReady: "原件、缩略图、视频和导出内容都有一个持久的家。",
     },
@@ -4470,7 +4449,7 @@ export const messagesByLocale = {
       reference: "参考",
       saved: "已保存",
       save: "保存",
-      addToReferences: "添加到参考",
+      addToReferences: "用作参考",
       close: "关闭",
       generated: "已生成",
       slot: "槽位",
@@ -4629,7 +4608,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
       addGenerationKey: "Añade una clave de generación en Ajustes.",
-      addToReferences: "Agregar a referencias",
+      addToReferences: "Usar como referencia",
       addedToReferences: "Agregado a Referencias.",
       allAssets: "Todos los activos",
       allAssetsDescription: "Todos los kits accesibles",
@@ -4826,14 +4805,6 @@ export const messagesByLocale = {
         "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
       openAgentSettings: "Gestionar agente",
       title: "Ajustes",
-      description: "Generación, almacenamiento y acceso a kits de marca.",
-      connections: "Conexiones",
-      connectionsDescription:
-        "Mantén Assets listo para generar, guardar y compartir contenido seguro para la marca. Builder es la ruta más simple; las claves manuales siguen disponibles.",
-      languageTitle: "Idioma",
-      languageDescription:
-        "Elige el idioma de la interfaz para este workspace.",
-      languageLabel: "Idioma de la interfaz",
       emailNotifications: "Notificaciones por correo",
       emailNotificationsDescription:
         "Recibe un correo cuando una generación que iniciaste termine o falle.",
@@ -4842,12 +4813,10 @@ export const messagesByLocale = {
         "Agregue Builder, Gemini o OpenAI antes de generar nuevos activos.",
       addGeminiOrOpenAI:
         "Agregue Gemini o OpenAI antes de generar nuevos activos.",
-      brandKits: "Kits de marca",
       builderDescriptionDisabled:
         "La generación de imágenes está desactivada aquí; la generación de vídeo de Builder puede seguir disponible.",
       builderLookupFailed:
         "No se pudo comprobar el acceso a Builder. Vuelve a intentarlo para actualizar el estado de la conexión.",
-      statusUnavailable: "Estado no disponible",
       builderDescriptionManaged:
         "Conecta Builder para usar la generación y el almacenamiento de imágenes gestionados. La generación de vídeo está disponible si se habilita para tu espacio.",
       builderDescriptionReady: "Conectado para generación gestionada.",
@@ -4856,21 +4825,23 @@ export const messagesByLocale = {
       chooseProvider: "Elige un proveedor",
       enterValueFirst: "Introduzca un valor primero.",
       generationNeedsSetup: "Necesita configuración",
-      manualGenerationDescription:
-        "Agregue Gemini para la generación manual de vídeo u OpenAI/Gemini como alternativas para imágenes.",
       manualGenerationKeys: "Claves de generación manual",
-      manualKeys: "llaves manuales",
+      manualKeys: "Claves manuales",
       noManualOptions:
         "No hay opciones de configuración manual disponibles para este artículo.",
-      objectStorageDescription:
-        "Utilice S3, R2, Spaces, Tigris, MinIO u otro proveedor compatible.",
       objectStorage: "Almacenamiento de objetos",
       saveFailed: "Error al guardar",
+      builderConnectedTo: "Conectado a {{orgName}}.",
+      generation: "Generación",
+      storage: "Almacenamiento",
+      manage: "Gestionar",
+      addKeys: "Añadir claves",
+      setUp: "Configurar",
+      emailGroup: "Correo electrónico",
+      setupLoadFailed: "No se pudo cargar el estado de la configuración.",
+      notificationsLoadFailed: "No se pudo cargar este ajuste.",
       saveKey: "Guardar clave",
       saveSettings: "Guardar configuración",
-      setupDescription:
-        "Dos elementos esenciales: generación y almacenamiento duradero.",
-      setupTitle: "Configuración Assets",
       storageNeedsSetup:
         "Agregue almacenamiento compatible con S3 para activos de producción y exportaciones.",
       storageReady:
@@ -5152,7 +5123,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
       addGenerationKey: "Ajoutez une clé de génération dans Paramètres.",
-      addToReferences: "Ajouter aux références",
+      addToReferences: "Utiliser comme référence",
       addedToReferences: "Ajouté aux références.",
       allAssets: "Tous les actifs",
       allAssetsDescription: "Tous les kits accessibles",
@@ -5342,14 +5313,6 @@ export const messagesByLocale = {
         "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
       openAgentSettings: "Gérer l’agent",
       title: "Paramètres",
-      description: "Génération d'assets, stockage et accès aux kits de marque.",
-      connections: "Connexions",
-      connectionsDescription:
-        "Gardez Assets prêt à générer, enregistrer et partager des médias conformes à la marque. Builder est le chemin le plus simple; les clés manuelles restent disponibles.",
-      languageTitle: "Langue",
-      languageDescription:
-        "Choisissez la langue de l'interface pour cet espace Assets.",
-      languageLabel: "Langue de l'interface",
       emailNotifications: "Notifications par e-mail",
       emailNotificationsDescription:
         "Recevez un e-mail lorsqu’une génération que vous avez lancée se termine ou échoue.",
@@ -5358,12 +5321,10 @@ export const messagesByLocale = {
         "Ajoutez Builder, Gemini ou OpenAI avant de générer de nouveaux actifs.",
       addGeminiOrOpenAI:
         "Ajoutez Gemini ou OpenAI avant de générer de nouveaux actifs.",
-      brandKits: "Kits de marque",
       builderDescriptionDisabled:
         "La génération d’images est désactivée ici ; la génération vidéo de Builder peut rester disponible.",
       builderLookupFailed:
         "Impossible de vérifier l’accès à Builder. Réessayez pour actualiser l’état de la connexion.",
-      statusUnavailable: "État indisponible",
       builderDescriptionManaged:
         "Connectez Builder pour gérer la génération et le stockage d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
       builderDescriptionReady: "Connecté pour une génération gérée.",
@@ -5372,21 +5333,23 @@ export const messagesByLocale = {
       chooseProvider: "Choisissez un fournisseur",
       enterValueFirst: "Entrez d'abord une valeur.",
       generationNeedsSetup: "Nécessite une configuration",
-      manualGenerationDescription:
-        "Ajoutez Gemini pour la génération vidéo manuelle, ou OpenAI/Gemini comme solutions de secours pour les images.",
       manualGenerationKeys: "Clés de génération manuelle",
       manualKeys: "Clés manuelles",
       noManualOptions:
         "Aucune option de configuration manuelle n'est disponible pour cet élément.",
-      objectStorageDescription:
-        "Utilisez S3, R2, Spaces, Tigris, MinIO ou un autre fournisseur compatible.",
       objectStorage: "Stockage d'objets",
       saveFailed: "Échec de l'enregistrement",
+      builderConnectedTo: "Connecté à {{orgName}}.",
+      generation: "Génération",
+      storage: "Stockage",
+      manage: "Gérer",
+      addKeys: "Ajouter des clés",
+      setUp: "Configurer",
+      emailGroup: "E-mail",
+      setupLoadFailed: "Impossible de charger l’état de la configuration.",
+      notificationsLoadFailed: "Impossible de charger ce paramètre.",
       saveKey: "Enregistrer la clé",
       saveSettings: "Enregistrer les paramètres",
-      setupDescription:
-        "Deux incontournables : la génération et le stockage durable.",
-      setupTitle: "Configuration Assets",
       storageNeedsSetup:
         "Ajoutez un stockage compatible S3 pour les actifs de production et les exportations.",
       storageReady:
@@ -5655,7 +5618,7 @@ export const messagesByLocale = {
         "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
       addGenerationKey:
         "Füge in den Einstellungen einen Generierungsschlüssel hinzu.",
-      addToReferences: "Zu Referenzen hinzufügen",
+      addToReferences: "Als Referenz verwenden",
       addedToReferences: "Zu den Referenzen hinzugefügt.",
       allAssets: "Alle Vermögenswerte",
       allAssetsDescription: "Alle zugänglichen Kits",
@@ -5848,21 +5811,9 @@ export const messagesByLocale = {
         "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
       openAgentSettings: "Agent verwalten",
       title: "Einstellungen",
-      description: "Asset-Erstellung, Speicher und Zugriff auf Brand Kits.",
-      connections: "Verbindungen",
-      connectionsDescription:
-        "Halte Assets bereit, um markensichere Medien zu erstellen, zu speichern und zu teilen. Builder ist der einfachste Weg; manuelle Schlüssel bleiben verfügbar.",
-      languageTitle: "Sprache",
-      languageDescription:
-        "Wähle die Oberflächensprache für diesen Assets-Workspace.",
-      languageLabel: "Oberflächensprache",
       emailNotifications: "E-Mail-Benachrichtigungen",
       emailNotificationsDescription:
         "Erhalte eine E-Mail, wenn eine von dir gestartete Generierung fertig ist oder fehlschlägt.",
-      setupTitle: "Assets-Einrichtung",
-      setupDescription:
-        "Zwei Grundlagen: Generierung und dauerhafter Speicher.",
-      setupReady: "bereit",
       builderDescriptionReady: "Für verwaltete Generierung verbunden.",
       builderDescriptionManaged:
         "Verbinde Builder für verwaltete Bildgenerierung und Speicherung. Videogenerierung ist verfügbar, wenn sie für deinen Space aktiviert ist.",
@@ -5870,24 +5821,16 @@ export const messagesByLocale = {
         "Die Bildgenerierung ist hier deaktiviert; die Videogenerierung mit Builder kann weiterhin verfügbar sein.",
       builderLookupFailed:
         "Der Builder-Zugriff konnte nicht geprüft werden. Versuche es erneut, um den Verbindungsstatus zu aktualisieren.",
-      statusUnavailable: "Status nicht verfügbar",
-      optional: "Optional",
-      reconnect: "Neu verbinden",
       generation: "Generierung",
       generationReady: "Bereit",
       generationNeedsSetup: "Einrichtung erforderlich",
       manualGenerationKeys: "Manuelle Generierungsschlüssel",
-      manualGenerationDescription:
-        "Füge Gemini für die manuelle Videogenerierung oder OpenAI/Gemini als Bild-Fallbacks hinzu.",
       storage: "Speicher",
       storageReady:
         "Originale, Miniaturen, Videos und Exporte haben einen dauerhaften Speicherort.",
       storageNeedsSetup:
         "Füge S3-kompatiblen Speicher für Produktions-Assets und Exporte hinzu.",
       objectStorage: "Objektspeicher",
-      objectStorageDescription:
-        "Verwende S3, R2, Spaces, Tigris, MinIO oder einen anderen kompatiblen Anbieter.",
-      available: "Verfügbar",
       connecting: "Verbindung wird hergestellt",
       noManualOptions:
         "Für dieses Element sind keine manuellen Einrichtungsoptionen verfügbar.",
@@ -5899,11 +5842,17 @@ export const messagesByLocale = {
         "Fügen Sie Builder, Gemini oder OpenAI hinzu, bevor Sie neue Assets generieren.",
       addGeminiOrOpenAI:
         "Fügen Sie Gemini oder OpenAI hinzu, bevor Sie neue Assets generieren.",
-      brandKits: "Marken-Kits",
       chooseProvider: "Wählen Sie einen Anbieter",
       enterValueFirst: "Geben Sie zunächst einen Wert ein.",
       manualKeys: "Manuelle Schlüssel",
       saveFailed: "Speichern fehlgeschlagen",
+      builderConnectedTo: "Verbunden mit {{orgName}}.",
+      manage: "Verwalten",
+      addKeys: "Schlüssel hinzufügen",
+      setUp: "Einrichten",
+      emailGroup: "E-Mail",
+      setupLoadFailed: "Der Einrichtungsstatus konnte nicht geladen werden.",
+      notificationsLoadFailed: "Diese Einstellung konnte nicht geladen werden.",
       saveKey: "Schlüssel speichern",
       saveSettings: "Einstellungen speichern",
     },
@@ -6064,7 +6013,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
       addGenerationKey: "設定で生成キーを追加してください。",
-      addToReferences: "参考文献に追加",
+      addToReferences: "参考として使用",
       addedToReferences: "参考文献に追加されました。",
       allAssets: "すべての資産",
       allAssetsDescription: "アクセス可能なすべてのキット",
@@ -6251,20 +6200,9 @@ export const messagesByLocale = {
         "エージェントのモデル、API キー、自動化、音声などを管理します。",
       openAgentSettings: "エージェントを管理",
       title: "設定",
-      description: "アセット生成、保存、ブランドキットへのアクセス。",
-      connections: "接続",
-      connectionsDescription:
-        "Assets を、ブランドに安全なメディアの生成、保存、共有に使える状態に保ちます。Builder が最も簡単な方法で、必要に応じて手動キーも利用できます。",
-      languageTitle: "言語",
-      languageDescription:
-        "この Assets ワークスペースのインターフェース言語を選択します。",
-      languageLabel: "インターフェース言語",
       emailNotifications: "メール通知",
       emailNotificationsDescription:
         "開始した生成が完了または失敗したときにメールを受け取ります。",
-      setupTitle: "Assets の設定",
-      setupDescription: "必要なものは生成と永続ストレージの 2 つです。",
-      setupReady: "準備完了",
       builderDescriptionReady: "管理された生成に接続済みです。",
       builderDescriptionManaged:
         "Builder に接続すると、画像生成と保存を管理できます。動画生成はスペースで有効な場合に利用できます。",
@@ -6272,24 +6210,16 @@ export const messagesByLocale = {
         "ここでは画像生成が無効です。Builder の動画生成は引き続き利用できる場合があります。",
       builderLookupFailed:
         "Builder のアクセス権を確認できませんでした。再試行して接続状態を更新してください。",
-      statusUnavailable: "状態を確認できません",
-      optional: "任意",
-      reconnect: "再接続",
       generation: "生成",
       generationReady: "準備完了",
       generationNeedsSetup: "設定が必要です",
       manualGenerationKeys: "手動生成キー",
-      manualGenerationDescription:
-        "手動で動画を生成する場合は Gemini、画像の代替には OpenAI/Gemini を追加します。",
       storage: "ストレージ",
       storageReady:
         "オリジナル、サムネイル、動画、エクスポートの保存先が確保されています。",
       storageNeedsSetup:
         "本番アセットとエクスポート用に S3 互換ストレージを追加してください。",
       objectStorage: "オブジェクトストレージ",
-      objectStorageDescription:
-        "S3、R2、Spaces、Tigris、MinIO、または別の互換プロバイダーを使用します。",
-      available: "利用可能",
       connecting: "接続中",
       noManualOptions: "この項目で利用できる手動設定オプションはありません。",
       builderManaged:
@@ -6300,11 +6230,17 @@ export const messagesByLocale = {
         "新しい資産を生成する前に、Builder、Gemini、または OpenAI を追加します。",
       addGeminiOrOpenAI:
         "新しい資産を生成する前に、Gemini または OpenAI を追加します。",
-      brandKits: "ブランドキット",
       chooseProvider: "プロバイダーを選択",
       enterValueFirst: "先に値を入力してください。",
       manualKeys: "手動キー",
       saveFailed: "保存に失敗しました",
+      builderConnectedTo: "{{orgName}} に接続済みです。",
+      manage: "管理",
+      addKeys: "キーを追加",
+      setUp: "設定",
+      emailGroup: "メール",
+      setupLoadFailed: "設定状況を読み込めませんでした。",
+      notificationsLoadFailed: "この設定を読み込めませんでした。",
       saveKey: "キーを保存",
       saveSettings: "設定を保存する",
     },
@@ -6463,7 +6399,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
       addGenerationKey: "설정에서 생성 키를 추가하세요.",
-      addToReferences: "참고자료에 추가",
+      addToReferences: "참고 자료로 사용",
       addedToReferences: "참고자료에 추가되었습니다.",
       allAssets: "모든 자산",
       allAssetsDescription: "액세스 가능한 모든 키트",
@@ -6649,20 +6585,9 @@ export const messagesByLocale = {
         "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
       openAgentSettings: "에이전트 관리",
       title: "설정",
-      description: "자산 생성, 저장소, 브랜드 키트 접근.",
-      connections: "연결",
-      connectionsDescription:
-        "Assets가 브랜드 안전 미디어를 생성, 저장, 공유할 준비를 유지합니다. Builder가 가장 간단한 경로이며 필요하면 수동 키도 사용할 수 있습니다.",
-      languageTitle: "언어",
-      languageDescription:
-        "이 Assets 워크스페이스의 인터페이스 언어를 선택하세요.",
-      languageLabel: "인터페이스 언어",
       emailNotifications: "이메일 알림",
       emailNotificationsDescription:
         "내가 시작한 생성이 완료되거나 실패하면 이메일을 받습니다.",
-      setupTitle: "Assets 설정",
-      setupDescription: "필수 항목 두 가지: 생성과 영구 저장소.",
-      setupReady: "준비됨",
       builderDescriptionReady: "관리형 생성에 연결되었습니다.",
       builderDescriptionManaged:
         "이미지 생성 및 저장을 관리하려면 Builder를 연결하세요. 동영상 생성은 워크스페이스에서 사용 설정된 경우 이용할 수 있습니다.",
@@ -6670,24 +6595,16 @@ export const messagesByLocale = {
         "여기서는 이미지 생성이 비활성화되어 있습니다. Builder 동영상 생성은 계속 사용할 수 있을 수 있습니다.",
       builderLookupFailed:
         "Builder 액세스를 확인할 수 없습니다. 다시 시도하여 연결 상태를 새로고침하세요.",
-      statusUnavailable: "상태를 확인할 수 없음",
-      optional: "선택 사항",
-      reconnect: "다시 연결",
       generation: "생성",
       generationReady: "준비됨",
       generationNeedsSetup: "설정 필요",
       manualGenerationKeys: "수동 생성 키",
-      manualGenerationDescription:
-        "수동 동영상 생성에는 Gemini를, 이미지 대체에는 OpenAI/Gemini를 추가하세요.",
       storage: "저장소",
       storageReady:
         "원본, 썸네일, 비디오, 내보내기에 사용할 영구 저장소가 있습니다.",
       storageNeedsSetup:
         "프로덕션 자산과 내보내기를 위해 S3 호환 저장소를 추가하세요.",
       objectStorage: "객체 저장소",
-      objectStorageDescription:
-        "S3, R2, Spaces, Tigris, MinIO 또는 다른 호환 제공자를 사용하세요.",
-      available: "사용 가능",
       connecting: "연결 중",
       noManualOptions: "이 항목에 사용할 수 있는 수동 설정 옵션이 없습니다.",
       builderManaged:
@@ -6698,11 +6615,17 @@ export const messagesByLocale = {
         "새 자산을 생성하기 전에 Builder, Gemini 또는 OpenAI를 추가하세요.",
       addGeminiOrOpenAI:
         "새 자산을 생성하기 전에 Gemini 또는 OpenAI를 추가하세요.",
-      brandKits: "브랜드 키트",
       chooseProvider: "제공업체 선택",
       enterValueFirst: "먼저 값을 입력하세요.",
       manualKeys: "수동 키",
       saveFailed: "저장 실패",
+      builderConnectedTo: "{{orgName}}에 연결되었습니다.",
+      manage: "관리",
+      addKeys: "키 추가",
+      setUp: "설정",
+      emailGroup: "이메일",
+      setupLoadFailed: "설정 상태를 불러오지 못했습니다.",
+      notificationsLoadFailed: "이 설정을 불러오지 못했습니다.",
       saveKey: "키 저장",
       saveSettings: "설정 저장",
     },
@@ -6860,7 +6783,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
       addGenerationKey: "Adicione uma chave de geração em Configurações.",
-      addToReferences: "Adicionar às referências",
+      addToReferences: "Usar como referência",
       addedToReferences: "Adicionado às referências.",
       allAssets: "Todos os ativos",
       allAssetsDescription: "Todos os kits acessíveis",
@@ -7048,14 +6971,6 @@ export const messagesByLocale = {
         "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
       openAgentSettings: "Gerenciar agente",
       title: "Configurações",
-      description: "Geração de assets, armazenamento e acesso a kits de marca.",
-      connections: "Conexões",
-      connectionsDescription:
-        "Mantenha o Assets pronto para gerar, salvar e compartilhar mídia segura para a marca. Builder é o caminho mais simples; chaves manuais continuam disponíveis.",
-      languageTitle: "Idioma",
-      languageDescription:
-        "Escolha o idioma da interface deste workspace de Assets.",
-      languageLabel: "Idioma da interface",
       emailNotifications: "Notificações por e-mail",
       emailNotificationsDescription:
         "Receba um e-mail quando uma geração que você iniciou terminar ou falhar.",
@@ -7064,12 +6979,10 @@ export const messagesByLocale = {
         "Adicione Builder, Gemini ou OpenAI antes de gerar novos ativos.",
       addGeminiOrOpenAI:
         "Adicione Gemini ou OpenAI antes de gerar novos ativos.",
-      brandKits: "Kits de marca",
       builderDescriptionDisabled:
         "A geração de imagens está desativada aqui; a geração de vídeo do Builder ainda pode estar disponível.",
       builderLookupFailed:
         "Não foi possível verificar o acesso ao Builder. Tente novamente para atualizar o estado da conexão.",
-      statusUnavailable: "Status indisponível",
       builderDescriptionManaged:
         "Conecte o Builder para gerenciar a geração e o armazenamento de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
       builderDescriptionReady: "Conectado para geração gerenciada.",
@@ -7078,20 +6991,23 @@ export const messagesByLocale = {
       chooseProvider: "Escolha um provedor",
       enterValueFirst: "Insira um valor primeiro.",
       generationNeedsSetup: "Precisa de configuração",
-      manualGenerationDescription:
-        "Adicione Gemini para geração manual de vídeo ou OpenAI/Gemini como alternativas para imagens.",
       manualGenerationKeys: "Chaves de geração manual",
       manualKeys: "Chaves manuais",
       noManualOptions:
         "Nenhuma opção de configuração manual está disponível para este item.",
-      objectStorageDescription:
-        "Use S3, R2, Spaces, Tigris, MinIO ou outro provedor compatível.",
       objectStorage: "Armazenamento de objetos",
       saveFailed: "Falha ao salvar",
+      builderConnectedTo: "Conectado a {{orgName}}.",
+      generation: "Geração",
+      storage: "Armazenamento",
+      manage: "Gerenciar",
+      addKeys: "Adicionar chaves",
+      setUp: "Configurar",
+      emailGroup: "E-mail",
+      setupLoadFailed: "Não foi possível carregar o status da configuração.",
+      notificationsLoadFailed: "Não foi possível carregar esta configuração.",
       saveKey: "Salvar chave",
       saveSettings: "Salvar configurações",
-      setupDescription: "Dois fundamentos: geração e armazenamento durável.",
-      setupTitle: "Configuração Assets",
       storageNeedsSetup:
         "Adicione armazenamento compatível com S3 para ativos de produção e exportações.",
       storageReady:
@@ -7360,7 +7276,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
       addGenerationKey: "Settings में generation key जोड़ें।",
-      addToReferences: "सन्दर्भों में जोड़ें",
+      addToReferences: "संदर्भ के रूप में उपयोग करें",
       addedToReferences: "सन्दर्भों में जोड़ा गया.",
       allAssets: "सारी संपत्ति",
       allAssetsDescription: "सभी सुलभ किट",
@@ -7546,19 +7462,9 @@ export const messagesByLocale = {
         "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
       openAgentSettings: "एजेंट प्रबंधित करें",
       title: "सेटिंग्स",
-      description: "एसेट जेनरेशन, स्टोरेज और ब्रांड किट एक्सेस।",
-      connections: "कनेक्शन",
-      connectionsDescription:
-        "Assets को ब्रांड-सुरक्षित मीडिया बनाने, सहेजने और साझा करने के लिए तैयार रखें। Builder सबसे आसान रास्ता है; जरूरत पड़ने पर मैनुअल कुंजियां उपलब्ध रहती हैं।",
-      languageTitle: "भाषा",
-      languageDescription: "इस Assets workspace की इंटरफ़ेस भाषा चुनें।",
-      languageLabel: "इंटरफ़ेस भाषा",
       emailNotifications: "ईमेल सूचनाएँ",
       emailNotificationsDescription:
         "आपके द्वारा शुरू किया गया जनरेशन पूरा या विफल होने पर ईमेल पाएँ।",
-      setupTitle: "Assets सेटअप",
-      setupDescription: "दो जरूरी चीजें: generation और durable storage.",
-      setupReady: "तैयार",
       builderDescriptionReady: "Managed generation के लिए connected.",
       builderDescriptionManaged:
         "प्रबंधित इमेज जनरेशन और स्टोरेज के लिए Builder कनेक्ट करें। वीडियो जनरेशन आपके स्पेस में सक्षम होने पर उपलब्ध है।",
@@ -7566,24 +7472,16 @@ export const messagesByLocale = {
         "यहां छवि निर्माण बंद है; Builder वीडियो निर्माण फिर भी उपलब्ध हो सकता है।",
       builderLookupFailed:
         "Builder की पहुंच जांची नहीं जा सकी। कनेक्शन की स्थिति अपडेट करने के लिए फिर से प्रयास करें।",
-      statusUnavailable: "स्थिति उपलब्ध नहीं",
-      optional: "वैकल्पिक",
-      reconnect: "फिर से कनेक्ट करें",
       generation: "जनरेशन",
       generationReady: "तैयार",
       generationNeedsSetup: "Setup जरूरी",
       manualGenerationKeys: "मैनुअल generation keys",
-      manualGenerationDescription:
-        "मैन्युअल वीडियो जनरेशन के लिए Gemini जोड़ें, या इमेज फ़ॉलबैक के लिए OpenAI/Gemini जोड़ें।",
       storage: "स्टोरेज",
       storageReady:
         "Originals, thumbnails, videos और exports के लिए durable home मौजूद है.",
       storageNeedsSetup:
         "Production assets और exports के लिए S3-compatible storage जोड़ें.",
       objectStorage: "ऑब्जेक्ट स्टोरेज",
-      objectStorageDescription:
-        "S3, R2, Spaces, Tigris, MinIO या कोई compatible provider उपयोग करें.",
-      available: "उपलब्ध",
       connecting: "कनेक्ट हो रहा है",
       noManualOptions: "इस item के लिए कोई manual setup options उपलब्ध नहीं हैं.",
       builderManaged:
@@ -7593,11 +7491,17 @@ export const messagesByLocale = {
       addBuilderGeminiOrOpenAI:
         "नई संपत्तियां बनाने से पहले Builder, Gemini, या OpenAI जोड़ें।",
       addGeminiOrOpenAI: "नई संपत्तियां बनाने से पहले Gemini या OpenAI जोड़ें।",
-      brandKits: "ब्रांड किट",
       chooseProvider: "एक प्रदाता चुनें",
       enterValueFirst: "पहले एक मान दर्ज करें.",
-      manualKeys: "मैनुअल चाबियाँ",
+      manualKeys: "मैनुअल कुंजियाँ",
       saveFailed: "सहेजना विफल",
+      builderConnectedTo: "{{orgName}} से कनेक्ट है।",
+      manage: "प्रबंधित करें",
+      addKeys: "कुंजियाँ जोड़ें",
+      setUp: "सेट अप करें",
+      emailGroup: "ईमेल",
+      setupLoadFailed: "सेटअप की स्थिति लोड नहीं हो सकी।",
+      notificationsLoadFailed: "यह सेटिंग लोड नहीं हो सकी।",
       saveKey: "कुंजी सहेजें",
       saveSettings: "सेटिंग्स सेव करें",
     },
@@ -7754,7 +7658,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",
       addGenerationKey: "أضف مفتاح إنشاء في الإعدادات.",
-      addToReferences: "أضف إلى المراجع",
+      addToReferences: "استخدم كمرجع",
       addedToReferences: "تمت إضافتها إلى المراجع.",
       allAssets: "جميع الأصول",
       allAssetsDescription: "جميع المجموعات التي يمكن الوصول إليها",
@@ -7942,13 +7846,6 @@ export const messagesByLocale = {
         "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
       openAgentSettings: "إدارة الوكيل",
       title: "الإعدادات",
-      description: "إنشاء الأصول والتخزين والوصول إلى مجموعات العلامة.",
-      connections: "الاتصالات",
-      connectionsDescription:
-        "اجعل Assets جاهزًا لإنشاء الوسائط الآمنة للعلامة وحفظها ومشاركتها. Builder هو المسار الأبسط، وتبقى المفاتيح اليدوية متاحة عند الحاجة.",
-      languageTitle: "اللغة",
-      languageDescription: "اختر لغة الواجهة لمساحة عمل Assets هذه.",
-      languageLabel: "لغة الواجهة",
       emailNotifications: "إشعارات البريد الإلكتروني",
       emailNotificationsDescription:
         "احصل على بريد إلكتروني عند اكتمال عملية إنشاء بدأتها أو فشلها.",
@@ -7956,12 +7853,10 @@ export const messagesByLocale = {
       addBuilderGeminiOrOpenAI:
         "قم بإضافة Builder، أو Gemini، أو OpenAI قبل إنشاء أصول جديدة.",
       addGeminiOrOpenAI: "أضف Gemini أو OpenAI قبل إنشاء أصول جديدة.",
-      brandKits: "مجموعات العلامة التجارية",
       builderDescriptionDisabled:
         "إنشاء الصور معطّل هنا؛ قد يظل إنشاء الفيديو عبر Builder متاحًا.",
       builderLookupFailed:
         "تعذّر التحقق من الوصول إلى Builder. أعد المحاولة لتحديث حالة الاتصال.",
-      statusUnavailable: "الحالة غير متاحة",
       builderDescriptionManaged:
         "اربط Builder لإدارة إنشاء الصور وتخزينها. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
       builderDescriptionReady: "متصل للجيل المدار.",
@@ -7970,19 +7865,22 @@ export const messagesByLocale = {
       chooseProvider: "اختر مزودًا",
       enterValueFirst: "أدخل قيمة أولاً.",
       generationNeedsSetup: "يحتاج إلى إعداد",
-      manualGenerationDescription:
-        "أضف Gemini لإنشاء الفيديو يدويًا، أو OpenAI/Gemini كخيارات احتياطية للصور.",
       manualGenerationKeys: "مفاتيح الجيل اليدوي",
       manualKeys: "مفاتيح يدوية",
       noManualOptions: "لا تتوفر خيارات الإعداد اليدوي لهذا العنصر.",
-      objectStorageDescription:
-        "استخدم S3، أو R2، أو Spaces، أو Tigris، أو MinIO، أو أي موفر آخر متوافق.",
       objectStorage: "تخزين الكائنات",
       saveFailed: "فشل الحفظ",
+      builderConnectedTo: "متصل بـ {{orgName}}.",
+      generation: "الإنشاء",
+      storage: "التخزين",
+      manage: "إدارة",
+      addKeys: "إضافة مفاتيح",
+      setUp: "إعداد",
+      emailGroup: "البريد الإلكتروني",
+      setupLoadFailed: "تعذّر تحميل حالة الإعداد.",
+      notificationsLoadFailed: "تعذّر تحميل هذا الإعداد.",
       saveKey: "حفظ المفتاح",
       saveSettings: "حفظ الإعدادات",
-      setupDescription: "أساسيان: التوليد والتخزين الدائم.",
-      setupTitle: "إعداد Assets",
       storageNeedsSetup: "أضف مساحة تخزين متوافقة مع S3 لأصول الإنتاج والصادرات.",
       storageReady:
         "تتمتع النسخ الأصلية والصور المصغرة ومقاطع الفيديو والصادرات بمكانة متينة.",

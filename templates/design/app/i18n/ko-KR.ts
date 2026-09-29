@@ -164,14 +164,10 @@ export default {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     openAgentSettings: "에이전트 관리",
-    languageTitle: "언어",
-    languageDescription: "Design의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
-    labs: "Labs",
-    labsIntro:
-      "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+    mcpAbout:
+      "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   pages: {
     presentEmpty: "발표할 콘텐츠가 없습니다",
@@ -180,7 +176,6 @@ export default {
     notFoundDescription: "찾고 있는 페이지가 없습니다.",
     notFoundSignIn: "로그인",
     notFoundBackToDesigns: "디자인으로 돌아가기",
-    teamCreateOrgDescription: "동료와 디자인을 공유할 팀을 설정하세요.",
   },
   onboarding: {
     fileStorage: {
@@ -223,6 +218,7 @@ export default {
     },
   },
   common: {
+    loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
   },
   editPanel: {
@@ -320,6 +316,8 @@ export default {
       bottomLeft: "왼쪽 아래",
       bottomRight: "오른쪽 아래",
       blend: "혼합",
+      blendMode: "혼합 모드",
+      removeBlendMode: "혼합 모드 제거",
       border: "테두리",
       outline: "윤곽선",
       inside: "안쪽",
@@ -1468,6 +1466,13 @@ export default {
         "여러 번 시도했지만 라이브 편집기 브리지가 연결을 확인하지 못했습니다.",
       connectionNotConfirmed:
         "라이브 편집기 브리지가 연결을 확인하지 못했습니다. 로컬 개발 서버가 아직 실행 중인가요?",
+      permissionPromptTitle: "로컬 화면 연결",
+      permissionPromptDescription:
+        "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
+      permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
+      permissionPromptSettingsInstructions:
+        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 기기의 앱에 대한 액세스를 허용하세요.",
+      permissionPromptRetry: "연결 재시도",
     },
   },
   multiScreenCanvas: {

@@ -159,14 +159,11 @@ export default {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
-    account: "アカウント",
     signedInAs: "サインイン中",
     credentials: "データソース認証情報",
     credentialsDescription:
       "API キーと認証情報はデータソースページで管理します。",
     manageDataSources: "データソースを管理",
-    languageTitle: "言語",
-    languageLabel: "インターフェース言語",
     errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
     errorEmailNotificationsDescription:
       "新しい JavaScript エラーが記録されたときにメールを送信します。デフォルトではオフです。",
@@ -175,6 +172,9 @@ export default {
     bellSoundDescription:
       "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
     bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "メール",
+    notificationsSoundGroup: "サウンド",
     replayStorage: "セッションリプレイのストレージ",
     replayStorageDescription:
       "セッションリプレイの録画には、ファイルアップロードプロバイダーの設定が必要です。Builder.io の無料枠オブジェクトストレージを接続するか、独自の S3 互換バケットをご利用ください。",
@@ -208,8 +208,6 @@ export default {
     storageSaved: "ストレージ設定を保存しました。",
     storageSaveFailed: "ストレージ設定を保存できませんでした。",
     alertsTitle: "アラート",
-    alertsDescription:
-      "ファーストパーティ分析イベントのルールと通知配信を管理します。",
     alertRunNow: "チェックを実行",
     alertNew: "新しいアラート",
     alertsEmptyTitle: "アラートルールはまだありません",
@@ -962,6 +960,10 @@ export default {
     recentSales: "最近の売上",
     recentSalesDescription: "今月は 265 件の売上がありました。",
   },
+  analysisResult: {
+    title: "分析結果",
+    comparisonContext: "{{period}}：{{previous}} と比較して {{current}}",
+  },
   routeTitles: {
     notFound: "見つかりません - Analytics",
     analysis: "分析 - Analytics",
@@ -1078,6 +1080,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "カスタム範囲",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

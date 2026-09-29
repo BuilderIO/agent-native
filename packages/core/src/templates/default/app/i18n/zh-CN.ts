@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "正在断开连接…",
   },
   settings: {
-    title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
     agentTitle: "代理设置",
     agentDescription:
       "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "管理团队访问和共享工作区资源。",
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
-    backHome: "返回首页",
     emailChange: "更改电子邮件",
     emailChangeSent: "请查看邮件以确认此更改。",
     emailChangeError: "无法发送确认邮件。",
@@ -215,6 +209,9 @@ const messages = {
       noErrorMessage: "（无错误消息）",
     },
   },
+  settingsShortcut: {
+    command: "设置",
+  },
   agentPanel: {
     useBuilder: "使用生成器",
     openDesktopToEditCode: "打开桌面编辑代码",
@@ -230,6 +227,7 @@ const messages = {
     newChat: "新聊天",
     newTerminal: "新航站楼",
     panelOptions: "代理面板选项",
+    integrations: "集成",
     collapseSidebar: "收起侧边栏",
     widenChat: "加宽聊天窗口",
     returnChatToLayout: "将聊天窗口恢复到布局中",
@@ -255,6 +253,8 @@ const messages = {
     sharedKeyInEffect: "当前使用的是共享密钥。",
     useOrganizationKey: "改用组织密钥",
     keyStatusUnavailable: "无法获取密钥状态。",
+    saveScopeRoleUnavailable:
+      "无法加载你在组织中的角色，因此暂时无法保存密钥。",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -618,6 +618,11 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "返回列表",
+    promoteMustContain: "回复必须包含…",
+    promoteMustContainOptional: "回复中要检查的可选文本…",
+    promoteMustContainLabel: "在升级后的评测回复中检查的文本",
+    promoteNeedsContains:
+      "此运行没有成功的工具调用。请先输入回复必须包含的文本，再将其晋升为评测。",
     spans: "Spans",
     type: "类型",
     name: "名称",

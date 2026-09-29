@@ -157,13 +157,10 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
-    languageTitle: "语言",
-    languageDescription: "选择 Design 的界面语言。",
-    languageLabel: "界面语言",
-    labs: "Labs",
-    labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
+    mcpAbout:
+      "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
   pages: {
     presentEmpty: "没有可演示的内容",
@@ -172,7 +169,6 @@ export default {
     notFoundDescription: "您要查找的页面不存在。",
     notFoundSignIn: "登录",
     notFoundBackToDesigns: "返回设计",
-    teamCreateOrgDescription: "设置团队，与同事共享设计。",
   },
   onboarding: {
     fileStorage: {
@@ -215,6 +211,7 @@ export default {
     },
   },
   common: {
+    loading: "正在加载...",
     genericError: "出了点问题",
   },
   editPanel: {
@@ -312,6 +309,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "边框",
       outline: "轮廓",
       inside: "内侧",
@@ -1423,6 +1422,13 @@ export default {
       confirmationRetryExhausted: "多次尝试后，实时编辑器桥接器仍未确认连接。",
       connectionNotConfirmed:
         "实时编辑器桥接器未确认连接。本地开发服务器是否仍在运行？",
+      permissionPromptTitle: "连接本地画面",
+      permissionPromptDescription:
+        "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
+      permissionPromptNoPrompt: "没有看到 Chrome 提示？",
+      permissionPromptSettingsInstructions:
+        "点击地址栏左侧的站点控制图标，打开网站设置，然后允许访问设备上的应用。",
+      permissionPromptRetry: "重试连接",
     },
   },
   multiScreenCanvas: {

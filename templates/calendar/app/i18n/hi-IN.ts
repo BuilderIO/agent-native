@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "कनेक्ट करें",
@@ -5,7 +7,6 @@ export default {
     connecting: "कनेक्ट कर रहे हैं...",
     clipboardUnavailable: "क्लिपबोर्ड एक्सेस उपलब्ध नहीं है",
     disconnect: "डिस्कनेक्ट करें",
-    notConnected: "कनेक्टेड नहीं",
     loadFailed: "यह डेटा लोड नहीं किया जा सका।",
     retry: "फिर से प्रयास करें",
     saving: "सहेज रहे हैं...",
@@ -46,11 +47,6 @@ export default {
     couldNotLoadEvent: "इवेंट लोड नहीं हो सका",
     noEventId: "कोई इवेंट ID नहीं दिया गया। URL में ?id=<eventId> जोड़ें।",
     openCalendar: "कैलेंडर खोलें",
-  },
-  eventCreation: {
-    created: "इवेंट बनाया गया",
-    zoomNotAdded: "इवेंट बनाया गया, लेकिन Zoom नहीं जोड़ा जा सका।",
-    openInCalendar: "Calendar में इवेंट खोलें",
   },
   agentSidebar: {
     emptyState: "अपने कैलेंडर के बारे में कुछ भी पूछें",
@@ -198,10 +194,6 @@ export default {
   },
   settings: {
     title: "सेटिंग्स",
-    description: "अपना कैलेंडर और integrations कॉन्फ़िगर करें।",
-    languageTitle: "भाषा",
-    languageDescription: "Calendar की interface भाषा चुनें।",
-    languageLabel: "इंटरफ़ेस भाषा",
     agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
@@ -215,13 +207,8 @@ export default {
     zoomConnectFailed: "Zoom कनेक्ट नहीं कर सके",
     zoomDisconnected: "Zoom डिस्कनेक्ट हुआ",
     zoomDisconnectFailed: "Zoom डिस्कनेक्ट विफल",
-    general: "सामान्य",
-    generalDescription: "Calendar defaults और fallback booking copy.",
-    timezone: "समय क्षेत्र",
-    saveSettings: "सेटिंग्स सहेजें",
     saved: "सेटिंग्स सहेजी गईं",
     saveFailed: "सेटिंग्स सहेजने में विफल",
-    appearance: "रूप",
     appearanceDescription: "workspace के लिए color theme चुनें या agent से पूछें।",
     desktopNotifications: "डेस्कटॉप सूचनाएं",
     desktopNotificationsDescription:
@@ -233,23 +220,14 @@ export default {
     connectGoogleCalendar: "Google Calendar कनेक्ट करें",
     connectGoogleDescription: "events sync करें और सब कुछ एक जगह manage करें।",
     zoomDescription: "कैलेंडर इवेंट और बुकिंग के लिए मीटिंग लिंक बनाने हेतु Zoom कनेक्ट करें।",
-    zoomNotConfigured: "कॉन्फ़िगर नहीं है",
     zoomCredentialsPrompt: "कनेक्शन सक्षम करने के लिए Zoom OAuth क्रेडेंशियल जोड़ें।",
-    bookingTitleLabel: "फ़ॉलबैक बुकिंग पेज शीर्षक",
     bookingTitlePlaceholder: "मीटिंग बुक करें",
-    bookingTitleHelp:
-      "केवल तब उपयोग होता है जब बुकिंग लिंक का कोई शीर्षक नहीं हो। बुकिंग लिंक से सार्वजनिक URL बनाएं, खोलें और कॉपी करें।",
-    bookingDescriptionLabel: "फ़ॉलबैक बुकिंग पेज विवरण",
     bookingDescriptionPlaceholder: "अपने लिए सही समय चुनें।",
-    bookingDescriptionHelp:
-      "केवल तब उपयोग होता है जब बुकिंग लिंक का अपना विवरण नहीं हो।",
-    defaultDurationLabel: "डिफ़ॉल्ट इवेंट अवधि (मिनट)",
-    defaultDurationHelp:
-      "नए कैलेंडर इवेंट और बुकिंग स्लॉट की डिफ़ॉल्ट लंबाई। बुकिंग लिंक इसे प्रति लिंक बदल सकते हैं।",
     weekStartLabel: "सप्ताह की शुरुआत",
     weekStartSunday: "रविवार - शनिवार",
     weekStartMonday: "सोमवार - रविवार",
     eventRules: "निमंत्रण नियम",
+    eventRulesAutomationLink: "अन्य कार्रवाइयों के लिए ऑटोमेशन बनाएँ।",
     eventRulesConnectJev: "निमंत्रण नियम चलाने के लिए Jev कनेक्ट करें",
     eventRulesFreeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
     eventRulesConnectBuilder: "Builder.io कनेक्ट करें",
@@ -284,6 +262,37 @@ export default {
     eventRulesConflict:
       "स्वीकार और अस्वीकार दोनों नियम मेल खाने से एक निमंत्रण छोड़ दिया गया।",
     eventRulesUnregistered: "इस सर्वर पर Calendar ऑटोमेशन पंजीकृत नहीं है।",
+  },
+  calendarSettings: {
+    calendarsTab: "कैलेंडर",
+    bookingTab: "बुकिंग",
+    eventsGroup: "इवेंट",
+    appearanceGroup: "रूप-रंग",
+    colorTheme: "रंग थीम",
+    timezone: "कैलेंडर का समय क्षेत्र",
+    timezoneDescription: "इवेंट दिखाने और नए इवेंट बनाने के लिए इस्तेमाल होता है।",
+    defaultDuration: "डिफ़ॉल्ट इवेंट अवधि",
+    defaultDurationDescription: "मिनटों में। बुकिंग लिंक अपनी अवधि खुद तय कर सकते हैं।",
+    durationInvalid: "5 से 480 मिनट के बीच की अवधि डालें।",
+    zoom: "Zoom",
+    connectedAs: "{{accounts}} के रूप में कनेक्ट है",
+    setUp: "सेट अप करें",
+    disconnectGoogleTitle: "Google Calendar डिस्कनेक्ट करें?",
+    disconnectGoogleDescription:
+      "Calendar आपके Google खातों के इवेंट दिखाना और सिंक करना बंद कर देगा।",
+    disconnectZoomTitle: "Zoom डिस्कनेक्ट करें?",
+    disconnectZoomDescription:
+      "जब तक आप फिर से कनेक्ट नहीं करते, नए इवेंट और बुकिंग को Zoom मीटिंग लिंक नहीं मिलेंगे।",
+    manage: "प्रबंधित करें",
+    edit: "संपादित करें",
+    cancel: "रद्द करें",
+    save: "सहेजें",
+    fallbackBookingPage: "वैकल्पिक बुकिंग पेज",
+    fallbackBookingPageDescription:
+      "जब किसी बुकिंग लिंक का अपना शीर्षक या विवरण न हो, तब इस्तेमाल होता है।",
+    fallbackTitle: "शीर्षक",
+    fallbackDescription: "विवरण",
+    bookingLinksDescription: "बुकिंग लिंक बनाएं और उनके सार्वजनिक URL कॉपी करें।",
   },
   eventDialog: {
     eventUpdated: "इवेंट अपडेट हो गया",
@@ -575,6 +584,7 @@ export default {
     fieldRequired: "{{label}} आवश्यक है",
     linkDisabled: "{{title}} अक्षम",
     linkEnabled: "{{title}} सक्षम",
+    advanced: "उन्नत",
     linkVisibility: "लिंक दृश्यता",
     linkVisibilityDescription: "सार्वजनिक पृष्ठ को अक्षम करने के लिए इसे बंद करें।",
     loadingMeetingTypes: "मीटिंग प्रकार लोड हो रहे हैं",
@@ -1003,7 +1013,7 @@ export default {
     year: "वर्ष",
     zoom: "Zoom",
     zoomAdded: "Zoom जोड़ा गया",
-    zoomAddFailed: "Zoom जोड़ने में विफल",
+    zoomAddFailed: zoomAddFailedMessages["hi-IN"],
     zoomConnectFailed: "Zoom कनेक्ट नहीं हो सका",
     zoomConnectionOpened: "Zoom कनेक्शन खोला गया",
     zoomNotConfigured: "Zoom OAuth कॉन्फ़िगर नहीं है.",

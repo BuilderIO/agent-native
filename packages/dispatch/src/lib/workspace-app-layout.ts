@@ -27,14 +27,21 @@ export function normalizeWorkspaceAppLayout(
   const candidate = value as Partial<ChatFirstAppLayoutPreference>;
   const ids = (input: unknown): string[] =>
     Array.isArray(input)
-      ? input.filter(
-          (id): id is string => typeof id === "string" && id.trim().length > 0,
-        )
+      ? [
+          ...new Set(
+            input
+              .filter(
+                (id): id is string =>
+                  typeof id === "string" && id.trim().length > 0,
+              )
+              .map((id) => id.trim().toLowerCase()),
+          ),
+        ]
       : [];
 
   return {
-    pinnedIds: [...new Set(ids(candidate.pinnedIds))],
-    orderedIds: [...new Set(ids(candidate.orderedIds))],
+    pinnedIds: ids(candidate.pinnedIds),
+    orderedIds: ids(candidate.orderedIds),
   };
 }
 
@@ -42,11 +49,11 @@ export function orderWorkspaceApps<T extends { id: string }>(
   apps: readonly T[],
   layout: ChatFirstAppLayoutPreference,
 ): T[] {
-  const appsById = new Map(apps.map((app) => [app.id, app]));
-  return orderChatFirstAppIds(
-    apps.map((app) => app.id),
-    layout,
-  )
+  const appIds = apps.map((app) => app.id.trim().toLowerCase());
+  const appsById = new Map(
+    apps.map((app) => [app.id.trim().toLowerCase(), app]),
+  );
+  return orderChatFirstAppIds(appIds, normalizeWorkspaceAppLayout(layout))
     .map((id) => appsById.get(id))
     .filter((app): app is T => Boolean(app));
 }
@@ -66,15 +73,17 @@ export function toggleWorkspaceAppPinned(
   layout: ChatFirstAppLayoutPreference,
   appId: string,
 ): ChatFirstAppLayoutPreference {
-  const pinnedIds = layout.pinnedIds.includes(appId)
-    ? layout.pinnedIds.filter((id) => id !== appId)
-    : [appId, ...layout.pinnedIds];
-  return { ...layout, pinnedIds };
+  const normalizedLayout = normalizeWorkspaceAppLayout(layout);
+  const normalizedAppId = appId.trim().toLowerCase();
+  const pinnedIds = normalizedLayout.pinnedIds.includes(normalizedAppId)
+    ? normalizedLayout.pinnedIds.filter((id) => id !== normalizedAppId)
+    : [normalizedAppId, ...normalizedLayout.pinnedIds];
+  return { ...normalizedLayout, pinnedIds };
 }
 
 export function useWorkspaceAppLayout() {
   const [layout, setLayout] = useState<ChatFirstAppLayoutPreference>(() =>
-    readChatFirstAppLayout(),
+    normalizeWorkspaceAppLayout(readChatFirstAppLayout()),
   );
   const [persistenceError, setPersistenceError] =
     useState<WorkspaceAppLayoutPersistenceError | null>(null);
@@ -97,11 +106,12 @@ export function useWorkspaceAppLayout() {
 
   const persistLayout = useCallback((next: ChatFirstAppLayoutPreference) => {
     localChangeRef.current = true;
-    setLayout(next);
-    const deviceResult = writeChatFirstAppLayout(next);
+    const normalizedNext = normalizeWorkspaceAppLayout(next);
+    setLayout(normalizedNext);
+    const deviceResult = writeChatFirstAppLayout(normalizedNext);
     const deviceFailed = !deviceResult.ok;
 
-    void writeClientAppState(WORKSPACE_APP_LAYOUT_STATE_KEY, next)
+    void writeClientAppState(WORKSPACE_APP_LAYOUT_STATE_KEY, normalizedNext)
       .then(() => {
         setPersistenceError(deviceFailed ? "device" : null);
       })

@@ -39,6 +39,8 @@ import { Header } from "./Header";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -289,8 +291,12 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const ownToolbar = pageHasOwnToolbar(location.pathname);
-  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
+  // Settings brings its own navigation, header, and agent-panel toggle, so it
+  // replaces the app's chrome instead of nesting inside it.
+  const fullWidthSettings = isSlidesSettingsRoute(location.pathname);
+  const ownToolbar = pageHasOwnToolbar(location.pathname) || fullWidthSettings;
+  const showAppSidebar =
+    shouldShowSlidesAppSidebar(location.pathname) && !fullWidthSettings;
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed
@@ -403,6 +409,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>

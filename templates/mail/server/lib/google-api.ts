@@ -1,3 +1,15 @@
+import {
+  acquireGmailQuota,
+  GmailQuotaAccountUnavailableError,
+  GmailQuotaCooldownError,
+  markGmailQuotaSuccess,
+  tripGmailQuotaCooldown,
+  type GmailQuotaLane,
+} from "./gmail-quota.js";
+
+export { GmailQuotaCooldownError } from "./gmail-quota.js";
+export { registerGmailAccountToken } from "./gmail-quota.js";
+
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PEOPLE_BASE = "https://people.googleapis.com/v1";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
@@ -72,13 +84,20 @@ export function createOAuth2Client(
           grant_type: "refresh_token",
         }),
       });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (error) {
+        if (res.ok) throw error;
+      }
       if (!res.ok) {
-        const code = (data as any).error;
-        const desc = (data as any).error_description;
+        const code = data?.error;
+        const desc = data?.error_description;
         const detail =
           code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
-        throw new Error(`OAuth token refresh failed: ${detail}`);
+        const error = new Error(`OAuth token refresh failed: ${detail}`);
+        Object.assign(error, { status: res.status });
+        throw error;
       }
       const typed = data as {
         access_token: string;
@@ -94,38 +113,7 @@ export function createOAuth2Client(
   };
 }
 
-const QUOTA_COOLDOWN_MS = 90_000;
-const QUOTA_COOLDOWN_MAX_MS = 300_000;
-const tokenCooldowns = new Map<string, number>();
-
-function cooldownKey(accessToken: string): string {
-  return accessToken.slice(-12);
-}
-
-function isInCooldown(accessToken: string): number {
-  const until = tokenCooldowns.get(cooldownKey(accessToken));
-  if (!until) return 0;
-  if (until <= Date.now()) {
-    tokenCooldowns.delete(cooldownKey(accessToken));
-    return 0;
-  }
-  return until - Date.now();
-}
-
-function tripCooldown(
-  accessToken: string,
-  cooldownMs = QUOTA_COOLDOWN_MS,
-): number {
-  const effectiveCooldownMs = Math.min(
-    Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
-    QUOTA_COOLDOWN_MAX_MS,
-  );
-  tokenCooldowns.set(
-    cooldownKey(accessToken),
-    Date.now() + effectiveCooldownMs,
-  );
-  return effectiveCooldownMs;
-}
+const QUOTA_COOLDOWN_MS = 1_000;
 
 function isQuotaError(status: number, data: any): boolean {
   if (status === 429) return true;
@@ -171,43 +159,11 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
   return undefined;
 }
 
-function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
-  const seconds = Math.ceil(cooldownMs / 1000);
-  return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
-}
-
-/**
- * Every quota/cooldown throw in this file goes through this type instead of
- * a plain Error. Its HTTP metadata lets the shared action boundary return a
- * retryable 429 without action-specific catches or message parsing.
- */
-export class GmailQuotaCooldownError extends Error {
-  readonly retryAfterMs: number;
-  readonly statusCode = 429;
-  readonly errorCode = "gmail_quota_cooldown";
-  readonly details: { retryAfterSeconds: number };
-
-  constructor(message: string, retryAfterMs: number) {
-    super(message);
-    this.name = "GmailQuotaCooldownError";
-    this.retryAfterMs = retryAfterMs;
-    const retryAfterSeconds = Number.isFinite(retryAfterMs)
-      ? Math.ceil(retryAfterMs / 1000)
-      : 1;
-    this.details = {
-      retryAfterSeconds: Math.min(300, Math.max(1, retryAfterSeconds)),
-    };
-  }
-}
-
-const BUCKET_REFILL_PER_SEC = 150;
-const BUCKET_CAPACITY = 150;
-const MAX_BATCH_QUOTA_COST = 150;
-
 const COST_TABLE: Array<[RegExp, number, RegExp?]> = [
-  [/\/gmail\/v1\/users\/[^/]+\/messages\/send/, 100, /^POST$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/watch/, 100, /^POST$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/stop/, 50, /^POST$/i],
+  [/\/messages\/send(?:\?|$)/, 100, /^POST$/i],
+  [/\/watch(?:\?|$)/, 100, /^POST$/i],
+  [/\/stop(?:\?|$)/, 50, /^POST$/i],
+  [/\/messages\/batchModify(?:\?|$)/, 50, /^POST$/i],
   [/\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+\/modify/, 10, /^POST$/i],
   [
     /\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+\/(?:trash|untrash)/,
@@ -225,14 +181,16 @@ const COST_TABLE: Array<[RegExp, number, RegExp?]> = [
     5,
     /^GET$/i,
   ],
-  [/\/gmail\/v1\/users\/[^/]+\/history/, 2, /^GET$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/labels(?:\/|$|\?)/, 5],
+  [/\/history(?:\?|$)/, 2, /^GET$/i],
+  [/\/labels(?:\?|$)/, 1, /^GET$/i],
+  [/\/labels\/[^/?]+(?:\?|$)/, 1, /^GET$/i],
   [/\/gmail\/v1\/users\/[^/]+\/settings\/filters(?:\/|$|\?)/, 5],
-  [/\/gmail\/v1\/users\/[^/]+\/profile/, 1, /^GET$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+(?:$|\?)/, 10, /^GET$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/threads(?:\/|$|\?)/, 10, /^GET$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+(?:$|\?)/, 5, /^GET$/i],
-  [/\/gmail\/v1\/users\/[^/]+\/messages(?:\/|$|\?)/, 5, /^GET$/i],
+  [/\/profile(?:\?|$)/, 1, /^GET$/i],
+  [/\/threads\/[^/?]+(?:\?|$)/, 40, /^GET$/i],
+  [/\/threads(?:\?|$)/, 10, /^GET$/i],
+  [/\/messages\/[^/?]+(?:\?|$)/, 20, /^GET$/i],
+  [/\/messages(?:\?|$)/, 5, /^GET$/i],
+  [/\/messages\/[^/?]+\/attachments\/[^/?]+(?:\?|$)/, 5, /^GET$/i],
 ];
 
 export function estimateRequestCost(url: string, method: string): number {
@@ -243,90 +201,125 @@ export function estimateRequestCost(url: string, method: string): number {
   return 5;
 }
 
-type Bucket = { tokens: number; lastRefill: number };
-const tokenBuckets = new Map<string, Bucket>();
+function waitWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
 
-function getBucket(accessToken: string): Bucket {
-  const key = cooldownKey(accessToken);
-  let b = tokenBuckets.get(key);
-  if (!b) {
-    b = { tokens: BUCKET_CAPACITY, lastRefill: Date.now() };
-    tokenBuckets.set(key, b);
-  }
-  return b;
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
 }
 
-function refillBucket(b: Bucket): void {
-  const now = Date.now();
-  const elapsed = (now - b.lastRefill) / 1000;
-  if (elapsed > 0) {
-    b.tokens = Math.min(
-      BUCKET_CAPACITY,
-      b.tokens + elapsed * BUCKET_REFILL_PER_SEC,
-    );
-    b.lastRefill = now;
-  }
-}
+type GoogleFetchOptions = RequestInit & {
+  onRequestStart?: () => Promise<void>;
+  onRequestCancelled?: () => Promise<void>;
+};
 
-export async function acquireQuota(
-  accessToken: string,
-  cost: number,
-): Promise<void> {
-  const b = getBucket(accessToken);
-  let remaining = Math.max(0, cost);
-  while (remaining > 0) {
-    const want = Math.min(remaining, BUCKET_CAPACITY);
-    while (true) {
-      refillBucket(b);
-      if (b.tokens >= want) {
-        b.tokens -= want;
-        remaining -= want;
-        break;
-      }
-      const deficit = want - b.tokens;
-      const waitMs = Math.ceil((deficit / BUCKET_REFILL_PER_SEC) * 1000);
-      await new Promise((r) => setTimeout(r, Math.max(waitMs, 10)));
+function makeGoogleRequestAggregateError(
+  errors: Iterable<unknown>,
+  message: string,
+): Error {
+  const NativeAggregateError = (
+    globalThis as unknown as {
+      AggregateError: new (errors: Iterable<unknown>, message: string) => Error;
     }
+  ).AggregateError;
+  return new NativeAggregateError(errors, message);
+}
+
+async function markGmailQuotaSuccessAfterResponse(
+  accessToken: string,
+  shouldClearCooldown: boolean,
+): Promise<void> {
+  try {
+    await markGmailQuotaSuccess(accessToken, shouldClearCooldown);
+  } catch (error) {
+    console.warn(
+      "[google-api] Failed to clear Gmail quota cooldown after success:",
+      error,
+    );
   }
 }
 
 export async function googleFetch(
   url: string,
   accessToken: string,
-  opts?: RequestInit,
+  opts?: GoogleFetchOptions,
+  lane: GmailQuotaLane = "interactive",
+  allowUnregisteredProfile = false,
 ): Promise<any> {
-  const remaining = isInCooldown(accessToken);
-  if (remaining > 0) {
-    throw new GmailQuotaCooldownError(
-      quotaCooldownMessage(remaining),
-      remaining,
-    );
-  }
-
+  const { onRequestStart, onRequestCancelled, ...requestOptions } = opts ?? {};
+  const signal = requestOptions.signal ?? undefined;
+  signal?.throwIfAborted();
   const maxRetries = 3;
-  const method = opts?.method?.toUpperCase() ?? "GET";
+  const method = requestOptions.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
-
-  await acquireQuota(
-    accessToken,
-    estimateRequestCost(url, opts?.method || "GET"),
-  );
+  const gmailRequest = url.includes("gmail.googleapis.com");
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const headers = new Headers(opts?.headers);
+    signal?.throwIfAborted();
+    let clearCooldownAfterSuccess = false;
+    if (gmailRequest) {
+      try {
+        clearCooldownAfterSuccess = await acquireGmailQuota(
+          accessToken,
+          estimateRequestCost(url, method),
+          lane,
+        );
+      } catch (error) {
+        const profileBootstrap =
+          allowUnregisteredProfile &&
+          url.endsWith("/profile") &&
+          error instanceof GmailQuotaAccountUnavailableError;
+        if (!profileBootstrap) throw error;
+      }
+      signal?.throwIfAborted();
+    }
+
+    if (onRequestStart) {
+      await onRequestStart();
+      if (signal?.aborted) {
+        try {
+          await onRequestCancelled?.();
+        } catch (releaseError) {
+          throw makeGoogleRequestAggregateError(
+            [signal.reason, releaseError],
+            "Google request was cancelled before dispatch and its claim could not be released.",
+          );
+        }
+        signal.throwIfAborted();
+      }
+    }
+
+    const headers = new Headers(requestOptions.headers);
     headers.set("Authorization", `Bearer ${accessToken}`);
+    const res = await fetch(url, { ...requestOptions, headers });
 
-    const res = await fetch(url, { ...opts, headers });
-
-    if (res.status === 204) return null;
+    if (res.status === 204) {
+      if (gmailRequest)
+        await markGmailQuotaSuccessAfterResponse(
+          accessToken,
+          clearCooldownAfterSuccess,
+        );
+      return null;
+    }
 
     if (
       canRetry &&
       (res.status === 500 || res.status === 502 || res.status === 503) &&
       attempt < maxRetries
     ) {
-      const delay = Math.min(1000 * 2 ** attempt, 8000);
-      await new Promise((r) => setTimeout(r, delay));
+      await waitWithSignal(Math.min(1000 * 2 ** attempt, 8000), signal);
       continue;
     }
 
@@ -340,16 +333,18 @@ export async function googleFetch(
       }
     }
 
-    // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
-    // the same exhausted quota window just deepens the lockout. Trip the
-    // per-token circuit breaker and let callers/UI retry after the cooldown.
     if (!res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
-      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
-      throw new GmailQuotaCooldownError(
-        quotaCooldownMessage(effectiveCooldownMs),
-        effectiveCooldownMs,
-      );
+      let effectiveCooldownMs = cooldownMs;
+      try {
+        effectiveCooldownMs = await tripGmailQuotaCooldown(
+          accessToken,
+          cooldownMs,
+        );
+      } catch (error) {
+        if (!(error instanceof GmailQuotaAccountUnavailableError)) throw error;
+      }
+      throw new GmailQuotaCooldownError(effectiveCooldownMs);
     }
 
     if (!res.ok) {
@@ -360,6 +355,11 @@ export async function googleFetch(
       throw new Error(`Google API error (${res.status}): ${msg}`);
     }
 
+    if (gmailRequest)
+      await markGmailQuotaSuccessAfterResponse(
+        accessToken,
+        clearCooldownAfterSuccess,
+      );
     return data;
   }
 }
@@ -373,32 +373,60 @@ function qs(params: Record<string, string | number | undefined>): string {
   return str ? `?${str}` : "";
 }
 
-export function gmailGetProfile(accessToken: string) {
-  return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
+export function gmailGetProfile(
+  accessToken: string,
+  lane: GmailQuotaLane = "interactive",
+  allowUnregisteredProfile = false,
+  signal?: AbortSignal,
+) {
+  return googleFetch(
+    `${GMAIL_BASE}/profile`,
+    accessToken,
+    { signal },
+    lane,
+    allowUnregisteredProfile,
+  );
 }
 
 export function gmailListMessages(
   accessToken: string,
   params: { q?: string; maxResults?: number; pageToken?: string } = {},
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
-  return googleFetch(`${GMAIL_BASE}/messages${qs(params)}`, accessToken);
+  return googleFetch(
+    `${GMAIL_BASE}/messages${qs(params)}`,
+    accessToken,
+    { signal },
+    lane,
+  );
 }
 
 export function gmailListThreads(
   accessToken: string,
   params: { q?: string; maxResults?: number; pageToken?: string } = {},
+  lane: GmailQuotaLane = "interactive",
 ) {
-  return googleFetch(`${GMAIL_BASE}/threads${qs(params)}`, accessToken);
+  return googleFetch(
+    `${GMAIL_BASE}/threads${qs(params)}`,
+    accessToken,
+    undefined,
+    lane,
+  );
 }
 
 export function gmailGetMessage(
   accessToken: string,
   id: string,
   format?: "full" | "metadata" | "minimal",
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/messages/${id}${qs({ format })}`,
     accessToken,
+    { signal },
+    lane,
   );
 }
 
@@ -421,12 +449,20 @@ export function gmailModifyMessage(
   id: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
-  return googleFetch(`${GMAIL_BASE}/messages/${id}/modify`, accessToken, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ addLabelIds, removeLabelIds }),
-  });
+  return googleFetch(
+    `${GMAIL_BASE}/messages/${id}/modify`,
+    accessToken,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addLabelIds, removeLabelIds }),
+      signal,
+    },
+    lane,
+  );
 }
 
 export function gmailModifyThread(
@@ -434,18 +470,28 @@ export function gmailModifyThread(
   threadId: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  signal?: AbortSignal,
 ) {
   return googleFetch(`${GMAIL_BASE}/threads/${threadId}/modify`, accessToken, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    signal,
   });
 }
 
-export function gmailTrashMessage(accessToken: string, id: string) {
-  return googleFetch(`${GMAIL_BASE}/messages/${id}/trash`, accessToken, {
-    method: "POST",
-  });
+export function gmailTrashMessage(
+  accessToken: string,
+  id: string,
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
+) {
+  return googleFetch(
+    `${GMAIL_BASE}/messages/${id}/trash`,
+    accessToken,
+    { method: "POST", signal },
+    lane,
+  );
 }
 
 export function gmailTrashThread(accessToken: string, threadId: string) {
@@ -490,15 +536,36 @@ export function gmailGetThread(
   id: string,
   format?: string,
   metadataHeaders?: string[],
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
+    { signal },
+    lane,
   );
 }
 
-export function gmailListLabels(accessToken: string) {
-  return googleFetch(`${GMAIL_BASE}/labels`, accessToken);
+export function gmailListLabels(
+  accessToken: string,
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
+) {
+  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, { signal }, lane);
+}
+
+export function gmailGetLabel(
+  accessToken: string,
+  labelId: string,
+  lane: GmailQuotaLane = "interactive",
+) {
+  return googleFetch(
+    `${GMAIL_BASE}/labels/${encodeURIComponent(labelId)}`,
+    accessToken,
+    undefined,
+    lane,
+  );
 }
 
 export function gmailCreateLabel(
@@ -508,16 +575,24 @@ export function gmailCreateLabel(
     labelListVisibility?: string;
     messageListVisibility?: string;
   },
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
-  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name,
-      labelListVisibility: opts?.labelListVisibility ?? "labelShow",
-      messageListVisibility: opts?.messageListVisibility ?? "show",
-    }),
-  });
+  return googleFetch(
+    `${GMAIL_BASE}/labels`,
+    accessToken,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        labelListVisibility: opts?.labelListVisibility ?? "labelShow",
+        messageListVisibility: opts?.messageListVisibility ?? "show",
+      }),
+      signal,
+    },
+    lane,
+  );
 }
 
 export type GmailFilterCriteria = {
@@ -591,6 +666,8 @@ export function gmailListHistory(
     maxResults?: number;
     pageToken?: string;
   },
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   const sp = new URLSearchParams();
   sp.set("startHistoryId", params.startHistoryId);
@@ -600,13 +677,22 @@ export function gmailListHistory(
   }
   if (params.pageToken) sp.set("pageToken", params.pageToken);
   for (const t of params.historyTypes || []) sp.append("historyTypes", t);
-  return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken);
+  return googleFetch(
+    `${GMAIL_BASE}/history?${sp.toString()}`,
+    accessToken,
+    { signal },
+    lane,
+  );
 }
 
 export function gmailWatch(
   accessToken: string,
   topicName: string,
-  opts?: { labelIds?: string[]; labelFilterBehavior?: "include" | "exclude" },
+  opts?: {
+    labelIds?: string[];
+    labelFilterBehavior?: "include" | "exclude";
+    signal?: AbortSignal;
+  },
 ): Promise<{ historyId: string; expiration: string }> {
   return googleFetch(`${GMAIL_BASE}/watch`, accessToken, {
     method: "POST",
@@ -616,6 +702,7 @@ export function gmailWatch(
       labelIds: opts?.labelIds ?? ["INBOX"],
       labelFilterBehavior: opts?.labelFilterBehavior ?? "include",
     }),
+    signal: opts?.signal,
   });
 }
 
@@ -630,13 +717,13 @@ async function gmailBatchGet(
   ids: string[],
   costPerItem: number,
   buildPath: (id: string) => string,
+  lane: GmailQuotaLane,
+  signal?: AbortSignal,
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
+  signal?.throwIfAborted();
   if (ids.length === 0) return [];
 
-  const maxIdsPerBatch = Math.max(
-    1,
-    Math.min(100, Math.floor(MAX_BATCH_QUOTA_COST / costPerItem)),
-  );
+  const maxIdsPerBatch = 50;
   if (ids.length > maxIdsPerBatch) {
     const chunks: string[][] = [];
     for (let i = 0; i < ids.length; i += maxIdsPerBatch) {
@@ -649,25 +736,23 @@ async function gmailBatchGet(
         chunk,
         costPerItem,
         buildPath,
+        lane,
+        signal,
       );
       results.push(...part);
     }
     return results;
   }
 
-  const remaining = isInCooldown(accessToken);
-  if (remaining > 0) {
-    throw new GmailQuotaCooldownError(
-      quotaCooldownMessage(remaining),
-      remaining,
-    );
-  }
-
-  await acquireQuota(accessToken, ids.length * costPerItem);
+  const clearCooldownAfterSuccess = await acquireGmailQuota(
+    accessToken,
+    ids.length * costPerItem,
+    lane,
+  );
+  signal?.throwIfAborted();
 
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const CRLF = "\r\n";
-
   const parts: string[] = [];
   ids.forEach((id, i) => {
     parts.push(
@@ -687,6 +772,7 @@ async function gmailBatchGet(
       "Content-Type": `multipart/mixed; boundary=${boundary}`,
     },
     body,
+    signal,
   });
 
   if (!res.ok) {
@@ -699,11 +785,11 @@ async function gmailBatchGet(
     }
     if (isQuotaError(res.status, parsed)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
-      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
-      throw new GmailQuotaCooldownError(
-        quotaCooldownMessage(effectiveCooldownMs),
-        effectiveCooldownMs,
+      const effectiveCooldownMs = await tripGmailQuotaCooldown(
+        accessToken,
+        cooldownMs,
       );
+      throw new GmailQuotaCooldownError(effectiveCooldownMs);
     }
     throw new Error(
       `Google API error (${res.status}): Gmail batch failed: ${text || res.statusText}`,
@@ -724,12 +810,16 @@ async function gmailBatchGet(
   const parsed = parseBatchResponse(respText, respBoundary, ids);
   const quotaPart = parsed.find((part) => isQuotaErrorText(part.error));
   if (quotaPart) {
-    tripCooldown(accessToken);
-    throw new GmailQuotaCooldownError(
-      quotaCooldownMessage(),
+    const cooldownMs = await tripGmailQuotaCooldown(
+      accessToken,
       QUOTA_COOLDOWN_MS,
     );
+    throw new GmailQuotaCooldownError(cooldownMs);
   }
+  await markGmailQuotaSuccessAfterResponse(
+    accessToken,
+    clearCooldownAfterSuccess,
+  );
   return parsed;
 }
 
@@ -737,13 +827,17 @@ export async function gmailBatchGetMessages(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
+  lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
     accessToken,
     ids,
-    5,
+    20,
     (id) => `/gmail/v1/users/me/messages/${encodeURIComponent(id)}${formatQs}`,
+    lane,
+    signal,
   );
 }
 
@@ -752,13 +846,15 @@ export async function gmailBatchGetThreads(
   ids: string[],
   format?: "full" | "metadata" | "minimal",
   metadataHeaders?: string[],
+  lane: GmailQuotaLane = "interactive",
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
   const query = metadataQs(format, metadataHeaders);
   return gmailBatchGet(
     accessToken,
     ids,
-    10,
+    40,
     (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${query}`,
+    lane,
   );
 }
 

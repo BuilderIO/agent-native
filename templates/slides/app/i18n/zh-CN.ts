@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "第 {{current}} 页，共 {{total}} 页",
   },
   creativeContext: creativeContextMessagesByLocale["zh-CN"],
+  common: {
+    loading: "正在加载...",
+  },
   root: {
     commandPresentations: "演示文稿",
     searchDecks: "搜索幻灯片",
@@ -40,22 +43,20 @@ const messages = {
     brand: "幻灯片",
     decks: "幻灯片",
     designSystems: "设计系统",
-    team: "团队",
   },
   settings: {
     agentObservability: "代理可观测性",
     title: "设置",
-    description: "此应用的语言和工作区偏好设置。",
     labs: "实验室",
     labsIntro: "在正式发布前预览实验性功能。",
     labLayoutOverflowWarningDescription: "在编辑器中显示布局溢出警告。",
-    emailNotifications: "邮件通知",
-    emailNotificationsDescription:
-      "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
     saveFailed: "保存失败",
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
+    notificationsEmail: "电子邮件",
+    commentsAndReplies: "评论和回复",
+    commentsAndRepliesDescription: "有人在你的演示文稿中发表评论或回复时。",
+    retry: "重试",
+    mcpAbout:
+      "将 Slides 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Slides 中工作：创建演示文稿、添加幻灯片并导出为 PowerPoint。它只能看到你有权看到的内容。",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
@@ -181,8 +182,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "在应用中打开",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -570,6 +569,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "已保存" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -634,6 +634,19 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "错误 403",
+    noAccessTitle: "你没有访问权限",
+    noAccessDescription: "请向幻灯片所有者申请访问权限，或切换到正确的账号。",
+    noteLabel: "给所有者添加备注（可选）",
+    notePlaceholder: "我正在审阅这份幻灯片",
+    requesting: "正在申请",
+    requestFailed: "你的申请未发送，请重试。",
+    requestSentDescription: "所有者批准你的申请后，我们会立即发邮件通知你。",
+    goHome: "返回首页",
+    signedInAs: "当前登录账号",
+    switchAccount: "切换账号",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
@@ -676,6 +689,9 @@ const messages = {
     accessApprovalTitle: "已授予访问权限",
     accessApprovalAlreadyTitle: "已授予访问权限",
     accessApprovalMessage: "{{email}} 现在可以打开此幻灯片。",
+    accessApprovalRequesterEmailed: "我们已发送邮件通知对方。",
+    accessApprovalRequesterEmailFailed:
+      "无法向 {{email}} 发送邮件。请告知对方现在可以打开幻灯片了。",
     accessApprovalAlreadyMessage: "{{email}} 已经可以访问此幻灯片。",
     accessApprovalErrorTitle: "无法授予访问权限",
     accessApprovalInvalid: "此访问请求无效或已过期。",
@@ -805,6 +821,7 @@ const messages = {
       invalidFile: "请选择 PDF 或 PPTX 文件。",
       networkFailed: "导入请求超时或网络连接中断。请检查网络连接后重试。",
       notStarted: "完成所需的登录后，请重试导入。",
+      unsupportedFileType: "不支持此文件类型。请选择受支持的文件。",
       uploadLimitExceeded:
         "上传内容超出允许的限制。请缩小文件或减少文件数量后重试。",
     },
@@ -843,6 +860,7 @@ const messages = {
       figma: "Figma 画框",
       notReady: "上下文仍在加载或不可用。请重试或移除后再发送。",
       emptySource: "此来源未返回可用的上下文。",
+      websiteReadFailed: "无法自动读取此网站。请改为复制并粘贴相关文本。",
       figmaReadFailed:
         "Design 无法读取此 Figma 参考内容。请检查 Design 中保存的 Figma 访问令牌，以及关联账号是否有权打开该文件，然后重试。",
       tooMany: "最多选择 20 项参考资料。",
@@ -992,6 +1010,11 @@ const messages = {
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription: "使用 AI 生成精美演示文稿。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
   },
 };
 

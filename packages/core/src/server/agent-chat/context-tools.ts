@@ -7,6 +7,7 @@ import {
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
+import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
@@ -153,14 +154,16 @@ Agent-Native Plan, a Plan artifact, or the Plans app.
 
 **ONLY use \`call-agent\` when:**
 - The user explicitly asks you to communicate with a different app
-- You need data that only another deployed app can provide
-- You need brand-consistent generated media and this app does not have a native generation action; call agent "assets" and keep returned asset IDs and URLs verbatim
+- The requested outcome depends on data or a capability only another deployed app can provide
+
+For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there. Keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
   memory: `### Structured Memory
 
 Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every conversation.
+Personal memory instructions in \`memory/INSTRUCTIONS.md\` are also loaded automatically; follow them when deciding what to save or leave out.
 
 **Tools:**
 - \`save-memory\` — Create or update a memory (name, type, description, content)
@@ -389,6 +392,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
         return `set-url-path: ${pathname}`;
       },
     },
+    "open-settings-page": createOpenSettingsPageTool(),
     "ask-question": {
       endsTurn: true,
       tool: {

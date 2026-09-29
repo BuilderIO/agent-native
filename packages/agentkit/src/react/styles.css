@@ -197,8 +197,10 @@
   cursor: pointer;
 }
 
-.agentkit-composer button:has(> svg:only-child),
-.agentkit-composer [data-agent-composer-slot="send-button"] {
+.agentkit-composer
+  button:has(> svg:only-child):not([data-agent-composer-slot="send-button"]),
+.agentkit-composer:not(.agent-composer-root--hero)
+  [data-agent-composer-slot="send-button"] {
   inline-size: var(--agentkit-composer-toolbar-control-size);
   padding-inline: 0;
 }
@@ -521,6 +523,12 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
   grid-template-rows: minmax(0, 1fr) auto 1rem auto minmax(0, 1fr);
+}
+
+.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]:has(
+    .agentkit-transcript-content:empty
+  ) {
+  grid-template-rows: minmax(0, 1fr) 0 0 auto minmax(0, 1fr);
 }
 
 .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
@@ -990,43 +998,6 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-message-actions time {
   margin-inline-start: 0.25rem;
   font-size: 0.6875rem;
-}
-
-.agentkit-message-menu {
-  z-index: 20;
-  min-inline-size: 12rem;
-  padding: 0.25rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius-inner);
-  background: var(--agentkit-surface);
-  box-shadow: 0 8px 24px
-    color-mix(in srgb, var(--agentkit-text) 16%, transparent);
-}
-
-.agentkit-message-menu-items {
-  display: grid;
-  gap: 0.125rem;
-}
-
-.agentkit-message-actions .agentkit-message-menu-item {
-  display: flex;
-  inline-size: 100%;
-  min-block-size: 2rem;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.5rem;
-  padding: 0.375rem 0.5rem;
-  border-radius: var(--radius-sm, var(--radius));
-  text-align: start;
-}
-
-.agentkit-message-menu-item:hover:not(:disabled) {
-  background: var(--agentkit-subtle);
-}
-
-.agentkit-message-menu-item:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .agentkit-branch-navigation {

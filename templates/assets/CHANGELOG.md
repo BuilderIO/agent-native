@@ -3,6 +3,29 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+## 2026-09-28
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Create starter prompts now appear below the composer.
+
+## 2026-09-27
+
+### Improved
+
+- Assets chat now opens with a centered composer and starter prompts.
+- Reference actions use clearer, shorter labels.
+- Show generated image variations with save, reference, and refine actions in chat
+- The Create chat home keeps suggested prompts above the composer in a centered layout.
+
 ## 2026-09-26
 
 ### Improved
@@ -22,6 +45,9 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Image generation uses the provider your organization picks for it, then falls back to Builder.io
+- In the new Settings, generation setup and storage are on Assets › General, and generation emails are on Assets › Notifications.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - Brand-kit and template uploads show how to connect file storage when it is not configured
 - Public asset library links show their title and description in previews.
 

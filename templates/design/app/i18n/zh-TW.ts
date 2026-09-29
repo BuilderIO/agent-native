@@ -156,13 +156,10 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
-    languageTitle: "語言",
-    languageDescription: "選取 Design 的介面語言。",
-    languageLabel: "介面語言",
-    labs: "Labs",
-    labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
     labTweaks: "設計微調",
     labTweaksDescription: "試用 AI 設計微調功能。",
+    mcpAbout:
+      "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },
   pages: {
     presentEmpty: "沒有可展示的內容",
@@ -171,7 +168,6 @@ export default {
     notFoundDescription: "您要尋找的頁面不存在。",
     notFoundSignIn: "登入",
     notFoundBackToDesigns: "返回設計",
-    teamCreateOrgDescription: "設定團隊，與同事共用設計。",
   },
   review: {
     comments: "評論",
@@ -307,6 +303,7 @@ export default {
     },
   },
   common: {
+    loading: "載入中...",
     genericError: "出了點問題",
   },
   editPanel: {
@@ -432,6 +429,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "混合",
+      blendMode: "混合模式",
+      removeBlendMode: "移除混合模式",
       border: "邊框",
       outline: "外框",
       inside: "內側",
@@ -1515,6 +1514,13 @@ export default {
       confirmationRetryExhausted: "多次嘗試後，即時編輯器橋接器仍未確認連線。",
       connectionNotConfirmed:
         "即時編輯器橋接器未確認連線。本機開發伺服器是否仍在執行？",
+      permissionPromptTitle: "連線至本機畫面",
+      permissionPromptDescription:
+        "在 Chrome 的提示中選擇「允許」，即可啟用即時編輯。",
+      permissionPromptNoPrompt: "沒有看到 Chrome 提示？",
+      permissionPromptSettingsInstructions:
+        "點擊網址列左側的網站控制圖示，開啟網站設定，然後允許存取裝置上的 App。",
+      permissionPromptRetry: "重試連線",
     },
   },
   multiScreenCanvas: {

@@ -14,6 +14,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -163,6 +164,9 @@ function InteractiveLayout({ children }: LayoutProps) {
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const settingsOwnsChrome = isSettingsPathname(location.pathname);
   const isSettingsRoute = isAnalyticsSettingsPath(location.pathname);
   const runningRuns = useRef<AnalyticsChatRunningRuns>(new Map());
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -232,17 +236,18 @@ function InteractiveLayout({ children }: LayoutProps) {
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <MobileNav showNewChat={isAskRoute} />
+      {!settingsOwnsChrome && <MobileNav showNewChat={isAskRoute} />}
       {!isExtensionsRoute &&
         !isAskRoute &&
         !isSessionDetailRoute &&
-        !isMonitoringRoute && <Header />}
+        !isMonitoringRoute &&
+        !settingsOwnsChrome && <Header />}
       <InvitationBanner />
       <main
         className={
           isExtensionsRoute
             ? "agent-native-app-main flex-1 overflow-y-auto"
-            : isAskRoute
+            : isAskRoute || settingsOwnsChrome
               ? "agent-native-app-main flex-1 overflow-hidden p-0"
               : "agent-native-app-main flex-1 overflow-y-auto p-6 pt-2"
         }
@@ -273,9 +278,11 @@ function InteractiveLayout({ children }: LayoutProps) {
       <AgentCompletionSound />
       <HeaderActionsProvider>
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          <div className="agent-layout-left-drawer hidden shrink-0 md:block">
-            <Sidebar />
-          </div>
+          {!settingsOwnsChrome && (
+            <div className="agent-layout-left-drawer hidden shrink-0 md:block">
+              <Sidebar />
+            </div>
+          )}
           {isAskRoute ? (
             <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
               {contentFrame}

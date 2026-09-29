@@ -55,3 +55,28 @@ export function verifySharePassword(
   const b = createHash("sha256").update(expected, "utf8").digest();
   return timingSafeEqual(a, b);
 }
+
+export function getRecordingAccessTokenResourceId(
+  recordingId: string,
+  storedPassword: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
+): string {
+  if (
+    sharePasswordVersion === "initial" ||
+    sharePasswordVersion?.startsWith("legacy:")
+  ) {
+    // Keep pre-version grants and grants from older writers valid until a password mutation.
+    return recordingId;
+  }
+
+  // Encrypted passwords scope grants to the ciphertext; other rows use the dedicated version.
+  const versionSource =
+    storedPassword && isEncryptedSecretValue(storedPassword)
+      ? storedPassword
+      : sharePasswordVersion;
+  if (!versionSource) {
+    throw new Error("Recording access scope requires a password version");
+  }
+  const version = createHash("sha256").update(versionSource).digest("hex");
+  return `${recordingId}:access:${version}`;
+}

@@ -13,6 +13,7 @@ import {
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -107,7 +108,11 @@ export function Layout({ children }: LayoutProps) {
     isDesignEditor,
   });
   const standaloneEditor = layoutMode === "standalone-editor";
-  const showMobileTopBar = !standaloneEditor;
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
+  const showAppNav = !standaloneEditor && !isSettingsRoute;
+  const showMobileTopBar = showAppNav;
   const browserTabId = getBrowserTabId();
   const {
     link: detectedFigmaComposerLink,
@@ -205,6 +210,7 @@ export function Layout({ children }: LayoutProps) {
 
   const hideHeader =
     isChatRoute ||
+    isSettingsRoute ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
   function openAgentChatFullscreen() {
@@ -252,13 +258,13 @@ export function Layout({ children }: LayoutProps) {
 
   const shell = (
     <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
-      {!standaloneEditor && mobileSidebarOpen && (
+      {showAppNav && mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
-      {!standaloneEditor && (
+      {showAppNav && (
         <div
           className={cn(
             "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
@@ -295,7 +301,7 @@ export function Layout({ children }: LayoutProps) {
         <main
           className={cn(
             "agent-native-app-main min-h-0 flex-1",
-            isDesignEditor || isChatRoute
+            isDesignEditor || isChatRoute || isSettingsRoute
               ? "overflow-hidden"
               : "overflow-y-auto",
           )}

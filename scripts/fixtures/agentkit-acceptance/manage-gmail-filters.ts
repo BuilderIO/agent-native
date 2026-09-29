@@ -8,7 +8,6 @@ export default defineAction({
     sender: z.string(),
     label: z.string(),
   }),
-  chatUI: { renderer: "mail.gmail-filter-confirmation", title: "Gmail filter" },
   http: false,
   readOnly: true,
   run: async ({ sender, label }) => ({
@@ -19,6 +18,13 @@ export default defineAction({
       id: "agentkit-sample-filter",
       criteriaSummary: `From: ${sender}`,
       actionSummary: `Apply label: ${label}`,
+    },
+    change: {
+      verb: "created",
+      kind: "gmail-filter",
+      title: `From: ${sender}`,
+      detail: `Apply label: ${label}`,
+      url: "https://mail.google.com/mail/?authuser=agentkit-mail%40example.test#settings/filters",
     },
   }),
 });

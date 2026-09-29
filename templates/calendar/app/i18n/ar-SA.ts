@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "اتصال",
@@ -5,7 +7,6 @@ export default {
     connecting: "جارٍ الاتصال...",
     clipboardUnavailable: "الوصول إلى الحافظة غير متاح",
     disconnect: "قطع الاتصال",
-    notConnected: "غير متصل",
     loadFailed: "تعذر تحميل هذه البيانات.",
     retry: "إعادة المحاولة",
     saving: "جارٍ الحفظ...",
@@ -46,11 +47,6 @@ export default {
     couldNotLoadEvent: "تعذر تحميل الحدث",
     noEventId: "لم يتم تقديم ID للحدث. أضف ?id=<eventId> إلى URL.",
     openCalendar: "فتح التقويم",
-  },
-  eventCreation: {
-    created: "تم إنشاء الحدث",
-    zoomNotAdded: "تم إنشاء الحدث، ولكن تعذرت إضافة Zoom.",
-    openInCalendar: "فتح الحدث في Calendar",
   },
   agentSidebar: {
     emptyState: "اسألني أي شيء عن تقويمك",
@@ -215,10 +211,6 @@ export default {
   },
   settings: {
     title: "الإعدادات",
-    description: "اضبط التقويم والتكاملات.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة واجهة Calendar.",
-    languageLabel: "لغة الواجهة",
     agentTitle: "إدارة الوكيل",
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -232,13 +224,8 @@ export default {
     zoomConnectFailed: "تعذر الاتصال بـ Zoom",
     zoomDisconnected: "تم قطع اتصال Zoom",
     zoomDisconnectFailed: "فشل قطع اتصال Zoom",
-    general: "عام",
-    generalDescription: "إعدادات التقويم الافتراضية ونصوص الحجز البديلة.",
-    timezone: "المنطقة الزمنية",
-    saveSettings: "حفظ الإعدادات",
     saved: "تم حفظ الإعدادات",
     saveFailed: "فشل حفظ الإعدادات",
-    appearance: "المظهر",
     appearanceDescription: "اختر سمة ألوان لمساحة العمل أو اسأل الوكيل.",
     desktopNotifications: "إشعارات سطح المكتب",
     desktopNotificationsDescription:
@@ -250,23 +237,14 @@ export default {
     connectGoogleCalendar: "الاتصال بتقويم Google",
     connectGoogleDescription: "زامن أحداثك وأدر كل شيء في مكان واحد.",
     zoomDescription: "اربط Zoom لإنشاء روابط اجتماعات لأحداث التقويم والحجوزات.",
-    zoomNotConfigured: "غير مكوّن",
     zoomCredentialsPrompt: "أضف بيانات اعتماد Zoom OAuth لتفعيل الاتصال.",
-    bookingTitleLabel: "عنوان صفحة الحجز الاحتياطي",
     bookingTitlePlaceholder: "احجز اجتماعًا",
-    bookingTitleHelp:
-      "يُستخدم فقط عندما لا يحتوي رابط الحجز على عنوان. أنشئ وافتح وانسخ عناوين URL العامة من روابط الحجز.",
-    bookingDescriptionLabel: "وصف صفحة الحجز الاحتياطي",
     bookingDescriptionPlaceholder: "اختر وقتًا يناسبك.",
-    bookingDescriptionHelp:
-      "يُستخدم فقط عندما لا يحتوي رابط الحجز على وصف خاص به.",
-    defaultDurationLabel: "مدة الحدث الافتراضية (بالدقائق)",
-    defaultDurationHelp:
-      "المدة الافتراضية لأحداث التقويم الجديدة وفتحات الحجز. يمكن لروابط الحجز تجاوزها لكل رابط.",
     weekStartLabel: "يبدأ الأسبوع يوم",
     weekStartSunday: "الأحد - السبت",
     weekStartMonday: "الاثنين - الأحد",
     eventRules: "قواعد الدعوات",
+    eventRulesAutomationLink: "لإجراءات أخرى، أنشئ أتمتة.",
     eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
     eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
     eventRulesConnectBuilder: "ربط Builder.io",
@@ -299,6 +277,39 @@ export default {
     eventRulesChecking: "جارٍ التحقق من حالة الأتمتة…",
     eventRulesConflict: "تخطّينا دعوة لأن قاعدتي القبول والرفض تطابقتا.",
     eventRulesUnregistered: "أتمتة Calendar غير مسجلة على هذا الخادم.",
+  },
+  calendarSettings: {
+    calendarsTab: "التقويمات",
+    bookingTab: "الحجز",
+    eventsGroup: "الأحداث",
+    appearanceGroup: "المظهر",
+    colorTheme: "سمة الألوان",
+    timezone: "المنطقة الزمنية للتقويم",
+    timezoneDescription: "يُستخدم لعرض الأحداث وإنشاء أحداث جديدة.",
+    defaultDuration: "المدة الافتراضية للحدث",
+    defaultDurationDescription:
+      "بالدقائق. يمكن لروابط الحجز تعيين مدة خاصة بها.",
+    durationInvalid: "أدخل مدة من 5 إلى 480 دقيقة.",
+    zoom: "Zoom",
+    connectedAs: "متصل باسم {{accounts}}",
+    setUp: "إعداد",
+    disconnectGoogleTitle: "هل تريد قطع الاتصال بتقويم Google؟",
+    disconnectGoogleDescription:
+      "يتوقف Calendar عن عرض الأحداث من حسابات Google ومزامنتها.",
+    disconnectZoomTitle: "هل تريد قطع الاتصال بـ Zoom؟",
+    disconnectZoomDescription:
+      "لن تحصل الأحداث والحجوزات الجديدة على روابط اجتماعات Zoom حتى تعيد الاتصال.",
+    manage: "إدارة",
+    edit: "تعديل",
+    cancel: "إلغاء",
+    save: "حفظ",
+    fallbackBookingPage: "صفحة الحجز البديلة",
+    fallbackBookingPageDescription:
+      "تُستخدم عندما لا يكون لرابط الحجز عنوان أو وصف خاص به.",
+    fallbackTitle: "العنوان",
+    fallbackDescription: "الوصف",
+    bookingLinksDescription:
+      "أنشئ روابط حجز وانسخ عناوين URL العامة الخاصة بها.",
   },
   eventDialog: {
     eventUpdated: "تم تحديث الحدث",
@@ -596,6 +607,7 @@ export default {
     fieldRequired: "{{label}} مطلوب",
     linkDisabled: "تم تعطيل {{title}}",
     linkEnabled: "تم تمكين {{title}}",
+    advanced: "إعدادات متقدمة",
     linkVisibility: "رؤية الارتباط",
     linkVisibilityDescription: "قم بإيقاف تشغيل هذا لتعطيل الصفحة العامة.",
     loadingMeetingTypes: "جارٍ تحميل أنواع الاجتماعات",
@@ -1023,7 +1035,7 @@ export default {
     year: "سنة",
     zoom: "Zoom",
     zoomAdded: "تمت إضافة Zoom",
-    zoomAddFailed: "فشلت إضافة Zoom",
+    zoomAddFailed: zoomAddFailedMessages["ar-SA"],
     zoomConnectFailed: "لا يمكن الاتصال Zoom",
     zoomConnectionOpened: "تم فتح اتصال Zoom",
     zoomNotConfigured: "لم يتم تكوين Zoom OAuth.",

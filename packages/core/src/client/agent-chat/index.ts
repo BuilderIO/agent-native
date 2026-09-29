@@ -61,11 +61,17 @@ export {
   type AgentComposerReferenceInsertPayload,
 } from "../agent-chat.js";
 export {
+  fetchProviderModels,
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
+  type AgentEngineDefaultModelOutcome,
   type AgentEngineProvider,
+  type FetchProviderModelsOptions,
+  type ProviderModelsCheck,
+  type ProviderModelsCheckCode,
   type SaveAgentEngineApiKeyOptions,
   type SaveAgentEngineProviderSettingsOptions,
+  type SaveAgentEngineProviderSettingsResult,
 } from "../agent-engine-key.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useActiveAgentChatRunId } from "../use-active-agent-chat-run.js";
@@ -96,6 +102,8 @@ export {
   chatModelSelectionStorageKey,
   useChatModels,
   type UseChatModelsResult,
+  type UseChatModelsOptions,
+  type PersistedModelSelection,
   type EngineModelGroup,
 } from "../use-chat-models.js";
 export {
@@ -108,8 +116,10 @@ export {
 } from "../chat-first-agent-activity.js";
 export { ChatFirstSurfacePanelToggle } from "../chat-first-surface-panel-toggle.js";
 export {
+  fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
+  type FetchAgentEngineConfiguredStateOptions,
   type UseAgentEngineConfiguredResult,
 } from "../use-agent-engine-configured.js";
 export {

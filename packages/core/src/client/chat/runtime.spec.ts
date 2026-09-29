@@ -401,6 +401,32 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("forwards pending-selection suppression to the agent request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([{ type: "text", text: "Done" }, { type: "done" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-selection",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Use this selection once",
+      metadata: { agentNativeSkipPendingSelectionContext: true },
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Use this selection once",
+      skipPendingSelectionContext: true,
+    });
+  });
+
   it("keeps raw structured action results separate from display text", async () => {
     const result = {
       draft: { subject: "Launch notes" },
@@ -975,17 +1001,49 @@ describe("createAgentNativeChatRuntime", () => {
     expect(session.continueTurn).toBeTypeOf("function");
   });
 
-  it("continues an approved tool call on the same durable turn", async () => {
+  it("resumes the exact approved tool call with false-valued arguments", async () => {
+    const approvedInput = { dryRun: false };
+    const approvalKey = 'publish-release:{"dryRun":false}';
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         sseResponse([
           { type: "text", text: "Waiting for approval. " },
           {
+            type: "tool_start",
+            id: "call-0",
+            tool: "read-release",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            id: "call-0",
+            tool: "read-release",
+            result: "Release lookup failed.",
+            isError: true,
+          },
+          {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+          {
+            type: "tool_start",
+            id: "call-1",
+            tool: "publish-release",
+            input: approvedInput,
+          },
+          {
             type: "approval_required",
             tool: "publish-release",
-            approvalKey: "publish-release:{}",
+            input: approvedInput,
+            approvalKey,
             toolCallId: "call-1",
+          },
+          {
+            type: "tool_done",
+            id: "call-1",
+            tool: "publish-release",
+            result: "Awaiting human approval. This action did NOT execute.",
           },
           { type: "done" },
         ]),
@@ -1011,7 +1069,7 @@ describe("createAgentNativeChatRuntime", () => {
     const continuation = await session.continueTurn?.({
       turnId: first.id,
       approval: {
-        id: "publish-release:{}",
+        id: approvalKey,
         approved: true,
       },
     });
@@ -1025,8 +1083,98 @@ describe("createAgentNativeChatRuntime", () => {
       threadId: "thread-approval",
       turnId: first.id,
       internalContinuation: true,
-      approvedToolCalls: ["publish-release:{}"],
+      approvedToolCalls: [approvalKey],
+      structuredHistory: expect.arrayContaining([
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-0",
+              content: "Release lookup failed.",
+              isError: true,
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call-1",
+              name: "publish-release",
+              input: approvedInput,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-1",
+              content: "Awaiting human approval. This action did NOT execute.",
+            },
+          ],
+        },
+      ]),
     });
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationBody.structuredHistory.slice(-6)).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Waiting for approval. " }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-0", name: "read-release", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-0",
+            content: "Release lookup failed.",
+            isError: true,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "publish-release",
+            input: approvedInput,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+          },
+        ],
+      },
+    ]);
     expect(events.at(-1)).toMatchObject({
       type: "done",
       reason: "complete",
@@ -1047,7 +1195,12 @@ describe("createAgentNativeChatRuntime", () => {
               ? initialMessage.message.id
               : undefined,
           content: [
-            { type: "text", text: "Waiting for approval. Release published." },
+            { type: "text", text: "Waiting for approval. " },
+            {
+              type: "text",
+              text: "Release lookup failed; requesting approval. ",
+            },
+            { type: "text", text: "Release published." },
           ],
         },
       },

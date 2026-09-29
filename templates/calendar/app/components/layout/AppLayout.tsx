@@ -213,6 +213,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
   const isCalendarPage = location.pathname === "/";
+  // The Settings shell brings its own navigation, header, and agent toggle.
+  const settingsOwnsChrome = isSettingsPage;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
@@ -389,27 +391,29 @@ export function AppLayout({ children }: AppLayoutProps) {
             className="agent-layout-shell flex h-screen overflow-hidden bg-background"
             data-agent-native-shell-variant="custom"
           >
-            <Sidebar
-              open={sidebarOpen}
-              onClose={() => setSidebarOpen(false)}
-              collapsed={
-                !isMobile &&
-                (perAppChatOpen
-                  ? !sidebarExpandedWhileChatOpen
-                  : sidebarCollapsed)
-              }
-              onCollapsedChange={
-                isMobile
-                  ? undefined
-                  : (nextCollapsed) => {
-                      if (perAppChatOpen) {
-                        setSidebarExpandedWhileChatOpen(!nextCollapsed);
-                        return;
+            {settingsOwnsChrome ? null : (
+              <Sidebar
+                open={sidebarOpen}
+                onClose={() => setSidebarOpen(false)}
+                collapsed={
+                  !isMobile &&
+                  (perAppChatOpen
+                    ? !sidebarExpandedWhileChatOpen
+                    : sidebarCollapsed)
+                }
+                onCollapsedChange={
+                  isMobile
+                    ? undefined
+                    : (nextCollapsed) => {
+                        if (perAppChatOpen) {
+                          setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                          return;
+                        }
+                        setSidebarCollapsed(nextCollapsed);
                       }
-                      setSidebarCollapsed(nextCollapsed);
-                    }
-              }
-            />
+                }
+              />
+            )}
             <AgentSidebar
               position="right"
               defaultOpen={false}
@@ -422,13 +426,13 @@ export function AppLayout({ children }: AppLayoutProps) {
               ]}
             >
               <div className="flex flex-1 flex-col overflow-hidden">
-                {!pageOwnsToolbar(location.pathname) && (
+                {!pageOwnsToolbar(location.pathname) && !settingsOwnsChrome && (
                   <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-10 w-10 shrink-0 lg:hidden"
+                        size="icon-lg"
+                        className="shrink-0 lg:hidden"
                         onClick={() => setSidebarOpen(true)}
                         aria-label={t("calendarView.openNavigation")}
                       >

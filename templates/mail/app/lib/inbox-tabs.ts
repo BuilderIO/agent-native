@@ -8,7 +8,7 @@ import {
 import { ALL_TAB_PARAM } from "@shared/inbox-threads";
 import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
-import type { EmailMessage, SavedMailFilter } from "@shared/types";
+import type { EmailMessage, Label, SavedMailFilter } from "@shared/types";
 
 export const COLLAPSIBLE_VIEW_IDS = [
   "unread",
@@ -22,6 +22,74 @@ export const COLLAPSIBLE_VIEW_IDS = [
 
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
+
+export function isInboxScopedLabel(
+  activeLabel: string | null,
+  labels: readonly Label[],
+): boolean {
+  if (!activeLabel) return false;
+  const normalizedId = activeLabel.includes("/")
+    ? activeLabel
+        .slice(activeLabel.lastIndexOf("/") + 1)
+        .replace(/_/g, " ")
+        .toLowerCase()
+    : activeLabel.toLowerCase();
+  const label = labels.find(
+    (item) =>
+      item.id === activeLabel ||
+      item.id === normalizedId ||
+      item.name.toLowerCase() === activeLabel.toLowerCase(),
+  );
+  return (
+    label?.type !== "user" && isInboxScopedAppLabel(label?.id ?? activeLabel)
+  );
+}
+
+export function resolveInboxEmailQueryScope(options: {
+  view: string;
+  activeLabel: string | null;
+  activeInboxTab: string | null;
+  activeLabelIsInboxScoped: boolean;
+  activeSavedFilter: boolean;
+  combineInbox: boolean;
+  triageLabels: readonly string[];
+  searchQuery?: string;
+}) {
+  const shouldNormalizeCombinedInboxRoute =
+    options.combineInbox &&
+    options.view === "inbox" &&
+    (options.activeLabelIsInboxScoped ||
+      options.activeInboxTab === OTHER_INBOX_TAB_PARAM ||
+      options.activeInboxTab === ALL_TAB_PARAM);
+  const mailboxWideLabelTab =
+    options.view === "inbox" &&
+    !!options.activeLabel &&
+    !options.activeLabelIsInboxScoped;
+  const isPinnedTab =
+    !!options.activeLabel &&
+    options.view === "inbox" &&
+    mailLabelsInclude(options.triageLabels, options.activeLabel);
+  const clientSliceTab =
+    !options.combineInbox &&
+    isPinnedTab &&
+    !options.searchQuery &&
+    !mailboxWideLabelTab;
+  return {
+    shouldNormalizeCombinedInboxRoute,
+    mailboxWideLabelTab,
+    clientSliceTab,
+    effectiveLabel: shouldNormalizeCombinedInboxRoute
+      ? undefined
+      : clientSliceTab
+        ? undefined
+        : (options.activeLabel ?? undefined),
+    emailView: options.activeSavedFilter
+      ? "inbox"
+      : mailboxWideLabelTab
+        ? "all"
+        : options.view,
+  };
+}
 
 export function inboxThreadKey(
   email: Pick<EmailMessage, "accountEmail" | "threadId" | "id">,

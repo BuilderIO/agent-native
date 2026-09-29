@@ -10,6 +10,7 @@ import {
   type MailSortMode,
 } from "@shared/ai-priority";
 import { mailLabelsInclude } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
@@ -40,6 +41,16 @@ import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,7 +98,9 @@ import {
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
+  useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
+  useRetryUncertainScheduledEmail,
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
@@ -337,18 +350,36 @@ function MailLoadingState({
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex-1 overflow-y-auto">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex h-[48px] items-center gap-3 px-4 sm:h-[38px]"
-          >
-            <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted" />
-            <div className="h-3 w-28 animate-pulse rounded bg-muted" />
-            <div className="h-3 flex-1 animate-pulse rounded bg-muted" />
-            <div className="h-3 w-12 animate-pulse rounded bg-muted" />
-          </div>
-        ))}
+        <MailLoadingRows count={12} />
       </div>
+    </div>
+  );
+}
+
+function MailLoadingRows({ count }: { count: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          key={index}
+          className="email-list-row flex h-[48px] items-center px-3 sm:h-[38px]"
+        >
+          <div className="me-2 flex h-full w-5 shrink-0 items-center justify-center">
+            <div className="h-[7px] w-[7px] animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="me-3 flex w-[100px] shrink-0 items-center sm:w-[160px]">
+            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          </div>
+          {index % 2 === 1 && (
+            <div className="me-2 h-4 w-14 shrink-0 animate-pulse rounded bg-muted" />
+          )}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <div className="h-3 w-36 shrink-0 animate-pulse rounded bg-muted" />
+            <div className="h-3 min-w-0 flex-1 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="ms-2 h-3 w-12 shrink-0 animate-pulse rounded bg-muted" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -393,11 +424,9 @@ function EmailErrorState({
     ? getRateLimitRetryMs({ message, retryAfterMs })
     : 0;
   const [cooldownRemaining, setCooldownRemaining] = useState(rateLimitRetryMs);
-  const autoRetryFired = useRef(false);
 
   useEffect(() => {
     setCooldownRemaining(rateLimitRetryMs);
-    autoRetryFired.current = false;
   }, [rateLimitRetryMs]);
 
   const isCoolingDown = cooldownRemaining > 0;
@@ -409,18 +438,9 @@ function EmailErrorState({
     return () => clearInterval(handle);
   }, [isCoolingDown]);
 
-  useEffect(() => {
-    if (!isQuotaError) return;
-    if (autoRetryFired.current) return;
-    if (cooldownRemaining > 0) return;
-    autoRetryFired.current = true;
-    void onRetry();
-  }, [cooldownRemaining, isQuotaError, onRetry]);
-
   const handleClick = useCallback(() => {
     if (cooldownRemaining > 0 || isFetching) return;
     setCooldownRemaining(rateLimitRetryMs);
-    autoRetryFired.current = true;
     void onRetry();
   }, [cooldownRemaining, isFetching, onRetry, rateLimitRetryMs]);
 
@@ -591,6 +611,11 @@ export function EmailList({
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
+  const confirmUncertainScheduled = useConfirmUncertainScheduledEmail();
+  const retryUncertainScheduled = useRetryUncertainScheduledEmail();
+  const [retryUncertainJobId, setRetryUncertainJobId] = useState<string | null>(
+    null,
+  );
   const queryClient = useQueryClient();
   const movableLabels = useMemo(
     () =>
@@ -2099,6 +2124,55 @@ export function EmailList({
     [getScheduledJobId, cancelScheduledJob, t],
   );
 
+  const handleConfirmUncertainScheduled = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const jobId = getScheduledJobId(thread.latestMessage);
+      if (!jobId) return;
+      confirmUncertainScheduled.mutate(
+        { id: jobId },
+        {
+          onSuccess: () => toast(t("mail.toasts.uncertainScheduledMarkedSent")),
+          onError: (error) =>
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("mail.toasts.uncertainScheduledResolveFailed"),
+            ),
+        },
+      );
+    },
+    [getScheduledJobId, confirmUncertainScheduled, t],
+  );
+
+  const handleRetryUncertainScheduled = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const jobId = getScheduledJobId(thread.latestMessage);
+      if (jobId) setRetryUncertainJobId(jobId);
+    },
+    [getScheduledJobId],
+  );
+
+  const handleConfirmRetryUncertainScheduled = useCallback(() => {
+    if (!retryUncertainJobId) return;
+    retryUncertainScheduled.mutate(
+      { id: retryUncertainJobId },
+      {
+        onSuccess: () => {
+          setRetryUncertainJobId(null);
+          toast(t("mail.toasts.uncertainScheduledRetryStarted"));
+        },
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("mail.toasts.uncertainScheduledRetryFailed"),
+          ),
+      },
+    );
+  }, [retryUncertainJobId, retryUncertainScheduled, t]);
+
   const handleSwipeArchive = useCallback(
     (thread: ThreadSummary) => {
       const id = thread.latestMessage.id;
@@ -2258,7 +2332,9 @@ export function EmailList({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
-                      navigate("/settings?section=ai-filter#importance-rules")
+                      navigate(
+                        `${mailSettingsRoute("ai-filter")}#importance-rules`,
+                      )
                     }
                     aria-label={t("mail.sort.priorityEditRules")}
                     title={t("mail.sort.priorityEditRules")}
@@ -2672,6 +2748,16 @@ export function EmailList({
               >
                 <EmailListItem
                   email={thread.latestMessage}
+                  importanceScore={
+                    view === "inbox" && currentSortMode === "priority"
+                      ? cachedPriorityScores.get(
+                          aiPriorityEmailKey(
+                            thread.latestMessage.accountEmail,
+                            thread.latestMessage.id,
+                          ),
+                        )
+                      : undefined
+                  }
                   labelNames={labelNames}
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}
@@ -2698,6 +2784,8 @@ export function EmailList({
                   }
                   onSendNow={handleSendScheduledNow}
                   onCancelSchedule={handleCancelScheduled}
+                  onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
+                  onRetryUncertainScheduled={handleRetryUncertainScheduled}
                   onHover={handleHoverThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}
@@ -2707,6 +2795,27 @@ export function EmailList({
             );
           })}
         </div>
+        <AlertDialog
+          open={retryUncertainJobId !== null}
+          onOpenChange={(open) => !open && setRetryUncertainJobId(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("mail.sendLater.confirmSendNewCopyTitle")}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("mail.sendLater.confirmSendNewCopyDescription")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("mail.compose.cancel")}</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmRetryUncertainScheduled}>
+                {t("mail.sendLater.sendNewCopy")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {/* Sentinel for infinite scroll + loading indicator — lives after the
             virtualizer's sized inner container so it still sits at the true
             end of scrollable content and the IntersectionObserver above

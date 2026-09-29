@@ -11,7 +11,7 @@ function isDocumentHidden(): boolean {
 }
 
 export interface UsePollLoopOptions {
-  intervalMs: number;
+  intervalMs: number | (() => number);
   timeoutMs?: number;
   timeoutFloorMs?: number;
   onError?: (err: unknown) => void;
@@ -46,14 +46,16 @@ export function usePollLoop(
 
   useEffect(() => {
     if (!enabled) return;
+    const getIntervalMs = () =>
+      typeof intervalMs === "function" ? intervalMs() : intervalMs;
 
     const engine = createPollEngine((signal) => attemptRef.current(signal), {
       intervalMs: pauseWhenHidden
-        ? intervalMs
+        ? getIntervalMs
         : () =>
             isDocumentHidden()
-              ? Math.max(intervalMs, hiddenIntervalFloorMs)
-              : intervalMs,
+              ? Math.max(getIntervalMs(), hiddenIntervalFloorMs)
+              : getIntervalMs(),
       timeoutMs,
       timeoutFloorMs,
       onError,

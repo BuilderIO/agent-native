@@ -4,6 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -23,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import type { DragEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -67,10 +69,17 @@ import { labelTabHref } from "@/lib/inbox-tabs";
 
 type RuleMode = AiFilterRuleMode;
 
-const RULE_MODES: RuleMode[] = ["important", "tag", "filtered", "archive"];
+const RULE_MODES: RuleMode[] = [
+  "important",
+  "notify",
+  "tag",
+  "filtered",
+  "archive",
+];
 const EMPTY_RULES: AutomationRule[] = [];
 const RULE_MODE_HELP_KEYS: Record<RuleMode, string> = {
   important: "mail.aiFilter.importantRuleHelp",
+  notify: "mail.aiFilter.notifyModeHelp",
   tag: "mail.aiFilter.aiTagRuleHelp",
   filtered: "mail.aiFilter.spamRuleHelp",
   archive: "mail.aiFilter.skipInboxRuleHelp",
@@ -303,7 +312,7 @@ function RuleBackfillStatus({
     const message =
       undoing || status?.status === "undoing"
         ? t("mail.aiFilter.ruleBackfillUndoing")
-        : starting || loading
+        : starting || loading || status?.totalThreads === 0
           ? t("mail.aiFilter.ruleBackfillStarting")
           : t("mail.aiFilter.ruleBackfillProgress", {
               processed: status?.processedThreads ?? 0,
@@ -331,9 +340,16 @@ function RuleBackfillStatus({
         role="alert"
         className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5"
       >
-        <p className="text-xs text-destructive">
-          {t("mail.aiFilter.ruleBackfillFailed")}
-        </p>
+        <div className="min-w-0">
+          <p className="text-xs text-destructive">
+            {t("mail.aiFilter.ruleBackfillFailed")}
+          </p>
+          {status?.error && (
+            <p className="mt-1 break-words text-xs text-muted-foreground">
+              {status.error}
+            </p>
+          )}
+        </div>
         {status?.undoToken && (
           <Button
             variant="ghost"
@@ -434,6 +450,7 @@ function RuleBackfillStatus({
 
 export function AiFilterSection() {
   const t = useT();
+  const { hash } = useLocation();
   const navigate = useNavigate();
   const { data: state, isLoading: filterLoading } = useAiFilter();
   const automations = useAutomations();
@@ -523,6 +540,40 @@ export function AiFilterSection() {
     }
   }, [state?.autoFilterThreshold]);
 
+  const scrolledHash = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state || (automations.isError && automations.data === undefined))
+      return;
+
+    const targetId = hash.slice(1);
+    if (
+      scrolledHash.current === hash ||
+      (targetId !== "tags" && targetId !== "importance-rules")
+    ) {
+      return;
+    }
+
+    const scrollToTarget = () => {
+      const target = document.getElementById(targetId);
+      if (!target?.getClientRects().length) return false;
+      target.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      scrolledHash.current = hash;
+      return true;
+    };
+
+    if (scrollToTarget()) return;
+
+    const observer = new MutationObserver(() => {
+      if (scrollToTarget()) observer.disconnect();
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [automations.data, automations.isError, hash, state]);
+
   const updateAiSettings = (
     next:
       | { enabled: boolean }
@@ -567,6 +618,7 @@ export function AiFilterSection() {
 
   const modeLabel = (mode: RuleMode) => {
     if (mode === "important") return t("mail.aiFilter.importantMode");
+    if (mode === "notify") return t("mail.aiFilter.notifyMode");
     if (mode === "tag") return t("mail.aiFilter.aiTagsTitle");
     if (mode === "filtered") return t("mail.aiFilter.filteredMode");
     return t("mail.aiFilter.autoArchiveMode");
@@ -800,7 +852,7 @@ export function AiFilterSection() {
   if (automations.isError && automations.data === undefined) {
     return (
       <div
-        className="flex max-w-180 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+        className="flex w-full items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
         role="alert"
       >
         <span className="text-sm text-muted-foreground">
@@ -819,25 +871,43 @@ export function AiFilterSection() {
   }
 
   if (filterLoading || automations.isLoading || !state) {
-    return <Skeleton className="h-72 w-full max-w-180" />;
+    return <Skeleton className="h-72 w-full" />;
   }
 
   const decisions = latestAiFilterDecisions(state).slice(0, 5);
 
+  const enabledSwitch = (
+    <Switch
+      checked={state.enabled}
+      onCheckedChange={(enabled) => updateAiSettings({ enabled })}
+      aria-label={t("mail.aiFilter.toggle")}
+      disabled={!jevConfigured && !state.enabled}
+    />
+  );
+  const manageAutomationsLink = (
+    <Link
+      to={buildSettingsRoute("agent:automations")}
+      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {t("mail.aiFilter.manageAutomationsLink")}
+    </Link>
+  );
+
   return (
     <>
-      <div className="max-w-180 space-y-7 pb-10">
-        <div className="flex items-center justify-between border-b border-border/50 pb-4">
-          <h2 className="text-base font-semibold text-foreground">
-            {t("mail.aiFilter.triageTitle")}
-          </h2>
-          <Switch
-            checked={state.enabled}
-            onCheckedChange={(enabled) => updateAiSettings({ enabled })}
-            aria-label={t("mail.aiFilter.toggle")}
-            disabled={!jevConfigured && !state.enabled}
+      <div className="w-full space-y-7 pb-10">
+        <SettingsGroup id="ai-filter-settings">
+          <SettingsRow
+            id="ai-filter-enabled"
+            label={t("mail.aiFilter.triageTitle")}
+            control={
+              <div className="flex items-center gap-3">
+                {manageAutomationsLink}
+                {enabledSwitch}
+              </div>
+            }
           />
-        </div>
+        </SettingsGroup>
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />
@@ -902,6 +972,11 @@ export function AiFilterSection() {
                   </Tooltip>
                 ))}
               </div>
+              {newRuleMode === "notify" ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("mail.aiFilter.notifyModeHelp")}
+                </p>
+              ) : null}
               {newRuleMode === "tag" && (
                 <div className="space-y-1.5">
                   <label
@@ -961,9 +1036,26 @@ export function AiFilterSection() {
           <div className="space-y-5">
             {RULE_MODES.map((mode) => {
               const modeRules = rulesByMode[mode];
-              if (mode !== "filtered" && modeRules.length === 0) return null;
+              if (
+                mode !== "filtered" &&
+                mode !== "important" &&
+                mode !== "tag" &&
+                modeRules.length === 0
+              ) {
+                return null;
+              }
+              const anchorId =
+                mode === "tag"
+                  ? "tags"
+                  : mode === "important"
+                    ? "importance-rules"
+                    : undefined;
               return (
-                <section key={mode} className="space-y-2">
+                <section
+                  key={mode}
+                  id={anchorId}
+                  className="scroll-mt-6 space-y-2"
+                >
                   <div className="flex items-center gap-1">
                     <h4 className="text-sm font-semibold text-foreground">
                       {modeLabel(mode)}
@@ -976,6 +1068,7 @@ export function AiFilterSection() {
                         variant="ghost"
                         size="sm"
                         className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                        disabled={!jevConfigured}
                         onClick={() => {
                           setNewRuleMode("filtered");
                           setNewRuleOpen(true);
@@ -985,6 +1078,22 @@ export function AiFilterSection() {
                         {t("mail.aiFilter.newRule")}
                       </Button>
                     )}
+                    {(mode === "important" || mode === "tag") &&
+                      modeRules.length === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                          disabled={!jevConfigured}
+                          onClick={() => {
+                            setNewRuleMode(mode);
+                            setNewRuleOpen(true);
+                          }}
+                        >
+                          <IconPlus className="size-4" />
+                          {t("mail.aiFilter.newRule")}
+                        </Button>
+                      )}
                     {modeRules.map((rule) => {
                       const status = recentBackfills.data?.find((run) =>
                         run.perRule.some(
@@ -1172,7 +1281,6 @@ export function AiFilterSection() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8"
             onClick={() => setSetupAgainOpen(true)}
           >
             {t("mail.sort.aiSetupRunAgain")}

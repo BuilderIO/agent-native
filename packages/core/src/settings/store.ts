@@ -22,16 +22,6 @@ function requestSettingsCache(): Map<string, string | null> | null {
   return cache;
 }
 
-const _requestAllSettingsCache = new WeakMap<
-  object,
-  Promise<Map<string, string>>
->();
-
-function invalidateRequestAllSettings(): void {
-  const ctx = getRequestContext();
-  if (ctx && typeof ctx === "object") _requestAllSettingsCache.delete(ctx);
-}
-
 let _emitter: EventEmitter | undefined;
 
 function settingsEmitter(): EventEmitter {
@@ -199,7 +189,6 @@ export async function mutateSetting(
           });
     if (result.rowsAffected === 0) continue;
     requestSettingsCache()?.set(key, nextRaw);
-    invalidateRequestAllSettings();
     settingsEmitter().emit("settings", {
       source: "settings",
       type: "change",
@@ -224,7 +213,6 @@ export async function putSetting(
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",
@@ -245,7 +233,6 @@ export async function deleteSetting(
     args: [key],
   });
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -273,7 +260,6 @@ export async function deleteSettingIfValue(
   if (result.rowsAffected === 0) return false;
 
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "delete",
@@ -296,7 +282,6 @@ export async function deleteSettingsByPrefix(
     args: [`${escaped}%`],
   });
   requestSettingsCache()?.clear();
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -331,49 +316,4 @@ export async function listSettingsByPrefix(
     key: String(row.key),
     value: JSON.parse(String(row.value)) as Record<string, unknown>,
   }));
-}
-
-export async function getAllSettings(): Promise<
-  Record<string, Record<string, unknown>>
-> {
-  const raw = await loadAllSettingsRaw();
-  const result: Record<string, Record<string, unknown>> = {};
-  for (const [key, value] of raw) result[key] = JSON.parse(value);
-  return result;
-}
-
-async function loadAllSettingsRaw(): Promise<Map<string, string>> {
-  const ctx = getRequestContext();
-  const cached =
-    ctx && typeof ctx === "object"
-      ? _requestAllSettingsCache.get(ctx)
-      : undefined;
-  if (cached) return cached;
-
-  const load = (async () => {
-    await ensureTable();
-    const client = getDbExec();
-    const table = settingsTable();
-    const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
-    const raw = new Map<string, string>();
-    for (const row of rows) raw.set(row.key as string, row.value as string);
-    const perKey = requestSettingsCache();
-    if (perKey) {
-      for (const [key, value] of raw) {
-        if (!perKey.has(key)) perKey.set(key, value);
-      }
-    }
-    return raw;
-  })();
-
-  if (ctx && typeof ctx === "object") {
-    _requestAllSettingsCache.set(
-      ctx,
-      load.catch((err) => {
-        _requestAllSettingsCache.delete(ctx);
-        throw err;
-      }),
-    );
-  }
-  return load;
 }

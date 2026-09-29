@@ -3,6 +3,31 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+## 2026-09-28
+
+### Improved
+
+- Analytics starts faster on hosted serverless deployments.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- The chat sidebar matches the app navigation color, with tighter composer spacing.
+- Ask Analytics now starts with a focused title.
+
+## 2026-09-27
+
+### Improved
+
+- Ask Analytics now opens with a centered chat and starter guidance.
+- Metric cards include their comparison period and change.
+- Complete single-number analysis queries show a compact card, and sampled tables are marked.
+- The chat home keeps suggested prompts above the composer in a centered layout.
+
 ## 2026-09-26
 
 ### Improved
@@ -24,6 +49,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- In the redesigned Settings, alert rules and data sources are tabs on Analytics General, and error emails and the bell sound have their own Notifications page.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - Analytics captures confirmed query guidance for future conversations
 - Public status pages, dashboards, and analyses show resource details in link previews
 - The chat composer keeps a consistent background while AI setup is open.

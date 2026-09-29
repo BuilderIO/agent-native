@@ -14,7 +14,11 @@ import {
   emailToColor,
   emailToName,
 } from "@agent-native/core/client/collab";
-import { useSession } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  signOut,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
@@ -56,6 +60,7 @@ import SlideRenderer, {
 } from "@/components/deck/SlideRenderer";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import { DeckAccessDeniedPage } from "@/components/editor/DeckAccessDeniedPage";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   EditorActionCluster,
@@ -107,6 +112,7 @@ import {
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
+import { useContrastAuditBridge } from "@/hooks/use-contrast-audit-bridge";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
@@ -130,7 +136,9 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
+  deckAccessCheckFor,
   deckAccessCheckKey,
+  deckAccessRequestStateFor,
   retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
@@ -519,12 +527,17 @@ export default function DeckEditor() {
     reorderSlides,
     setDeckSlides,
     undo,
+    redo,
+    canUndo,
+    canRedo,
     loading,
     loadError,
   } = useDecks();
   const deckAccessStatusQuery = useDeckAccessStatus(id);
   const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
+  const deniedPageAccessRequest = useRequestDeckAccess();
+  const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
   const [altDragState, setAltDragState] = useState<{
@@ -580,8 +593,9 @@ export default function DeckEditor() {
   const { generating } = useAgentGenerating();
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
   const generationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRoute =
+    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
   const retryEmptyGenerationInFlightRef = useRef(false);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
@@ -627,14 +641,14 @@ export default function DeckEditor() {
     },
     [addSlideAgentSubmit],
   );
-  const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const wasNewDeckCreation = useRef(isNewDeckGenerationRoute);
   const generationStartedAtRef = useRef<number | null>(null);
   const generationRunStartedRef = useRef(false);
   const generationSawActiveRef = useRef(false);
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
-  if (searchParams.get("generating") === "1") {
+  if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -874,6 +888,9 @@ export default function DeckEditor() {
   }, [deck]);
 
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
+  const deckAccessCheck = deckAccessCheckFor(deckAccessStatusQuery);
+  const showDeckAccessDeniedPage =
+    Boolean(session) && deckAccessCheck === "denied";
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
@@ -892,9 +909,6 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
-  const generationFailed =
-    slideCount === 0 &&
-    typeof generationContext?.generationFailureCode === "string";
   const generationRetryPending =
     retryEmptyGenerationPending ||
     (generationContext !== null &&
@@ -1743,9 +1757,12 @@ export default function DeckEditor() {
     flushPendingSaves();
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
-  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
-    deck?.designSystemId,
-  );
+  const {
+    designSystem,
+    imageStyleReferenceUrls,
+    rawData: designSystemRawData,
+  } = useDeckDesignSystem(deck?.designSystemId);
+  useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
 
   const {
@@ -1797,6 +1814,11 @@ export default function DeckEditor() {
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
     });
+  const generationFailed =
+    slideCount === 0 &&
+    generationContext !== null &&
+    (typeof generationContext.generationFailureCode === "string" ||
+      (isNewDeckCreation && newDeckGenerationPhase === "abandoned"));
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -1984,12 +2006,11 @@ export default function DeckEditor() {
             if (result.alreadyHasAccess) void reloadDecks();
           },
           onError: (error: unknown) => {
+            const message =
+              actionErrorMessage(error) ?? t("deckEditor.accessRequestFailed");
+            toast.error(message);
             if (!normalizedGuestEmail) return;
-            setRequestAccessDialogError(
-              error instanceof Error && error.message
-                ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-                : t("deckEditor.accessRequestFailed"),
-            );
+            setRequestAccessDialogError(message);
           },
         },
       );
@@ -2043,6 +2064,10 @@ export default function DeckEditor() {
       setAccessRequestNotified(false);
     }
   }, [accessRequestSentDeckId, id]);
+
+  useEffect(() => {
+    resetDeniedPageAccessRequest();
+  }, [id, resetDeniedPageAccessRequest]);
 
   // The final generation write can race the last sync event. Pull the
   // authoritative open deck when the run settles so a stale canvas does not
@@ -3409,12 +3434,40 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
-      deckAccessDeniedConfirmed: Boolean(
-        deckAccessStatus?.exists && !deckAccessStatus.hasAccess,
-      ),
+      accessCheck: deckAccessCheck,
     })
   ) {
     return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
+  }
+  if (id && !deck && showDeckAccessDeniedPage) {
+    const pendingAccessRequest = deckAccessStatus?.pendingAccessRequest;
+    return (
+      <DeckAccessDeniedPage
+        key={id}
+        canRequestAccess={deckAccessStatus?.visibility === "private"}
+        request={deckAccessRequestStateFor(
+          deniedPageAccessRequest,
+          pendingAccessRequest,
+        )}
+        savedNote={pendingAccessRequest?.note ?? null}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
+        onNoteChange={() => {
+          if (deniedPageAccessRequest.isError) resetDeniedPageAccessRequest();
+        }}
+        onRequestAccess={(note) =>
+          deniedPageAccessRequest.mutate(
+            { deckId: id, note },
+            {
+              onSuccess: (result) => {
+                if (result.alreadyHasAccess) void reloadDecks();
+              },
+            },
+          )
+        }
+        onSwitchAccount={() => void signOut()}
+        onGoHome={() => navigate("/home")}
+      />
+    );
   }
   if (!deck || !id) {
     return (
@@ -3659,6 +3712,10 @@ export default function DeckEditor() {
         onToggleLayers={canEdit ? toggleLayers : undefined}
         onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
         addSlideGenerating={addSlideGenerating}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={canEdit ? undo : undefined}
+        onRedo={canEdit ? redo : undefined}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         onDownloadBackup={handleDownloadDeckBackup}
         onImportDeckBackup={handleImportDeckBackup}
@@ -3927,6 +3984,7 @@ export default function DeckEditor() {
           ) : null)}
 
         {deck.slides.length === 0 &&
+          !generationFailed &&
           !generatingSlideVisible &&
           !showQuestionFlow && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">

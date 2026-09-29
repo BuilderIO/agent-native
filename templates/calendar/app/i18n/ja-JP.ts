@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "接続",
@@ -5,7 +7,6 @@ export default {
     connecting: "接続中...",
     clipboardUnavailable: "クリップボードへのアクセスは利用できません",
     disconnect: "切断",
-    notConnected: "未接続",
     loadFailed: "このデータを読み込めませんでした。",
     retry: "再試行",
     saving: "保存中...",
@@ -47,11 +48,6 @@ export default {
     noEventId:
       "イベント ID が指定されていません。URL に ?id=<eventId> を追加してください。",
     openCalendar: "カレンダーを開く",
-  },
-  eventCreation: {
-    created: "予定を作成しました",
-    zoomNotAdded: "予定は作成されましたが、Zoomを追加できませんでした。",
-    openInCalendar: "Calendarで予定を開く",
   },
   agentSidebar: {
     emptyState: "カレンダーについて何でも聞いてください",
@@ -202,10 +198,6 @@ export default {
   },
   settings: {
     title: "設定",
-    description: "カレンダーと連携を設定します。",
-    languageTitle: "言語",
-    languageDescription: "Calendar のインターフェース言語を選択します。",
-    languageLabel: "インターフェース言語",
     agentTitle: "エージェントを管理",
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
@@ -219,13 +211,8 @@ export default {
     zoomConnectFailed: "Zoom に接続できませんでした",
     zoomDisconnected: "Zoom を切断しました",
     zoomDisconnectFailed: "Zoom の切断に失敗しました",
-    general: "一般",
-    generalDescription: "カレンダー既定値と予約ページの代替文言。",
-    timezone: "タイムゾーン",
-    saveSettings: "設定を保存",
     saved: "設定を保存しました",
     saveFailed: "設定を保存できませんでした",
-    appearance: "外観",
     appearanceDescription:
       "ワークスペースのカラーテーマを選ぶか、エージェントに依頼します。",
     desktopNotifications: "デスクトップ通知",
@@ -239,23 +226,15 @@ export default {
     connectGoogleDescription: "予定を同期して一か所で管理します。",
     zoomDescription:
       "Zoom を接続して、カレンダーイベントと予約用の会議リンクを作成します。",
-    zoomNotConfigured: "未設定",
     zoomCredentialsPrompt:
       "接続を有効にするには Zoom OAuth 認証情報を追加します。",
-    bookingTitleLabel: "予約ページの予備タイトル",
     bookingTitlePlaceholder: "ミーティングを予約",
-    bookingTitleHelp:
-      "予約リンクにタイトルがない場合だけ使われます。予約リンクから公開 URL を作成、開く、コピーできます。",
-    bookingDescriptionLabel: "予約ページの予備説明",
     bookingDescriptionPlaceholder: "都合のよい時間を選んでください。",
-    bookingDescriptionHelp: "予約リンクに独自の説明がない場合だけ使われます。",
-    defaultDurationLabel: "デフォルトのイベント時間（分）",
-    defaultDurationHelp:
-      "新しいカレンダーイベントと予約枠のデフォルト時間です。予約リンクごとに上書きできます。",
     weekStartLabel: "週の開始日",
     weekStartSunday: "日曜日 - 土曜日",
     weekStartMonday: "月曜日 - 日曜日",
     eventRules: "招待ルール",
+    eventRulesAutomationLink: "ほかの操作には、自動化を作成してください。",
     eventRulesConnectJev: "招待ルールを実行するには Jev を接続",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io なら無料、または API キーを追加。",
@@ -292,6 +271,38 @@ export default {
       "承諾ルールと辞退ルールの両方に一致したため、招待をスキップしました。",
     eventRulesUnregistered:
       "このサーバーに Calendar 自動化が登録されていません。",
+  },
+  calendarSettings: {
+    calendarsTab: "カレンダー",
+    bookingTab: "予約",
+    eventsGroup: "予定",
+    appearanceGroup: "外観",
+    colorTheme: "カラーテーマ",
+    timezone: "カレンダーのタイムゾーン",
+    timezoneDescription: "予定の表示と新しい予定の作成に使用します。",
+    defaultDuration: "予定のデフォルトの長さ",
+    defaultDurationDescription:
+      "分単位です。予約リンクごとに設定することもできます。",
+    durationInvalid: "5〜480 分の長さを入力してください。",
+    zoom: "Zoom",
+    connectedAs: "{{accounts}} として接続済み",
+    setUp: "設定",
+    disconnectGoogleTitle: "Google カレンダーの接続を解除しますか？",
+    disconnectGoogleDescription:
+      "Google アカウントの予定が Calendar に表示されなくなり、同期も停止します。",
+    disconnectZoomTitle: "Zoom の接続を解除しますか？",
+    disconnectZoomDescription:
+      "再接続するまで、新しい予定や予約に Zoom ミーティングのリンクを追加できません。",
+    manage: "管理",
+    edit: "編集",
+    cancel: "キャンセル",
+    save: "保存",
+    fallbackBookingPage: "代替の予約ページ",
+    fallbackBookingPageDescription:
+      "予約リンクに独自のタイトルや説明がない場合に使用します。",
+    fallbackTitle: "タイトル",
+    fallbackDescription: "説明",
+    bookingLinksDescription: "予約リンクを作成し、公開 URL をコピーします。",
   },
   eventDialog: {
     eventUpdated: "イベントを更新しました",
@@ -587,6 +598,7 @@ export default {
     fieldRequired: "{{label}} は必須です",
     linkDisabled: "{{title}}は無効です",
     linkEnabled: "{{title}}有効",
+    advanced: "詳細設定",
     linkVisibility: "リンクの可視性",
     linkVisibilityDescription:
       "公開ページを無効にするには、これをオフにします。",
@@ -1018,7 +1030,7 @@ export default {
     year: "年",
     zoom: "Zoom",
     zoomAdded: "Zoom追加",
-    zoomAddFailed: "Zoomの追加に失敗しました",
+    zoomAddFailed: zoomAddFailedMessages["ja-JP"],
     zoomConnectFailed: "Zoomが接続できませんでした",
     zoomConnectionOpened: "Zoom接続がオープンされました",
     zoomNotConfigured: "Zoom OAuthは設定されていません。",

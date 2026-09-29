@@ -15,6 +15,29 @@ Run the script from `templates/slides`:
 pnpm exec tsx scripts/edit-fidelity/run.ts [case-filter] [options]
 ```
 
+Run the focused selection-direction and chat caret regressions in Chromium,
+including typing while a synthetic slide text edit session is open:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+```
+
+The Slides chat E2E job in `ci.yml` runs this check for pull requests that
+change Slides, Core, or Toolkit files.
+
+Run the Chromium IME Escape regression in an in-place slide text session:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+```
+
+Run the synthetic Slides text-surface typing, composition, clipboard, undo/redo,
+and slide-switching round in Chromium:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+```
+
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
@@ -30,23 +53,26 @@ To reuse a server that is already running, set
 `SLIDES_BASE_URL=http://localhost:<port>`. The harness refuses any other host,
 because it creates and rewrites decks.
 
-| Option                         | Meaning                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `case-filter`                  | Substring of the corpus file name                                                          |
-| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                     |
-| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                         |
-| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept    |
-| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`) |
-| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                       |
-| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                      |
-| `--slides 1,3`                 | 1-based slide numbers                                                                      |
-| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                               |
-| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                            |
-| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                     |
-| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                       |
-| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
-| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
-| `--headed`                     | Show the browser                                                                           |
+| Option                         | Meaning                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `case-filter`                  | Substring of the corpus file name                                                                   |
+| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                              |
+| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                                  |
+| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept             |
+| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`)          |
+| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                                |
+| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                               |
+| `--slides 1,3`                 | 1-based slide numbers                                                                               |
+| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                                        |
+| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                                     |
+| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                              |
+| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                                |
+| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                                     |
+| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                            |
+| `--headed`                     | Show the browser                                                                                    |
+| `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open          |
+| `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                           |
+| `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic Chromium decks |
 
 Exit codes:
 
@@ -134,15 +160,20 @@ them per slide. For each target and scenario:
    and two animation frames waited once every stylesheet has loaded and
    `document.fonts` reports `loaded`. The renderer injects a webfont
    stylesheet per slide font, so `fonts.ready` alone can resolve before the
-   slide's font is requested. Scenarios never contaminate each other.
+   slide's font is requested. Scenarios never contaminate each other: a
+   `pagehide` keepalive write from the previous page that carries other
+   content for this slide could land after the restore. The harness retains
+   those request bodies, waits for the restored content to settle when one
+   could overwrite it, and errors if the fixture did not survive.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
    gesture that worked is recorded. A click must leave a caret within one
-   grapheme of the click point (`caretPositionFromPoint`, compared in
-   rendered characters), and a double-click a selection inside the word
-   under it plus one trailing space; either way it must be in the point's
-   row (nearest block, or the row of a bullet marker, which counts up to the
-   start of the row's text). Anything else is a violation. The double-click
+   non-space grapheme of the click point (`caretPositionFromPoint`, compared
+   in rendered characters, a whitespace run counting as one), and a
+   double-click a selection of the whole word under it, across inline
+   elements, plus at most one trailing space; either way it must be in the
+   point's row (nearest block, or the row of a bullet marker, where either
+   gesture must leave a caret up to the start of the row's text). Anything else is a violation. The double-click
    selection is then collapsed to a caret before any keys. If none enters
    edit, the status is `no-edit`; the scenario fails and is never skipped. The clicks must still change nothing: a `no-edit` result also
    gets a violation for any write, any change to the stored slide (both
@@ -160,8 +191,10 @@ them per slide. For each target and scenario:
      the canvas change, and the caret's line, measured from the top of the
      element's rendered text so that centred and bottom-anchored text, or a
      label beside a taller icon, still shows a full line per Enter. The caret must
-     be collapsed inside the edited element and move to another line; a
-     caret that cannot be measured is its own violation.
+     be collapsed inside the edited element and move to another line, or
+     into another block box (a list laid out as a grid puts the new row
+     beside the old one; flex items count as their row's line, not boxes of
+     their own); a caret that cannot be measured is its own violation.
    - `clickout`: like `typedelete`.
 
    Once the keys are in, it captures `typed.png`: the slide as the live
@@ -175,9 +208,12 @@ them per slide. For each target and scenario:
    write that lands after the edit settled (a `pagehide` flush, say) is a
    violation, unless opening the slide rewrites it anyway. Playwright does
    not report the keepalive writes Slides sends on `pagehide`, so the page
-   counts them in `sessionStorage`. When there was one, the harness waits
-   up to 15 s for it to land, and then, as when a write it does see is still
-   in flight, polls until the stored slide settles before reading.
+   keeps their bodies in `sessionStorage`. Any slide content one carried that
+   differs from `saved.html`, and any that deletes the slide or replaces the
+   deck without it, is a violation whether or not it has landed yet
+   (`keepalive-N.html`). When one was sent, the harness also observes the
+   reopened slide for up to 15 s and polls until the stored slide settles,
+   since a keepalive write can land after the reload.
 8. **Idempotence (`typedelete` only).** A second identical edit must save
    exactly what the first one did.
 
@@ -186,7 +222,8 @@ Each scenario writes this directory:
 ```
 <out>/<case>/sNN/tNN-<scenario>/{view,editing,enter-1..3,typed,after,reload}.png
 <out>/<case>/sNN/tNN-<scenario>/diff-{editing,after,reload,typed}.png
-<out>/<case>/sNN/tNN-<scenario>/{stored,saved,saved2}.html
+<out>/<case>/sNN/tNN-<scenario>/{stored,saved,saved2,reloaded}.html
+<out>/<case>/sNN/tNN-<scenario>/write-N.html, keepalive-N.html
 <out>/<case>/sNN/tNN-<scenario>/html.diff, html-outside.diff
 <out>/<case>/sNN/tNN-<scenario>/result.json, sheet.png
 ```
@@ -208,10 +245,11 @@ deltas for editing/after, the html diff, and the violation count.
   (a freeform object, an imported text frame) is still the edited element.
   - Every scenario: view→editing outside must be ~0, and after→reload whole
     must be ~0.
-  - Every scenario that edits: typed→after whole must be exactly 0 px. Both
-    shots come from one page load, so no noise floor applies. Leaving edit
-    mode must not change what the editor showed, so a line the save adds or
-    drops, or a style the live element only had while editing, fails here.
+  - Every scenario that edits without resizing the edited element:
+    typed→after whole must be exactly 0 px. Both shots come from one page load,
+    so no noise floor applies. A resized element triggers the renderer's saved-
+    content fit pass on exit; its persistent output must still match after
+    reload, with no stored-content or computed-style changes outside the edit.
   - `noop` / `typedelete` / `clickout`: view→editing and view→after whole
     must be ~0.
   - `append` / `enter3`: view→after outside must be ~0 while the edited
@@ -224,7 +262,9 @@ deltas for editing/after, the html diff, and the violation count.
   `-webkit-text-fill-color`; text-shadow; text-decoration-line; font feature
   and variation settings; text-align; white-space; opacity; visibility. The
   record is keyed by the text, so a run that moves into an editor `<p>` still
-  pairs up.
+  pairs up. Records pair by document order first: the unchanged head and tail
+  by position, ignoring the `#n` ordinal, so untouched copies of a repeated
+  text still pair when the edited copy's text changes; the rest by key.
   - Every element that paints yields a box record: background, border,
     box-shadow, or an svg/img/hr, including `::before`/`::after`. It carries
     display, margins, paddings, border width/style/color per side, radii,
@@ -240,8 +280,15 @@ deltas for editing/after, the html diff, and the violation count.
   entering edit to the end of the scenario (the `typedelete` rerun included)
   is recorded in `result.json`: `writeDetails` has each request's slides,
   fields, phase (`edit` or the `rerun`), and whether its content equals the
-  stored string, and `writeStacks` has the client call stack of each.
-  `noop` / `typedelete` / `clickout` must send none.
+  stored string, and `writeStacks` has the client call stack of each. Each
+  edited-slide content that differs from stored is kept as `write-N.html`.
+  `noop` / `typedelete` / `clickout` must send none, except that a phase of
+  `typedelete` / `clickout` may send exactly the editor's draft then revert
+  (keys far enough apart for the typed `x` to autosave): two `patch-deck`
+  writes that each set only the edited slide's content, the first byte equal
+  to stored outside the edited element (the rule below) with one `x` added
+  to that element's visible text, the second byte equal to stored. Accepted
+  phases are listed in `draftReverts`.
 - **Saved bytes.** For `append` / `enter3`, the edited element is located in
   the stored source by tag, exact full text and occurrence (the same rule
   for every lookup), and the saved string must

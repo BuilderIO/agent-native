@@ -15,11 +15,16 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
+import type { ActionRunContext } from "../action.js";
 import {
   isActionContractError,
   isActionExposedToExternalAgents,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  describeToolResultImages,
+  extractAgentImagesFromActionResult,
+} from "../agent/tool-result-images.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -306,9 +311,15 @@ function scopeToolSearchToAdvertised(
     ...advertised,
     [TOOL_SEARCH_TOOL_NAME]: {
       ...entry,
-      run: async (args: Record<string, unknown>) => {
-        const { searchToolRegistry } = await import("../agent/tool-search.js");
-        return searchToolRegistry(advertised, args ?? {});
+      run: async (args: Record<string, unknown>, context) => {
+        const { searchToolRegistryForRequest } =
+          await import("../agent/tool-search.js");
+        return searchToolRegistryForRequest(
+          advertised,
+          args ?? {},
+          {},
+          context,
+        );
       },
     },
   };
@@ -321,6 +332,39 @@ function withoutExternalOptOuts(
     Object.entries(actions).filter(([, entry]) =>
       isActionExposedToExternalAgents(entry),
     ),
+  );
+}
+
+async function filterActionsAvailableForDiscovery(
+  actions: Record<string, ActionEntry>,
+  context: ActionRunContext,
+): Promise<Record<string, ActionEntry>> {
+  const availability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    Promise<boolean>
+  >();
+  for (const entry of Object.values(actions)) {
+    const predicate = entry.agentDiscoveryAvailable;
+    if (predicate && !availability.has(predicate)) {
+      availability.set(predicate, Promise.resolve(predicate(context)));
+    }
+  }
+
+  const resolvedAvailability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    boolean
+  >();
+  await Promise.all(
+    [...availability].map(async ([predicate, check]) => {
+      resolvedAvailability.set(predicate, await check);
+    }),
+  );
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => {
+      const predicate = entry.agentDiscoveryAvailable;
+      return !predicate || resolvedAvailability.get(predicate) === true;
+    }),
   );
 }
 
@@ -1457,10 +1501,27 @@ export async function createMCPServerForRequest(
   const actions = withoutExternalOptOuts(
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
-  const visibleActions = Object.fromEntries(
+  const scopeVisibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
+  );
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
+  const orgId = await orgIdPromise;
+  const visibleActions = await runWithRequestContext(
+    {
+      userEmail: effectiveIdentity?.userEmail,
+      orgId,
+      ...(effectiveIdentity?.orgId === null
+        ? { orgScope: "personal" as const }
+        : {}),
+    },
+    () =>
+      filterActionsAvailableForDiscovery(scopeVisibleActions, {
+        caller: "mcp",
+        userEmail: effectiveIdentity?.userEmail,
+        orgId: orgId ?? null,
+      }),
   );
   // Compact/connector is the DEFAULT for every caller — hosted connectors,
   // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
@@ -1515,7 +1576,6 @@ export async function createMCPServerForRequest(
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
-  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
   const hasApprovalActions = Object.values(actions).some(
     (entry) => entry.needsApproval !== undefined,
   );
@@ -1970,7 +2030,17 @@ export async function createMCPServerForRequest(
           const rawResultForClient = mcpAppResourceCandidate
             ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
             : rawResult;
-          const embedHasContent = mcpResultHasContent(rawResultForClient);
+          const {
+            value: actionResultForClient,
+            images: resultImages,
+            notes: resultImageNotes,
+          } = extractAgentImagesFromActionResult(rawResultForClient);
+          const textResultForClient = mcpResult
+            ? resultForClient
+            : actionResultForClient;
+          const embedHasContent =
+            resultImages.length > 0 ||
+            mcpResultHasContent(actionResultForClient);
           const mcpAppResource =
             mcpAppResourceCandidate && !mcpResultIsError && embedHasContent
               ? mcpAppResourceCandidate
@@ -1980,14 +2050,14 @@ export async function createMCPServerForRequest(
           const { block, _meta } = buildLinkArtifacts(
             entry,
             (args as Record<string, any>) ?? {},
-            rawResultForClient,
+            actionResultForClient,
             requestMeta,
           );
           const responseMeta: Record<string, unknown> = {
             ...(_meta ?? {}),
             ...(mcpAppResource
               ? mcpAppEmbedOpenLinkMeta(
-                  rawResultForClient,
+                  actionResultForClient,
                   mcpAppResource,
                   requestMeta,
                 )
@@ -2003,31 +2073,55 @@ export async function createMCPServerForRequest(
           const structuredResult =
             (entry.readOnly === true ||
               entry.mcpApp?.structuredContent === true) &&
-            rawResultForClient &&
-            typeof rawResultForClient === "object"
-              ? Array.isArray(rawResultForClient)
-                ? { items: rawResultForClient }
-                : rawResultForClient
+            actionResultForClient &&
+            typeof actionResultForClient === "object"
+              ? Array.isArray(actionResultForClient)
+                ? { items: actionResultForClient }
+                : actionResultForClient
               : undefined;
           const structuredContent = mcpAppResource
-            ? mcpAppStructuredContent(rawResultForClient, responseMeta)
+            ? mcpAppStructuredContent(actionResultForClient, responseMeta)
             : isAppOnlyVisibility &&
-                rawResult &&
-                typeof rawResult === "object" &&
-                !Array.isArray(rawResult)
-              ? (rawResult as Record<string, unknown>)
+                actionResultForClient &&
+                typeof actionResultForClient === "object" &&
+                !Array.isArray(actionResultForClient)
+              ? (actionResultForClient as Record<string, unknown>)
               : structuredResult
                 ? mcpAppStructuredContent(structuredResult, responseMeta)
                 : undefined;
           const text = mcpAppResource
-            ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-            : conciseToolResultText(name, resultForClient, {
+            ? conciseMcpAppToolText(
+                name,
+                textResultForClient,
+                structuredContent!,
+              )
+            : conciseToolResultText(name, textResultForClient, {
                 preserveObjectResult:
                   entry.readOnly === true ||
                   (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] ===
                     true,
               });
-          const content: any[] = [{ type: "text", text }];
+          const imageNotes = [
+            ...describeToolResultImages(resultImages),
+            ...resultImageNotes,
+          ];
+          const content: any[] = [
+            {
+              type: "text",
+              text:
+                imageNotes.length > 0
+                  ? `${text}\n\n${imageNotes.join("\n")}`
+                  : text,
+            },
+          ];
+          for (const image of resultImages) {
+            if (!image.data || !image.mediaType) continue;
+            content.push({
+              type: "image",
+              data: image.data,
+              mimeType: image.mediaType,
+            });
+          }
           if (block) content.push(block);
           const response = {
             content,

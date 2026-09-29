@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
@@ -2898,6 +2899,24 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
+    const recapWorkflow = parseYaml(PR_VISUAL_RECAP_WORKFLOW_YML);
+    const squash = (value: unknown) =>
+      String(value).replace(/\s+/g, " ").trim();
+    const gateIf = squash(recapWorkflow.jobs.gate.if);
+    expect(gateIf.startsWith("!(")).toBe(true);
+    const ignoredEvent = gateIf.slice(1);
+    expect(ignoredEvent).toContain("vars.VISUAL_RECAP_AUTO_REFRESH == 'false'");
+    expect(ignoredEvent).toContain("github.event.label.name != 'recap'");
+    expect(ignoredEvent).not.toContain(
+      "contains(vars.VISUAL_RECAP_REQUIRED_LABELS",
+    );
+    expect(ignoredEvent).toContain("github.event.action == 'synchronize'");
+    expect(ignoredEvent).toContain(
+      "(github.event.action == 'closed' && !github.event.pull_request.merged)",
+    );
+    expect(squash(recapWorkflow.concurrency.group)).toBe(
+      `\${{ ${ignoredEvent} && format('pr-visual-recap-ignored-{0}', github.run_id) || format('pr-visual-recap-{0}', github.event.pull_request.number) }}`,
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Fetch pull request head");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       'git update-ref refs/recap/pr-head "$HEAD_SHA"',
@@ -3898,7 +3917,14 @@ describe("reusable vs copy workflow step-sequence parity", () => {
   it("fork workflow fetches blocks, then authors source, then publishes deterministically", () => {
     const content = fs.readFileSync(forkFile, "utf8");
     expect(content).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, labeled]",
+      "types: [opened, reopened, ready_for_review, labeled]",
+    );
+    const forkWorkflow = parseYaml(content);
+    expect(forkWorkflow.jobs.gate.if).toContain(
+      "(github.event.action != 'labeled' || github.event.label.name == 'recap')",
+    );
+    expect(forkWorkflow.concurrency.group).toContain(
+      "format('pr-visual-recap-fork-ignored-{0}', github.run_id)",
     );
     expect(content).toContain("const trustedAssociations = [");
     expect(content).toContain("'OWNER', 'MEMBER', 'COLLABORATOR'");

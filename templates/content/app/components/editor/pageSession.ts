@@ -9,6 +9,27 @@ export function mayClearRecoveryDraft(
   );
 }
 
+/**
+ * Whether a later save by the same editor session already carries a recovery
+ * draft it wrote when an earlier save did not land. Only those drafts qualify:
+ * others (conflicts, displaced text) may hold text the editor no longer has.
+ */
+export function ownRecoveryDraftSupersededBySave(
+  draft: {
+    editorSessionId: string | null;
+    editGeneration: number | null;
+    supersedable?: boolean;
+  },
+  save: { editorSessionId: string; editGeneration: number },
+): boolean {
+  return (
+    draft.supersedable === true &&
+    draft.editorSessionId === save.editorSessionId &&
+    draft.editGeneration !== null &&
+    draft.editGeneration <= save.editGeneration
+  );
+}
+
 export interface PageSaveResult {
   contentPersisted: boolean;
   outcome?: "superseded" | "pending_preservation";

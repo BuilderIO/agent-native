@@ -3,7 +3,23 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Improved
+
+- Related pages can be loaded past the first 25 results
+
+## 2026-09-28
+
+### Added
+
+- Link rows across collections with relation properties
+
 ## 2026-09-26
+
+### Improved
+
+- Command search now shows matching titles instantly from documents already loaded in the sidebar, filling in richer results as the server responds.
 
 ### Fixed
 
@@ -13,6 +29,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Ask the agent to turn comment, reply, and mention emails on or off.
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
 
 ### Improved
@@ -58,6 +75,12 @@ time from the command menu (Cmd+K → "What's new").
 
 - Search now ranks exact and partial title matches above incidental matches in document bodies.
 
+## 2026-09-18
+
+### Improved
+
+- Mention a connected AI model in a comment, choose how it should respond, and keep the work in that thread.
+
 ## 2026-09-16
 
 ### Fixed
@@ -71,6 +94,10 @@ time from the command menu (Cmd+K → "What's new").
 - Google sign-in and Notion connections now open reliably in embedded browsers
 
 ## 2026-09-14
+
+### Added
+
+- Ask AI conversations now stay with the comment that started them, with inline progress, replies, recovery, and an explicit option to open the full conversation.
 
 ### Improved
 

@@ -1044,7 +1044,8 @@ export function EmailThread({
         key: "o",
         meta: true,
         handler: () => {
-          if (githubPrUrl) window.open(githubPrUrl, "_blank");
+          if (githubPrUrl)
+            window.open(githubPrUrl, "_blank", "noopener,noreferrer");
         },
       },
       { key: "e", handler: handleArchive },
@@ -1194,7 +1195,8 @@ export function EmailThread({
     if (!unsubscribeInfo) return;
 
     if (!("messageId" in unsubscribeInfo)) {
-      if (unsubscribeInfo.url) window.open(unsubscribeInfo.url, "_blank");
+      if (unsubscribeInfo.url)
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -1215,18 +1217,22 @@ export function EmailThread({
       if (data.ok) {
         toast.success(t("mail.toasts.unsubscribeSent"));
         if (data.url || unsubscribeInfo.url) {
-          window.open(data.url || unsubscribeInfo.url, "_blank");
+          window.open(
+            data.url || unsubscribeInfo.url,
+            "_blank",
+            "noopener,noreferrer",
+          );
         }
       } else {
         if (unsubscribeInfo.url) {
-          window.open(unsubscribeInfo.url, "_blank");
+          window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
         } else {
           toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
     } catch {
       if (unsubscribeInfo.url) {
-        window.open(unsubscribeInfo.url, "_blank");
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       }
     } finally {
       setUnsubscribing(false);

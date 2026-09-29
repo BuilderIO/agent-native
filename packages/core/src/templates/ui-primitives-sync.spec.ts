@@ -23,7 +23,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "newer shadcn data-slot dropdown implementation",
   ],
 
-  ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
   ["input.tsx", "factory", "app-specific input sizing and layout behavior"],
 
   [
@@ -79,7 +78,6 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   ],
   ["factory", "input.tsx", "factory-specific input implementation"],
   ["factory", "textarea.tsx", "factory-specific textarea implementation"],
-  ["mail", "input.tsx", "uses compact sizing for Mail's dense interface"],
   ["mail", "sonner.tsx", "uses Mail-specific toast visuals and actions"],
   [
     "plan",

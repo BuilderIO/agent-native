@@ -19,6 +19,11 @@ import {
 } from "@agent-native/core/client/ui";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import {
+  isImageRecording,
+  screenshotFileExtension,
+} from "@shared/recording-kind";
+import { isDefaultTitle } from "@shared/title-source";
+import {
   IconAlertTriangle,
   IconDeviceDesktop,
   IconDownload,
@@ -73,6 +78,7 @@ import {
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
+import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
@@ -108,10 +114,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   recordingProcessingTransition,
@@ -251,9 +257,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       verifyScopedAgentAccessToken,
     },
     { resolveAccess },
+    { getRecordingAccessTokenResourceId },
   ] = await Promise.all([
     import("@agent-native/core/server"),
     import("@agent-native/core/sharing"),
+    import("../../server/lib/share-password.js"),
   ]);
 
   const db = getDb();
@@ -265,6 +273,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -282,14 +291,18 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
+  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
+
   const tokenGrantsAgentAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: id,
+        resourceId: getRecordingAccessTokenResourceId(
+          id,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
       }).ok
     : false;
-
-  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
   if (isRecordingExpired(rec.expiresAt)) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
@@ -671,10 +684,22 @@ export default function ShareRoute() {
       }
       const rec = payload?.recording;
       if (!rec) return false;
-      if (rec.status !== "ready" || !rec.videoUrl) {
+      // Poll while the recording is still being assembled / transcoded so the
+      // page auto-upgrades from "Processing" to the real player the moment
+      // the server flips status to 'ready' and writes videoUrl. Mirrors
+      // _app.r.$recordingId.tsx's playerDataQ.refetchInterval.
+      // A screenshot is finished the moment it exists — it has an image and
+      // never gets a video file, so polling for one would never stop.
+      const recHasMedia = isImageRecording(rec)
+        ? Boolean(rec.imageUrl || rec.thumbnailUrl)
+        : Boolean(rec.videoUrl);
+      if (rec.status !== "ready" || !recHasMedia) {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      // Nothing else about a finished screenshot changes on its own; the
+      // settle poll below is for a video's repaired file.
+      if (isImageRecording(rec)) return false;
       if (rec.seekableRepairPending === true) {
         readyMediaPollRef.current = null;
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
@@ -708,7 +733,14 @@ export default function ShareRoute() {
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
     if (recording && !recording.enableComments) {
-      setPanel((current) => (current === "comments" ? "transcript" : current));
+      // Functional update so this branch doesn't need `panel` as a
+      // dependency below - depending on `panel` made this effect re-fire on
+      // every manual tab click (including away from Comments), and
+      // `panelParam === "comments"` would then re-select Comments right
+      // back, trapping the viewer on the deep link for the whole session.
+      // A screenshot has no transcript tab to fall back to.
+      const fallback = isImageRecording(recording) ? "agent" : "transcript";
+      setPanel((current) => (current === "comments" ? fallback : current));
       return;
     }
     if (panelParam === "comments") {
@@ -729,9 +761,15 @@ export default function ShareRoute() {
 
   useEffect(() => {
     if (!recording) return;
+    // "Ready but no video file" means a recording is still being assembled —
+    // except for a screenshot, which has an image and no video file by
+    // definition, and would otherwise sit under a progress toast forever.
+    const hasMedia = isImageRecording(recording)
+      ? Boolean(recording.imageUrl || recording.thumbnailUrl)
+      : Boolean(recording.videoUrl);
     const phase =
       recording.status === "ready"
-        ? recording.videoUrl
+        ? hasMedia
           ? "ready"
           : "processing"
         : recording.status;
@@ -894,7 +932,12 @@ export default function ShareRoute() {
       setProcessingTimeout(false);
       return;
     }
-    if (recording.status === "ready" && recording.videoUrl) {
+    // A screenshot has its media the moment it exists, so the stuck-upload
+    // watchdog below must not start ticking on one.
+    const hasMedia = isImageRecording(recording)
+      ? Boolean(recording.imageUrl || recording.thumbnailUrl)
+      : Boolean(recording.videoUrl);
+    if (recording.status === "ready" && hasMedia) {
       setProcessingTimeout(false);
       return;
     }
@@ -1041,27 +1084,32 @@ export default function ShareRoute() {
       });
       return;
     }
-    if (!recording?.videoUrl) return;
+    // A screenshot downloads its image; there is no video file to fetch.
+    const downloadUrl = isImageRecording(recording)
+      ? (recording?.imageUrl ?? recording?.thumbnailUrl ?? null)
+      : (recording?.videoUrl ?? null);
+    if (!downloadUrl) return;
     setDownloading(true);
     const downloadToastId = toast.loading(t("sharePage.downloading"));
     try {
-      const res = await fetch(recording.videoUrl);
+      const res = await fetch(downloadUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const extension =
-        blob.type.includes("webm") || recording.videoFormat === "webm"
+      const extension = isImageRecording(recording)
+        ? screenshotFileExtension(blob.type)
+        : blob.type.includes("webm") || recording?.videoFormat === "webm"
           ? "webm"
           : "mp4";
-      a.download = `${sanitizeFilename(recording.title || "clip")}.${extension}`;
+      a.download = `${sanitizeFilename(recording?.title || "clip")}.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+      window.open(downloadUrl, "_blank", "noopener,noreferrer");
     } finally {
       setDownloading(false);
       toast.dismiss(downloadToastId);
@@ -1276,7 +1324,15 @@ export default function ShareRoute() {
     );
   }
 
-  if (recording.status !== "ready" || !recording.videoUrl) {
+  // A screenshot is ready when it has an image. It has no video file, so the
+  // "assembling your video" state below would never resolve for one.
+  const isImage = isImageRecording(recording);
+  if (
+    recording.status !== "ready" ||
+    (isImage
+      ? !recording.imageUrl && !recording.thumbnailUrl
+      : !recording.videoUrl)
+  ) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
@@ -1394,7 +1450,11 @@ export default function ShareRoute() {
   }
 
   const canDownloadRecording = Boolean(
-    recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+    recording.enableDownloads &&
+    (isImage
+      ? recording.imageUrl || recording.thumbnailUrl
+      : recording.videoUrl) &&
+    !isLoomEmbedBacked,
   );
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
@@ -1486,102 +1546,130 @@ export default function ShareRoute() {
             the discussion stays close to the video on wide displays. */}
           <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 lg:h-full lg:min-h-0 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))] lg:pt-4">
             <div className="flex w-full shrink-0 justify-center">
-              <div className="relative aspect-video w-full">
-                <VideoPlayer
-                  ref={playerRef}
-                  onVideoElementChange={setTrackedVideoEl}
-                  recordingId={recording.id}
-                  videoUrl={recording.videoUrl}
-                  mediaVersion={
-                    recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
-                  }
-                  videoFormat={recording.videoFormat}
-                  embedProvider={isLoomEmbedBacked ? "loom" : null}
-                  durationMs={recording.durationMs}
-                  startMs={resolveStartMs(startMs, recording.durationMs)}
-                  persistPlaybackPosition={Boolean(session)}
-                  editsJson={recording.editsJson}
-                  thumbnailUrl={recording.thumbnailUrl}
-                  role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
-                  defaultSpeed={
-                    parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
-                  }
-                  comments={comments}
-                  chapters={chapters}
-                  reactions={reactions}
-                  transcriptSegments={transcriptSegments}
-                  cta={firstCta}
-                  onCtaClick={() => tracking.reportCtaClick()}
-                  onTimeUpdate={(ms) => setCurrentMs(ms)}
-                  onCommentClick={
-                    viewerCanUseFullscreenInteractions
-                      ? selectCommentsPanel
-                      : undefined
-                  }
-                  onFullscreenChange={setIsPlayerFullscreen}
-                  enableComments={
-                    recording.enableComments &&
-                    viewerCanUseFullscreenInteractions
-                  }
-                  onAddComment={
-                    viewerCanUseFullscreenInteractions
-                      ? () => {
-                          if (!session) {
-                            requireSignIn("comment");
-                            return;
-                          }
-                          const liveMs = resolvePlaybackMs();
-                          setCurrentMs(liveMs);
-                          if (!isPlayerFullscreen) {
-                            selectCommentsPanel();
-                            return;
-                          }
-                          setCommentAtMs(liveMs);
-                          setCommentOpen(true);
-                        }
-                      : undefined
-                  }
-                  enableReactions={
-                    recording.enableReactions &&
-                    viewerCanUseFullscreenInteractions
-                  }
-                  onReact={
-                    viewerCanUseFullscreenInteractions
-                      ? reactToRecording
-                      : undefined
-                  }
-                  className="h-full w-full rounded-none sm:rounded-xl"
+              {isImage ? (
+                // The shared screenshot itself. It is fetched through the same
+                // route the player's media goes through, so the share password
+                // and expiry gate the image bytes, not just this page.
+                <ScreenshotStage
+                  // Same reason as the owner's page: the file behind this URL
+                  // is replaced by an edit while the URL stays put, and a tab
+                  // that already has the picture would keep showing the
+                  // un-redacted one.
+                  src={withMediaVersion(
+                    recording.imageUrl ?? recording.thumbnailUrl ?? "",
+                    recording.mediaUpdatedAt ?? null,
+                  )}
+                  alt={recording.title}
+                  width={recording.width}
+                  height={recording.height}
+                  className="w-full"
                 />
-                {commentOpen && viewerCanComment
-                  ? (() => {
-                      const composer = (
-                        <TimestampedCommentBar
-                          recordingId={recording.id}
-                          atMs={commentAtMs}
-                          draft={commentDraft}
-                          onDraftChange={setCommentDraft}
-                          onClose={() => setCommentOpen(false)}
-                          onAdded={() => {
-                            void dataQ.refetch();
-                            if (resumedAccountActionRef.current === "comment") {
-                              resumedAccountActionRef.current = null;
-                              trackEvent("share_account_action_completed", {
-                                surface: "public_share",
-                                recording_id: recording.id,
-                                intent: "comment",
-                              });
+              ) : (
+                <div className="relative aspect-video w-full">
+                  <VideoPlayer
+                    ref={playerRef}
+                    onVideoElementChange={setTrackedVideoEl}
+                    recordingId={recording.id}
+                    videoUrl={recording.videoUrl}
+                    mediaVersion={
+                      recording.mediaUpdatedAt ??
+                      recording.videoSizeBytes ??
+                      null
+                    }
+                    videoFormat={recording.videoFormat}
+                    embedProvider={isLoomEmbedBacked ? "loom" : null}
+                    durationMs={recording.durationMs}
+                    startMs={resolveStartMs(startMs, recording.durationMs)}
+                    persistPlaybackPosition={Boolean(session)}
+                    editsJson={recording.editsJson}
+                    thumbnailUrl={recording.thumbnailUrl}
+                    role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
+                    defaultSpeed={
+                      parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                    }
+                    comments={comments}
+                    chapters={chapters}
+                    reactions={reactions}
+                    transcriptSegments={transcriptSegments}
+                    cta={firstCta}
+                    onCtaClick={() => tracking.reportCtaClick()}
+                    onTimeUpdate={(ms) => setCurrentMs(ms)}
+                    onCommentClick={
+                      viewerCanUseFullscreenInteractions
+                        ? selectCommentsPanel
+                        : undefined
+                    }
+                    onFullscreenChange={setIsPlayerFullscreen}
+                    enableComments={
+                      recording.enableComments &&
+                      viewerCanUseFullscreenInteractions
+                    }
+                    onAddComment={
+                      viewerCanUseFullscreenInteractions
+                        ? () => {
+                            if (!session) {
+                              requireSignIn("comment");
+                              return;
                             }
-                          }}
-                        />
-                      );
-                      const fullscreenContainer =
-                        isPlayerFullscreen && playerRef.current?.container;
-                      return fullscreenContainer
-                        ? createPortal(composer, fullscreenContainer)
-                        : composer;
-                    })()
-                  : null}
-              </div>
+                            const liveMs = resolvePlaybackMs();
+                            setCurrentMs(liveMs);
+                            if (!isPlayerFullscreen) {
+                              selectCommentsPanel();
+                              return;
+                            }
+                            setCommentAtMs(liveMs);
+                            setCommentOpen(true);
+                          }
+                        : undefined
+                    }
+                    enableReactions={
+                      !isImage &&
+                      recording.enableReactions &&
+                      viewerCanUseFullscreenInteractions
+                    }
+                    onReact={
+                      viewerCanUseFullscreenInteractions
+                        ? reactToRecording
+                        : undefined
+                    }
+                    className="h-full w-full rounded-none sm:rounded-xl"
+                  />
+                  {commentOpen && viewerCanComment
+                    ? (() => {
+                        const composer = (
+                          <TimestampedCommentBar
+                            recordingId={recording.id}
+                            atMs={commentAtMs}
+                            draft={commentDraft}
+                            onDraftChange={setCommentDraft}
+                            onClose={() => setCommentOpen(false)}
+                            onAdded={() => {
+                              void dataQ.refetch();
+                              if (
+                                resumedAccountActionRef.current === "comment"
+                              ) {
+                                resumedAccountActionRef.current = null;
+                                trackEvent("share_account_action_completed", {
+                                  surface: "public_share",
+                                  recording_id: recording.id,
+                                  intent: "comment",
+                                });
+                              }
+                            }}
+                          />
+                        );
+                        // The Fullscreen API only paints the player's own element,
+                        // so portal the composer there instead of exiting
+                        // fullscreen when it's open.
+                        const fullscreenContainer =
+                          isPlayerFullscreen && playerRef.current?.container;
+                        return fullscreenContainer
+                          ? createPortal(composer, fullscreenContainer)
+                          : composer;
+                      })()
+                    : null}
+                </div>
+              )}
             </div>
 
             <section className="flex shrink-0 flex-col gap-3 px-4 pt-1 sm:px-0">
@@ -1632,7 +1720,7 @@ export default function ShareRoute() {
                     canViewDetails={viewerCanEdit}
                     className="shrink-0 border-0 shadow-none"
                   />
-                  {recording.enableReactions ? (
+                  {recording.enableReactions && !isImage ? (
                     <ShareReactionPicker
                       disabled={Boolean(session) && !viewerCanComment}
                       onReact={reactToRecording}
@@ -1738,9 +1826,11 @@ export default function ShareRoute() {
                     {t("sharePage.comments")}
                   </ViewerTabsTrigger>
                 ) : null}
-                <ViewerTabsTrigger value="transcript">
-                  {t("sharePage.transcript")}
-                </ViewerTabsTrigger>
+                {isImage ? null : (
+                  <ViewerTabsTrigger value="transcript">
+                    {t("sharePage.transcript")}
+                  </ViewerTabsTrigger>
+                )}
                 <ViewerTabsTrigger value="agent">
                   {t("sharePage.agent")}
                 </ViewerTabsTrigger>
@@ -1928,7 +2018,7 @@ function ShareReactionPicker({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          className="h-8 gap-1.5 px-2 text-xs"
+          className="gap-1.5 px-2 text-xs"
         >
           <IconMoodSmile className="size-4" />
           {t("recordingPage.react")}
@@ -1941,8 +2031,8 @@ function ShareReactionPicker({
               key={emoji}
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 rounded-full text-lg"
+              size="icon-sm"
+              className="rounded-full text-lg"
               aria-label={`${t("recordingPage.react")} ${REACTION_NAMES[emoji]}`}
               onClick={() => {
                 setOpen(false);

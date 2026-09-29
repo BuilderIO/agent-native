@@ -1230,7 +1230,7 @@ export default function TemplateEditorRoute() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 gap-2"
+                  className="gap-2"
                   disabled={
                     readOnly || pinningUnavailable || entry.assetIds.length >= 4
                   }
@@ -1243,7 +1243,7 @@ export default function TemplateEditorRoute() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 gap-2"
+                  className="gap-2"
                   disabled={referenceUploadDisabled}
                   onClick={() =>
                     requestFilePicker(referenceUploadInputRef.current)

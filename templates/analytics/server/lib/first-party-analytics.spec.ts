@@ -568,6 +568,19 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).not.toThrow();
   });
 
+  it("allows only the built-in generate_series source for date spines", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1, 2) AS days(day)",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL custom_series(1, 2) AS days(day)",
+      ),
+    ).toThrow("cannot read from table function custom_series");
+  });
+
   it("rejects direct replay chunk queries", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
@@ -839,6 +852,24 @@ describe("queryFirstPartyAnalytics", () => {
         timeoutMs: 45_000,
         maxAttempts: 1,
       }),
+    );
+  });
+
+  it("marks capped Postgres reads as truncated", async () => {
+    execute.mockResolvedValue({
+      rows: Array.from({ length: 5_001 }, (_, index) => ({ events: index })),
+      rowsAffected: 0,
+    });
+
+    const result = await queryFirstPartyAnalytics(
+      "SELECT events FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+    );
+
+    expect(result.rows).toHaveLength(5_000);
+    expect(result.truncated).toBe(true);
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: expect.stringContaining("LIMIT 5001") }),
     );
   });
 

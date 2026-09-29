@@ -260,19 +260,19 @@ export async function createDocsScriptEntries(): Promise<
     entries["docs-search"] = wrapCliScript(
       {
         description:
-          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>. Use a focused lookup when needed and reuse its result for the rest of the turn; do not repeat an equivalent lookup unless the page or question is different.",
+          "Read bundled framework/app instructions, framework docs, and codebase skills. Use --slug for a known page; for a skill, use the exact skill-<name> slug shown in the prompt. Use --query only when the page or slug is unknown; --list lists pages. This is not tool discovery; use tool-search to find tools.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
               description:
-                "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
+                "Search docs only when you do not know the page or slug to read",
             },
             slug: {
               type: "string",
               description:
-                "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
+                "Read a known page by slug; use the exact skill-<name> slug from the prompt for a codebase skill",
             },
             list: {
               type: "string",
@@ -790,14 +790,19 @@ export async function createAgentEngineScriptEntries(
           allowedValues: { action: ["list"] },
           description: "Plan mode allows listing available agent engines.",
         },
-        run: (args) =>
-          mod.run({
-            ...args,
-            appId:
-              typeof args.appId === "string" && args.appId.trim()
-                ? args.appId
-                : (appId ?? ""),
-          }),
+        // The context carries the caller the owner/admin check audits; the
+        // check itself lives in the action so HTTP and agent calls share it.
+        run: (args, context) =>
+          mod.run(
+            {
+              ...args,
+              appId:
+                typeof args.appId === "string" && args.appId.trim()
+                  ? args.appId
+                  : (appId ?? ""),
+            },
+            context,
+          ),
       },
     };
   } catch {

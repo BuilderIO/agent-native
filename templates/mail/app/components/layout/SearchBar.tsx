@@ -23,6 +23,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -294,204 +299,216 @@ export function SearchBar({
 
   return (
     <div className="relative flex items-center gap-1.5">
-      <div
-        className={cn(
-          "relative flex items-center rounded bg-accent/80 focus-within:ring-1 focus-within:ring-primary/40",
-          hasActiveSearch ? "w-56 sm:w-64" : "w-40 sm:w-48",
-        )}
-      >
-        <input
-          ref={inputRef}
-          id="mail-search"
-          data-mail-search
-          role="combobox"
-          aria-label={t("mail.search.label")}
-          aria-autocomplete="list"
-          aria-controls={showDropdown ? "mail-search-suggestions" : undefined}
-          aria-expanded={showDropdown}
-          aria-activedescendant={getActiveDescendantId(
-            "mail-search-suggestion-",
-            showDropdown,
-            selectedIndex,
-            combinedMatchCount,
-          )}
-          autoFocus={autoFocus}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => {
-            if (blurCloseTimeoutRef.current !== null) {
-              clearTimeout(blurCloseTimeoutRef.current);
-              blurCloseTimeoutRef.current = null;
-            }
-            setIsFocused(true);
-          }}
-          onBlur={(e) => {
-            if (
-              e.relatedTarget &&
-              (e.relatedTarget as HTMLElement).closest("[data-search-dropdown]")
-            ) {
-              return;
-            }
-            setIsFocused(false);
-            if (hasActiveSearch || query.trim()) return;
-            blurCloseTimeoutRef.current = setTimeout(() => {
-              blurCloseTimeoutRef.current = null;
-              onClose();
-            }, 100);
-          }}
-          placeholder={t("mail.search.placeholder")}
-          className={cn(
-            "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
-            hasActiveSearch && "font-medium",
-          )}
-        />
-        {hasActiveSearch && onSaveSearch && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("mail.search.saveAsTab")}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleSaveSearch}
-                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
-              >
-                <IconPin className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.search.saveAsTab")}</TooltipContent>
-          </Tooltip>
-        )}
-        {(hasActiveSearch || query) && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("mail.search.clear")}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  handleClear();
-                }}
-                onClick={(e) => {
-                  if (e.detail === 0) handleClear();
-                }}
-                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.search.clear")}</TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-
-      {/* Contact + instant local-match suggestions dropdown */}
-      {showDropdown && (
-        <div
-          data-search-dropdown
-          id="mail-search-suggestions"
-          role="listbox"
-          ref={listRef}
-          className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
-        >
-          {matchedContacts.map((contact, i) => (
-            <button
-              key={contact.email}
-              data-contact-item
-              data-search-item
-              id={`mail-search-suggestion-${i}`}
-              role="option"
-              aria-selected={i === selectedIndex}
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                selectContact(contact);
+      <Popover open={showDropdown}>
+        <PopoverAnchor asChild>
+          <div
+            className={cn(
+              "relative flex items-center rounded bg-accent/80 focus-within:ring-1 focus-within:ring-primary/40",
+              hasActiveSearch ? "w-56 sm:w-64" : "w-40 sm:w-48",
+            )}
+          >
+            <input
+              ref={inputRef}
+              id="mail-search"
+              data-mail-search
+              role="combobox"
+              aria-label={t("mail.search.label")}
+              aria-autocomplete="list"
+              aria-controls={
+                showDropdown ? "mail-search-suggestions" : undefined
+              }
+              aria-expanded={showDropdown}
+              aria-activedescendant={getActiveDescendantId(
+                "mail-search-suggestion-",
+                showDropdown,
+                selectedIndex,
+                combinedMatchCount,
+              )}
+              autoFocus={autoFocus}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => {
+                if (blurCloseTimeoutRef.current !== null) {
+                  clearTimeout(blurCloseTimeoutRef.current);
+                  blurCloseTimeoutRef.current = null;
+                }
+                setIsFocused(true);
               }}
-              onMouseEnter={() => setSelectedIndex(i)}
+              onBlur={(e) => {
+                if (
+                  e.relatedTarget &&
+                  (e.relatedTarget as HTMLElement).closest(
+                    "[data-search-dropdown]",
+                  )
+                ) {
+                  return;
+                }
+                setIsFocused(false);
+                if (hasActiveSearch || query.trim()) return;
+                blurCloseTimeoutRef.current = setTimeout(() => {
+                  blurCloseTimeoutRef.current = null;
+                  onClose();
+                }, 100);
+              }}
+              placeholder={t("mail.search.placeholder")}
               className={cn(
-                "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
-                i === selectedIndex && "bg-accent",
+                "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
+                hasActiveSearch && "font-medium",
               )}
-            >
-              <span
-                data-an-mask
-                className="min-w-0 flex-1 truncate text-foreground/90"
-              >
-                {highlight(contact.name || contact.email, query.trim())}
-              </span>
-              {contact.name && (
-                <span
-                  data-an-mask
-                  className="shrink-0 text-muted-foreground text-xs"
-                >
-                  {highlight(contact.email, query.trim())}
-                </span>
-              )}
-            </button>
-          ))}
-
-          {showLocalResults && localMatches.length > 0 && (
-            <div
-              className={cn(
-                "border-border/60",
-                matchedContacts.length > 0 && "border-t",
-              )}
-            >
-              <div className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                {t("mail.search.localResults")}
-              </div>
-              {localMatches.map((thread, i) => {
-                const combinedIndex = matchedContacts.length + i;
-                const email = thread.latestMessage;
-                return (
+            />
+            {hasActiveSearch && onSaveSearch && (
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <button
-                    key={email.threadId || email.id}
-                    data-search-item
-                    id={`mail-search-suggestion-${combinedIndex}`}
-                    role="option"
-                    aria-selected={combinedIndex === selectedIndex}
                     type="button"
-                    tabIndex={-1}
+                    aria-label={t("mail.search.saveAsTab")}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleSaveSearch}
+                    className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+                  >
+                    <IconPin className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.search.saveAsTab")}</TooltipContent>
+              </Tooltip>
+            )}
+            {(hasActiveSearch || query) && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("mail.search.clear")}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      selectThread(thread);
+                      handleClear();
                     }}
-                    onMouseEnter={() => setSelectedIndex(combinedIndex)}
-                    className={cn(
-                      "flex w-full items-center gap-2 px-3 py-2 text-start text-[13px]",
-                      combinedIndex === selectedIndex && "bg-accent",
-                    )}
+                    onClick={(e) => {
+                      if (e.detail === 0) handleClear();
+                    }}
+                    className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
                   >
-                    <span
-                      data-an-mask
-                      className="min-w-0 flex-1 truncate text-foreground/90"
-                    >
-                      {highlight(
-                        email.subject || email.from.name,
-                        query.trim(),
-                      )}
-                    </span>
-                    <span
-                      data-an-mask
-                      className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs"
-                    >
-                      {email.from.name || email.from.email}
-                    </span>
+                    <IconX className="h-3.5 w-3.5" />
                   </button>
-                );
-              })}
-            </div>
-          )}
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.search.clear")}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </PopoverAnchor>
 
-          {showLocalResults && remoteSearchPending && (
-            <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[12px] text-muted-foreground">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-              {t("mail.search.searchingGmail")}
-            </div>
-          )}
-        </div>
-      )}
+        {/* Contact + instant local-match suggestions dropdown */}
+        {showDropdown && (
+          <PopoverContent
+            align="end"
+            data-search-dropdown
+            id="mail-search-suggestions"
+            role="listbox"
+            ref={listRef}
+            side="bottom"
+            sideOffset={4}
+            onOpenAutoFocus={(event) => event.preventDefault()}
+            className="w-72 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg p-0"
+          >
+            {matchedContacts.map((contact, i) => (
+              <button
+                key={contact.email}
+                data-contact-item
+                data-search-item
+                id={`mail-search-suggestion-${i}`}
+                role="option"
+                aria-selected={i === selectedIndex}
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectContact(contact);
+                }}
+                onMouseEnter={() => setSelectedIndex(i)}
+                className={cn(
+                  "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
+                  i === selectedIndex && "bg-accent",
+                )}
+              >
+                <span
+                  data-an-mask
+                  className="min-w-0 flex-1 truncate text-foreground/90"
+                >
+                  {highlight(contact.name || contact.email, query.trim())}
+                </span>
+                {contact.name && (
+                  <span
+                    data-an-mask
+                    className="shrink-0 text-muted-foreground text-xs"
+                  >
+                    {highlight(contact.email, query.trim())}
+                  </span>
+                )}
+              </button>
+            ))}
+
+            {showLocalResults && localMatches.length > 0 && (
+              <div
+                className={cn(
+                  "border-border/60",
+                  matchedContacts.length > 0 && "border-t",
+                )}
+              >
+                <div className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                  {t("mail.search.localResults")}
+                </div>
+                {localMatches.map((thread, i) => {
+                  const combinedIndex = matchedContacts.length + i;
+                  const email = thread.latestMessage;
+                  return (
+                    <button
+                      key={email.threadId || email.id}
+                      data-search-item
+                      id={`mail-search-suggestion-${combinedIndex}`}
+                      role="option"
+                      aria-selected={combinedIndex === selectedIndex}
+                      type="button"
+                      tabIndex={-1}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectThread(thread);
+                      }}
+                      onMouseEnter={() => setSelectedIndex(combinedIndex)}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-2 text-start text-[13px]",
+                        combinedIndex === selectedIndex && "bg-accent",
+                      )}
+                    >
+                      <span
+                        data-an-mask
+                        className="min-w-0 flex-1 truncate text-foreground/90"
+                      >
+                        {highlight(
+                          email.subject || email.from.name,
+                          query.trim(),
+                        )}
+                      </span>
+                      <span
+                        data-an-mask
+                        className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs"
+                      >
+                        {email.from.name || email.from.email}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {showLocalResults && remoteSearchPending && (
+              <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[12px] text-muted-foreground">
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+                {t("mail.search.searchingGmail")}
+              </div>
+            )}
+          </PopoverContent>
+        )}
+      </Popover>
 
       <Dialog
         open={saveDialogOpen}

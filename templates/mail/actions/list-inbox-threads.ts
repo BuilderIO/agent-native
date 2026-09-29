@@ -1,19 +1,20 @@
 import { defineAction } from "@agent-native/core/action";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
-import {
-  getConnectedAccountsWithErrors,
-  isConnected,
-} from "../server/lib/google-auth.js";
+import { hasGmailScope } from "../server/lib/gmail-scope.js";
 import {
   inboxRowToItem,
   readCachedLabels,
   readInboxThreads,
+  readInboxPushGeneration,
+  readSyncAccounts,
+  type SyncAccountRow,
 } from "../server/lib/inbox-store.js";
-import { ensureInboxFresh } from "../server/lib/inbox-sync.js";
 import {
   buildLocalInboxItems,
   partitionInboxItems,
@@ -33,8 +34,36 @@ import {
 } from "../shared/inbox-threads.js";
 import type { Label } from "../shared/types.js";
 
-const FRESHNESS_MAX_AGE_MS = 15_000;
-const SYNC_BUDGET_MS = 6_000;
+const TAB_PREVIEW_LIMIT = 50;
+
+type CachedTabCount = { total: number; unread: number };
+
+function cachedInboxCount(
+  accounts: SyncAccountRow[],
+  accountEmails: string[],
+): CachedTabCount | undefined {
+  const selected = new Set(accountEmails.map((email) => email.toLowerCase()));
+  if (selected.size === 0) return undefined;
+  let total = 0;
+  let unread = 0;
+  for (const account of accounts) {
+    if (!selected.has(account.accountEmail.toLowerCase())) continue;
+    selected.delete(account.accountEmail.toLowerCase());
+    const inbox = account.labels?.find(
+      (label) => label.id.toUpperCase() === "INBOX",
+    );
+    if (inbox?.threadsTotal == null || inbox.threadsUnread == null)
+      return undefined;
+    const accountTotal = Number(inbox.threadsTotal);
+    const accountUnread = Number(inbox.threadsUnread);
+    if (!Number.isFinite(accountTotal) || !Number.isFinite(accountUnread))
+      return undefined;
+    total += accountTotal;
+    unread += accountUnread;
+  }
+  if (selected.size > 0) return undefined;
+  return { total, unread };
+}
 
 function paginateIntoResult(
   items: InboxThreadItem[],
@@ -44,6 +73,8 @@ function paginateIntoResult(
   page: { tab?: string; limit: number; offset: number; unreadOnly?: boolean },
   syncing: boolean,
   accounts: InboxSyncAccountStatus[],
+  backfillIncomplete = false,
+  cachedInboxTotal?: CachedTabCount,
 ): ListInboxThreadsResult {
   const tabs = resolveInboxTabs(config, labelNameById);
   const byTab = partitionInboxItems(items, tabs);
@@ -51,13 +82,20 @@ function paginateIntoResult(
 
   const resultTabs: InboxTab[] = tabs.map((tab) => {
     const members = byTab.get(tab.id) ?? [];
+    const cachedCount =
+      backfillIncomplete && (tab.kind === "inbox" || tab.kind === "all")
+        ? cachedInboxTotal
+        : undefined;
     return {
       id: tab.id,
       kind: tab.kind,
       name: tab.name,
       query: tab.query,
-      total: members.length,
-      unread: members.filter((item) => item.unreadCount > 0).length,
+      total: cachedCount?.total ?? members.length,
+      unread:
+        cachedCount?.unread ??
+        members.filter((item) => item.unreadCount > 0).length,
+      ...(backfillIncomplete ? { totalIsLowerBound: true } : {}),
     };
   });
 
@@ -66,14 +104,24 @@ function paginateIntoResult(
     ? activeMembers.filter((item) => item.unreadCount > 0)
     : activeMembers;
   const pageItems = pageSource.slice(page.offset, page.offset + page.limit);
+  const activeTab = resultTabs.find((tab) => tab.id === activeTabId);
 
   return {
     tabs: resultTabs,
     activeTabId,
     items: pageItems,
-    total: activeMembers.length,
+    tabPreviews: Object.fromEntries(
+      tabs.map((tab) => [
+        tab.id,
+        (byTab.get(tab.id) ?? []).slice(0, TAB_PREVIEW_LIMIT),
+      ]),
+    ),
+    total: resultTabs.find((tab) => tab.id === activeTabId)?.total ?? 0,
     complete:
-      !page.unreadOnly && page.offset + pageItems.length >= pageSource.length,
+      !page.unreadOnly &&
+      !activeTab?.totalIsLowerBound &&
+      page.offset + pageItems.length >= pageSource.length &&
+      pageSource.length >= (activeTab?.total ?? 0),
     syncing,
     accounts,
     labels,
@@ -137,12 +185,34 @@ export default defineAction({
       unreadOnly: args.unreadOnly,
     };
 
-    const { accounts: connectedAccounts, errors: accountErrors } =
-      await getConnectedAccountsWithErrors(ownerEmail);
+    const [oauthAccounts, managedConnection, syncAccounts] = await Promise.all([
+      listOAuthAccountsByOwner("google", ownerEmail),
+      resolveWorkspaceConnectionForApp({
+        appId: "mail",
+        provider: "gmail",
+        requireConnected: true,
+      }),
+      readSyncAccounts(ownerEmail),
+    ]);
+    const connectedAccounts = [
+      ...new Set([
+        ...oauthAccounts
+          .filter((account) => hasGmailScope(account.tokens))
+          .map((account) => account.accountId.toLowerCase()),
+        ...(managedConnection.available &&
+        managedConnection.connection?.status === "connected" &&
+        managedConnection.connection.accountId
+          ? [managedConnection.connection.accountId.toLowerCase()]
+          : []),
+      ]),
+    ].filter((accountEmail) =>
+      args.accountEmails?.length
+        ? args.accountEmails.some(
+            (requested) => requested.toLowerCase() === accountEmail,
+          )
+        : true,
+    );
     if (connectedAccounts.length === 0) {
-      if (accountErrors.length > 0) {
-        throw new Error(accountErrors.map(({ error }) => error).join("; "));
-      }
       const [emails, settings, localSetting] = await Promise.all([
         readLocalEmails(ownerEmail),
         readSettings(ownerEmail),
@@ -171,38 +241,75 @@ export default defineAction({
       );
     }
 
-    const statuses = await ensureInboxFresh(ownerEmail, {
-      accountEmails: args.accountEmails,
-      maxAgeMs: FRESHNESS_MAX_AGE_MS,
-      budgetMs: SYNC_BUDGET_MS,
-    });
-
-    const googleConnected = await isConnected(ownerEmail);
-    const settings = await readSettings(ownerEmail);
-    const [rows, { labels, labelMapByAccount }] = await Promise.all([
-      readInboxThreads(ownerEmail, { accountEmails: args.accountEmails }),
-      readCachedLabels(ownerEmail, args.accountEmails),
+    const [settings, rows, { labels, labelMapByAccount }] = await Promise.all([
+      readSettings(ownerEmail),
+      readInboxThreads(ownerEmail, { accountEmails: connectedAccounts }),
+      readCachedLabels(ownerEmail, connectedAccounts),
     ]);
     const items = rows.map((row) =>
       inboxRowToItem(row, labelMapByAccount.get(row.accountEmail)),
     );
 
     const config: InboxTabConfig = {
-      pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, googleConnected),
+      pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, true),
       savedFilters: settings.savedFilters ?? [],
       labelAliases: settings.labelAliases ?? {},
       combineInbox: settings.combineInbox,
       showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
+    const rowByAccount = new Map(
+      syncAccounts.map((account) => [account.accountEmail, account]),
+    );
+    const statuses = await Promise.all(
+      connectedAccounts.map(async (accountEmail) => {
+        const row = rowByAccount.get(accountEmail);
+        const pushGeneration = await readInboxPushGeneration(
+          ownerEmail,
+          accountEmail,
+        );
+        const state =
+          row?.status === "needs_reauth" || row?.status === "error"
+            ? row.status
+            : row?.historyId == null || row?.status === "syncing"
+              ? "initial"
+              : "ready";
+        return {
+          accountEmail,
+          state,
+          lastSyncedAt: row?.lastSyncedAt ?? null,
+          ...(row?.lastError ? { error: row.lastError } : {}),
+          ...(row?.fullSyncPageToken || row?.fullSyncPhase === "reconcile"
+            ? { backfillPending: true }
+            : {}),
+          ...(pushGeneration > (row?.lastPushGeneration ?? 0)
+            ? { pushPending: true }
+            : {}),
+        } satisfies InboxSyncAccountStatus & { pushPending?: boolean };
+      }),
+    );
+    const backfillIncomplete = statuses.some(
+      (status) => status.state === "initial" || status.backfillPending,
+    );
+    const cachedAllInboxCount = cachedInboxCount(
+      syncAccounts,
+      connectedAccounts,
+    );
     return paginateIntoResult(
       items,
       config,
       labelNameById,
       labels,
       page,
-      statuses.some((status) => status.state === "initial"),
+      statuses.some(
+        (status) =>
+          status.state === "initial" ||
+          (status as InboxSyncAccountStatus & { pushPending?: boolean })
+            .pushPending,
+      ),
       statuses,
+      backfillIncomplete,
+      cachedAllInboxCount,
     );
   },
 });

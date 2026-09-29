@@ -18,12 +18,6 @@ const messages = {
     disconnecting: "Wird getrennt…",
   },
   settings: {
-    title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     agentTitle: "Agent-Einstellungen",
     agentDescription:
       "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
@@ -36,7 +30,6 @@ const messages = {
     emailChange: "E-Mail-Adresse ändern",
     emailChangeSent: "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
     emailChangeError: "Bestätigung konnte nicht gesendet werden.",
-    backHome: "Zur Startseite",
     builderConnection: {
       manage: "Builder.io-Verbindung verwalten",
     },
@@ -230,6 +223,9 @@ const messages = {
       noErrorMessage: "(keine Fehlermeldung)",
     },
   },
+  settingsShortcut: {
+    command: "Einstellungen",
+  },
   agentPanel: {
     useBuilder: "Verwenden Sie Builder",
     openDesktopToEditCode: "Öffnen Sie den Desktop, um den Code zu bearbeiten",
@@ -245,6 +241,7 @@ const messages = {
     newChat: "Neuer Chat",
     newTerminal: "Neues Terminal",
     panelOptions: "Optionen im Agentenpanel",
+    integrations: "Integrationen",
     collapseSidebar: "Seitenleiste einklappen",
     widenChat: "Chat verbreitern",
     returnChatToLayout: "Chat zurück ins Layout",
@@ -270,6 +267,8 @@ const messages = {
     sharedKeyInEffect: "Ein gemeinsamer Schlüssel wird verwendet.",
     useOrganizationKey: "Organisationsschlüssel verwenden",
     keyStatusUnavailable: "Der Schlüsselstatus ist nicht verfügbar.",
+    saveScopeRoleUnavailable:
+      "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -659,6 +658,13 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Zurück zur Liste",
+    promoteMustContain: "Antwort muss enthalten…",
+    promoteMustContainOptional:
+      "Optionaler Text, nach dem in der Antwort gesucht wird…",
+    promoteMustContainLabel:
+      "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+    promoteNeedsContains:
+      "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, den die Antwort enthalten muss, bevor du sie in eine Eval überführst.",
     spans: "Spans",
     type: "Typ",
     name: "Name",
