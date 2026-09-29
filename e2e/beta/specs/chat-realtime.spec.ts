@@ -62,7 +62,7 @@ test.describe("Slides realtime editor", () => {
       await openEditor(pageA, `${editorUrl}?agentSidebar=open`, sourceText);
       pageB = await context.newPage();
       const transportRequests = { poll: 0, events: 0, stream: 0 };
-      let streamConnected = false;
+      let streamEverConnected = false;
       pageB.on("request", (request) => {
         if (request.method() !== "GET") return;
         const pathname = new URL(request.url()).pathname.replace(/\/+$/, "");
@@ -76,8 +76,12 @@ test.describe("Slides realtime editor", () => {
       });
       pageB.on("response", (response) => {
         const pathname = new URL(response.url()).pathname.replace(/\/+$/, "");
-        if (pathname.endsWith("/realtime/stream") && response.ok()) {
-          streamConnected = true;
+        if (
+          pathname.endsWith("/realtime/stream") &&
+          response.status() === 200 &&
+          response.headers()["content-type"]?.includes("text/event-stream")
+        ) {
+          streamEverConnected = true;
         }
       });
       await openEditor(pageB, editorUrl, sourceText);
@@ -148,6 +152,7 @@ test.describe("Slides realtime editor", () => {
 
       const idleWindowStartedAt = Date.now();
       const requestsAtIdleStart = { ...transportRequests };
+      const streamEverConnectedBeforeIdle = streamEverConnected;
       await pageB.waitForTimeout(IDLE_MEASUREMENT_MS);
       const idleWindowMs = Date.now() - idleWindowStartedAt;
       expect(idleWindowMs).toBeGreaterThanOrEqual(IDLE_MEASUREMENT_MS);
@@ -160,11 +165,10 @@ test.describe("Slides realtime editor", () => {
         events: transportRequests.events - requestsAtIdleStart.events,
         stream: transportRequests.stream - requestsAtIdleStart.stream,
       };
-      const streamConnectedAtIdleStart = streamConnected;
       console.info(
         `[beta-slides-realtime] idle transport window ${JSON.stringify({
           idleWindowMs,
-          streamConnectedAtIdleStart,
+          streamEverConnectedBeforeIdle,
           idleRequestStarts,
           observedRequests: transportRequests,
           tab: "pageB",
