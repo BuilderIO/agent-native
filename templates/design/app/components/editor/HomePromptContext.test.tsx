@@ -53,7 +53,8 @@ vi.mock("@/hooks/use-design-systems", () => ({
 vi.mock("./design-start-pickers", () => ({
   designSystemPickerOptions: () => [],
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useSession: () => ({ session: mocks.session }),
   callAction: (...args: unknown[]) => mocks.call(...args),
   useChangeVersions: () => mocks.refresh,
@@ -63,7 +64,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       : undefined,
 }));
 const translate = (key: string) => key;
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => translate,
   useFormatters: () => ({ formatDate: (value: string) => value }),
 }));

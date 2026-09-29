@@ -51,7 +51,8 @@ vi.mock("@/hooks/use-design-systems", () => ({
   }),
 }));
 const translate = (key: string) => key;
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => translate,
   useFormatters: () => ({ formatDate: (value: string) => value }),
 }));
@@ -60,7 +61,8 @@ vi.mock("react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router")>()),
   useNavigate: () => navigate,
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction,
   actionErrorMessage: (error: Error) =>
     error?.message.replace(/^Action failed: /, ""),

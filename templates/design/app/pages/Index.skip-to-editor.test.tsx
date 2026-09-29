@@ -40,7 +40,10 @@ const mocks = vi.hoisted(() => ({
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,
@@ -74,23 +77,31 @@ vi.mock("@/components/QueryErrorState", () => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
+vi.mock("@agent-native/core/client/feature-flags", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/feature-flags")
+  >()),
   useFeatureFlag: () => mocks.fullAppBuilding,
 }));
 
-vi.mock("@agent-native/core/client/collab", () => ({
+vi.mock("@agent-native/core/client/collab", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/collab")
+  >()),
   emailToColor: () => "#000000",
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
   useOrgMembers: () => ({ data: undefined }),
 }));
 
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => mocks.systemsEnabled,
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: async () => ({ agentContext: "Frozen selected system" }),
   actionErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : undefined,
@@ -186,7 +197,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: async () => undefined,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useFormatters: () => ({ formatDate: (value: string) => value }),
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
