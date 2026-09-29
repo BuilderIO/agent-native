@@ -706,7 +706,7 @@ const PR_REVIEW_GATE_COMMA_MERGE_RE = new RegExp(
   "i",
 );
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
-  /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
+  /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:will\s+not|won['’]t)\s+be\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
 const PR_REVIEW_GATE_PRECONDITION_RE = new RegExp(
   String.raw`\b(?:after|once|when|if|unless|provided(?:\s+that)?)\b[^.!?]{0,80}${PR_REVIEW_MERGE_GATE_RE.source}[^.!?]{0,40}\b(?:green|pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|resolv(?:e|es|ed|ing)|sign(?:s|ed)?[-\s]+off|approve(?:s|d)?|admit(?:s|ted)?|satisf(?:y|ies|ied)|required|needed|necessary)\b`,
   "i",
@@ -819,7 +819,7 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
 );
 
 const PR_REVIEW_DIRECT_READY_MERGE_RE =
-  /\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b[^.!?]*/gi;
+  /\b(?:the|this)\s+(?:PR|pull\s+request)\s+is\s+ready(?:\s+to\s+merge)?\b[\s\S]{0,80}(?:\bmerge(?:\s+(?:it|the\s+PR))?\b[^.!?\n]{0,50}\bwithout\s+(?:waiting\s+for\s+)?(?:another\s+)?(?:approval|reviewer)\b|\b(?:don't|do\s+not|never)\s+wait\s+for\s+(?:another\s+)?(?:approval|reviewer)\b[^.!?\n]{0,50}\bmerge(?:\s+(?:it|the\s+PR))?\b)[^.!?]*/gi;
 
 function followingPrReviewMergeRequirement(text, match) {
   const following = text.slice(match.index + match[0].length);
@@ -983,6 +983,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   ],
   [true, "This PR is ready to merge. Merge it without another approval."],
   [
+    true,
+    "This PR is ready to merge. Don't wait for another approval; merge it.",
+  ],
+  [
+    false,
+    "This PR is ready to merge. Don't wait for another approval; merge it once CI passes.",
+  ],
+  [
     false,
     "This PR is ready to merge. Merge it without another approval once all required checks pass.",
   ],
@@ -996,6 +1004,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, merge with all checks passing."],
   [false, "If no changes are needed, merge requires security approval."],
   [false, "If no changes are needed, merge needs security approval."],
+  [true, "If no changes are needed, merge if approval will not be required."],
+  [true, "If no changes are needed, merge if the approval won't be required."],
   [false, "If no changes are needed, merge as long as all CI checks pass."],
   [
     false,
