@@ -2713,10 +2713,14 @@ function RelationValueEditor({
     debouncedQuery,
     true,
   );
-  const rows = search.data?.rows ?? [];
+  const firstPage = search.data?.pages[0];
+  const rows = useMemo(
+    () => search.data?.pages.flatMap((page) => page.rows) ?? [],
+    [search.data?.pages],
+  );
   // Results kept from the previous search stay visible but can't be picked.
   const searchIsCurrent = query === debouncedQuery && !search.isPlaceholderData;
-  const addRow = useAddDatabaseItem(search.data?.databaseDocumentId ?? "");
+  const addRow = useAddDatabaseItem(firstPage?.databaseDocumentId ?? "");
   const rowDragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, {
@@ -2843,7 +2847,7 @@ function RelationValueEditor({
   }
 
   async function createRow(title: string) {
-    const rowCreation = search.data?.rowCreation;
+    const rowCreation = firstPage?.rowCreation;
     if (!rowCreation || addRow.isPending) return;
     try {
       const result = await addRow.mutateAsync({
@@ -2876,7 +2880,7 @@ function RelationValueEditor({
   const needle = query.trim().toLowerCase();
   const canCreate =
     searchIsCurrent &&
-    !!search.data?.rowCreation &&
+    !!firstPage?.rowCreation &&
     !!needle &&
     selected.length < MAX_RELATION_TARGETS &&
     !rows.some((row) => row.title.trim().toLowerCase() === needle);
@@ -3005,6 +3009,19 @@ function RelationValueEditor({
                 </button>
               ))
             )}
+            {search.hasNextPage ? (
+              <button
+                type="button"
+                disabled={!searchIsCurrent || search.isFetchingNextPage}
+                onClick={() => void search.fetchNextPage()}
+                className="flex w-full items-center justify-center gap-2 rounded px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {search.isFetchingNextPage ? (
+                  <Spinner className="size-4 shrink-0" />
+                ) : null}
+                {t("sidebar.showMore")}
+              </button>
+            ) : null}
           </>
         )}
       </div>

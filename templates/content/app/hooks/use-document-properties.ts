@@ -1,4 +1,5 @@
 import {
+  callActionWithRetry,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -7,6 +8,7 @@ import type {
   ContentDatabaseMutationTarget,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
+  DocumentDiscoveryPagination,
   DeleteDocumentPropertyRequest,
   DocumentPropertyDefinition,
   DocumentPropertyOption,
@@ -18,7 +20,11 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
-import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
@@ -289,6 +295,7 @@ export interface ContentDatabaseRowSearchResponse {
   databaseId: string;
   databaseDocumentId: string;
   rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
   /** Present when the viewer may add rows to the related database. */
   rowCreation: {
     target: ContentDatabaseMutationTarget;
@@ -302,17 +309,34 @@ export function useContentDatabaseRowSearch(
   query: string,
   enabled: boolean,
 ) {
-  return useActionQuery<ContentDatabaseRowSearchResponse>(
-    "search-content-database-rows",
-    databaseId
-      ? { databaseId, limit: 25, ...(query.trim() ? { query } : {}) }
-      : undefined,
-    {
-      enabled: enabled && !!databaseId,
-      placeholderData: (prev) => prev,
-      staleTime: 10_000,
+  return useInfiniteQuery({
+    queryKey: [
+      "action",
+      "search-content-database-rows",
+      { databaseId, query: query.trim() ? query : undefined },
+    ],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) => {
+      if (!databaseId) throw new Error("databaseId is required");
+      return callActionWithRetry<ContentDatabaseRowSearchResponse>(
+        "search-content-database-rows",
+        {
+          databaseId,
+          limit: 25,
+          offset: pageParam,
+          ...(query.trim() ? { query } : {}),
+        },
+        { signal },
+      );
     },
-  );
+    getNextPageParam: (page) =>
+      page.pagination.hasMore
+        ? (page.pagination.nextOffset ?? undefined)
+        : undefined,
+    enabled: enabled && !!databaseId,
+    placeholderData: (prev) => prev,
+    staleTime: 10_000,
+  });
 }
 
 export function useDocumentProperties(
