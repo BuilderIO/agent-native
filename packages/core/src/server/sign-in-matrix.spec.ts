@@ -32,9 +32,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AuthPage,
   isAgentNativeDesktop,
   isElectron,
   normalizeOAuthReturnPath,
@@ -50,7 +53,15 @@ import {
 import { safeReturnPath } from "./auth.js";
 import { normalizeEmbedTargetPath } from "./embed-session.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml as getCoreOnboardingHtml } from "./onboarding-html.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(createElement(AuthPage, props))),
+  });
 
 interface JourneyRuntime {
   normalizeAppPath: (raw: string | null | undefined) => string | null;

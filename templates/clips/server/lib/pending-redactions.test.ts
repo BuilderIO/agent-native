@@ -46,4 +46,13 @@ describe("holding a clip back while it is being redacted", () => {
   it("holds nothing back once the boxes are burned in", () => {
     expect(isHeldForRedaction(clean, "viewer")).toBe(false);
   });
+
+  it("holds a recording whose edits cannot be read", () => {
+    // They parse as the defaults, which would read as nothing pending.
+    expect(isHeldForRedaction("{not json", "viewer")).toBe(true);
+    expect(isHeldForRedaction("{not json", "owner")).toBe(false);
+    // Valid JSON that is not an edits object is just as unreadable.
+    expect(isHeldForRedaction("null", "viewer")).toBe(true);
+    expect(isHeldForRedaction("[]", "viewer")).toBe(true);
+  });
 });

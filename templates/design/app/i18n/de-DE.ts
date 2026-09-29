@@ -1509,11 +1509,6 @@ export default {
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
       permissionPromptSettingsInstructions:
         "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
-      permissionCloseTitle: "Einrichtung schließen?",
-      permissionCloseDescription:
-        "Live-Bearbeitung funktioniert erst, wenn du den Zugriff in Chrome erlaubst.",
-      permissionCloseStay: "Einrichtung geöffnet lassen",
-      permissionCloseAnyway: "Trotzdem schließen",
       permissionPromptRetry: "Verbindung wiederholen",
     },
   },

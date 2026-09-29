@@ -1419,9 +1419,7 @@ function LayersPanelImpl(
             onPointerDown={handleScreenResizePointerDown}
             onPointerMove={handleScreenResizePointerMove}
             onPointerUp={stopScreenResize}
-          >
-            <span className="absolute inset-x-2 top-1/2 h-px -translate-y-1/2 bg-[var(--design-editor-panel-divider-color)] transition-colors group-hover:bg-[var(--design-editor-selection-color)]" />
-          </div>
+          ></div>
         ) : null}
 
         <div
@@ -1654,8 +1652,8 @@ function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full w-5 shrink-0 items-center justify-center",
-            index > 0 && "mr-[var(--design-baseline-unit)]",
+            "flex h-full shrink-0 items-center justify-center",
+            index === count - 1 ? "w-5" : "w-3",
           )}
         >
           {index === count - 1 ? control : null}
@@ -1770,7 +1768,7 @@ const LayerRow = memo(function LayerRow({
       .filter((id): id is string => Boolean(id && !id.startsWith("__")));
   };
 
-  const handlePointerSelect = (event: MouseEvent<HTMLButtonElement>) => {
+  const handlePointerSelect = (event: MouseEvent<HTMLElement>) => {
     if (!selectable) return;
     if (event.detail === 0) return;
     const nativeEvent = event.nativeEvent;
@@ -2026,6 +2024,10 @@ const LayerRow = memo(function LayerRow({
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
           className="relative w-max min-w-full"
+          onClick={(event) => {
+            if ((event.target as Element).closest("button, input")) return;
+            handlePointerSelect(event);
+          }}
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -2080,14 +2082,10 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
-                (isComponentLayer
-                  ? "bg-[var(--design-editor-component-selection-color)] text-foreground"
-                  : "bg-[var(--design-editor-selection-color)] text-foreground"),
+                "bg-[var(--design-editor-selection-color)] text-foreground",
               !isSelected &&
                 isInSelectedSubtree &&
-                (isComponentLayer
-                  ? "bg-[var(--design-editor-component-selected-subtree-color)] text-foreground/95"
-                  : "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95"),
+                "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
               !isSelected &&
                 isActiveScreen &&
                 "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",

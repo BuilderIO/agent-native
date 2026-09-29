@@ -3,6 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
+const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(),
+);
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: readDefaultAgentEngineSettingMock,
+}));
+
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
@@ -38,6 +49,8 @@ const {
 const { listAppUsageMetrics } = await import("./metrics-store.js");
 
 beforeEach(async () => {
+  readDefaultAgentEngineSettingMock.mockReset();
+  readDefaultAgentEngineSettingMock.mockResolvedValue(null);
   let randomCursor = 0;
   vi.spyOn(Math, "random").mockImplementation(() => {
     randomCursor = (randomCursor + 1) % 1000;
@@ -45,6 +58,11 @@ beforeEach(async () => {
   });
 
   pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
   await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
     id BIGINT PRIMARY KEY,
     owner_email TEXT NOT NULL,

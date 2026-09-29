@@ -226,8 +226,8 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
-    expect(route).toContain(
-      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
+    expect(route).toMatch(
+      /recording\.enableComments &&\s+viewerCanUseFullscreenInteractions/,
     );
     expect(route).toContain("recording.enableReactions &&");
     expect(route).toContain("viewerCanUseFullscreenInteractions");
@@ -338,12 +338,18 @@ describe("authenticated recording route loading", () => {
       "if (recording && !recording.enableComments) {",
     );
     expect(effectStart).toBeGreaterThan(-1);
-    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    // Window widened when the screenshot fallback was added to this branch.
+    const effect = shareRoute.slice(effectStart, effectStart + 900);
     expect(effect).toContain('if (panelParam === "comments") {');
     expect(effect).toContain("selectCommentsPanel();");
 
     expect(effect).toContain(
-      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+      'setPanel((current) => (current === "comments" ? fallback : current));',
+    );
+    // ...and a screenshot has no transcript tab either, so its fallback is
+    // the agent rather than a tab that is never rendered for it.
+    expect(effect).toContain(
+      'const fallback = isImageRecording(recording) ? "agent" : "transcript";',
     );
   });
 

@@ -1,4 +1,8 @@
 import {
+  ACTIVE_ORG_SETTING_KEY,
+  invalidateActiveOrgSettingCache,
+} from "../org/request-org-cache.js";
+import {
   getSetting,
   getSettings,
   mutateSetting,
@@ -13,6 +17,13 @@ function userKey(email: string, key: string): string {
 
 function legacyUserKey(email: string, key: string): string {
   return `u:${email}:${key}`;
+}
+
+// Every user-scoped write passes through here, including the generic
+// `/_agent-native/settings/:key` route, so cross-request caches of a user
+// setting are dropped here. Runs even when the write throws: it may have landed.
+function afterUserSettingWrite(key: string): void {
+  if (key === ACTIVE_ORG_SETTING_KEY) invalidateActiveOrgSettingCache();
 }
 
 export async function getUserSetting(
@@ -69,10 +80,29 @@ export async function putUserSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
-  return putSetting(userKey(email, key), value, options);
+  try {
+    await putSetting(userKey(email, key), value, options);
+  } finally {
+    afterUserSettingWrite(key);
+  }
 }
 
 export async function mutateUserSetting(
+  email: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  options?: StoreWriteOptions,
+): Promise<Record<string, unknown>> {
+  try {
+    return await mutateUserSettingValue(email, key, updater, options);
+  } finally {
+    afterUserSettingWrite(key);
+  }
+}
+
+async function mutateUserSettingValue(
   email: string,
   key: string,
   updater: (
@@ -122,6 +152,18 @@ export async function mutateUserSetting(
 }
 
 export async function deleteUserSetting(
+  email: string,
+  key: string,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  try {
+    return await deleteUserSettingValue(email, key, options);
+  } finally {
+    afterUserSettingWrite(key);
+  }
+}
+
+async function deleteUserSettingValue(
   email: string,
   key: string,
   options?: StoreWriteOptions,

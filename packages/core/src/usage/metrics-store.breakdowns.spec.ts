@@ -2,6 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
+const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(),
+);
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: readDefaultAgentEngineSettingMock,
+}));
+
 // Real in-memory PGlite behind getDbExec so the day grouping, feature CASE,
 // folding into "other", and the trace-span scoping run the genuine SQL.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -164,7 +175,14 @@ const workspace = {
 
 beforeEach(async () => {
   nextId = 1;
+  readDefaultAgentEngineSettingMock.mockReset();
+  readDefaultAgentEngineSettingMock.mockResolvedValue(null);
   pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
   for (const [email, role] of [

@@ -1208,6 +1208,7 @@ if (
   !netlifyMigrationIf.includes("inputs.migration_only") ||
   !netlifyMigrationIf.includes("source_template == 'mail'") ||
   !mailMigrationRun.includes("netlify api getSiteDatabase") ||
+  !mailMigrationRun.includes("netlify api getEnvVars") ||
   !mailMigrationRun.includes("netlifydb_owner") ||
   !mailMigrationRun.includes("pnpm --filter mail migrate:production") ||
   !String(buildWithNetlifyEnv?.SKIP_BUILD_MIGRATIONS ?? "").includes(

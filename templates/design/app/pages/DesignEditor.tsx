@@ -25520,38 +25520,50 @@ function DesignEditor() {
         </TooltipTrigger>
         <TooltipContent>{t("designEditor.signUpToSave")}</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            variant="default"
-            size="sm"
-            className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
-            aria-label={t(
-              hasLocalhostScreens
-                ? "designEditor.signUpToShareLiveCanvas"
-                : "designEditor.share",
-            )}
-          >
-            <a href={signInToShareHref}>
-              <span>
-                {t(
-                  hasLocalhostScreens
-                    ? "designEditor.signUpToShareLiveCanvas"
-                    : "designEditor.share",
-                )}
-              </span>
-            </a>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {t(
-            hasLocalhostScreens
-              ? "designEditor.signUpToShareLiveCanvas"
-              : "designEditor.signUpToShare",
-          )}
-        </TooltipContent>
-      </Tooltip>
+      {hasLocalhostScreens ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+              aria-label={t("designEditor.share")}
+            >
+              {t("designEditor.share")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-2">
+            <Button
+              asChild
+              variant="link"
+              size="sm"
+              className="h-auto whitespace-normal px-1 text-left"
+            >
+              <a href={signInToShareHref}>
+                {t("designEditor.signUpToShareLiveCanvas")}
+              </a>
+            </Button>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              asChild
+              variant="default"
+              size="sm"
+              className="cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+              aria-label={t("designEditor.share")}
+            >
+              <a href={signInToShareHref}>
+                <span>{t("designEditor.share")}</span>
+              </a>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
+        </Tooltip>
+      )}
     </>
   );
 
@@ -26540,7 +26552,7 @@ function DesignEditor() {
             row rather than a second floating control. Not needed for the
             floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
         {responsiveInteractActive && !minimalUi ? (
-          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
+          <div className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3">
             <ResponsiveInteractExitButton
               onClose={handleExitResponsiveInteract}
               className="pointer-events-auto"
