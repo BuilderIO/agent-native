@@ -83,6 +83,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "No capturado",
   "observability.openFullConversation": "Abrir conversación completa",
   "observability.learnAboutTab": "Más información sobre esta pestaña",
+  "observability.promoteMustContain": "La respuesta debe contener…",
+  "observability.promoteMustContainLabel":
+    "Texto que debe contener la respuesta de la evaluación promocionada",
+  "observability.promoteMustContainOptional":
+    "La respuesta debe contener (opcional)",
+  "observability.promoteNeedsContains":
+    "Esta ejecución no tiene ninguna llamada a herramienta correcta. Escribe el texto que debe contener la respuesta antes de promocionar la evaluación.",
   "observability.summarizeWithAgent": "Resumir con el agente",
   "observability.regenerateSummary": "Regenerar resumen",
   "observability.summarizeWithAgentHelp":
@@ -1368,6 +1375,10 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Correo electrónico nuevo",
   "settings.emailNewPlaceholder": "Introduce un correo nuevo",
   "usage.builderCredits": "Créditos de Builder",
+  "featureFlags.builderCreditReferrals.name":
+    "Referidos de créditos de Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "Mostrar los detalles de referidos del espacio de trabajo de Builder conectado en Uso.",
   "usage.inviteFriends": "Invita a tus amigos",
   "usage.inviteCredits":
     "Gana {{amount}} créditos de Builder cuando un amigo se suscriba.",

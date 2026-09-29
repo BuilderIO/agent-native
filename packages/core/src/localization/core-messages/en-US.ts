@@ -80,6 +80,12 @@ const messages = {
   "observability.notCaptured": "Not captured",
   "observability.openFullConversation": "Open full conversation",
   "observability.learnAboutTab": "Learn about this tab",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteMustContainOptional": "Reply must contain (optional)",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.summarizeWithAgent": "Summarize with agent",
   "observability.regenerateSummary": "Regenerate summary",
   "observability.summarizeWithAgentHelp":
@@ -1307,6 +1313,9 @@ const messages = {
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
   "usage.builderCredits": "Builder credits",
+  "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
+  "featureFlags.builderCreditReferrals.description":
+    "Show connected Builder workspace referral details in Usage.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",

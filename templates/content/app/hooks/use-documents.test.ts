@@ -6,6 +6,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
+import { pageLinkTargetQueryKey } from "./use-content-links";
 import {
   buildDocumentTree,
   DOCUMENT_QUERY_FRESHNESS_OPTIONS,
@@ -713,6 +714,54 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databasePageKey)?.items[0].document.title,
     ).toBe("Page one");
+  });
+
+  it("renames resolved page-link blocks and breadcrumb ancestors", () => {
+    const queryClient = new QueryClient();
+    const linkKey = pageLinkTargetQueryKey("0123456789abcdef0123456789abcdef");
+    const otherLinkKey = pageLinkTargetQueryKey("other");
+    const sourceKey = [
+      "action",
+      "resolve-content-links",
+      { sourcePaths: ["docs/a.md"] },
+    ];
+    const navigationKey = [
+      "action",
+      "get-content-navigation-context",
+      { id: "child" },
+    ];
+    queryClient.setQueryData(linkKey, {
+      documentId: "a",
+      title: "Old title",
+      icon: null,
+    });
+    queryClient.setQueryData(otherLinkKey, null);
+    queryClient.setQueryData(sourceKey, { links: [], sources: [] });
+    queryClient.setQueryData(navigationKey, {
+      document: doc("child", "a"),
+      path: [
+        { id: "a", parentId: null, title: "Old title" },
+        { id: "child", parentId: "a", title: "Child" },
+      ],
+    });
+
+    patchDocumentCaches(queryClient, "a", { title: "Renamed" });
+
+    expect(queryClient.getQueryData(linkKey)).toEqual({
+      documentId: "a",
+      title: "Renamed",
+      icon: null,
+    });
+    expect(queryClient.getQueryData(otherLinkKey)).toBeNull();
+    expect(queryClient.getQueryData(sourceKey)).toEqual({
+      links: [],
+      sources: [],
+    });
+    expect(
+      queryClient
+        .getQueryData<{ path: Array<{ title: string }> }>(navigationKey)
+        ?.path.map((entry) => entry.title),
+    ).toEqual(["Renamed", "Child"]);
   });
 
   it("patches Page-owned fields across contexts without exchanging memberships", () => {

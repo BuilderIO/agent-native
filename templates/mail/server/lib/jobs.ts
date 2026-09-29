@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
@@ -77,7 +77,13 @@ export interface ScheduledJobRecord {
   accountEmail?: string | null;
   payload: string;
   runAt: number;
-  status: "pending" | "processing" | "done" | "cancelled";
+  status:
+    | "pending"
+    | "processing"
+    | "done"
+    | "cancelled"
+    | "uncertain"
+    | "retry_queued";
   processingClaimId?: string | null;
   processingLeaseUntil?: number | null;
   sendStartedAt?: number | null;
@@ -91,6 +97,16 @@ type ScheduledSendOptions = {
 };
 
 const JOB_PROCESSING_LEASE_MS = 5 * 60_000;
+
+function scheduledJobOwnerScope(ownerEmail: string) {
+  return or(
+    eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+    and(
+      isNull(schema.scheduledJobs.ownerEmail),
+      eq(schema.scheduledJobs.accountEmail, ownerEmail),
+    ),
+  );
+}
 
 async function beginScheduledSendDispatch(
   options?: ScheduledSendOptions,
@@ -309,15 +325,14 @@ export async function listPendingJobs(
       .from(schema.scheduledJobs)
       .where(
         and(
-          inArray(schema.scheduledJobs.status, ["pending", "processing"]),
           or(
-            eq(schema.scheduledJobs.ownerEmail, ownerEmail),
             and(
-              isNull(schema.scheduledJobs.ownerEmail),
-              or(
-                eq(schema.scheduledJobs.accountEmail, ownerEmail),
-                isNull(schema.scheduledJobs.accountEmail),
-              ),
+              inArray(schema.scheduledJobs.status, ["pending", "processing"]),
+              scheduledJobOwnerScope(ownerEmail),
+            ),
+            and(
+              eq(schema.scheduledJobs.status, "uncertain"),
+              scheduledJobOwnerScope(ownerEmail),
             ),
           ),
         ),
@@ -331,6 +346,31 @@ export async function listPendingJobs(
     );
     return [];
   }
+}
+
+export async function markExpiredScheduledSendsUncertain(
+  now = Date.now(),
+): Promise<number> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "uncertain",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.type, "send_later"),
+        eq(schema.scheduledJobs.status, "processing"),
+        isNotNull(schema.scheduledJobs.sendStartedAt),
+        or(
+          isNull(schema.scheduledJobs.processingLeaseUntil),
+          lte(schema.scheduledJobs.processingLeaseUntil, now),
+        ),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length;
 }
 
 export async function createScheduledJobRecord(input: {
@@ -368,10 +408,7 @@ export async function updateScheduledJobForOwner(
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   if (!existing) return null;
@@ -380,10 +417,7 @@ export async function updateScheduledJobForOwner(
     .update(schema.scheduledJobs)
     .set({ runAt, status: "pending" } as any)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   return {
@@ -626,7 +660,18 @@ export async function getSyntheticEmailsForView(
   }
 
   return jobs
-    .filter((job) => job.type === "send_later")
+    .filter(
+      (
+        job,
+      ): job is ScheduledJobRecord & {
+        type: "send_later";
+        status: "pending" | "processing" | "uncertain";
+      } =>
+        job.type === "send_later" &&
+        (job.status === "pending" ||
+          job.status === "processing" ||
+          job.status === "uncertain"),
+    )
     .map((job) => {
       const payload = JSON.parse(job.payload || "{}") as SendLaterPayload;
       const sender = payload.accountEmail || payload.from || ownerEmail;
@@ -668,6 +713,7 @@ export async function getSyntheticEmailsForView(
         isArchived: false,
         isTrashed: false,
         labelIds: ["scheduled"],
+        scheduledJobStatus: job.status,
         ...(payload.attachments && payload.attachments.length > 0
           ? {
               attachments: payload.attachments.map((att) => ({
@@ -868,7 +914,7 @@ export async function cancelScheduledJobForOwner(
     .where(
       and(
         eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+        scheduledJobOwnerScope(ownerEmail),
         eq(schema.scheduledJobs.status, "pending"),
       ),
     )
@@ -880,10 +926,7 @@ export async function cancelScheduledJobForOwner(
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   if (!existing) return null;
@@ -893,15 +936,13 @@ export async function cancelScheduledJobForOwner(
 export async function sendScheduledJobNowForOwner(
   ownerEmail: string,
   id: string,
+  preclaimedId?: string,
 ): Promise<ScheduledJobRecord> {
   const [existing] = await db
     .select()
     .from(schema.scheduledJobs)
     .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
+      and(eq(schema.scheduledJobs.id, id), scheduledJobOwnerScope(ownerEmail)),
     );
 
   if (!existing) {
@@ -911,30 +952,41 @@ export async function sendScheduledJobNowForOwner(
   if (job.type !== "send_later") {
     throw new Error("Only scheduled emails can be sent now");
   }
-  if (job.status !== "pending") {
-    throw new Error(`Scheduled email is already ${job.status}`);
-  }
+  let claimId = preclaimedId;
+  if (claimId) {
+    if (
+      job.status !== "processing" ||
+      job.processingClaimId !== claimId ||
+      (job.processingLeaseUntil ?? 0) <= Date.now()
+    ) {
+      throw new Error("Scheduled email retry claim expired");
+    }
+  } else {
+    if (job.status !== "pending") {
+      throw new Error(`Scheduled email is already ${job.status}`);
+    }
 
-  const claimId = nanoid(24);
-  const claimedAt = Date.now();
-  const claim = await db
-    .update(schema.scheduledJobs)
-    .set({
-      status: "processing",
-      processingClaimId: claimId,
-      processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
-      sendStartedAt: null,
-    } as any)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-        eq(schema.scheduledJobs.status, "pending"),
-      ),
-    )
-    .returning({ id: schema.scheduledJobs.id });
-  if (claim.length === 0) {
-    throw new Error("Scheduled email is already processing");
+    claimId = nanoid(24);
+    const claimedAt = Date.now();
+    const claim = await db
+      .update(schema.scheduledJobs)
+      .set({
+        status: "processing",
+        processingClaimId: claimId,
+        processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
+        sendStartedAt: null,
+      } as any)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          scheduledJobOwnerScope(ownerEmail),
+          eq(schema.scheduledJobs.status, "pending"),
+        ),
+      )
+      .returning({ id: schema.scheduledJobs.id });
+    if (claim.length === 0) {
+      throw new Error("Scheduled email is already processing");
+    }
   }
 
   let sendStarted = false;
@@ -961,9 +1013,110 @@ export async function sendScheduledJobNowForOwner(
     }
     return { ...job, status: "done" };
   } catch (error) {
-    if (!sendStarted) await releaseJobProcessing(job.id, claimId);
+    if (!sendStarted) {
+      await releaseJobProcessing(job.id, claimId);
+    } else {
+      await markJobUncertain(job.id, claimId);
+    }
     throw error;
   }
+}
+
+export async function markJobUncertain(
+  id: string,
+  claimId: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(schema.scheduledJobs)
+    .set({
+      status: "uncertain",
+      processingClaimId: null,
+      processingLeaseUntil: null,
+    } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "processing"),
+        eq(schema.scheduledJobs.processingClaimId, claimId),
+        isNotNull(schema.scheduledJobs.sendStartedAt),
+      ),
+    )
+    .returning({ id: schema.scheduledJobs.id });
+  return rows.length > 0;
+}
+
+export async function confirmUncertainScheduledJobSentForOwner(
+  ownerEmail: string,
+  id: string,
+): Promise<ScheduledJobRecord | null> {
+  const [confirmed] = await db
+    .update(schema.scheduledJobs)
+    .set({ status: "done" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        or(scheduledJobOwnerScope(ownerEmail)),
+        eq(schema.scheduledJobs.type, "send_later"),
+        eq(schema.scheduledJobs.status, "uncertain"),
+      ),
+    )
+    .returning();
+  return (confirmed as ScheduledJobRecord | undefined) ?? null;
+}
+
+export async function retryUncertainScheduledJobForOwner(
+  ownerEmail: string,
+  id: string,
+): Promise<ScheduledJobRecord> {
+  return db.transaction(async (tx: any) => {
+    const [existing] = await tx
+      .select()
+      .from(schema.scheduledJobs)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          scheduledJobOwnerScope(ownerEmail),
+          eq(schema.scheduledJobs.type, "send_later"),
+          eq(schema.scheduledJobs.status, "uncertain"),
+        ),
+      )
+      .limit(1);
+    if (!existing) {
+      throw new Error("Uncertain scheduled email not found");
+    }
+
+    const [claimed] = await tx
+      .update(schema.scheduledJobs)
+      .set({ status: "retry_queued" } as any)
+      .where(
+        and(
+          eq(schema.scheduledJobs.id, id),
+          scheduledJobOwnerScope(ownerEmail),
+          eq(schema.scheduledJobs.type, "send_later"),
+          eq(schema.scheduledJobs.status, "uncertain"),
+        ),
+      )
+      .returning({ id: schema.scheduledJobs.id });
+    if (!claimed) {
+      throw new Error("Uncertain scheduled email is already being resolved");
+    }
+
+    const claimId = nanoid(24);
+    const claimedAt = Date.now();
+    const retry: ScheduledJobRecord = {
+      ...existing,
+      id: nanoid(12),
+      ownerEmail: existing.ownerEmail ?? ownerEmail,
+      status: "processing",
+      runAt: claimedAt,
+      processingClaimId: claimId,
+      processingLeaseUntil: claimedAt + JOB_PROCESSING_LEASE_MS,
+      sendStartedAt: null,
+      createdAt: claimedAt,
+    };
+    await tx.insert(schema.scheduledJobs).values(retry as any);
+    return retry;
+  });
 }
 
 function claimableJobCondition(now: number) {

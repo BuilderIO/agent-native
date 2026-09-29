@@ -318,6 +318,14 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "取消定時傳送",
+      deliveryUnknownWarning:
+        "送達狀態未知；處理前請先檢查 Mail 的「已寄出」檢視。",
+      markSentAfterChecking: "我已檢查「已寄出」；標記為已寄出",
+      sendNewCopy: "傳送新副本",
+      sendingStatus: "正在處理定時郵件。暫時無法使用相關操作。",
+      confirmSendNewCopyTitle: "要再傳送一份嗎？",
+      confirmSendNewCopyDescription:
+        "原郵件可能已經送達。請先檢查 Mail 的「已寄出」檢視。再次傳送可能會造成重複郵件。",
       dateInput: "日期和時間",
       noDateMatch: "沒有符合的未來時間",
       inputPlaceholder: "試試：上午 8 點、3 天後、8 月 7 日",
@@ -425,6 +433,10 @@ const messages = {
       trashedMany: "已將 {{count}} 個工作階段移到垃圾桶。",
       scheduledSent: "定時郵件已傳送。",
       scheduledSendFailed: "傳送定時郵件失敗",
+      uncertainScheduledMarkedSent: "已將定時郵件標記為已寄出。",
+      uncertainScheduledResolveFailed: "無法處理定時郵件的狀態。",
+      uncertainScheduledRetryStarted: "正在傳送新副本。",
+      uncertainScheduledRetryFailed: "傳送新副本失敗。",
       scheduledCancelled: "定時郵件已取消。",
       scheduledCancelFailed: "取消定時郵件失敗",
       failedToAttachFile: "附加檔案失敗",
