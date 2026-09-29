@@ -175,6 +175,10 @@ isolated safely, preserve all state and report the exact paths or commits.
    OID, base, and state immediately before merging. Bind the merge to that
    verified head and do not retry against a changed head without rechecking:
 
+   Before merging, record that exact OID as `ship_merge_head_oid` in the active
+   goal or task transcript and carry it unchanged through `origin/main`
+   verification.
+
    ```bash
    gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
    ```
