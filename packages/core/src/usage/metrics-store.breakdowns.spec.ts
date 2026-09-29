@@ -71,6 +71,12 @@ const ORG_MEMBERS_SQL = `CREATE TABLE IF NOT EXISTS org_members (
   federation_removal_pending_at BIGINT
 )`;
 
+const SETTINGS_SQL = `CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at BIGINT NOT NULL
+)`;
+
 const THREADS_SQL = `CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   owner_email TEXT NOT NULL,
@@ -167,6 +173,7 @@ beforeEach(async () => {
   pglite = await createTestPglite();
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
+  await pglite.exec(SETTINGS_SQL);
   for (const [email, role] of [
     ["owner@example.com", "owner"],
     ["member@example.com", "member"],
