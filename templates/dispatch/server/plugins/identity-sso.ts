@@ -1519,6 +1519,7 @@ export const bootstrapActivationHandler = defineEventHandler(
           bootstrap.email,
           bootstrap.orgId,
           "cross-app bootstrap organization context",
+          event,
         );
       }
       const betterAuthSession = await createBetterAuthSessionForEmail(

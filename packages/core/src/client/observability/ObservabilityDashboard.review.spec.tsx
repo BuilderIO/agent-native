@@ -53,6 +53,7 @@ vi.mock("../use-action.js", async (importOriginal) => ({
 }));
 
 vi.mock("./useObservability.js", () => ({
+  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useObservabilityOverview: () => ({
     data: {
       totalRuns: 1,
