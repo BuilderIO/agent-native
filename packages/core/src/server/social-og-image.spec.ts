@@ -7,6 +7,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/store.js";
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
 import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
@@ -304,5 +305,10 @@ describe("social OG image", () => {
     expect(isResvgRuntimeUnavailableError(new Error("invalid SVG"))).toBe(
       false,
     );
+    expect(
+      isResvgRuntimeUnavailableError(
+        new OptionalPeerDependencyError("@resvg/resvg-js"),
+      ),
+    ).toBe(false);
   });
 });

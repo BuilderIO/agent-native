@@ -43,6 +43,10 @@ export const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 
 export const SIGN_IN_CONTINUATION_MAX_LENGTH = 512;
 
+export function isVerificationLinkInvalid(error: string | null): boolean {
+  return error === "verification_link_invalid" || error === "INVALID_TOKEN";
+}
+
 export interface SignInJourney {
   readonly signInHref: string | null;
   readonly resumeHref: string;
