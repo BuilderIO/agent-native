@@ -37,7 +37,8 @@ const detailsData = {
   },
 };
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (
     name: string,
     _params: unknown,

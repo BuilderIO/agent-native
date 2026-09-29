@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => mocks.enabled,
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useSession: () => ({ session: mocks.session }),
   callAction: (...args: unknown[]) => mocks.call(...args),
   useChangeVersions: () => mocks.refresh,

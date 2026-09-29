@@ -83,7 +83,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
+vi.mock("@agent-native/toolkit/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => {
     mockComposer.current = props;
     const [text, setText] = useState("");

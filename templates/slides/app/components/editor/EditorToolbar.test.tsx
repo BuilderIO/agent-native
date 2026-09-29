@@ -42,7 +42,7 @@ vi.mock("@agent-native/core/client/progress", () => ({
   RunsTray: () => null,
 }));
 
-vi.mock("@agent-native/core/client/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: mocks.shareButton,
 }));
 

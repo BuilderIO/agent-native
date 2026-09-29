@@ -35,7 +35,10 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
 }));
 
@@ -53,7 +56,8 @@ vi.mock("@agent-native/core/client/collab", () => ({
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
   useOrgMembers: () => ({ data: undefined }),
 }));
 

@@ -20,7 +20,8 @@ const detailsData = {
   },
 };
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (name: string, params: unknown) => {
     queryCalls.push({ name, params });
     return { data: detailsData, isLoading: false, error: null };
