@@ -203,6 +203,21 @@ describe("verified formatting coordinates in stored Markdown", () => {
     },
   );
 
+  it("maps indentation after a bare CR like LF and CRLF", () => {
+    const sliceAcross = (ending: string) => {
+      const before = `Above${ending}\t**marked** lower costs $60`;
+      return suggestionFormattingSourceSlice(
+        before,
+        2,
+        before.indexOf("lower") + "lower".length,
+      );
+    };
+    const expected = sliceAcross("\n");
+    expect(expected).not.toBeNull();
+    expect(sliceAcross("\r\n")).toEqual(expected);
+    expect(sliceAcross("\r")).toEqual(expected);
+  });
+
   it.each(attemptedEdits)(
     "keeps B4 anchors for '$find' with CRLF, blank lines, and alternate list markers",
     (edit) => {

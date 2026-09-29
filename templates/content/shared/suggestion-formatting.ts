@@ -308,7 +308,11 @@ function structuralGapParts(
       offset += breakToken.length;
       continue;
     }
-    const lineStart = source.lastIndexOf("\n", offset - 1) + 1;
+    const lineStart =
+      Math.max(
+        source.lastIndexOf("\n", offset - 1),
+        source.lastIndexOf("\r", offset - 1),
+      ) + 1;
     const atLineStart = /^\t*$/.test(source.slice(lineStart, offset));
     if (!atLineStart || source[offset] !== "\t") return null;
     const indentFrom = offset;
