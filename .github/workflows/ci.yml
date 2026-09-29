@@ -624,6 +624,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
       AUTH_DISABLED: "true"
       BETTER_AUTH_SECRET: neon-query-budget-test-secret
       DATABASE_URL: pglite:memory
@@ -653,6 +654,15 @@ jobs:
           for app in "${apps[@]}"; do
             app_dir="templates/$app"
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            release_migrations=""
+            if [[ -f "$app_dir/netlify.toml" ]]; then
+              release_migrations="$(python3 -c 'import pathlib, sys, tomllib; print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get("context", {}).get("production", {}).get("environment", {}).get("AGENT_NATIVE_RELEASE_MIGRATIONS", ""))' "$app_dir/netlify.toml")"
+            fi
+            if [[ "$release_migrations" == "1" ]]; then
+              export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+            else
+              unset AGENT_NATIVE_RELEASE_MIGRATIONS
+            fi
             NITRO_PRESET=netlify pnpm --filter "$app" build
             pnpm ops:neon-query-budget --app "$app" --mode check
             rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"

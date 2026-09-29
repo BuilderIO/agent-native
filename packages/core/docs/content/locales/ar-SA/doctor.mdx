@@ -7,7 +7,27 @@ description: فحوصات الأمان والترحيل.
 
 تحتوي التطبيقات ومساحات العمل المولّدة على تعليمات برمجية مصدرية يمكن تغييرها ضمن سير عمل تطوير المستودع، بما في ذلك بواسطة إطار وكيل مُنح عمدًا أدوات مساحة العمل والكتابة. يفحص `agent-native doctor` ثوابت أمان التعليمات البرمجية في المصدر. وهو للقراءة فقط: لا يعدّل التعليمات البرمجية، بل يبلّغ عن النتائج.
 
-يشغّل `agent-native doctor` تسعة guards: ثمانية للأمان و`migration-manifest`. يجد الأخير الاستيرادات الموجودة في `migration-manifest.json` المثبت ولا يملك opt-out. شغّل `agent-native doctor --only migration-manifest`، وعاين بـ `npx @agent-native/core@latest upgrade --codemods`، ثم طبّق بـ `--yes`. يسرد JSON الأسماء التسعة في `guardsRun`.
+`agent-native doctor` يفحص مشكلات الأمان والترحيل. يعثر `migration-manifest` على الاستيرادات المدرجة في `migration-manifest.json` المثبت ولا يمكن تعطيله. ويكشف `feature-dependencies` الميزات المهيأة التي لا يمكن حل تبعية peer اختيارية لها.
+
+نفّذ فحص الترحيل المسبق:
+
+```bash
+agent-native doctor --only migration-manifest
+```
+
+لمعاينة الترقية وفروق codemod دون كتابة ملفات:
+
+```bash
+npx agent-native upgrade --codemods --dry-run
+```
+
+لتطبيق عمليات إعادة الكتابة المدعومة:
+
+```bash
+npx agent-native upgrade --codemods
+```
+
+`--codemods` يطبّق عمليات إعادة الكتابة المدعومة افتراضيًا؛ أضف `--dry-run` للمعاينة فقط دون كتابة ملفات. راجع الفرق والتحذيرات قبل التطبيق. الخيار `--yes` مقبول للتوافق ولا يغيّر السلوك. لا يمكن تعطيل `migration-manifest`. تظهر الإدخالات `planned` كتحذيرات فقط ولا يعاد كتابتها. الإدخالات النشطة نتائج، ولا يعاد codemod كتابتها إلا إذا كان export الوجهة مثبتًا. تتطلب التصديرات المحذوفة ترحيلًا يدويًا. اتبع دليل الترحيل المرتبط بالنتيجة أو [دليل Core 0.198.0](/docs/upgrading-core-ui)، الذي يذكر `ts-morph` وحزم الميزات الاختيارية. يسرد JSON أسماء الفحوص التي تم تشغيلها في `guardsRun`.
 
 يضيف CLI إلى كل تطبيق ومساحة عمل جديدة الأمرين `pnpm doctor` و`pnpm agent-native:doctor`. عند تشغيله من جذر مساحة العمل، يفحص كل تطبيق في `apps/<name>`. تفشل عمليات البناء عند وجود نتائج افتراضيًا؛ استخدم `failOnBuild: false` فقط كاستثناء تمت مراجعته.
 

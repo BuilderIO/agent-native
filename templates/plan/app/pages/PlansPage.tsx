@@ -11,9 +11,7 @@ import {
   trackEvent,
 } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import {
   useActionQuery,
   useAvatarUrl,
@@ -21,31 +19,29 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/core/client/markdown";
-import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
   useOrgRole,
   useSetOrgDomain,
 } from "@agent-native/core/client/org";
-import {
-  fetchOrgMemberPage,
-  ShareButton,
-} from "@agent-native/core/client/sharing";
-import {
-  buildSignInReturnHref,
-  ErrorReportActions,
-  type ErrorReportDebugItem,
-} from "@agent-native/core/client/ui";
+import { fetchOrgMemberPage } from "@agent-native/core/client/sharing";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/toolkit/app/review";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import {

@@ -291,13 +291,10 @@ export async function createDocsScriptEntries(): Promise<
 
   try {
     const mod = await import("../../scripts/docs/source-search.js");
-    if (!mod.hasSourceCorpus()) {
-      return entries;
-    }
     entries["source-search"] = wrapCliScript(
       {
         description:
-          "Search and read readable version-matched Core, Toolkit, and first-party template source. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
+          "Search and read readable version-matched Core and Toolkit source, plus first-party template source when its opt-in corpus is installed. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
         parameters: {
           type: "object",
           properties: {

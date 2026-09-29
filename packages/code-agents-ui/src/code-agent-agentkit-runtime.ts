@@ -1,21 +1,19 @@
 import {
   isCodeAgentRunActive,
   type CodeAgentRunStateLike,
+  type AgentChatRuntime,
+  type AgentChatRuntimeDataPart,
+  type AgentChatRuntimeEvent,
+  type AgentChatRuntimeMessage,
+  type AgentChatRuntimeSession,
+  type AgentChatRuntimeSessionSnapshot,
+  type AgentChatRuntimeTurn,
 } from "@agent-native/core/client/agent-chat";
-import type {
-  AgentChatRuntime,
-  AgentChatRuntimeDataPart,
-  AgentChatRuntimeEvent,
-  AgentChatRuntimeMessage,
-  AgentChatRuntimeSession,
-  AgentChatRuntimeSessionSnapshot,
-  AgentChatRuntimeTurn,
-} from "@agent-native/core/client/chat";
 import {
   normalizeCodeAgentTranscriptForConversation,
   type AgentConversationMessage,
   type CodeAgentConversationTranscriptEvent,
-} from "@agent-native/core/client/conversation";
+} from "@agent-native/toolkit/app/chat/conversation";
 
 import type { CodeAgentReasoningEffort } from "./types.js";
 

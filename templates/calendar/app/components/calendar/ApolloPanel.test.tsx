@@ -9,7 +9,7 @@ import { ResearchMeetingButton } from "./ApolloPanel";
 
 const send = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
   useSendToAgentChat: () => ({ send, codeRequiredDialog: null }),
 }));
 

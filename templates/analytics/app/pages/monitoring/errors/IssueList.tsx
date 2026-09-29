@@ -1,5 +1,5 @@
-import { CodeSurface } from "@agent-native/core/blocks";
 import { docsUrl } from "@agent-native/core/shared";
+import { CodeSurface } from "@agent-native/toolkit/app/blocks";
 import {
   IconAlertTriangle,
   IconBug,

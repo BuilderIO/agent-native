@@ -8,12 +8,12 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,

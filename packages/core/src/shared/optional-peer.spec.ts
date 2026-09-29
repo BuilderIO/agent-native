@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AGENT_NATIVE_MIGRATION_GUIDE_URL } from "../package-lifecycle/migration-message.js";
 import { loadOptionalPeer } from "./optional-peer.js";
 
 describe("loadOptionalPeer", () => {
@@ -9,16 +10,16 @@ describe("loadOptionalPeer", () => {
       { code: "ERR_MODULE_NOT_FOUND" },
     );
 
-    await expect(
-      loadOptionalPeer("example-peer", async () => {
-        throw missing;
-      }),
-    ).rejects.toMatchObject({
+    const result = loadOptionalPeer("example-peer", async () => {
+      throw missing;
+    });
+    await expect(result).rejects.toMatchObject({
       name: "OptionalPeerDependencyError",
       code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
       packageName: "example-peer",
       cause: missing,
     });
+    await expect(result).rejects.toThrow(AGENT_NATIVE_MIGRATION_GUIDE_URL);
   });
 
   it("recognizes Vite unresolved optional imports by exact package or subpath", async () => {

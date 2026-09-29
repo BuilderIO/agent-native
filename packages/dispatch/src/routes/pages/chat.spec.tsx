@@ -33,15 +33,6 @@ const clientState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentChatHome: (props: Record<string, unknown>) => {
-    clientState.surfaceProps = { mode: "page", ...props };
-    return (
-      <>
-        {props.homeIntroSlot as ReactNode}
-        {props.afterComposerSlot as ReactNode}
-      </>
-    );
-  },
   insertAgentComposerReference: vi.fn(),
   markAgentChatHomeHandoff: vi.fn(),
   readChatFirstMode: () => true,
@@ -53,8 +44,24 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/clipboard", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  AgentChatHome: (props: Record<string, unknown>) => {
+    clientState.surfaceProps = { mode: "page", ...props };
+    return (
+      <>
+        {props.homeIntroSlot as ReactNode}
+        {props.afterComposerSlot as ReactNode}
+      </>
+    );
+  },
+}));
+
+vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText: clientState.writeClipboardText,
+}));
+
+vi.mock("../../components/create-app-popover", () => ({
+  CreateAppPopover: () => null,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({

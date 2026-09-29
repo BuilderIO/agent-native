@@ -1070,6 +1070,7 @@ const parsedClipsMigrationIndex = parsedStepIndex(
 );
 const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
 const parsedMailMigrationIndex = parsedStepIndex("Run Mail release migrations");
+const parsedChatMigrationIndex = parsedStepIndex("Run Chat release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -1217,6 +1218,26 @@ if (
 ) {
   issues.push(
     `${reusablePath} must skip Mail build-time migrations and run production Mail migrations with Netlify's writable owner connection before unlocking the deploy`,
+  );
+}
+const chatMigrationStep = reusableSteps[parsedChatMigrationIndex];
+const chatMigrationIf = String(chatMigrationStep?.if ?? "");
+const chatMigrationRun = String(chatMigrationStep?.run ?? "");
+if (
+  parsedChatMigrationIndex < 0 ||
+  parsedChatMigrationIndex <= parsedPauseIndex ||
+  parsedChatMigrationIndex >= parsedUnlockIndex ||
+  !chatMigrationIf.includes("inputs.target == 'production'") ||
+  !chatMigrationIf.includes("inputs.deploy") ||
+  !chatMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !chatMigrationIf.includes("source_template == 'chat'") ||
+  !chatMigrationRun.includes("netlify api getSiteDatabase") ||
+  !chatMigrationRun.includes("netlify api getEnvVars") ||
+  !chatMigrationRun.includes("netlifydb_owner") ||
+  !chatMigrationRun.includes("pnpm --filter chat migrate:production")
+) {
+  issues.push(
+    `${reusablePath} must run Chat framework release migrations against its Netlify site database before unlocking a production deploy`,
   );
 }
 if (

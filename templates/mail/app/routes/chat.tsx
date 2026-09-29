@@ -1,5 +1,5 @@
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 import { TAB_ID } from "@/lib/tab-id";
 

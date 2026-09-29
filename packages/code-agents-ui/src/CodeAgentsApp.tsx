@@ -1,5 +1,21 @@
 import type { AgentMessage } from "@agent-native/agentkit/protocol";
 import {
+  createAgentKitProtocolAdapter,
+  isCodeAgentRunActive,
+  isCredentialGapCodeAgentEvent,
+  mergeCodeAgentTranscriptEvents,
+} from "@agent-native/core/client/agent-chat";
+import {
+  closeChatFirstSessionWatch,
+  emitChatFirstSessionWatch,
+  useChatFirstSessionWatch,
+  type ChatFirstSurfaceKind,
+  type ChatFirstOpenAppDetail,
+} from "@agent-native/core/client/chat-first-state";
+import { usePollLoop } from "@agent-native/core/client/hooks";
+import { createPollEngine } from "@agent-native/core/shared";
+import type { AppConfig } from "@agent-native/shared-app-config";
+import {
   AgentKitChat,
   AgentKitRoot,
   AgentMessageActions,
@@ -9,45 +25,33 @@ import {
   useAgentThread,
   type AgentKitRenderProps,
   type AgentKitSlots,
-} from "@agent-native/agentkit/react";
+} from "@agent-native/toolkit/app/agentkit";
 import {
   ChatHistoryList,
-  closeChatFirstSessionWatch,
-  emitChatFirstSessionWatch,
-  isCodeAgentRunActive,
-  isCredentialGapCodeAgentEvent,
-  mergeCodeAgentTranscriptEvents,
-  useChatFirstSessionWatch,
-  type ChatFirstSurfaceKind,
   type ChatHistoryItem,
-} from "@agent-native/core/client/agent-chat";
-import { createAgentKitProtocolAdapter } from "@agent-native/core/client/chat";
+} from "@agent-native/toolkit/app/chat/chat";
 import {
   ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
-  type ChatFirstOpenAppDetail,
   type ChatFirstPrimaryTab,
-} from "@agent-native/core/client/chat-first";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
+} from "@agent-native/toolkit/app/chat/chat-first";
 import {
-  PromptComposer,
   isClaudeCodeAgentId,
   isLocalRuntimeEngine,
   isLunaModel,
+  PromptComposer,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
   type ComposerTerminalModeControl,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+} from "@agent-native/toolkit/app/chat/composer";
 import {
   AgentConversationMessageView,
   type AgentConversationMessage,
-} from "@agent-native/core/client/conversation";
-import { usePollLoop } from "@agent-native/core/client/hooks";
-import { createPollEngine } from "@agent-native/core/shared";
-import type { AppConfig } from "@agent-native/shared-app-config";
+} from "@agent-native/toolkit/app/chat/conversation";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconAlertCircle,
   IconBan,

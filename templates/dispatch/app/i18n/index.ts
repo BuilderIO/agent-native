@@ -1,8 +1,8 @@
-import { type AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import { createToolkitI18nCatalog } from "@agent-native/toolkit/app/i18n";
 
 import enUS from "./en-US";
 
-export const i18nCatalog = {
+export const i18nCatalog = createToolkitI18nCatalog({
   sourceLocale: "en-US",
   messages: enUS,
   loadMessages: async (locale) => {
@@ -31,4 +31,4 @@ export const i18nCatalog = {
         return null;
     }
   },
-} satisfies AgentNativeI18nCatalog;
+});

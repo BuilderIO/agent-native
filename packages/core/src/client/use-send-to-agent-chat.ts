@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createElement } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 import {
   routesToCodeFrame,
@@ -6,19 +6,23 @@ import {
   type AgentChatMessage,
 } from "./agent-chat.js";
 import { isInBuilderFrame, isTrustedBuilderMessage } from "./builder-frame.js";
-import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
 import { isInFrame, isTrustedFrameMessage } from "./frame.js";
 import { useAgentChatGenerating } from "./use-agent-chat.js";
+
+export interface CodeRequiredRequest {
+  featureLabel?: string;
+}
 
 export function useSendToAgentChat(): {
   send: (opts: AgentChatMessage) => string | null;
   isGenerating: boolean;
   isCodeAgentWorking: boolean;
-  codeRequiredDialog: React.ReactNode;
+  codeRequiredRequest: CodeRequiredRequest | null;
+  dismissCodeRequiredRequest: () => void;
 } {
   const [agentGenerating] = useAgentChatGenerating();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [featureLabel, setFeatureLabel] = useState<string | undefined>();
+  const [codeRequiredRequest, setCodeRequiredRequest] =
+    useState<CodeRequiredRequest | null>(null);
   const [codeAgentWorking, setCodeAgentWorking] = useState(false);
 
   useEffect(() => {
@@ -48,8 +52,9 @@ export function useSendToAgentChat(): {
     const isCodeRequest = routesToCodeFrame(opts);
 
     if (isCodeRequest && !isInFrame() && !isInBuilderFrame()) {
-      setFeatureLabel(opts.message?.slice(0, 80));
-      setDialogOpen(true);
+      setCodeRequiredRequest({
+        featureLabel: opts.message?.slice(0, 80) || undefined,
+      });
       return null;
     }
 
@@ -61,16 +66,11 @@ export function useSendToAgentChat(): {
     return sendToAgentChat(opts);
   }, []);
 
-  const dialog = createElement(CodeRequiredDialog, {
-    open: dialogOpen,
-    onClose: () => setDialogOpen(false),
-    featureLabel,
-  });
-
   return {
     send,
     isGenerating: agentGenerating,
     isCodeAgentWorking: codeAgentWorking,
-    codeRequiredDialog: dialog,
+    codeRequiredRequest,
+    dismissCodeRequiredRequest: () => setCodeRequiredRequest(null),
   };
 }
