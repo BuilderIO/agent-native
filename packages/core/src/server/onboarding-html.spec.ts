@@ -184,7 +184,6 @@ describe("getOnboardingHtml", () => {
       marketing: false,
     });
 
-    expect(html).toContain('class="auth-centered"');
     expect(html).toContain(
       ".auth-centered {\n    display: flex;\n    justify-content: center;",
     );

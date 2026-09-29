@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useChatModels: vi.fn(),
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,

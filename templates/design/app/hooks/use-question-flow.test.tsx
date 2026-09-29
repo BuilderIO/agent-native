@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const coreClientMocks = vi.hoisted(() => ({
+  useChatModels: vi.fn(),
   useGuidedQuestionFlow: vi.fn(),
   formatGuidedAnswersForAgent: vi.fn((answers: Record<string, unknown>) =>
     JSON.stringify(answers),

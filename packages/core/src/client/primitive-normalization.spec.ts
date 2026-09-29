@@ -3,33 +3,34 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const settingsSurfaces = [
-  "./settings/SettingsPanel.tsx",
-  "./settings/SecretsSection.tsx",
+  "settings/SettingsPanel.tsx",
+  "settings/SecretsSection.tsx",
 ];
 
 // The Team page is split across these modules. TeamPrimitives owns the Button
 // wrapper the others render through.
 const teamPageModules = [
-  "./org/TeamPage.tsx",
-  "./org/TeamPrimitives.tsx",
-  "./org/TeamOnboardingCards.tsx",
-  "./org/OrgGeneralSection.tsx",
-  "./org/MembersSection.tsx",
-  "./org/MemberAppRoles.tsx",
-  "./org/BulkInviteForm.tsx",
-  "./org/GroupsSection.tsx",
-  "./org/AuthenticationSection.tsx",
-  "./org/OrgIdentitySettings.tsx",
-  "./org/AppsAccessSection.tsx",
+  "org/TeamPage.tsx",
+  "org/TeamPrimitives.tsx",
+  "org/TeamOnboardingCards.tsx",
+  "org/OrgGeneralSection.tsx",
+  "org/MembersSection.tsx",
+  "org/MemberAppRoles.tsx",
+  "org/BulkInviteForm.tsx",
+  "org/GroupsSection.tsx",
+  "org/AuthenticationSection.tsx",
+  "org/OrgIdentitySettings.tsx",
+  "org/AppsAccessSection.tsx",
 ];
 
-const buttonWrapperSurfaces = [...settingsSurfaces, "./org/TeamPrimitives.tsx"];
+const buttonWrapperSurfaces = [...settingsSurfaces, "org/TeamPrimitives.tsx"];
+const toolkitAppRoot = new URL("../../../toolkit/src/app/", import.meta.url);
 
 describe("Core design-system primitive normalization", () => {
   it.each([...settingsSurfaces, ...teamPageModules])(
     "%s routes buttons and pickers through Toolkit primitives",
     (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+      const source = readFileSync(new URL(sourcePath, toolkitAppRoot), "utf8");
 
       if (sourcePath.includes("settings/")) {
         expect(source).toMatch(
@@ -49,15 +50,15 @@ describe("Core design-system primitive normalization", () => {
   it.each(buttonWrapperSurfaces)(
     "%s routes buttons through the shared primitive wrapper",
     (sourcePath) => {
-      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+      const source = readFileSync(new URL(sourcePath, toolkitAppRoot), "utf8");
 
       expect(source).toContain("PrimitiveButton");
     },
   );
 
-  it("ui/PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
+  it("shared/PrimitiveButton.tsx encapsulates Toolkit button and explicit icon dimensions", () => {
     const source = readFileSync(
-      new URL("./ui/PrimitiveButton.tsx", import.meta.url),
+      new URL("shared/PrimitiveButton.tsx", toolkitAppRoot),
       "utf8",
     );
 

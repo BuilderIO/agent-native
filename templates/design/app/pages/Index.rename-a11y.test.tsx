@@ -36,6 +36,7 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useChatModels: vi.fn(),
   useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
 }));
 

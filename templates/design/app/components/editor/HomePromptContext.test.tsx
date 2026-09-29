@@ -18,6 +18,7 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => mocks.enabled,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "tab-1",
   useSession: () => ({ session: mocks.session }),
   callAction: (...args: unknown[]) => mocks.call(...args),
   useChangeVersions: () => mocks.refresh,
