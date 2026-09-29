@@ -23,6 +23,7 @@ export type PriorTurnToolCallSequenceEntry =
       result: string;
       isError: boolean;
       completedSideEffect?: boolean;
+      replayed?: true;
       matchedStart: boolean;
     };
 
@@ -117,6 +118,7 @@ export async function loadPriorTurnToolCallJournal(
         ...(event.completedSideEffect === true
           ? { completedSideEffect: true }
           : {}),
+        ...(event.replayed === true ? { replayed: true } : {}),
         matchedStart: call !== undefined,
       });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
@@ -208,15 +210,17 @@ export function seedRepeatedToolCallCountsFromJournal(
       continue;
     }
 
-    if (
-      call.result.startsWith(JOURNALED_TOOL_REPLAY_PREFIX) ||
-      call.result.startsWith(RECOVERED_TOOL_REPLAY_PREFIX) ||
-      isResurfacedReadOnlyDuplicate(call.name, call.result)
-    ) {
+    const replayed = call.replayed === true;
+    if (replayed || isResurfacedReadOnlyDuplicate(call.name, call.result)) {
       if (call.matchedStart) {
         const count = counts.get(key) ?? 0;
         if (count > 1) counts.set(key, count - 1);
         else counts.delete(key);
+      }
+      if (replayed && !call.isError && call.completedSideEffect === true) {
+        for (const otherKey of counts.keys()) {
+          if (otherKey !== key) counts.delete(otherKey);
+        }
       }
       continue;
     }
@@ -228,4 +232,53 @@ export function seedRepeatedToolCallCountsFromJournal(
     }
   }
   return counts;
+}
+
+export function seedRepeatedToolErrorCountsFromJournal(
+  calls: readonly PriorTurnToolCallSequenceEntry[],
+  keyForCall: (name: string, input: unknown) => string,
+  normalizeError: (error: string) => string,
+): {
+  sameArguments: Map<string, number>;
+  sameTool: Map<string, number>;
+} {
+  const sameArguments = new Map<string, number>();
+  const sameTool = new Map<string, number>();
+  for (const call of calls) {
+    if (call.event === "start") continue;
+
+    if (call.replayed) {
+      if (!call.isError && call.completedSideEffect === true) {
+        const successfulWriteKey = keyForCall(call.name, call.input);
+        for (const key of sameArguments.keys()) {
+          if (!key.startsWith(`${successfulWriteKey}:`)) {
+            sameArguments.delete(key);
+          }
+        }
+        for (const key of sameTool.keys()) {
+          if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+        }
+      }
+      continue;
+    }
+
+    if (call.isError) {
+      const error = normalizeError(call.result);
+      const toolKey = `${call.name}:${error}`;
+      sameTool.set(toolKey, (sameTool.get(toolKey) ?? 0) + 1);
+      const callKey = `${keyForCall(call.name, call.input)}:${error}`;
+      sameArguments.set(callKey, (sameArguments.get(callKey) ?? 0) + 1);
+      continue;
+    }
+
+    if (call.completedSideEffect !== true) continue;
+    const successfulWriteKey = keyForCall(call.name, call.input);
+    for (const key of sameArguments.keys()) {
+      if (!key.startsWith(`${successfulWriteKey}:`)) sameArguments.delete(key);
+    }
+    for (const key of sameTool.keys()) {
+      if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+    }
+  }
+  return { sameArguments, sameTool };
 }

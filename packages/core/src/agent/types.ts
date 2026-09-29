@@ -392,6 +392,7 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;

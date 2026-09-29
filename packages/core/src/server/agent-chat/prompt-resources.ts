@@ -711,6 +711,13 @@ interface ResourceSkillPromptEntry {
   scope: string;
 }
 
+class RequiredSkillLabsReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RequiredSkillLabsReadError";
+  }
+}
+
 async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
@@ -768,15 +775,18 @@ async function loadResourceSkillPromptEntries(
       meta?.requiresLab ? [meta.requiresLab] : [],
     );
     const enabledLabs = requiredLabs.length
-      ? await import("../agents-bundle.js").then(
-          ({ getEnabledSkillLabsForUser }) =>
+      ? await import("../agents-bundle.js")
+          .then(({ getEnabledSkillLabsForUser }) =>
             getEnabledSkillLabsForUser(
               requiredLabs,
               owner === SHARED_OWNER
                 ? (getRequestUserEmail() ?? getRequestRunContext()?.owner)
                 : owner,
             ),
-        )
+          )
+          .catch((error) => {
+            throw new RequiredSkillLabsReadError(error);
+          })
       : new Set<string>();
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
@@ -796,7 +806,8 @@ async function loadResourceSkillPromptEntries(
       entries.push({ resource, full, name, description, scope });
     }
     return { entries, total: sorted.length, metadataRead: loaded.length };
-  } catch {
+  } catch (error) {
+    if (error instanceof RequiredSkillLabsReadError) throw error;
     return { entries: [], total: 0, metadataRead: 0 };
   }
 }

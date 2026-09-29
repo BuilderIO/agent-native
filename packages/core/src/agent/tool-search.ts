@@ -105,6 +105,49 @@ export function attachToolSearch(
   return registry;
 }
 
+export async function filterActionsForAgentDiscovery(
+  registry: Record<string, ActionEntry>,
+  context?: import("../action.js").ActionRunContext,
+): Promise<Record<string, ActionEntry>> {
+  const checks = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    Promise<boolean>
+  >();
+  for (const entry of Object.values(registry)) {
+    const predicate = entry.agentDiscoveryAvailable;
+    if (predicate && !checks.has(predicate)) {
+      checks.set(predicate, Promise.resolve(predicate(context)));
+    }
+  }
+
+  const availability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    boolean
+  >();
+  await Promise.all(
+    [...checks].map(async ([predicate, check]) => {
+      availability.set(predicate, await check);
+    }),
+  );
+
+  const filtered = Object.fromEntries(
+    Object.entries(registry)
+      .filter(([, entry]) => {
+        const predicate = entry.agentDiscoveryAvailable;
+        return !predicate || availability.get(predicate) === true;
+      })
+      .map(([name, entry]) => {
+        const visibleEntry = { ...entry };
+        delete visibleEntry.agentDiscoveryAvailable;
+        return [name, visibleEntry];
+      }),
+  );
+  if (filtered[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+  return filtered;
+}
+
 export function searchToolRegistry(
   registry: Record<string, ActionEntry>,
   args: ToolSearchArgs = {},
@@ -257,31 +300,9 @@ export async function searchToolRegistryForRequest(
   options: ToolSearchOptions = {},
   context?: import("../action.js").ActionRunContext,
 ): Promise<ReturnType<typeof searchToolRegistry>> {
-  const availability = new Map<
-    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
-    Promise<boolean>
-  >();
-  for (const entry of Object.values(registry)) {
-    const predicate = entry.agentDiscoveryAvailable;
-    if (predicate && !availability.has(predicate)) {
-      availability.set(predicate, Promise.resolve(predicate(context)));
-    }
-  }
-  const resolvedAvailability = new Map<
-    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
-    boolean
-  >();
-  await Promise.all(
-    [...availability].map(async ([predicate, check]) => {
-      resolvedAvailability.set(predicate, await check);
-    }),
-  );
-
-  const visibleRegistry = Object.fromEntries(
-    Object.entries(registry).filter(([, entry]) => {
-      const predicate = entry.agentDiscoveryAvailable;
-      return !predicate || resolvedAvailability.get(predicate) === true;
-    }),
+  const visibleRegistry = await filterActionsForAgentDiscovery(
+    registry,
+    context,
   );
   return searchToolRegistry(visibleRegistry, args, options);
 }

@@ -2203,6 +2203,62 @@ describe("createProductionAgentHandler", () => {
     expect(getRequestRunContext()).toBeUndefined();
   });
 
+  it("omits feature-gated actions from the initial request tool list", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "list-context-packs": {
+          ...actionEntry({}),
+          agentDiscoveryAvailable: ({ userEmail }) =>
+            userEmail === "enabled@example.test",
+        },
+        "list-calendar-events": actionEntry({}),
+      },
+      initialToolNames: ["list-context-packs", "list-calendar-events"],
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Check my calendar" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "disabled@example.test", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    expect(seenTools).toEqual([["list-calendar-events"]]);
+  });
+
   it("passes normalized requested turn and queued message ids to the action-surface resolver", async () => {
     const resolver = vi.fn(async (details: AgentActionSurfaceDetails) => {
       expect(details.requestedTurnId).toBe("turn-requested");

@@ -4,6 +4,7 @@ import {
   JOURNALED_TOOL_REPLAY_PREFIX,
   RECOVERED_TOOL_REPLAY_PREFIX,
   loadedSkillPagesContext,
+  seedRepeatedToolErrorCountsFromJournal,
   seedRepeatedToolCallCountsFromJournal,
   type PriorTurnToolCallSequenceEntry,
 } from "./tool-call-journal-seed.js";
@@ -91,6 +92,7 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
         result: replayResult,
         isError: false,
         completedSideEffect: true,
+        replayed: true,
         matchedStart: true,
       },
       { event: "start", name: "check", input: { deckId: "deck-1" } },
@@ -109,12 +111,29 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
         result: RECOVERED_TOOL_REPLAY_PREFIX + "saved",
         isError: false,
         completedSideEffect: true,
+        replayed: true,
         matchedStart: true,
       },
       { event: "start", name: "check", input: { id: "1" } },
     ];
 
     expect(seed(calls)).toEqual(new Map([[`check:{"id":"1"}`, 1]]));
+  });
+
+  it("does not infer replay status from a tool-controlled result prefix", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      {
+        event: "done",
+        name: "edit",
+        input: { slide: 1 },
+        result: `${JOURNALED_TOOL_REPLAY_PREFIX}the action's own text`,
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+    ];
+
+    expect(seed(calls)).toEqual(new Map([[`edit:{"slide":1}`, 1]]));
   });
 
   it("does not count resurfaced duplicate reads", () => {
@@ -131,6 +150,168 @@ describe("seedRepeatedToolCallCountsFromJournal", () => {
     ];
 
     expect(seed(calls)).toEqual(new Map());
+  });
+
+  it("applies replayed write boundaries without counting the replay", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "read",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+      { event: "start", name: "read", input: { id: 1 } },
+      { event: "start", name: "write", input: { id: 1 } },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: `${JOURNALED_TOOL_REPLAY_PREFIX}saved`,
+        isError: false,
+        completedSideEffect: true,
+        replayed: true,
+        matchedStart: true,
+      },
+    ];
+
+    expect(seed(calls)).toEqual(new Map([[`write:{"id":1}`, 1]]));
+  });
+});
+
+describe("seedRepeatedToolErrorCountsFromJournal", () => {
+  const seedErrors = (calls: PriorTurnToolCallSequenceEntry[]) =>
+    seedRepeatedToolErrorCountsFromJournal(calls, keyForCall, (error) => error);
+
+  it("replays mutation boundaries when seeding repeated errors", () => {
+    const result = seedErrors([
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+    ]);
+
+    expect(result.sameArguments).toEqual(
+      new Map([[`read:{"id":1}:same error`, 1]]),
+    );
+    expect(result.sameTool).toEqual(new Map([["read:same error", 1]]));
+  });
+
+  it("keeps the successful mutating action's own error counts", () => {
+    const result = seedErrors([
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+    ]);
+
+    expect(result.sameArguments.get(`write:{"id":1}:same error`)).toBe(2);
+    expect(result.sameTool.get("write:same error")).toBe(2);
+  });
+
+  it("applies replayed write boundaries without counting replayed errors", () => {
+    const result = seedErrors([
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "write",
+        input: { id: 1 },
+        result: "saved",
+        isError: false,
+        completedSideEffect: true,
+        replayed: true,
+        matchedStart: false,
+      },
+      {
+        event: "done",
+        name: "read",
+        input: { id: 1 },
+        result: "same error",
+        isError: true,
+        matchedStart: false,
+      },
+    ]);
+
+    expect(result.sameArguments).toEqual(
+      new Map([
+        [`write:{"id":1}:same error`, 1],
+        [`read:{"id":1}:same error`, 1],
+      ]),
+    );
+    expect(result.sameTool).toEqual(
+      new Map([
+        ["write:same error", 1],
+        ["read:same error", 1],
+      ]),
+    );
   });
 });
 

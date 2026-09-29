@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   })),
   generateSkillsPromptBlock: vi.fn(() => ""),
   getRuntimeSkillsForUser: vi.fn(),
+  getEnabledSkillLabsForUser: vi.fn(),
   getSession: vi.fn(),
 }));
 
@@ -67,6 +68,8 @@ vi.mock("./agents-bundle.js", () => ({
     mocks.generateSkillsPromptBlock(...args),
   getRuntimeSkillsForUser: (...args: any[]) =>
     mocks.getRuntimeSkillsForUser(...args),
+  getEnabledSkillLabsForUser: (...args: any[]) =>
+    mocks.getEnabledSkillLabsForUser(...args),
   getRuntimeSkills: (bundle: any) => runtimeSkillsFromBundle(bundle),
 }));
 
@@ -222,6 +225,7 @@ beforeEach(() => {
           !skill.meta.requiresLab || userEmail === "enabled@example.test",
       ),
   );
+  mocks.getEnabledSkillLabsForUser.mockResolvedValue(new Set());
   mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
     if (owner === "__workspace__" && path === "AGENTS.md") {
       return { content: "# Workspace Instructions\n\nUse global context." };
@@ -1028,6 +1032,27 @@ describe("loadResourcesForPrompt", () => {
       "`context/messaging.md` - Messaging: Core value props and proof points.",
     );
     expect(prompt).not.toContain("Use `resource-read --path <path>");
+  });
+
+  it("fails prompt construction when Labs state for a resource skill is unreadable", async () => {
+    resourcesById.set("skills_lab_required", {
+      id: "skills_lab_required",
+      path: "skills/lab-required/SKILL.md",
+      owner: "__workspace__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: lab-required\ndescription: Requires an enabled Lab.\nrequires-lab: reports.preview\n---\n\n# Lab Required",
+    });
+    mocks.resourceListAccessible.mockResolvedValue([
+      meta("skills_lab_required"),
+    ]);
+    mocks.getEnabledSkillLabsForUser.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
+
+    await expect(loadResourcesForPrompt("user@example.test")).rejects.toThrow(
+      "Labs settings unavailable",
+    );
   });
 
   it("points compact bundled skills at their docs-search skill slugs", async () => {

@@ -517,6 +517,7 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.completedSideEffect).toBe(true);
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.artifacts).toEqual(artifacts);
 
     const toolResults = events
@@ -1069,6 +1070,7 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.result).toContain("Already completed");
+    expect(toolDone?.replayed).toBe(true);
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
     expect(toolDone?.chatUIResult).toEqual(chatUIResult);
     expect(when).not.toHaveBeenCalled();

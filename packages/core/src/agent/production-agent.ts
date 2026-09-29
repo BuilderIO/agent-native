@@ -181,6 +181,7 @@ import {
   RECOVERED_TOOL_REPLAY_PREFIX,
   loadedSkillPagesContext,
   loadPriorTurnToolCallJournal,
+  seedRepeatedToolErrorCountsFromJournal,
   seedRepeatedToolCallCountsFromJournal,
 } from "./engine/tool-call-journal-seed.js";
 import {
@@ -295,6 +296,7 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  filterActionsForAgentDiscovery,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
@@ -4743,30 +4745,37 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
-  const repeatedToolErrors = new Map<string, number>();
-  const repeatedToolErrorsAnyArgs = new Map<string, number>();
+  const {
+    sameArguments: repeatedToolErrors,
+    sameTool: repeatedToolErrorsAnyArgs,
+  } = seedRepeatedToolErrorCountsFromJournal(
+    journalRead.status === "read" ? journalRead.priorToolCallSequence : [],
+    toolCallCacheKey,
+    normalizeToolErrorForBreaker,
+  );
   const repeatedToolCalls = seedRepeatedToolCallCountsFromJournal(
     journalRead.status === "read" ? journalRead.priorToolCallSequence : [],
     toolCallCacheKey,
     (name, result) =>
       result.startsWith(resurfacedDuplicateReadOnlyToolResultPrefix(name)),
   );
+  const resetAfterSuccessfulWrite = (name: string, input: unknown) => {
+    readOnlyToolResultCache.clear();
+    duplicateReadOnlyToolCalls.clear();
+    const successfulWriteKey = toolCallCacheKey(name, input);
+    for (const key of repeatedToolCalls.keys()) {
+      if (key !== successfulWriteKey) repeatedToolCalls.delete(key);
+    }
+    for (const key of repeatedToolErrors.keys()) {
+      if (!key.startsWith(`${successfulWriteKey}:`)) {
+        repeatedToolErrors.delete(key);
+      }
+    }
+    for (const key of repeatedToolErrorsAnyArgs.keys()) {
+      if (!key.startsWith(`${name}:`)) repeatedToolErrorsAnyArgs.delete(key);
+    }
+  };
   const blockedA2ATargets = new Map<string, string>();
-  for (const prior of journaledPriorToolResults) {
-    if (!prior.isError) continue;
-    const normalized = normalizeToolErrorForBreaker(prior.content);
-    const anyArgsKey = `${prior.name}:${normalized}`;
-    repeatedToolErrorsAnyArgs.set(
-      anyArgsKey,
-      (repeatedToolErrorsAnyArgs.get(anyArgsKey) ?? 0) + 1,
-    );
-    const errorKey = `${toolCallCacheKey(prior.name, prior.input)}:${normalized}`;
-    repeatedToolErrors.set(
-      errorKey,
-      (repeatedToolErrors.get(errorKey) ?? 0) + 1,
-    );
-  }
-
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
   let truncatedToolCallRetries = 0;
@@ -5947,6 +5956,7 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             completedSideEffect: true,
+            replayed: true,
             ...(journaled.artifacts?.length
               ? { artifacts: journaled.artifacts }
               : {}),
@@ -5959,6 +5969,7 @@ export async function runAgentLoop(opts: {
           });
           recordToolResult(result, false, journaled.artifacts);
           noteToolCallSucceeded(actionEntry);
+          resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -6022,6 +6033,7 @@ export async function runAgentLoop(opts: {
               input: toolCall.input as Record<string, unknown>,
               result,
               completedSideEffect: true,
+              replayed: true,
               ...(ledgerResult.artifacts.length > 0
                 ? { artifacts: ledgerResult.artifacts }
                 : {}),
@@ -6032,6 +6044,7 @@ export async function runAgentLoop(opts: {
             });
             recordToolResult(result, false, ledgerResult.artifacts);
             noteToolCallSucceeded(actionEntry);
+            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
             return {
               type: "tool-result" as const,
               toolCallId: toolCall.id,
@@ -6598,25 +6611,7 @@ export async function runAgentLoop(opts: {
               ...(toolResultImages?.length ? { images: toolResultImages } : {}),
             });
           } else if (!actionIsReadOnly) {
-            readOnlyToolResultCache.clear();
-            duplicateReadOnlyToolCalls.clear();
-            const successfulWriteKey = toolCallCacheKey(
-              toolCall.name,
-              toolCall.input,
-            );
-            for (const key of repeatedToolCalls.keys()) {
-              if (key !== successfulWriteKey) repeatedToolCalls.delete(key);
-            }
-            for (const key of repeatedToolErrors.keys()) {
-              if (!key.startsWith(`${successfulWriteKey}:`)) {
-                repeatedToolErrors.delete(key);
-              }
-            }
-            for (const key of repeatedToolErrorsAnyArgs.keys()) {
-              if (!key.startsWith(`${toolCall.name}:`)) {
-                repeatedToolErrorsAnyArgs.delete(key);
-              }
-            }
+            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           }
         }
         return {
@@ -9109,10 +9104,19 @@ export function createProductionAgentHandler(
       });
     }
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
-    const requestActions =
+    const surfacedActionRegistry =
       requestMode === "plan"
         ? createPlanModeActionRegistry(surfacedRequestActions)
         : surfacedRequestActions;
+    const requestActions = await filterActionsForAgentDiscovery(
+      surfacedActionRegistry,
+      {
+        caller: "tool",
+        userEmail: ownerEmail ?? undefined,
+        orgId: getRequestOrgId() ?? null,
+        appId: options.appId,
+      },
+    );
     const availableRequestTools = getEngineTools(requestActions);
     const initialRequestTools = shouldFilterInitialRequestTools
       ? filterInitialEngineTools(

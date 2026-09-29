@@ -9,6 +9,7 @@ import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
   createToolSearchEntry,
+  filterActionsForAgentDiscovery,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
@@ -118,6 +119,34 @@ describe("tool-search", () => {
       enabled.results.map((result: { name: string }) => result.name),
     ).toEqual(["list-context-packs", "read-context-source"]);
     expect(available).toHaveBeenCalledOnce();
+  });
+
+  it("filters gated actions from request tools and rebinds tool-search", async () => {
+    const available = vi.fn(async () => false);
+    const registry = attachToolSearch({
+      "list-context-packs": {
+        ...action("List Creative Context packs"),
+        agentDiscoveryAvailable: available,
+      },
+      "list-calendar-events": action("List calendar events"),
+    });
+
+    const filtered = await filterActionsForAgentDiscovery(registry, {
+      caller: "tool",
+      userEmail: "disabled@example.test",
+    });
+
+    expect(filtered).not.toHaveProperty("list-context-packs");
+    const menu = await filtered[TOOL_SEARCH_ACTION_NAME]!.run(
+      {},
+      {
+        caller: "tool",
+        userEmail: "disabled@example.test",
+      },
+    );
+    expect(menu.results.map((result: { name: string }) => result.name)).toEqual(
+      ["list-calendar-events"],
+    );
   });
 
   it("labels Plan availability and current callability without returning schemas", () => {
