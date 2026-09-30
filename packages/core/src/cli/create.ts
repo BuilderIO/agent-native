@@ -104,6 +104,13 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+// Workspace-only packages a first-party template uses on its hosted site, with
+// the files that import them. A scaffold cannot install these (a standalone app
+// resolves them from npm, a new workspace has no such package), so it drops the
+// dependency and those files. Publishing a package removes its entry here.
+const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {
+  "@agent-native/otel": ["server/plugins/otel.ts"],
+};
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 const IN_PLACE_ALLOWLIST = new Set([
@@ -1436,6 +1443,7 @@ async function scaffoldAppTemplate(
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyDir(localTemplate, targetDir);
+    removeWorkspaceOnlyTemplateWiring(targetDir);
     return {
       templateSource: localTemplateSourceKind(localTemplate),
       templateRef: getGitHubTemplateRefCandidates()[0],
@@ -1446,7 +1454,26 @@ async function scaffoldAppTemplate(
     `${TEMPLATES_DIR}/${sourceTemplate}`,
     targetDir,
   );
+  removeWorkspaceOnlyTemplateWiring(targetDir);
   return { templateSource: "github", templateRef };
+}
+
+function removeWorkspaceOnlyTemplateWiring(appDir: string): void {
+  const pkgPath = path.join(appDir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  let changed = false;
+  for (const [dependency, files] of Object.entries(
+    WORKSPACE_ONLY_TEMPLATE_WIRING,
+  )) {
+    const dependencyTypes = (
+      ["dependencies", "devDependencies", "peerDependencies"] as const
+    ).filter((depType) => pkg[depType]?.[dependency] !== undefined);
+    if (dependencyTypes.length === 0) continue;
+    for (const depType of dependencyTypes) delete pkg[depType][dependency];
+    for (const file of files) fs.rmSync(path.join(appDir, file));
+    changed = true;
+  }
+  if (changed) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
 function localTemplateSourceKind(
@@ -2485,6 +2512,7 @@ export {
   discoverCommunityWorkspaceApps as _discoverCommunityWorkspaceApps,
   normalizeCommunityWorkspaceAppDependencies as _normalizeCommunityWorkspaceAppDependencies,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
+  removeWorkspaceOnlyTemplateWiring as _removeWorkspaceOnlyTemplateWiring,
   tarExtractArgs as _tarExtractArgs,
   extractTarball as _extractTarball,
   materializeArchiveSymlinks as _materializeArchiveSymlinks,

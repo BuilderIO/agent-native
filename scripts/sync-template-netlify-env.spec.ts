@@ -44,6 +44,10 @@ describe("isAllowedHostedTemplateEnvKey", () => {
       "OTEL_EXPORTER_OTLP_HEADERS",
       "OTEL_SERVICE_NAME",
       "OTEL_RESOURCE_ATTRIBUTES",
+      "OTEL_METRICS_EXPORTER",
+      "OTEL_TRACES_EXPORTER",
+      "OTEL_TRACES_SAMPLER",
+      "OTEL_TRACES_SAMPLER_ARG",
     ]) {
       expect(isAllowedHostedTemplateEnvKey(key)).toBe(true);
       expect(isForbiddenHostedTemplateEnvKey(key)).toBe(false);
@@ -189,6 +193,28 @@ describe("hostedTelemetryIdentityEnv", () => {
         "deployment.environment.name=beta,service.namespace=agent-native",
       ],
     ]);
+  });
+
+  it("keeps configured resource attributes and overrides the managed keys", () => {
+    expect(
+      hostedTelemetryIdentityEnv(
+        "chat",
+        "production",
+        "service.version=1.2.3, deployment.environment.name=staging,cloud.region=us-east-1",
+      ),
+    ).toEqual([
+      ["OTEL_SERVICE_NAME", "chat"],
+      [
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "service.version=1.2.3,cloud.region=us-east-1,deployment.environment.name=production,service.namespace=agent-native",
+      ],
+    ]);
+  });
+
+  it("rejects a configured resource attribute that is not key=value", () => {
+    expect(() =>
+      hostedTelemetryIdentityEnv("chat", "production", "service.version"),
+    ).toThrow('OTEL_RESOURCE_ATTRIBUTES entry "service.version"');
   });
 
   it("derives no identity for other deploy contexts", () => {

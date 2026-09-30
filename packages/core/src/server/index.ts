@@ -681,6 +681,7 @@ export {
   resolveDeployPlatform,
   type DeployPlatform,
 } from "./deploy-environment.js";
+export { isServerlessRuntime } from "../db/client.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,

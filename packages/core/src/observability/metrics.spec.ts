@@ -204,6 +204,76 @@ describe("flushObservability", () => {
     });
   });
 
+  it("waits for the other provider when one flush fails", async () => {
+    vi.useFakeTimers();
+    let traceFlushed = false;
+    const meterProvider = createTestMeterProvider(async () => {
+      throw new TypeError("exporter blew up");
+    });
+    register({
+      meterProvider,
+      tracerProvider: {
+        getTracer: () => ({}),
+        forceFlush: () =>
+          new Promise<void>((resolve) =>
+            setTimeout(() => {
+              traceFlushed = true;
+              resolve();
+            }, 500),
+          ),
+      },
+    });
+
+    let settled = false;
+    const flushed = flushObservability().then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(400);
+    await flushed;
+
+    expect(traceFlushed).toBe(true);
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "agent_native.telemetry.flush_failures",
+        value: 1,
+        attributes: { "error.type": "TypeError" },
+      },
+    ]);
+  });
+
+  it("counts each provider's failure independently under the timeout", async () => {
+    vi.useFakeTimers();
+    const meterProvider = createTestMeterProvider(async () => {
+      throw new TypeError("exporter blew up");
+    });
+    register({
+      meterProvider,
+      tracerProvider: {
+        getTracer: () => ({}),
+        forceFlush: () => new Promise<void>(() => {}),
+      },
+    });
+
+    const flushed = flushObservability();
+    await vi.advanceTimersByTimeAsync(OBSERVABILITY_FLUSH_TIMEOUT_MS);
+    await flushed;
+
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "agent_native.telemetry.flush_failures",
+        value: 1,
+        attributes: { "error.type": "TypeError" },
+      },
+      {
+        instrument: "agent_native.telemetry.flush_failures",
+        value: 1,
+        attributes: { "error.type": "timeout" },
+      },
+    ]);
+  });
+
   it("does not count a flush that finished in time", async () => {
     const meterProvider = createTestMeterProvider(async () => {});
     register({ meterProvider });

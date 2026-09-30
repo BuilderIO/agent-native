@@ -545,6 +545,48 @@ describe("http response telemetry", () => {
     }
   });
 
+  it("ends the HTTP duration metric at the response boundary, not after the tracking flush", async () => {
+    processState.requestSequence = 5;
+    const recorded: number[] = [];
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (value: number) => recorded.push(value),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+      },
+    });
+    const startedAt = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    __setAgentTracerForTests({
+      startSpan(): AgentSpan {
+        // The tracking flush outlives the response by several seconds.
+        nowSpy.mockReturnValue(startedAt + 9_000);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(recorded).toEqual([1.2]);
+    } finally {
+      nowSpy.mockRestore();
+      unregister();
+    }
+  });
+
   it("reports the pre-handler boot phases on a cold start", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 0;

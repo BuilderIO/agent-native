@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  isServerlessRuntime,
   registerObservabilityProvider,
   type ObservabilityMeterProvider,
   type ObservabilityProvider,
@@ -36,22 +37,30 @@ export interface AgentNativeOtelHandle {
 
 let started: AgentNativeOtelHandle | undefined;
 
-type Env = Record<string, string | undefined>;
+type Signal = "METRICS" | "TRACES";
 
-function signalEnabled(env: Env, key: string): boolean {
-  return env[key]?.trim().toLowerCase() !== "none";
+function envValue(key: string): string | undefined {
+  return process.env[key]?.trim() || undefined;
 }
 
-// Serverless functions freeze between invocations, so a periodic reader never
-// fires and core must flush on every response. A long-running server exports
-// on the timer instead of once per request.
-function isServerlessRuntime(env: Env): boolean {
-  return Boolean(
-    env.NETLIFY ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.LAMBDA_TASK_ROOT ||
-    env.VERCEL,
-  );
+// A signal exports when an OTLP endpoint applies to it: its own
+// OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT or the shared base endpoint. An
+// exporter this package cannot build fails startup instead of quietly shipping
+// the signal to the collector over OTLP.
+function signalEnabled(signal: Signal): boolean {
+  const exporterKey = `OTEL_${signal}_EXPORTER`;
+  const exporter = envValue(exporterKey)?.toLowerCase() ?? "otlp";
+  if (exporter === "none") return false;
+  const endpoint =
+    envValue(`OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`) ??
+    envValue("OTEL_EXPORTER_OTLP_ENDPOINT");
+  if (!endpoint) return false;
+  if (exporter !== "otlp") {
+    throw new Error(
+      `${exporterKey}="${exporter}" is not supported by @agent-native/otel. Set it to "otlp" or "none".`,
+    );
+  }
+  return true;
 }
 
 // Cumulative counters restart with every process, so each process must be its
@@ -77,25 +86,33 @@ function withoutForceFlush<
 /**
  * Start the OpenTelemetry SDK and register it with `@agent-native/core`.
  *
- * A no-op returning `undefined` unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
- * Exporters read the standard `OTEL_EXPORTER_OTLP_*` variables, the resource
- * reads `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`, and the trace
- * sampler reads `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG`. Set
+ * A no-op returning `undefined` unless an OTLP endpoint is set, either the
+ * shared `OTEL_EXPORTER_OTLP_ENDPOINT` or a signal's own
+ * `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`;
+ * only signals with an endpoint start. Everything is read from `process.env`,
+ * as the SDK itself does: exporters read the standard `OTEL_EXPORTER_OTLP_*`
+ * variables, the resource reads `OTEL_SERVICE_NAME` and
+ * `OTEL_RESOURCE_ATTRIBUTES`, and the trace sampler reads
+ * `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG`. Set
  * `OTEL_METRICS_EXPORTER=none` or `OTEL_TRACES_EXPORTER=none` to turn off one
- * signal. Calling it again returns the running instance.
+ * signal; any exporter other than `otlp` or `none` throws. Calling it again
+ * returns the running instance.
  */
-export function startAgentNativeOtel(
-  env: Env = process.env,
-): AgentNativeOtelHandle | undefined {
+export function startAgentNativeOtel(): AgentNativeOtelHandle | undefined {
   if (started) return started;
-  if (!env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) return undefined;
+  const metricsEnabled = signalEnabled("METRICS");
+  const tracesEnabled = signalEnabled("TRACES");
+  if (!metricsEnabled && !tracesEnabled) return undefined;
 
   const resource = buildResource();
-  const flushOnResponse = isServerlessRuntime(env);
+  // Serverless functions freeze between invocations, so a periodic reader
+  // never fires and core must flush on every response. A long-running server
+  // exports on the timer instead of once per request.
+  const flushOnResponse = isServerlessRuntime();
   const provider: ObservabilityProvider = {};
   const shutdowns: Array<() => Promise<void>> = [];
 
-  if (signalEnabled(env, "OTEL_METRICS_EXPORTER")) {
+  if (metricsEnabled) {
     const meterProvider = new MeterProvider({
       resource,
       readers: [
@@ -113,7 +130,7 @@ export function startAgentNativeOtel(
     shutdowns.push(() => meterProvider.shutdown());
   }
 
-  if (signalEnabled(env, "OTEL_TRACES_EXPORTER")) {
+  if (tracesEnabled) {
     context.setGlobalContextManager(
       new AsyncLocalStorageContextManager().enable(),
     );

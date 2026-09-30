@@ -1,5 +1,4 @@
 import { loadOptionalPeer } from "../shared/optional-peer.js";
-
 import {
   getRegisteredObservabilityProvider,
   type ObservabilityTracerProvider,

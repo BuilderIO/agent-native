@@ -134,24 +134,17 @@ function recordFlushFailure(errorType: string): void {
   instruments()?.flushFailures.add(1, { "error.type": errorType });
 }
 
-async function forceFlushProviders(): Promise<void> {
-  const provider = getRegisteredObservabilityProvider();
-  await Promise.all([
-    provider?.meterProvider?.forceFlush?.(),
-    provider?.tracerProvider?.forceFlush?.(),
-  ]);
-}
-
 /**
  * Export buffered telemetry before a serverless function can freeze. Never
- * delays a request by more than OBSERVABILITY_FLUSH_TIMEOUT_MS; on timeout or
- * error the points are dropped and counted on
+ * delays a request by more than OBSERVABILITY_FLUSH_TIMEOUT_MS; each provider
+ * that times out or fails drops its points and is counted separately on
  * `agent_native.telemetry.flush_failures`, which the next flush exports.
  */
 export async function flushObservability(): Promise<void> {
-  if (!getRegisteredObservabilityProvider()) return;
+  const provider = getRegisteredObservabilityProvider();
+  if (!provider) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<"timeout">((resolve) => {
+  const timeout = new Promise<string>((resolve) => {
     timer = setTimeout(
       () => resolve("timeout"),
       OBSERVABILITY_FLUSH_TIMEOUT_MS,
@@ -159,13 +152,22 @@ export async function flushObservability(): Promise<void> {
     timer.unref?.();
   });
   try {
-    const outcome = await Promise.race([
-      forceFlushProviders().then(() => "flushed" as const),
-      timeout,
-    ]);
-    if (outcome === "timeout") recordFlushFailure("timeout");
-  } catch (error) {
-    recordFlushFailure(flushErrorType(error));
+    // One provider failing must not end the wait for the other: the response
+    // hook returning early lets the runtime freeze mid-export.
+    const failures = await Promise.all(
+      [provider.meterProvider, provider.tracerProvider].map((signal) =>
+        Promise.race([
+          (async () => {
+            await signal?.forceFlush?.();
+            return undefined;
+          })().catch(flushErrorType),
+          timeout,
+        ]),
+      ),
+    );
+    for (const failure of failures) {
+      if (failure) recordFlushFailure(failure);
+    }
   } finally {
     clearTimeout(timer);
   }
