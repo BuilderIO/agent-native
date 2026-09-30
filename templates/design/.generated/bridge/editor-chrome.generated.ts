@@ -5542,6 +5542,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
+    var passiveSelectionOverlayRects = [];
     var repeatInstanceOverlays = [];
     var repeatInstanceAnchor = null;
     var multiSelectionBoundsOverlay = null;
@@ -5862,11 +5863,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var poolStyleChanged = style !== passiveSelectionOverlayPoolStyle;
       var previousPassiveEls = passiveSelectionEls;
+      var previousPassiveRects = passiveSelectionOverlayRects;
       passiveSelectionEls = nextPassiveEls;
       syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+      passiveSelectionOverlayRects = passiveSelectionEls.map(function(el) {
+        return el.getBoundingClientRect();
+      });
       passiveSelectionEls.forEach(function(el, index) {
         var overlay = passiveSelectionOverlays[index];
-        if (overlay && (poolStyleChanged || previousPassiveEls[index] !== el)) {
+        var previousRect = previousPassiveRects[index];
+        var nextRect = passiveSelectionOverlayRects[index];
+        var boundsChanged = !previousRect || previousRect.left !== nextRect.left || previousRect.top !== nextRect.top || previousRect.width !== nextRect.width || previousRect.height !== nextRect.height;
+        if (overlay && (poolStyleChanged || previousPassiveEls[index] !== el || boundsChanged)) {
           positionOverlay(overlay, el);
         }
       });

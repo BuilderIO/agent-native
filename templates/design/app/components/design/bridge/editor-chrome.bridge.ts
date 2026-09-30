@@ -6410,6 +6410,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var passiveSelectionEls: Element[] = [];
   var passiveSelectionOverlays: HTMLElement[] = [];
+  var passiveSelectionOverlayRects: DOMRect[] = [];
   var repeatInstanceOverlays: HTMLElement[] = [];
   var repeatInstanceAnchor: Element | null = null;
   var multiSelectionBoundsOverlay: HTMLElement | null = null;
@@ -7006,11 +7007,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var poolStyleChanged = style !== passiveSelectionOverlayPoolStyle;
     var previousPassiveEls = passiveSelectionEls;
+    var previousPassiveRects = passiveSelectionOverlayRects;
     passiveSelectionEls = nextPassiveEls;
     syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+    passiveSelectionOverlayRects = passiveSelectionEls.map(function (el) {
+      return el.getBoundingClientRect();
+    });
     passiveSelectionEls.forEach(function (el, index) {
       var overlay = passiveSelectionOverlays[index];
-      if (overlay && (poolStyleChanged || previousPassiveEls[index] !== el)) {
+      var previousRect = previousPassiveRects[index];
+      var nextRect = passiveSelectionOverlayRects[index];
+      var boundsChanged =
+        !previousRect ||
+        previousRect.left !== nextRect.left ||
+        previousRect.top !== nextRect.top ||
+        previousRect.width !== nextRect.width ||
+        previousRect.height !== nextRect.height;
+      if (
+        overlay &&
+        (poolStyleChanged || previousPassiveEls[index] !== el || boundsChanged)
+      ) {
         positionOverlay(overlay, el);
       }
     });
