@@ -20885,7 +20885,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ignoreTargetAutoLayout,
         forceNestedAutoLayout,
       ) {
-        if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
+        keepCurrentFlowParent = bridgeSpaceKeyPressed;
         return flowMoveTargetForPoint(
           reorderEl,
           cx,
@@ -21435,6 +21435,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return;
         }
         if (ev.code !== "Space" && ev.key !== " ") return;
+        keepCurrentFlowParent = bridgeSpaceKeyPressed;
         ev.preventDefault();
       }
       function onReorderUp(ev) {

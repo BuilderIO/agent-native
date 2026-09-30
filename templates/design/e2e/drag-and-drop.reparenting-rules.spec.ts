@@ -480,4 +480,46 @@ test.describe("reparenting rules", () => {
       await postAction(page, "delete-design", { id }).catch(() => undefined);
     }
   });
+
+  test("releasing Space before the drop restores normal reparenting", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    try {
+      await openEditor(page, id);
+      await selectViaTree(page, "Chip 1");
+      const chipParent = () =>
+        node(page, "chip-1").evaluate((chip) =>
+          chip.parentElement?.getAttribute("data-agent-native-node-id"),
+        );
+      const chip = (await node(page, "chip-1").boundingBox())!;
+      const outside = (await node(page, "frame-a").boundingBox())!;
+
+      await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        chip.x + chip.width / 2 + 8,
+        chip.y + chip.height / 2,
+        { steps: 2 },
+      );
+      await page.keyboard.down("Space");
+      await page.mouse.move(
+        outside.x + outside.width / 2,
+        outside.y + outside.height / 2,
+        { steps: 20 },
+      );
+      await expect.poll(chipParent).toBe("row");
+      await page.keyboard.up("Space");
+      await page.mouse.up();
+
+      await expect.poll(chipParent).toBe("frame-a");
+      await expect
+        .poll(() => persistedNodeParent(page, id, "chip-1"))
+        .toBe("frame-a");
+      await page.reload();
+      await expect.poll(chipParent).toBe("frame-a");
+    } finally {
+      await postAction(page, "delete-design", { id }).catch(() => undefined);
+    }
+  });
 });
