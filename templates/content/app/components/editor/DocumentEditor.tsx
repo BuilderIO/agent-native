@@ -229,6 +229,16 @@ import {
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import {
+  createObservedSuggestionPresentationTransition,
+  hydrateSuggestionPresentationTransitions,
+  preciseSuggestionPresentationOperations,
+  retainCommittedSuggestionPresentationTransitions,
+  resolveSuggestionPresentationRange,
+  suggestionPresentationTransitionKey,
+  type SuggestionPresentationTransition,
+  type SuggestionPresentationTransitions,
+} from "./suggestions/presentation-rebase";
+import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
@@ -448,6 +458,8 @@ export function documentEditorReservesInlineReviewSpace(args: {
 export function suggestionPresentation(
   suggestion: Pick<ResourceSuggestion, "id" | "status" | "operations">,
   currentMarkdown: string,
+  transition?: SuggestionPresentationTransition,
+  observedTransition?: SuggestionPresentationTransition,
 ): VisualEditorSuggestion | null {
   if (suggestion.status !== "pending") return null;
   const operation = suggestion.operations[0];
@@ -484,7 +496,12 @@ export function suggestionPresentation(
   ) {
     return null;
   }
-  const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
+  const range = resolveSuggestionPresentationRange(
+    currentMarkdown,
+    operation,
+    transition,
+    observedTransition,
+  );
   if (!range) return null;
   const editorMarkdown = canonicalizeNfm(currentMarkdown);
   const currentText = currentMarkdown.slice(range.from, range.to);
@@ -502,6 +519,9 @@ export function suggestionPresentation(
   return {
     id: suggestion.id,
     kind: operation.kind as VisualEditorSuggestion["kind"],
+    canonicalOperation: operation,
+    canonicalTransition: transition,
+    observedTransition,
     beforeText: before.changedText,
     afterText: after.changedText,
     beforePresentation: {
@@ -529,51 +549,33 @@ export function suggestionPresentation(
 export function suggestionPresentations(
   suggestion: Pick<ResourceSuggestion, "id" | "status" | "operations">,
   currentMarkdown: string,
+  transition?: SuggestionPresentationTransition,
+  observedTransition?: SuggestionPresentationTransition,
 ): VisualEditorSuggestion[] {
-  const original = suggestionPresentation(suggestion, currentMarkdown);
-  if (!original || suggestion.operations.length !== 1)
-    return original ? [original] : [];
+  const original = suggestionPresentation(
+    suggestion,
+    currentMarkdown,
+    transition,
+    observedTransition,
+  );
+  if (suggestion.operations.length !== 1) return original ? [original] : [];
   const saved = suggestion.operations[0]!;
-  if (saved.kind !== "replace_text") return [original];
-  const before = saved.before as { markdown?: unknown } | null;
-  const after = saved.after as { markdown?: unknown } | null;
-  const anchor = saved.anchor as { from?: unknown; to?: unknown } | null;
-  if (
-    typeof before?.markdown !== "string" ||
-    typeof after?.markdown !== "string" ||
-    typeof anchor?.from !== "number" ||
-    typeof anchor.to !== "number"
-  )
-    return [original];
-  const anchorFrom = anchor.from;
-  const anchorTo = anchor.to;
-  try {
-    const operations = markdownSuggestionOperations(
-      before.markdown,
-      after.markdown,
-    );
-    if (
-      operations.length === 0 ||
-      !operations.every(
-        (operation) =>
-          operation.anchor.from >= anchorFrom &&
-          operation.anchor.to <= anchorTo,
-      )
-    )
-      return [original];
-    const precise = operations.map((operation) =>
-      suggestionPresentation(
-        { ...suggestion, operations: [operation] },
-        currentMarkdown,
-      ),
-    );
-    return precise.every((presentation) => presentation !== null)
-      ? (precise as VisualEditorSuggestion[])
-      : [original];
-  } catch (error) {
-    if (!(error instanceof SuggestionFormattingMappingError)) throw error;
-    return [original];
-  }
+  if (saved.kind !== "replace_text") return original ? [original] : [];
+  const operations = preciseSuggestionPresentationOperations(saved);
+  if (!operations) return original ? [original] : [];
+  const precise = operations.map((operation) =>
+    suggestionPresentation(
+      { ...suggestion, operations: [operation] },
+      currentMarkdown,
+      transition,
+      observedTransition,
+    ),
+  );
+  return precise.every((presentation) => presentation !== null)
+    ? (precise as VisualEditorSuggestion[])
+    : original
+      ? [original]
+      : [];
 }
 
 export function replaceAcceptedSuggestionPresentations(
@@ -2118,6 +2120,13 @@ function PageEditorSessionBody({
     beforeContent: string;
     readbackContent: string | null;
   } | null>(null);
+  const [
+    suggestionPresentationTransitions,
+    setSuggestionPresentationTransitions,
+  ] = useState<{
+    documentId: string;
+    entries: SuggestionPresentationTransitions;
+  }>(() => ({ documentId, entries: new Map() }));
   const proposalDecisionInFlightRef = useRef(false);
   const proposalDecisionKeysRef = useRef(new Map<string, string>());
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
@@ -4482,6 +4491,53 @@ function PageEditorSessionBody({
       suggestionsQuery.data?.suggestions ?? [],
     );
   }, [locallyCreatedSuggestions, suggestionsQuery.data?.suggestions]);
+  const renderedSuggestionTransitions = useMemo(
+    () =>
+      hydrateSuggestionPresentationTransitions(
+        suggestionPresentationTransitions.documentId === documentId
+          ? suggestionPresentationTransitions.entries
+          : new Map(),
+        savedSuggestions,
+        pendingSuggestionDecision || pendingProposalDecision
+          ? []
+          : savedSuggestions,
+        document.content,
+      ),
+    [
+      document.content,
+      documentId,
+      pendingProposalDecision,
+      pendingSuggestionDecision,
+      savedSuggestions,
+      suggestionPresentationTransitions,
+    ],
+  );
+  useEffect(() => {
+    setSuggestionPresentationTransitions((current) => {
+      if (current !== suggestionPresentationTransitions) return current;
+      return current.documentId === documentId &&
+        renderedSuggestionTransitions === current.entries
+        ? current
+        : { documentId, entries: renderedSuggestionTransitions };
+    });
+  }, [
+    documentId,
+    renderedSuggestionTransitions,
+    suggestionPresentationTransitions,
+  ]);
+  const retainCommittedPresentationTransitions = useCallback(
+    (committed: ResourceSuggestion[]) => {
+      setSuggestionPresentationTransitions((current) => ({
+        documentId,
+        entries: retainCommittedSuggestionPresentationTransitions(
+          current.documentId === documentId ? current.entries : new Map(),
+          savedSuggestions,
+          committed,
+        ),
+      }));
+    },
+    [documentId, savedSuggestions],
+  );
   const presentedSuggestions = useMemo(() => {
     if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions;
     return savedSuggestions.map((suggestion) =>
@@ -5360,6 +5416,7 @@ function PageEditorSessionBody({
     unresolvedProposalCreationRef.current = null;
     setPendingSuggestionDecision(null);
     setPendingProposalDecision(null);
+    setSuggestionPresentationTransitions({ documentId, entries: new Map() });
     setProposalDecisionReadbackDivergence(null);
     setDecisionRefreshFailed(false);
     setPreserveInlineReviewSpace(false);
@@ -5435,12 +5492,30 @@ function PageEditorSessionBody({
     const currentMarkdown =
       pendingSuggestionDecisionContent ??
       (isSuggesting ? suggestionDraft : document.content);
+    const observedTransition = !isSuggesting
+      ? pendingSuggestionDecision?.decision === "accepted" &&
+        pendingSuggestionDecision.optimistic &&
+        !pendingSuggestionDecision.continueSuggesting
+        ? (createObservedSuggestionPresentationTransition([
+            pendingSuggestionDecision.suggestion,
+          ]) ?? undefined)
+        : pendingProposalDecision?.accepted &&
+            !pendingProposalDecision.continueSuggesting
+          ? (createObservedSuggestionPresentationTransition(
+              pendingProposalDecision.members,
+            ) ?? undefined)
+          : undefined
+      : undefined;
     const byId = new Map<string, VisualEditorSuggestion>();
     for (const suggestion of displaySavedSuggestions) {
       if (suggestion.id === editingSuggestionId) continue;
       for (const [index, presentation] of suggestionPresentations(
         suggestion,
         currentMarkdown,
+        renderedSuggestionTransitions.get(
+          suggestionPresentationTransitionKey(suggestion),
+        ),
+        observedTransition,
       ).entries()) {
         byId.set(`${presentation.id}:${index}`, presentation);
       }
@@ -5526,6 +5601,8 @@ function PageEditorSessionBody({
     sessionDraftSuggestions,
     suggestionPersistenceRevision,
     suggestionDraft,
+    documentId,
+    renderedSuggestionTransitions,
   ]);
   const sidebarSuggestions = useMemo(() => {
     if (!editingSuggestionId || sessionDraftSuggestions.length !== 1) {
@@ -6742,6 +6819,11 @@ function PageEditorSessionBody({
             documentId !== suggestionDecisionDocumentIdRef.current
           )
             return;
+          if (
+            decision === "accepted" &&
+            result.suggestions.every((member) => member.status === "accepted")
+          )
+            retainCommittedPresentationTransitions(result.suggestions);
           setLocallyCreatedSuggestions((current) => {
             const byId = new Map(current.map((item) => [item.id, item]));
             for (const suggestion of result.suggestions)
@@ -6875,6 +6957,8 @@ function PageEditorSessionBody({
           documentId !== suggestionDecisionDocumentIdRef.current
         )
           return;
+        if (decision === "accepted" && result.suggestion.status === "accepted")
+          retainCommittedPresentationTransitions([result.suggestion]);
         if (result.suggestion.status !== decision) {
           const lock = singleSuggestionDecisionLockAfterMismatch(
             {

@@ -160,6 +160,10 @@ import {
 } from "./image-upload";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  resolveSuggestionPresentationRange,
+  type SuggestionPresentationTransition,
+} from "./suggestions/presentation-rebase";
 import { TableHoverControls } from "./TableHoverControls";
 
 function compareDocumentBodyRevisions(
@@ -1141,6 +1145,9 @@ export interface VisualEditorSuggestion {
   afterText: string;
   beforePresentation?: SuggestionPresentationContext;
   afterPresentation?: SuggestionPresentationContext;
+  canonicalOperation?: Parameters<typeof resolveSuggestionPresentationRange>[1];
+  canonicalTransition?: SuggestionPresentationTransition;
+  observedTransition?: SuggestionPresentationTransition;
   anchor: { from: number; prefix: string; suffix: string };
   settlementReadbackContent?: string | null;
   presentation: "draft" | "canonical" | "settling";
@@ -1194,16 +1201,33 @@ function suggestionAnchorRange(
     suggestion.presentation === "draft"
       ? suggestion.afterText
       : suggestion.beforeText;
-  const sourceFrom = suggestion.anchor.from;
+  const canonicalRange =
+    suggestion.presentation === "canonical" && suggestion.canonicalOperation
+      ? resolveSuggestionPresentationRange(
+          source,
+          suggestion.canonicalOperation,
+          suggestion.canonicalTransition,
+          suggestion.observedTransition,
+        )
+      : undefined;
+  if (canonicalRange === null) return null;
+  const anchor = canonicalRange
+    ? {
+        from: canonicalRange.from,
+        prefix: source.slice(
+          Math.max(0, canonicalRange.from - 32),
+          canonicalRange.from,
+        ),
+        suffix: source.slice(canonicalRange.to, canonicalRange.to + 32),
+      }
+    : suggestion.anchor;
+  const sourceFrom = anchor.from;
   const sourceTo = sourceFrom + rawQuote.length;
   const sourceMatches =
     source.slice(sourceFrom, sourceTo) === rawQuote &&
-    source.slice(
-      Math.max(0, sourceFrom - suggestion.anchor.prefix.length),
-      sourceFrom,
-    ) === suggestion.anchor.prefix &&
-    source.slice(sourceTo, sourceTo + suggestion.anchor.suffix.length) ===
-      suggestion.anchor.suffix;
+    source.slice(Math.max(0, sourceFrom - anchor.prefix.length), sourceFrom) ===
+      anchor.prefix &&
+    source.slice(sourceTo, sourceTo + anchor.suffix.length) === anchor.suffix;
   const sourceRangeToPm = (from: number, to: number) => {
     const mapped = suggestionFormattingSourceRange(source, from, to);
     if (!mapped) return null;
@@ -1301,11 +1325,10 @@ function suggestionAnchorRange(
   if (suggestion.kind === "set_inline_mark") {
     let from = sourceFrom;
     if (!sourceMatches) {
-      const needle =
-        suggestion.anchor.prefix + rawQuote + suggestion.anchor.suffix;
+      const needle = anchor.prefix + rawQuote + anchor.suffix;
       const match = source.indexOf(needle);
       if (match < 0 || source.indexOf(needle, match + 1) >= 0) return null;
-      from = match + suggestion.anchor.prefix.length;
+      from = match + anchor.prefix.length;
     }
     const mappedRange = sourceRangeToPm(from, from + rawQuote.length);
     return mappedRange && mappedRange.to > mappedRange.from
@@ -1323,11 +1346,11 @@ function suggestionAnchorRange(
   );
   const prefix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.prefix)
+      ? suggestionAnchorText(anchor.prefix)
       : mappedSource.slice(0, startOffset);
   const suffix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.suffix)
+      ? suggestionAnchorText(anchor.suffix)
       : mappedSource.slice(startOffset + quote.length);
   const from = resolveAnchorPoint(
     doc,
@@ -4210,6 +4233,7 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
+  const applySuggestionsRef = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4236,13 +4260,10 @@ export function VisualEditor({
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
-    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (transaction.docChanged) apply();
-    };
+    applySuggestionsRef.current = apply;
     apply();
-    editor.on("transaction", onTransaction);
     return () => {
-      editor.off("transaction", onTransaction);
+      applySuggestionsRef.current = null;
     };
   }, [
     activeSuggestionId,
@@ -4252,6 +4273,18 @@ export function VisualEditor({
     suggestionsSignature,
     showCommentIndicators,
   ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // Prop updates must not move reconciliation behind other transaction consumers.
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.docChanged) applySuggestionsRef.current?.();
+    };
+    editor.on("transaction", onTransaction);
+    return () => {
+      editor.off("transaction", onTransaction);
+    };
+  }, [editor]);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;

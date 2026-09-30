@@ -31,6 +31,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("constrains thread rows to the panel's available width", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source.includes('"relative grid grid-cols-1 gap-3.5"')).toBe(true);
+  });
+
   it("keeps the selected history comment visible through status changes", () => {
     const source = readFileSync(
       "app/components/editor/CommentsSidebar.tsx",
