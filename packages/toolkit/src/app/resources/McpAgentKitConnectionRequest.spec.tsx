@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/client/resources/mcp-connection-resume";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { dispatchIntegrationsHref } from "../org/workspace-app-links.js";
 import {
@@ -16,6 +16,8 @@ import {
 } from "./McpAgentKitConnectionRequest.js";
 
 const popupState = vi.hoisted(() => ({ popup: null as unknown }));
+
+afterEach(() => vi.unstubAllEnvs());
 
 vi.mock("@agent-native/core/client/oauth-popup", () => ({
   openOAuthPopup: vi.fn(() => popupState.popup as Window | null),
@@ -95,6 +97,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
 
   it("keeps the request alive in a popup and resumes it on OAuth completion", async () => {
     window.sessionStorage.clear();
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
     window.history.replaceState(
       {},
       "",
@@ -149,7 +152,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
     );
     expect(oauthUrl.searchParams.get("appId")).toBe("dispatch");
     expect(oauthUrl.searchParams.get("scope")).toBe("user");
-    expect(oauthUrl.searchParams.get("return")).toContain(
+    expect(oauthUrl.searchParams.get("return")).toBe(
       "/_agent-native/oauth/popup?complete=workspace-connection",
     );
     expect(oauthUrl.searchParams.get("return")).not.toContain("#selected");

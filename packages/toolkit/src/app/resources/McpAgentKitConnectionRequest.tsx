@@ -1,5 +1,8 @@
 import type { AgentConnectionRequest } from "@agent-native/agentkit/protocol";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import {
   getWorkspaceConnectionProvider,
   workspaceProviderOAuthUrl,
@@ -173,12 +176,19 @@ export function McpAgentKitConnectionRequestCard({
               window.location.href,
             );
             returnUrl.searchParams.set("complete", "workspace-connection");
+            const basePath = appBasePath();
+            const hasBasePath =
+              basePath && returnUrl.pathname.startsWith(basePath + "/");
+            const returnPath =
+              (hasBasePath
+                ? returnUrl.pathname.slice(basePath.length)
+                : returnUrl.pathname) + returnUrl.search;
             try {
               popup.location.assign(
                 workspaceProviderOAuthUrl(source.id, {
                   appId,
                   scope: "user",
-                  returnPath: returnUrl.pathname + returnUrl.search,
+                  returnPath,
                 }),
               );
             } catch (error) {
