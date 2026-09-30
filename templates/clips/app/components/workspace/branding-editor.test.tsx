@@ -19,7 +19,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
 }));
 
-vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({
     open,
     onConnected,
@@ -59,6 +59,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "test-tab",
   useActionMutation: () => ({
     isPending: false,
     mutateAsync: (payload: unknown) => mocks.save(payload),

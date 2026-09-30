@@ -35,10 +35,25 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useChatModels: vi.fn(),
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
-  fetchAgentEngineConfiguredState: vi.fn(),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: true,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
 }));
 
 vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
@@ -73,6 +88,7 @@ vi.mock("@agent-native/core/client/collab", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: undefined }),
   useOrgMembers: () => ({ data: undefined }),
 }));
 
@@ -112,7 +128,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useFormatters: () => ({ formatDate: (value: string) => value }),
+  useFormatters: () => ({
+    formatDate: (value: string) => value,
+    formatNumber: String,
+  }),
   useT: () => (key: string) => key,
 }));
 
@@ -136,6 +155,12 @@ vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
+  useQuery: () => ({
+    data: undefined,
+    isError: false,
+    isPending: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("react-router", () => ({

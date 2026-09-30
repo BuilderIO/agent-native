@@ -1,17 +1,19 @@
 // @vitest-environment happy-dom
 
-import { downloadFile } from "@agent-native/core/client/resources";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { downloadFile } from "../../../db-admin/export-utils.js";
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import { DataTableWidget } from "./DataTableWidget.js";
 
-vi.mock("@agent-native/core/client/resources", async (importOriginal) => {
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+vi.mock("../../../db-admin/export-utils.js", async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import("@agent-native/core/client/resources")
-    >();
+    await importOriginal<typeof import("../../../db-admin/export-utils.js")>();
   return {
     ...actual,
     downloadFile: vi.fn(),
@@ -28,14 +30,19 @@ async function renderWidget(action: { label: string; href: string }) {
   roots.push(root);
   await act(async () => {
     root.render(
-      <DataTableWidget
-        action={action}
-        table={{
-          title: "Responses",
-          columns: [{ key: "name", label: "Name" }],
-          rows: [{ id: "1", name: "Ada" }],
-        }}
-      />,
+      <AgentNativeI18nProvider
+        catalog={toolkitI18nCatalog}
+        persistPreference={false}
+      >
+        <DataTableWidget
+          action={action}
+          table={{
+            title: "Responses",
+            columns: [{ key: "name", label: "Name" }],
+            rows: [{ id: "1", name: "Ada" }],
+          }}
+        />
+      </AgentNativeI18nProvider>,
     );
   });
   return container;
@@ -99,19 +106,24 @@ describe("DataTableWidget", () => {
     roots.push(root);
     await act(async () => {
       root.render(
-        <DataTableWidget
-          table={{
-            title: "Responses",
-            columns: [
-              { key: "name", label: "Name" },
-              { key: "score", label: "Score", align: "right" },
-            ],
-            rows: [
-              { id: "1", name: "Ada", score: 42 },
-              { id: "2", name: "Grace, Hopper", score: 7 },
-            ],
-          }}
-        />,
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          persistPreference={false}
+        >
+          <DataTableWidget
+            table={{
+              title: "Responses",
+              columns: [
+                { key: "name", label: "Name" },
+                { key: "score", label: "Score", align: "right" },
+              ],
+              rows: [
+                { id: "1", name: "Ada", score: 42 },
+                { id: "2", name: "Grace, Hopper", score: 7 },
+              ],
+            }}
+          />
+        </AgentNativeI18nProvider>,
       );
     });
 

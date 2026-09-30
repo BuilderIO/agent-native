@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 
 import type { ContentPart } from "@agent-native/core/client/agent-chat";
-import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import {
+  AgentNativeI18nProvider as CoreAgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "@agent-native/core/client/i18n";
 import type { AgentMcpAppPayload } from "@agent-native/core/mcp-client";
-import { act, useState } from "react";
+import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import { ThinkingDisplayProvider } from "../thinking-display.js";
 import {
   ApprovalContext,
@@ -34,6 +38,17 @@ import {
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  return (
+    <CoreAgentNativeI18nProvider
+      {...props}
+      catalog={props.catalog ?? toolkitI18nCatalog}
+    />
+  );
+}
 
 const builderHandoffMocks = vi.hoisted(() => ({
   useAgentChatContext: vi.fn(),
@@ -146,6 +161,13 @@ describe("ToolCallDisplay native renderers", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const render = root.render.bind(root);
+    root.render = (children: ReactNode) =>
+      render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          {children}
+        </AgentNativeI18nProvider>,
+      );
   });
 
   afterEach(() => {
@@ -972,6 +994,7 @@ describe("ToolCallDisplay native renderers", () => {
             sourceLocale: "en-US",
             messages: {
               agentChat: {
+                duration: { secondShort: "s" },
                 tool: {
                   askingAgent: "Localized asking {{agent}}",
                   elapsed: "Localized elapsed {{duration}}",

@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mockSendToAgentChat = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   sendToAgentChat: mockSendToAgentChat,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({

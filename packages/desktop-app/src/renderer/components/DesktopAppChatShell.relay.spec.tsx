@@ -7,37 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDesktopChatRelayFetch } from "../lib/desktop-chat-relay.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
 
-vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/agent-chat")
-  >()),
-  fetchAgentEngineConfiguredState: vi.fn(async () => "configured"),
-  useAgentEngineConfigured: () => ({
-    canChat: true,
-    missing: false,
-    state: "configured",
-  }),
-  useChatModels: () => ({
-    availableModels: [],
-    configuredModels: [],
-    defaultModel: "",
-    selectedModel: "",
-    selectedEngine: "",
-    selectedEffort: "medium",
-    isLoading: false,
-    selectionReady: true,
-    unavailableSelection: null,
-    onModelChange: vi.fn(),
-    onEffortChange: vi.fn(),
-    refreshEngines: vi.fn(),
-  }),
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatMemoryRouter: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
-  preloadAgentChatSurface: vi.fn(() => Promise.resolve()),
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+}));
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
+  preloadAgentChatSurface: vi.fn(() => Promise.resolve()),
 }));
 
 const APP_URLS: Record<string, string> = {

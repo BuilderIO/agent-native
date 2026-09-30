@@ -26,8 +26,13 @@ vi.mock("../VoiceTranscriptionSection.js", () => ({
   ),
 }));
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+
+import { createToolkitI18nCatalog } from "../../i18n.js";
 import { PreferencesSettings } from "./PreferencesSettings.js";
 import { PREFERENCES_SEARCH_ENTRIES } from "./search-entries.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("PreferencesSettings", () => {
   let container: HTMLDivElement;
@@ -49,7 +54,14 @@ describe("PreferencesSettings", () => {
 
   async function render() {
     await act(async () => {
-      root.render(<PreferencesSettings />);
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          persistPreference={false}
+        >
+          <PreferencesSettings />
+        </AgentNativeI18nProvider>,
+      );
     });
   }
 

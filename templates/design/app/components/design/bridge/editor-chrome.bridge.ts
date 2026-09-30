@@ -6410,6 +6410,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var passiveSelectionEls: Element[] = [];
   var passiveSelectionOverlays: HTMLElement[] = [];
+  var passiveSelectionOverlayRects: DOMRect[] = [];
   var repeatInstanceOverlays: HTMLElement[] = [];
   var repeatInstanceAnchor: Element | null = null;
   var multiSelectionBoundsOverlay: HTMLElement | null = null;
@@ -7004,11 +7005,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       positionMultiSelectionBounds();
       return;
     }
+    var poolStyleChanged = style !== passiveSelectionOverlayPoolStyle;
+    var previousPassiveEls = passiveSelectionEls;
+    var previousPassiveRects = passiveSelectionOverlayRects;
     passiveSelectionEls = nextPassiveEls;
     syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
+    passiveSelectionOverlayRects = passiveSelectionEls.map(function (el) {
+      return el.getBoundingClientRect();
+    });
     passiveSelectionEls.forEach(function (el, index) {
       var overlay = passiveSelectionOverlays[index];
-      if (overlay) positionOverlay(overlay, el);
+      var previousRect = previousPassiveRects[index];
+      var nextRect = passiveSelectionOverlayRects[index];
+      var boundsChanged =
+        !previousRect ||
+        previousRect.left !== nextRect.left ||
+        previousRect.top !== nextRect.top ||
+        previousRect.width !== nextRect.width ||
+        previousRect.height !== nextRect.height;
+      if (
+        overlay &&
+        (poolStyleChanged || previousPassiveEls[index] !== el || boundsChanged)
+      ) {
+        positionOverlay(overlay, el);
+      }
     });
     positionMultiSelectionBounds();
   }
@@ -9615,6 +9635,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function cornerRadiusHasVisiblePaint(el) {
     if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
+    if (el.tagName.toLowerCase() === "svg") {
+      var paintTarget = vectorPaintTarget(el);
+      if (
+        !paintTarget ||
+        !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) ||
+        !cornerRadiusVisibilityIsVisible(paintTarget)
+      ) {
+        return false;
+      }
+      var paintStyle = window.getComputedStyle(paintTarget);
+      return (
+        (paintStyle.fill !== "none" &&
+          Number(paintStyle.fillOpacity) > 0 &&
+          cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)) ||
+        (paintStyle.stroke !== "none" &&
+          parseFloat(paintStyle.strokeWidth) > 0 &&
+          Number(paintStyle.strokeOpacity) > 0 &&
+          cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget))
+      );
+    }
     var style = window.getComputedStyle(el);
     if (
       cornerRadiusVisibilityIsVisible(el) &&
@@ -9638,37 +9678,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return true;
       }
     }
-    if (el.tagName.toLowerCase() !== "svg") return false;
-    var paintTarget = vectorPaintTarget(el);
-    if (
-      !paintTarget ||
-      !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) ||
-      !cornerRadiusVisibilityIsVisible(paintTarget)
-    ) {
-      return false;
-    }
-    var paintStyle = window.getComputedStyle(paintTarget);
-    return (
-      (paintStyle.fill !== "none" &&
-        Number(paintStyle.fillOpacity) > 0 &&
-        cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)) ||
-      (paintStyle.stroke !== "none" &&
-        parseFloat(paintStyle.strokeWidth) > 0 &&
-        Number(paintStyle.strokeOpacity) > 0 &&
-        cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget))
-    );
+    return false;
   }
 
   function cornerRadiusHandleKeys(el) {
     if (!el || el.nodeType !== 1) return [];
-    if (!cornerRadiusHasVisiblePaint(el)) return [];
     var kind = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
+    if (kind !== "rectangle" && kind !== "polygon" && kind !== "star")
+      return [];
+    if (!cornerRadiusHasVisiblePaint(el)) return [];
     if (kind === "rectangle") return ["nw", "ne", "se", "sw"];
-    if (kind !== "polygon" && kind !== "star") return [];
     var path = radiusPathData(el);
     if (!path || path.malformed) return [];
     if (kind === "star") return ["vertex-0"];
@@ -12056,25 +12079,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     originalMinWidth: string,
     originalMinHeight: string,
   ): void {
-    target.style.outline = "none";
-    target.style.outlineStyle = "none";
-    target.style.outlineWidth = "0px";
-    target.style.outlineColor = "transparent";
-    target.style.outlineOffset = "0px";
+    if (target.style.outlineStyle !== "none")
+      target.style.outlineStyle = "none";
+    if (target.style.outlineWidth !== "0px") target.style.outlineWidth = "0px";
+    if (target.style.outlineColor !== "transparent")
+      target.style.outlineColor = "transparent";
+    if (target.style.outlineOffset !== "0px")
+      target.style.outlineOffset = "0px";
     if (hasTextCharacters(target)) {
       document.documentElement.removeAttribute(
         "data-agent-native-empty-text-editing",
       );
-      target.style.minWidth = originalMinWidth;
-      target.style.minHeight = originalMinHeight;
+      if (target.style.minWidth !== originalMinWidth)
+        target.style.minWidth = originalMinWidth;
+      if (target.style.minHeight !== originalMinHeight)
+        target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
       setSelectionOverlayResizeChromeVisible(false);
       positionTextCaretOverlay(target);
       return;
     }
     hideTextCaretOverlay(target);
-    target.style.minWidth = originalMinWidth || "1px";
-    target.style.minHeight = originalMinHeight || "1em";
+    var minWidth = originalMinWidth || "1px";
+    var minHeight = originalMinHeight || "1em";
+    if (target.style.minWidth !== minWidth) target.style.minWidth = minWidth;
+    if (target.style.minHeight !== minHeight)
+      target.style.minHeight = minHeight;
     document.documentElement.setAttribute(
       "data-agent-native-empty-text-editing",
       "true",

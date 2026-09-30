@@ -146,7 +146,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/toolkit/app/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/settings")
+  >()),
   BuilderConnectPopover: () => null,
   useBuilderStatus: () => ({
     status: {

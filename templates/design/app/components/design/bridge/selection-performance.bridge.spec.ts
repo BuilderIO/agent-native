@@ -1475,6 +1475,70 @@ describe("large concurrent selectable-rects requests", () => {
 });
 
 describe("a marquee drag does not rebuild element info every frame", () => {
+  it("repositions a retained passive overlay when its target moves as selection changes", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 900 },
+      });
+      await openBridgePage(page);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-elements",
+            selectorGroups: [
+              '[data-agent-native-node-id="card-0"]',
+              '[data-agent-native-node-id="card-1"]',
+              '[data-agent-native-node-id="card-2"]',
+            ].map((selector) => [selector]),
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll(
+            '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+          ).length === 3,
+      );
+
+      const positions = await page.evaluate(
+        () =>
+          new Promise<{ overlayTop: number; targetTop: number }>((resolve) => {
+            const target = document.querySelector(
+              '[data-agent-native-node-id="card-2"]',
+            ) as HTMLElement;
+            target.style.top = "250px";
+            window.postMessage(
+              {
+                type: "select-elements",
+                selectorGroups: [
+                  '[data-agent-native-node-id="card-0"]',
+                  '[data-agent-native-node-id="card-3"]',
+                  '[data-agent-native-node-id="card-2"]',
+                ].map((selector) => [selector]),
+              },
+              "*",
+            );
+            window.setTimeout(() => {
+              const overlay = document.querySelectorAll<HTMLElement>(
+                '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+              )[2];
+              resolve({
+                overlayTop: Number.parseFloat(overlay.style.top),
+                targetTop: target.getBoundingClientRect().top,
+              });
+            }, 0);
+          }),
+      );
+
+      expect(positions.overlayTop).toBe(positions.targetTop);
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
   it("keeps computed-style reads proportional to elements, not to frames", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

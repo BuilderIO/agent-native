@@ -456,15 +456,24 @@ function SortableSlideThumb({
                * lets it skip everything below the fold; `aspect-ratio` keeps the row
                * the right height while its contents are skipped. */}
               <div
+                data-slide-thumbnail-frame
                 className={`relative w-full overflow-hidden rounded border ${
                   slide.skipped ? "opacity-40" : ""
                 }`}
                 style={{
                   borderColor:
-                    humanPresenceUsers.length > 0
-                      ? humanPresenceUsers[0].color + "66"
-                      : // guard:allow-raw-color — thumbnail border sits on an arbitrary-colored slide render, not app chrome
-                        "rgba(255,255,255,0.06)",
+                    isSelected || isActive
+                      ? // guard:allow-raw-color — match the existing slide selection outline.
+                        "#609FF8"
+                      : humanPresenceUsers.length > 0
+                        ? humanPresenceUsers[0].color + "66"
+                        : // guard:allow-raw-color — thumbnail border sits on an arbitrary-colored slide render, not app chrome
+                          "rgba(255,255,255,0.06)",
+                  boxShadow:
+                    isSelected || isActive
+                      ? // guard:allow-raw-color — keep the selected thumbnail outline visible without changing layout.
+                        "0 0 0 2px #609FF8"
+                      : undefined,
                   aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
                   contentVisibility: "auto",
                 }}

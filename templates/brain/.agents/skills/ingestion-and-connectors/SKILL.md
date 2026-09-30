@@ -2,7 +2,7 @@
 name: ingestion-and-connectors
 description: >-
   Create, sync, and diagnose Brain sources across all providers (manual,
-  generic, clips, slack, granola, github) — health states, sync scheduling,
+  generic, clips, slack, granola, github, zoom) — health states, sync scheduling,
   and credential resolution. Use when adding a source, running or debugging a
   sync, or the user asks why a source is stale, erroring, or not importing.
 ---
@@ -16,7 +16,7 @@ provider-agnostic source lifecycle.
 ## Source Providers
 
 `create-source` accepts exactly `manual`, `generic`, `clips`, `slack`,
-`granola`, or `github` (`sourceProviderSchema` in `actions/_schemas.ts`), and
+`granola`, `github`, or `zoom` (`sourceProviderSchema` in `actions/_schemas.ts`), and
 rejects anything else. There is no arbitrary/custom
 provider string — a generic webhook-fed source uses `provider: "generic"`
 with a `sourceKey` + minted `ingestToken`, not a made-up provider id.
@@ -42,6 +42,19 @@ document captures, and reports each file's import or privacy outcome. Use the
 standard sharing actions to change a source to organization visibility or grant
 specific access. Do not use `sync-source` for a manual source.
 
+## Zoom
+
+Zoom sources import cloud-recording transcripts through a Server-to-Server
+OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
+`ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET`; the app needs scopes
+`user:read:list_users:admin` and
+`cloud_recording:read:list_user_recordings:admin`. Config is
+`{"zoom":{"userIds":[...],"lookbackDays":7}}` — `userIds` is optional (up to
+50; omitted means every account user) and `lookbackDays` is 1-30, default 7.
+Sources auto-sync hourly; each run overlaps the previous one by one day to
+catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
+Captures use the organization audience. There are no Zoom webhooks.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same
@@ -66,7 +79,7 @@ The source answer policy is code-enforced:
 | `answerEligible`      | Excludes the source from `ask-brain` answers when false.                            |
 | `authority`           | Ranks otherwise eligible sources from 0 to 100.                                     |
 | `freshnessWindowDays` | Excludes source-backed results after the configured window; `null` disables expiry. |
-| `reviewRequired`      | Raw captures cannot support answers, and company knowledge enters review.           |
+| `reviewRequired`      | Raw captures cannot support `ask-brain` answers.                                    |
 | `conflictBehavior`    | Prefer higher authority, surface conflicts, or require review before raw support.   |
 
 Legacy sources remain `standard`, answer-eligible, authority 50, with no
@@ -84,7 +97,7 @@ single action to check before telling a user "your source is broken" or
 | `error` | Source `status === "error"`, has `lastError`, or its latest sync run failed. |
 | `paused` | Source `status` is `paused` or `archived`. |
 | `needs_setup` | Slack source with no configured channel allow-list yet (`channelIds`/`channels`/`allowedChannels` all empty). |
-| `needs_sync` | Auto-sync-eligible provider (slack/granola/github) that has never completed a sync (`lastSyncedAt` is null). |
+| `needs_sync` | Auto-sync-eligible provider (slack/granola/github/zoom) that has never completed a sync (`lastSyncedAt` is null). |
 | `stale` | Past its computed `nextSyncAt` by more than a 15-minute grace window. |
 | `healthy` | None of the above. |
 
@@ -100,11 +113,12 @@ individual sources by hand.
 - `sync-source --sourceId=<id>` runs one source's connector immediately
   (requires `editor` access on that source). Slack scans only its allow-listed
   channels; Granola polls accessible notes; GitHub imports approved
-  repository issues/PRs.
+  repository issues/PRs; Zoom imports recording transcripts.
 - `sync-due-sources` sweeps every accessible source whose `nextSyncAt` has
   passed. Prefer this for "catch everything up" requests instead of listing
   sources and calling `sync-source` in a loop.
-- Auto-sync only applies to `slack`, `granola`, and `github` sources, and only
+- Auto-sync (hourly by default) only applies to `slack`, `granola`, `github`,
+  and `zoom` sources, and only
   when the source's own config doesn't explicitly set `autoSync: false`
   (`sourceAutoSync` in `brain-health.ts`). `manual`, `generic`, and `clips`
   sources are push/import-driven, not polled — there's no `nextSyncAt` to

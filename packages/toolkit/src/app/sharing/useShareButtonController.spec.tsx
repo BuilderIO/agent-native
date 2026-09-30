@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   unshare: { mutate: vi.fn() },
 }));
 
-vi.mock("../use-action.js", () => ({
+vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: vi.fn(() => mocks.query),
   useActionMutation: vi.fn((name: string) => {
     if (name === "set-resource-visibility") return mocks.setVisibility;

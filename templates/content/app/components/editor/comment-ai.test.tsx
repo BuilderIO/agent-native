@@ -43,26 +43,6 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
-  fetchAgentEngineConfiguredState: vi.fn(async () => "configured"),
-  useAgentEngineConfigured: () => ({
-    canChat: true,
-    missing: false,
-    state: "configured",
-  }),
-  useChatModels: () => ({
-    availableModels: [],
-    configuredModels: [],
-    defaultModel: "",
-    selectedModel: "",
-    selectedEngine: "",
-    selectedEffort: "medium",
-    isLoading: false,
-    selectionReady: true,
-    unavailableSelection: null,
-    onModelChange: vi.fn(),
-    onEffortChange: vi.fn(),
-    refreshEngines: vi.fn(),
-  }),
   startBackgroundAgentSession: (...args: unknown[]) =>
     api.startBackgroundAgentSession(...args),
   getBackgroundAgentSessionStatus: (...args: unknown[]) =>

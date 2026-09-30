@@ -107,6 +107,7 @@ function setupFetch(options?: {
   deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
   staleContentConflicts?: boolean;
+  getDeckFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
   putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
@@ -128,6 +129,7 @@ function setupFetch(options?: {
   let resolveDeferredDeckList: (() => void) | null = null;
   let accessibleDeck: Deck | null = null;
   const patchAttempts = new Map<string, number>();
+  const getDeckAttempts = new Map<string, number>();
   const putAttempts = new Map<string, number>();
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
@@ -239,6 +241,20 @@ function setupFetch(options?: {
 
     if (href.includes("/_agent-native/actions/get-deck")) {
       if (accessibleDeck) {
+        const deckId =
+          new URL(href, "http://localhost").searchParams.get("id") ?? "";
+        const attempts = (getDeckAttempts.get(deckId) ?? 0) + 1;
+        getDeckAttempts.set(deckId, attempts);
+        if (
+          deckId === options?.getDeckFailures?.deckId &&
+          attempts <= options.getDeckFailures.count
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: "Temporary read failure" }), {
+              status: 500,
+            }),
+          );
+        }
         if (deferNextGetDeck) {
           deferNextGetDeck = false;
           const deferredDeck = accessibleDeck;
@@ -1339,6 +1355,106 @@ describe("DeckContext deck creation persistence", () => {
         requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
     ).toHaveLength(patchCallsBeforeResolution);
+  });
+
+  it("rebases latest slide fields and keeps a pending safe write failed until it saves", async () => {
+    const deckId = "resolve-latest-pending-fields-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    let safeWriteStartedWithFailedSave = false;
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      staleContentConflicts: true,
+      getDeckFailures: { deckId, count: 2 },
+      patchResponse: (body: Record<string, unknown>) => {
+        const operations = Array.isArray(body.operations)
+          ? body.operations
+          : [];
+        if (
+          operations.some(
+            (operation: unknown) =>
+              !!operation &&
+              typeof operation === "object" &&
+              "fields" in operation &&
+              !!operation.fields &&
+              typeof operation.fields === "object" &&
+              "notes" in operation.fields &&
+              operation.fields.notes === "Pending local notes",
+          )
+        ) {
+          safeWriteStartedWithFailedSave = hasFailedDeckSave(deckId);
+        }
+        return { ok: true };
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: deckId,
+      title: "Pending fields conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "Before",
+          notes: "Old notes",
+          background: "Old background",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "Latest version",
+          notes: "Remote notes",
+          background: "Remote background",
+        },
+      ],
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { content: "Local draft", notes: "Pending local notes" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+    expect(hasFailedDeckSave(deckId)).toBe(true);
+
+    await act(async () => {
+      await result.current.resolveContentConflict(deckId, "slide-1", "latest");
+    });
+
+    expect(result.current.getDeck(deckId)?.slides[0]).toMatchObject({
+      content: "Latest version",
+      notes: "Pending local notes",
+      background: "Remote background",
+    });
+    await waitFor(() => expect(safeWriteStartedWithFailedSave).toBe(true));
+    expect(getPatchAttempts(deckId)).toBe(2);
+    await waitFor(() => expect(hasFailedDeckSave(deckId)).toBe(false));
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "Pending local notes" },
+      },
+    ]);
   });
 
   it("waits for a stale draft resolution retry to persist", async () => {

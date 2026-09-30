@@ -11,6 +11,10 @@ Images for slides are generated or sourced through the Slides actions and the
 Assets app. The runtime agent must use the Assets-grounded path described below;
 the local CLI is only a developer entry point.
 
+When a chat attachment has an embeddable URL, add it to the current slide with
+`update-slide` using `<img src="…">`, then call `view-screen` and re-read the
+slide with `get-deck` to confirm it persisted.
+
 ## Scripts
 
 | Script | Purpose | Example |

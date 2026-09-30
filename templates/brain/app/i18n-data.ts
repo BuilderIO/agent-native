@@ -132,9 +132,6 @@ const enUS = {
       company: "Company",
     },
     connectorPollInterval: "Connector poll interval",
-    requireApproval: "Require approval for company knowledge",
-    requireApprovalDescription:
-      "Queue company-wide knowledge candidates for human review before publishing.",
     autoArchiveResolved: "Auto-archive resolved review items",
     autoArchiveResolvedDescription:
       "Remove approved or rejected queue items from the active review lane.",
@@ -460,8 +457,6 @@ const enUS = {
       "New sources receive a one-time ingest token. Existing sources keep their token unless rotated separately.",
     autoSync: "Auto-sync",
     autoSyncDescription: "Background polling uses this source when due",
-    reviewRequired: "Review required",
-    reviewRequiredDescription: "Queue extracted knowledge before approval",
     cancel: "Cancel",
     saveSource: "Save source",
     createSource: "Create source",
@@ -719,8 +714,7 @@ const enUS = {
     emptyTitle: "No company knowledge yet",
     emptyFilteredDetail:
       "Clear the search or filters to broaden the knowledge set.",
-    emptyDetail:
-      "Connect a source or approve review proposals to build company knowledge.",
+    emptyDetail: "Connect a source to build company knowledge.",
     updateFailedTitle: "Company context update failed",
     updateFailedDetail:
       "Brain could not update the workspace context resource.",
@@ -1057,7 +1051,7 @@ const baseMessagesByLocale = {
       notApplicable: "不适用",
       emptyTitle: "还没有公司知识",
       emptyFilteredDetail: "清除搜索或筛选器以扩大知识范围。",
-      emptyDetail: "连接来源或批准审核提案来建立公司知识。",
+      emptyDetail: "连接来源来建立公司知识。",
       updateFailedTitle: "公司上下文更新失败",
       updateFailedDetail: "Brain 无法更新工作区上下文资源。",
       waitingOnSearch: "等待 search-knowledge",
@@ -1275,8 +1269,7 @@ const baseMessagesByLocale = {
       emptyTitle: "Aún no hay conocimiento de empresa",
       emptyFilteredDetail:
         "Borra la búsqueda o los filtros para ampliar el conjunto de conocimiento.",
-      emptyDetail:
-        "Conecta una fuente o aprueba propuestas de revisión para crear conocimiento de empresa.",
+      emptyDetail: "Conecta una fuente para crear conocimiento de empresa.",
       updateFailedTitle: "Error al actualizar el contexto de empresa",
       updateFailedDetail:
         "Brain no pudo actualizar el recurso de contexto del workspace.",
@@ -1501,7 +1494,7 @@ const baseMessagesByLocale = {
       emptyFilteredDetail:
         "Effacez la recherche ou les filtres pour élargir l'ensemble de connaissances.",
       emptyDetail:
-        "Connectez une source ou approuvez des propositions de revue pour constituer la connaissance d'entreprise.",
+        "Connectez une source pour constituer la connaissance d'entreprise.",
       updateFailedTitle: "Échec de la mise à jour du contexte d'entreprise",
       updateFailedDetail:
         "Brain n'a pas pu mettre à jour la ressource de contexte de l'espace de travail.",
@@ -1723,8 +1716,7 @@ const baseMessagesByLocale = {
       emptyTitle: "Noch kein Unternehmenswissen",
       emptyFilteredDetail:
         "Suche oder Filter löschen, um die Wissensmenge zu erweitern.",
-      emptyDetail:
-        "Verbinde eine Quelle oder genehmige Prüfungsvorschläge, um Unternehmenswissen aufzubauen.",
+      emptyDetail: "Verbinde eine Quelle, um Unternehmenswissen aufzubauen.",
       updateFailedTitle:
         "Aktualisierung des Unternehmenskontexts fehlgeschlagen",
       updateFailedDetail:
@@ -1943,8 +1935,7 @@ const baseMessagesByLocale = {
       emptyTitle: "会社ナレッジはまだありません",
       emptyFilteredDetail:
         "検索やフィルターをクリアしてナレッジ範囲を広げてください。",
-      emptyDetail:
-        "ソースを接続するかレビュー提案を承認して会社ナレッジを構築してください。",
+      emptyDetail: "ソースを接続して会社ナレッジを構築してください。",
       updateFailedTitle: "会社コンテキストの更新に失敗しました",
       updateFailedDetail:
         "Brain はワークスペースのコンテキストリソースを更新できませんでした。",
@@ -2159,7 +2150,7 @@ const baseMessagesByLocale = {
       notApplicable: "해당 없음",
       emptyTitle: "아직 회사 지식이 없습니다",
       emptyFilteredDetail: "검색이나 필터를 지워 지식 범위를 넓히세요.",
-      emptyDetail: "소스를 연결하거나 검토 제안을 승인해 회사 지식을 만드세요.",
+      emptyDetail: "소스를 연결해 회사 지식을 만드세요.",
       updateFailedTitle: "회사 컨텍스트 업데이트 실패",
       updateFailedDetail:
         "Brain이 워크스페이스 컨텍스트 리소스를 업데이트하지 못했습니다.",
@@ -2379,8 +2370,7 @@ const baseMessagesByLocale = {
       emptyTitle: "Ainda não há conhecimento da empresa",
       emptyFilteredDetail:
         "Limpe a busca ou os filtros para ampliar o conjunto de conhecimento.",
-      emptyDetail:
-        "Conecte uma fonte ou aprove propostas de revisão para criar conhecimento da empresa.",
+      emptyDetail: "Conecte uma fonte para criar conhecimento da empresa.",
       updateFailedTitle: "Falha ao atualizar o contexto da empresa",
       updateFailedDetail:
         "Brain não conseguiu atualizar o recurso de contexto do workspace.",
@@ -2599,8 +2589,7 @@ const baseMessagesByLocale = {
       notApplicable: "लागू नहीं",
       emptyTitle: "अभी कोई कंपनी ज्ञान नहीं",
       emptyFilteredDetail: "knowledge set बढ़ाने के लिए search या filters साफ़ करें।",
-      emptyDetail:
-        "कंपनी ज्ञान बनाने के लिए source connect करें या review proposals approve करें।",
+      emptyDetail: "कंपनी ज्ञान बनाने के लिए source connect करें।",
       updateFailedTitle: "कंपनी संदर्भ update विफल",
       updateFailedDetail: "Brain workspace context resource update नहीं कर सका।",
       waitingOnSearch: "search-knowledge की प्रतीक्षा",
@@ -2816,7 +2805,7 @@ const baseMessagesByLocale = {
       notApplicable: "غير منطبق",
       emptyTitle: "لا توجد معرفة شركة بعد",
       emptyFilteredDetail: "امسح البحث أو عوامل التصفية لتوسيع مجموعة المعرفة.",
-      emptyDetail: "صل مصدرًا أو وافق على مقترحات المراجعة لبناء معرفة الشركة.",
+      emptyDetail: "صل مصدرًا لبناء معرفة الشركة.",
       updateFailedTitle: "فشل تحديث سياق الشركة",
       updateFailedDetail: "تعذر على Brain تحديث مورد سياق مساحة العمل.",
       waitingOnSearch: "بانتظار search-knowledge",
@@ -3022,9 +3011,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "سطح الموصلات المتدهورة أو الفاشلة في تدفق المراجعة.",
       notifySourceErrors: "إخطار على أخطاء المصدر",
-      requireApprovalDescription:
-        "قم بوضع المرشحين ذوي المعرفة على مستوى الشركة في قائمة الانتظار للمراجعة البشرية قبل النشر.",
-      requireApproval: "تتطلب الموافقة على معرفة الشركة",
       requireCitationsDescription:
         "يجب أن يستشهد السؤال Brain بصفوف المصدر المعتمدة للحصول على الإجابات الواقعية.",
       requireCitations: "تتطلب الاستشهادات",
@@ -3224,9 +3210,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "مراجعة المواد الخام المستوردة قبل التقطير.",
       reviewRawCaptures: "مراجعة اللقطات الخام",
-      reviewRequiredDescription:
-        "قائمة الانتظار استخراج المعرفة قبل الموافقة عليها",
-      reviewRequired: "المراجعة مطلوبة",
       runDueSyncs: "تشغيل المزامنات المستحقة",
       scopedCredentialsReady: "أوراق الاعتماد ذات النطاق جاهزة",
       selectAll: "حدد الكل",
@@ -3435,10 +3418,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Oberflächenbeeinträchtigung oder fehlerhafte Anschlüsse im Überprüfungsablauf.",
       notifySourceErrors: "Bei Quellfehlern benachrichtigen",
-      requireApprovalDescription:
-        "Stellen Sie unternehmensweite Wissenskandidaten vor der Veröffentlichung zur menschlichen Prüfung in die Warteschlange.",
-      requireApproval:
-        "Für Unternehmenskenntnisse ist eine Genehmigung erforderlich",
       requireCitationsDescription:
         "Bitten Sie Brain, für sachliche Antworten müssen genehmigte Quellenzeilen zitiert werden.",
       requireCitations: "Erfordern Zitate",
@@ -3657,9 +3636,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Überprüfen Sie importierte Rohstoffe vor der Destillation.",
       reviewRawCaptures: "Überprüfen Sie Rohaufnahmen",
-      reviewRequiredDescription:
-        "Extrahiertes Wissen vor der Genehmigung in die Warteschlange stellen",
-      reviewRequired: "Überprüfung erforderlich",
       runDueSyncs: "Führen Sie fällige Synchronisierungen durch",
       scopedCredentialsReady: "Begrenzte Anmeldeinformationen bereit",
       selectAll: "Alles auswählen",
@@ -3867,9 +3843,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Conectores de superficie degradada o defectuosos en el flujo de revisión.",
       notifySourceErrors: "Notificar sobre errores de origen",
-      requireApprovalDescription:
-        "Ponga en cola a los candidatos con conocimientos de toda la empresa para su revisión humana antes de publicarlos.",
-      requireApproval: "Requerir aprobación para conocimiento de la empresa.",
       requireCitationsDescription:
         "Ask Brain debe citar filas de fuentes aprobadas para obtener respuestas objetivas.",
       requireCitations: "Requerir citas",
@@ -4085,9 +4058,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Revisar la materia prima importada antes de la destilación.",
       reviewRawCaptures: "Revisar capturas sin procesar",
-      reviewRequiredDescription:
-        "Poner en cola el conocimiento extraído antes de la aprobación",
-      reviewRequired: "Revisión requerida",
       runDueSyncs: "Ejecutar sincronizaciones debidas",
       scopedCredentialsReady: "Credenciales con alcance listas",
       selectAll: "Seleccionar todo",
@@ -4297,10 +4267,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Surface des connecteurs dégradés ou défaillants dans le flux de révision.",
       notifySourceErrors: "Notifier sur les erreurs sources",
-      requireApprovalDescription:
-        "Mettez en file d'attente les candidats aux connaissances à l'échelle de l'entreprise pour un examen humain avant de les publier.",
-      requireApproval:
-        "Exiger une approbation pour les connaissances de l'entreprise",
       requireCitationsDescription:
         "Demandez à Brain de citer les lignes de sources approuvées pour des réponses factuelles.",
       requireCitations: "Exiger des citations",
@@ -4519,9 +4485,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Examiner les matières premières importées avant la distillation.",
       reviewRawCaptures: "Examiner les captures brutes",
-      reviewRequiredDescription:
-        "Mettre en file d'attente les connaissances extraites avant l'approbation",
-      reviewRequired: "Examen requis",
       runDueSyncs: "Exécuter les synchronisations nécessaires",
       scopedCredentialsReady: "Informations d'identification étendues prêtes",
       selectAll: "Tout sélectionner",
@@ -4716,9 +4679,6 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTier: "डिफ़ॉल्ट प्रकाशन स्तर",
       notifySourceErrorsDescription: "समीक्षा प्रवाह में सतह ख़राब या विफल कनेक्टर।",
       notifySourceErrors: "स्रोत त्रुटियों पर सूचित करें",
-      requireApprovalDescription:
-        "प्रकाशन से पहले मानव समीक्षा के लिए कंपनी-व्यापी ज्ञान वाले उम्मीदवारों की कतार लगाएं।",
-      requireApproval: "कंपनी के ज्ञान के लिए अनुमोदन की आवश्यकता है",
       requireCitationsDescription:
         "पूछें Brain को तथ्यात्मक उत्तरों के लिए अनुमोदित स्रोत पंक्तियों का हवाला देना चाहिए।",
       requireCitations: "उद्धरणों की आवश्यकता है",
@@ -4918,8 +4878,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "आसवन से पहले आयातित कच्चे माल की समीक्षा करें।",
       reviewRawCaptures: "कच्चे कैप्चर की समीक्षा करें",
-      reviewRequiredDescription: "अनुमोदन से पहले कतार से ज्ञान निकाला गया",
-      reviewRequired: "समीक्षा आवश्यक है",
       runDueSyncs: "उचित सिंक चलाएँ",
       scopedCredentialsReady: "दायरे वाले क्रेडेंशियल तैयार हैं",
       selectAll: "सभी का चयन करें",
@@ -5120,9 +5078,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "レビュー フローでの表面の劣化または故障したコネクタ。",
       notifySourceErrors: "ソースエラーを通知する",
-      requireApprovalDescription:
-        "公開する前に、全社的なナレッジの候補者をキューに入れて人によるレビューを受けます。",
-      requireApproval: "社内知識の承認が必要",
       requireCitationsDescription:
         "Ask Brain は、事実に基づく回答として承認されたソース行を引用する必要があります。",
       requireCitations: "引用を要求する",
@@ -5331,8 +5286,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "蒸留前に輸入原料を確認してください。",
       reviewRawCaptures: "生のキャプチャを確認する",
-      reviewRequiredDescription: "抽出されたナレッジを承認前にキューに入れる",
-      reviewRequired: "要レビュー",
       runDueSyncs: "期限付き同期を実行する",
       scopedCredentialsReady: "スコープ付き認証情報の準備が完了しました",
       selectAll: "すべて選択",
@@ -5532,9 +5485,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "검토 흐름에서 표면 성능이 저하되거나 커넥터에 오류가 발생했습니다.",
       notifySourceErrors: "소스 오류 알림",
-      requireApprovalDescription:
-        "게시하기 전에 사람의 검토를 위해 전사적 지식 후보를 대기열에 추가하세요.",
-      requireApproval: "회사 지식에 대한 승인이 필요합니다.",
       requireCitationsDescription:
         "Ask Brain은 사실 답변에 대해 승인된 소스 행을 인용해야 합니다.",
       requireCitations: "인용이 필요합니다",
@@ -5738,8 +5688,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "증류하기 전에 수입된 원료를 검토하십시오.",
       reviewRawCaptures: "원시 캡처 검토",
-      reviewRequiredDescription: "승인 전 큐 추출 지식",
-      reviewRequired: "검토 필요",
       runDueSyncs: "예정된 동기화 실행",
       scopedCredentialsReady: "범위가 지정된 자격 증명 준비됨",
       selectAll: "모두 선택",
@@ -5942,9 +5890,6 @@ const exactEnglishDebtOverrides: Partial<
       notifySourceErrorsDescription:
         "Superfície de conectores degradados ou com falha no fluxo de revisão.",
       notifySourceErrors: "Notificar sobre erros de origem",
-      requireApprovalDescription:
-        "Coloque na fila os candidatos de conhecimento de toda a empresa para revisão humana antes de publicar.",
-      requireApproval: "Exigir aprovação para conhecimento da empresa",
       requireCitationsDescription:
         "Ask Brain deve citar linhas de origem aprovadas para respostas factuais.",
       requireCitations: "Exigir citações",
@@ -6159,9 +6104,6 @@ const exactEnglishDebtOverrides: Partial<
       reviewRawCapturesDescription:
         "Revise a matéria-prima importada antes da destilação.",
       reviewRawCaptures: "Revise capturas brutas",
-      reviewRequiredDescription:
-        "Fila de conhecimento extraído antes da aprovação",
-      reviewRequired: "Revisão necessária",
       runDueSyncs: "Execute as sincronizações devidas",
       scopedCredentialsReady: "Credenciais com escopo pronto",
       selectAll: "Selecionar tudo",
@@ -6347,9 +6289,6 @@ const exactEnglishDebtOverrides: Partial<
       defaultPublishTier: "默认发布层",
       notifySourceErrorsDescription: "审查流程中表面退化或失效的连接器。",
       notifySourceErrors: "通知源错误",
-      requireApprovalDescription:
-        "在发布之前对全公司范围内的知识候选者进行排队以供人工审核。",
-      requireApproval: "需要公司知识的批准",
       requireCitationsDescription:
         "询问 Brain 必须引用经批准的源行以获得事实答案。",
       requireCitations: "需要引用",
@@ -6525,8 +6464,6 @@ const exactEnglishDebtOverrides: Partial<
       },
       reviewRawCapturesDescription: "蒸馏前审查进口原料。",
       reviewRawCaptures: "查看原始捕获",
-      reviewRequiredDescription: "在批准之前对提取的知识进行排队",
-      reviewRequired: "需要审核",
       runDueSyncs: "运行到期同步",
       scopedCredentialsReady: "范围凭证已准备就绪",
       selectAll: "选择全部",

@@ -51,6 +51,15 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.2
+  - @agent-native/recap-cli@0.5.52
+
 ## 0.198.1
 
 ### Patch Changes
@@ -3622,11 +3631,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
-
-## 0.164.17
-
-### Patch Changes
-
-- d492462: Support TipTap mark rule helpers in generated SSR stubs.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

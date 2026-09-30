@@ -7,7 +7,6 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- Corner-radius handles only appear on shapes with a visible fill or stroke.
 - Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
 - The local editing guide now shows the local network Allow prompt and its Site settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
@@ -15,6 +14,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Corner-radius handles follow the pointer and match visible paint on supported shapes.
+- Corner-radius handles stay in sync with visible shape paint.
 - The home composer stays put as the app opens.
 - Design warnings wait for the current preview to finish loading
 - Live editing now offers a retry when the local bridge does not respond.

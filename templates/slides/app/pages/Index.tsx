@@ -969,14 +969,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       return;
     }
 
-    const filesForGeneration = mergeUploadedFilesForRetry(
-      newDeckRetryFiles,
-      files,
-    );
-    const attachmentsForGeneration = [
-      ...newDeckRetryAttachments,
-      ...attachments,
-    ];
+    const filesForGeneration = files;
+    const attachmentsForGeneration = attachments;
     const designSystemId =
       referenceSelection.designSystemId !== undefined
         ? referenceSelection.designSystemId
@@ -1382,14 +1376,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: ReadonlyArray<PromptChatAttachment> = [],
       modelSelection?: DeckModelSelection,
     ) => {
+      const filesForGeneration = mergeUploadedFilesForRetry(
+        newDeckRetryFiles,
+        files,
+      );
+      const attachmentsForGeneration = [
+        ...newDeckRetryAttachments,
+        ...attachments,
+      ];
       const generation = Promise.resolve().then(() =>
         handleCreateDeckWithPrompt(
           prompt,
-          files,
+          filesForGeneration,
           referenceSelection,
           context,
-          attachments,
-          modelSelection,
+          attachmentsForGeneration,
+          modelSelection ?? newDeckRetryModelSelection,
         ),
       );
       pendingDeckGenerationRef.current = generation;
@@ -1407,7 +1409,13 @@ export default function Index({ active = true }: { active?: boolean }) {
       );
       return generation;
     },
-    [handleCreateDeckWithPrompt, settlePendingDeckAttachments],
+    [
+      handleCreateDeckWithPrompt,
+      newDeckRetryFiles,
+      newDeckRetryAttachments,
+      newDeckRetryModelSelection,
+      settlePendingDeckAttachments,
+    ],
   );
 
   useEffect(() => {
@@ -1438,6 +1446,15 @@ export default function Index({ active = true }: { active?: boolean }) {
       const retryContextItems =
         options?.contextItems ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContextItems : undefined);
+      const retryReferenceFilePaths =
+        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
+      const carriedImportedReference =
+        newDeckRetryFiles.length > 0
+          ? newDeckRetryImportedReference
+          : undefined;
+      const carriedDeckMissing =
+        carriedImportedReference !== undefined &&
+        !decks.some((deck) => deck.id === carriedImportedReference.deckId);
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const promptReferenceDeckId = findPromptReferenceDeckId(
         prompt,
@@ -1460,7 +1477,15 @@ export default function Index({ active = true }: { active?: boolean }) {
           files,
           {
             designSystemId: retryComposerContext.designSystemId,
-            referenceDeckId: null,
+            referenceDeckId: carriedDeckMissing
+              ? null
+              : (carriedImportedReference?.deckId ?? null),
+            referenceFilePaths: retryReferenceFilePaths,
+            ...(!carriedDeckMissing && carriedImportedReference
+              ? {
+                  importedReferenceFilePath: carriedImportedReference.filePath,
+                }
+              : {}),
             composerContext: retryComposerContext,
             contextItems: retryContextItems,
           },
@@ -1476,15 +1501,13 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return "retain" as const;
       }
-      const retryReferenceFilePaths =
-        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
         prompt,
         files,
         referenceFilePaths: retryReferenceFilePaths,
         importedReference:
           retryReferenceFilePaths.length > 0
-            ? newDeckRetryImportedReference
+            ? carriedImportedReference
             : undefined,
         context: retryContext,
         ...(promptReferenceDeckId
@@ -1598,10 +1621,14 @@ export default function Index({ active = true }: { active?: boolean }) {
 
       try {
         if (selection.kind === "pptx") {
-          const imported = (await callAction("import-pptx", {
-            filePath: file.path,
-            designSystemId: initialDesignSystemId,
-          })) as {
+          const imported = (await callAction(
+            "import-pptx",
+            {
+              filePath: file.path,
+              designSystemId: initialDesignSystemId,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             id?: unknown;
             imported?: unknown;
             slideCount?: unknown;
@@ -1643,12 +1670,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         }
 
         try {
-          const imported = (await callAction("import-file", {
-            filePath: file.path,
-            format: "pdf",
-            deckId: deck.id,
-            importIntoDeck: true,
-          })) as {
+          const imported = (await callAction(
+            "import-file",
+            {
+              filePath: file.path,
+              format: "pdf",
+              deckId: deck.id,
+              importIntoDeck: true,
+            },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             imported?: unknown;
             deckId?: unknown;
             pageCount?: unknown;

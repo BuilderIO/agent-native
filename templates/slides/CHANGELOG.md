@@ -13,6 +13,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Large PDF and PowerPoint imports have more time to finish
+- The Position control stays available while a selected object's style details initialize.
 - Conflicting edits to one slide no longer block unrelated slide changes.
 - The home composer stays put as the app opens.
 - Slide conflict resolution keeps drafts available until saves succeed and retries independent edits against the current deck version.

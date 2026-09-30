@@ -13,6 +13,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Adding panels now saves without a layout width error.
 - Analytics accepts valid field names that contain SQL keywords and digits
 - Analytics date filters support custom date ranges across dashboards.
 - The Analytics sidebar shows a single divider above Send feedback.
