@@ -77,6 +77,7 @@ const {
   callAction,
   contextOptions,
   contextSelection,
+  automaticReferenceDeck,
   refetchSystems,
   headerActions,
   pageTitle,
@@ -104,6 +105,7 @@ const {
       }>;
     },
   },
+  automaticReferenceDeck: { value: null as string | null },
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
   pageTitle: { current: null as ReactNode | null },
@@ -305,6 +307,7 @@ vi.mock("@/components/editor/SlidesComposerContext", () => ({
     contextOptions(options);
     return {
       selection: contextSelection.value,
+      automaticReferenceDeckId: automaticReferenceDeck.value,
       props: { contextItems: [], contextMenuItems: [] },
       beforeSend: vi.fn(),
       dialogs: null,
@@ -451,6 +454,7 @@ beforeEach(() => {
   vi.mocked(deckIdFromPathname).mockReset();
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
   contextSelection.value = { designSystemId: null, references: [] };
+  automaticReferenceDeck.value = null;
   systemFlag.enabled = true;
   suggestionQuery.enabled = undefined;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
@@ -1652,6 +1656,105 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it.each([
+    {
+      editedPrompt: `Use this style: ${window.location.origin}/deck/own`,
+      expectedDeckId: "own",
+    },
+    {
+      editedPrompt: "Create a roadmap without a deck link",
+      expectedDeckId: null,
+    },
+  ])(
+    "recomputes a prompt-inferred deck after an edited retry: $editedPrompt",
+    async ({ editedPrompt, expectedDeckId }) => {
+      createDeck.mockReturnValue({ id: "new-deck" });
+      renderHome(
+        {
+          decks: [ownDeck, sharedDeck],
+          ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+          deleteDeck: vi.fn(),
+        },
+        {
+          retryPrompt: `Use this style: ${window.location.origin}/deck/shared`,
+          retryReferenceSelection: {
+            referenceDeckId: "shared",
+            referenceDeckIdSource: "prompt",
+          },
+        },
+      );
+      await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+      await act(async () => {
+        await promptProps.mock.lastCall![0].onSubmit(editedPrompt, [], {
+          commit: vi.fn(),
+          discard: vi.fn(),
+          attachments: [],
+        });
+      });
+
+      await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+      if (expectedDeckId) {
+        expect(callAction).toHaveBeenCalledWith(
+          "get-deck-reference-context",
+          { id: expectedDeckId },
+          { method: "GET" },
+        );
+      } else {
+        expect(callAction).not.toHaveBeenCalledWith(
+          "get-deck-reference-context",
+          expect.anything(),
+          expect.anything(),
+        );
+      }
+    },
+  );
+
+  it("lets a prompt link override an automatic recent deck", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    automaticReferenceDeck.value = "shared";
+    const composerContext = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Recent deck" },
+      ],
+    };
+    contextSelection.value = composerContext;
+    const contextItems = [
+      {
+        key: "slides:shared:",
+        title: "Recent deck",
+        context: "Automatic recent-deck context",
+        status: "ready" as const,
+      },
+    ];
+    renderHome({
+      decks: [ownDeck, sharedDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this style: ${window.location.origin}/deck/own`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        { slidesContext: composerContext, contextItems },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(callAction).toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      { id: "own" },
+      { method: "GET" },
+    );
+    expect(agentSubmit.mock.calls[0][1]).not.toContain(
+      "Automatic recent-deck context",
+    );
+  });
+
   it("uses generic copy for a storage status failure during reference import", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
@@ -1920,6 +2023,42 @@ describe("Slides prompt-led home", () => {
       { id: "own" },
       expect.anything(),
     );
+  });
+
+  it("does not save an automatic recent deck as a sign-in deck choice", async () => {
+    signedIn.value = false;
+    localStorage.setItem(
+      "slides:recent-references",
+      JSON.stringify([{ id: "shared", kind: "deck", lastUsedAt: 1 }]),
+    );
+    automaticReferenceDeck.value = "shared";
+    contextSelection.value = {
+      designSystemId: null,
+      references: [{ source: "slides", id: "shared", title: "Recent deck" }],
+    };
+    renderHome({ decks: [ownDeck, sharedDeck] });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      expect(
+        promptProps.mock.lastCall![0].onBeforeUpload(
+          `Use this style: ${window.location.origin}/deck/own`,
+          [],
+          undefined,
+          undefined,
+          undefined,
+        ),
+      ).toBe(false);
+    });
+
+    const savedSelection = JSON.parse(
+      sessionStorage.getItem("slides:pending-deck-reference-selection") ??
+        "null",
+    );
+    expect(savedSelection).toMatchObject({
+      automaticReferenceDeckId: "shared",
+    });
+    expect(savedSelection).not.toHaveProperty("referenceDeckId");
   });
 
   it("restores the generation-failure draft and model on the inline home", async () => {

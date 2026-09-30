@@ -51,7 +51,9 @@ export interface NewDeckReferenceSelection {
   composerContext?: SlidesComposerContext;
   contextItems?: readonly AgentChatContextItem[];
   designSystemId?: string | null;
+  automaticReferenceDeckId?: string | null;
   referenceDeckId?: string | null;
+  referenceDeckIdSource?: "prompt" | "selection";
   referenceFilePaths?: string[];
   importedReferenceFilePath?: string;
   referenceSource?: {

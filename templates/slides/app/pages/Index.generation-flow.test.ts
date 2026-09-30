@@ -65,7 +65,7 @@ describe("new deck generation flow", () => {
     expect(source).toContain(
       "setNewDeckRetryReferenceSelection(state.retryReferenceSelection)",
     );
-    expect(source).toContain("...retryReferenceSelection");
+    expect(source).toContain("...(retryReferenceSelection ?? {})");
     expect(source).toContain("retryReferenceSelection?.composerContext");
     expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
     expect(source).toContain("referenceSelection.referenceSource");
@@ -99,7 +99,7 @@ describe("new deck generation flow", () => {
       "retryReferenceSelection?.referenceDeckId !== undefined",
     );
     expect(promptSubmit).toContain(
-      "{ designSystemId: retryComposerContext.designSystemId }",
+      "designSystemId: generationComposerContext.designSystemId",
     );
   });
 
@@ -213,8 +213,9 @@ describe("new deck generation flow", () => {
     expect(promptSubmit).toContain(
       "reusingRetryInputs\n        ? (retryReferenceSelection?.referenceFilePaths ?? [])\n        : []",
     );
-    expect(source).toContain(
-      "...(retryReferenceFilePaths.length > 0\n            ? { referenceFilePaths: retryReferenceFilePaths }\n            : {}),",
+    expect(promptSubmit).toContain("...(retryReferenceFilePaths.length > 0");
+    expect(promptSubmit).toContain(
+      "{ referenceFilePaths: retryReferenceFilePaths }",
     );
     expect(source).toContain(
       "retryReferenceSelection.importedReferenceFilePath",
@@ -339,7 +340,9 @@ describe("new deck generation flow", () => {
     expect(promptSubmit).toContain("runPendingDeckGeneration(");
     expect(promptSubmit).toContain("files,");
     expect(promptSubmit).toContain("attachments.attachments");
-    expect(promptSubmit).toContain("composerContext: retryComposerContext");
+    expect(promptSubmit).toContain(
+      "composerContext: generationComposerContext",
+    );
     expect(promptSubmit).toContain(
       "const retryReferenceSelection = newDeckRetryReferenceSelection;",
     );

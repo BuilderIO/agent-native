@@ -28,6 +28,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { z } from "zod";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,10 @@ import {
   type SlidesComposerContext,
 } from "@/lib/composer-context";
 import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
+
+const storedContextSchema = slidesComposerContextSchema.extend({
+  automaticReferenceDeckId: z.string().nullable().optional(),
+});
 
 function figmaPickerId(reference: ComposerSource) {
   return `${encodeURIComponent(composerSourceKey(reference))}:${encodeURIComponent(reference.id)}`;
@@ -106,6 +111,9 @@ export function useSlidesComposerContext({
     designSystemId: null,
     references: [],
   });
+  const [automaticReferenceDeckId, setAutomaticReferenceDeckId] = useState<
+    string | null
+  >(null);
   const selection = useMemo(
     () =>
       systemsEnabled
@@ -151,6 +159,7 @@ export function useSlidesComposerContext({
   useEffect(() => {
     edited.current = false;
     initialSelectionKey.current = undefined;
+    setAutomaticReferenceDeckId(null);
     setError(undefined);
     version.current++;
     systemVersion.current++;
@@ -162,6 +171,7 @@ export function useSlidesComposerContext({
     if (edited.current) return;
     try {
       if (draftScope) {
+        setAutomaticReferenceDeckId(null);
         const draft = readAssistantChatComposerContextDraft(draftScope);
         setSelection(
           draft
@@ -174,9 +184,19 @@ export function useSlidesComposerContext({
       const stored = persistSelection
         ? window.localStorage.getItem(storageKey)
         : null;
+      const parsed = stored
+        ? storedContextSchema.parse(JSON.parse(stored))
+        : undefined;
+      setAutomaticReferenceDeckId(
+        parsed?.automaticReferenceDeckId ??
+          (stored ? null : (defaultDeckId ?? null)),
+      );
       setSelection(
-        stored
-          ? slidesComposerContextSchema.parse(JSON.parse(stored))
+        parsed
+          ? {
+              designSystemId: parsed.designSystemId,
+              references: parsed.references,
+            }
           : {
               designSystemId: systemsEnabled ? defaultDesignSystemId : null,
               references:
@@ -218,6 +238,7 @@ export function useSlidesComposerContext({
     const key = JSON.stringify(initialSelection);
     if (initialSelectionKey.current === key) return;
     initialSelectionKey.current = key;
+    setAutomaticReferenceDeckId(null);
     const next = systemsEnabled
       ? initialSelection
       : { ...initialSelection, designSystemId: storedSelection.designSystemId };
@@ -272,12 +293,26 @@ export function useSlidesComposerContext({
     };
   }, [active, selection, identity, t]);
 
-  const save = (next: SlidesComposerContext) => {
+  const save = (
+    next: SlidesComposerContext,
+    clearAutomaticReferenceDeck = false,
+  ) => {
     if (!slidesComposerContextSchema.safeParse(next).success) {
       setError(t("home.context.tooMany"));
       return false;
     }
     edited.current = true;
+    const nextAutomaticReferenceDeckId =
+      !clearAutomaticReferenceDeck &&
+      automaticReferenceDeckId &&
+      next.references.some(
+        (reference) =>
+          reference.source === "slides" &&
+          reference.id === automaticReferenceDeckId,
+      )
+        ? automaticReferenceDeckId
+        : null;
+    setAutomaticReferenceDeckId(nextAutomaticReferenceDeckId);
     const persisted = systemsEnabled
       ? next
       : { ...next, designSystemId: storedSelectionRef.current.designSystemId };
@@ -292,7 +327,14 @@ export function useSlidesComposerContext({
     try {
       if (draftScope)
         writeAssistantChatComposerContextDraft(draftScope, persisted);
-      else window.localStorage.setItem(storageKey, JSON.stringify(persisted));
+      else
+        window.localStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            ...persisted,
+            automaticReferenceDeckId: nextAutomaticReferenceDeckId,
+          }),
+        );
     } catch {
       setError(t("home.context.saveFailed"));
       return false;
@@ -312,7 +354,14 @@ export function useSlidesComposerContext({
     for (const reference of references)
       combined.set(composerSourceKey(reference), reference);
     if (combined.size > 20) throw new Error(t("home.context.tooMany"));
-    return save({ ...current, references: [...combined.values()] });
+    return save(
+      { ...current, references: [...combined.values()] },
+      references.some(
+        (reference) =>
+          reference.source === "slides" &&
+          reference.id === automaticReferenceDeckId,
+      ),
+    );
   };
   const remove = (key: string) => {
     if (key === "context-state") {
@@ -707,6 +756,7 @@ export function useSlidesComposerContext({
   };
   return {
     selection,
+    automaticReferenceDeckId,
     props: {
       contextItems,
       contextMenuItems: active ? contextMenuItems : [],
