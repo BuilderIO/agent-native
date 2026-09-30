@@ -980,7 +980,9 @@ switch (command) {
       .then((m) => m.runWorkspaceDeploy({ args }))
       .catch((err) => {
         console.error("Deploy failed:", err?.message ?? err);
-        process.exit(1);
+        // An interrupted deploy exits 128+N so CI reports a cancellation,
+        // not a build failure.
+        process.exit(typeof err?.exitCode === "number" ? err.exitCode : 1);
       });
     break;
   }

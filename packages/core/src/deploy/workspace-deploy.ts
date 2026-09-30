@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "child_process";
+import { type ChildProcess, execFileSync, spawn } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -475,6 +475,39 @@ function logAppBuildStart(build: PreparedAppBuild): void {
   );
 }
 
+const INTERRUPT_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+const activeBuildProcesses = new Set<ChildProcess>();
+
+// Each build runs in its own process group (see runAppBuildProcess), so the
+// signal reaches pnpm's Vite and Nitro children too; signalling pnpm alone
+// leaves them running and holding its output pipes open.
+function killBuildProcessTree(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+): void {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // coercion-ok: the group is already gone; fall back to the direct child.
+    }
+  }
+  child.kill(signal);
+}
+
+export class WorkspaceDeployInterruptedError extends Error {
+  readonly exitCode: number;
+
+  constructor(readonly signal: NodeJS.Signals) {
+    super(
+      `interrupted by ${signal}; stopped in-flight app builds and skipped the rest`,
+    );
+    this.name = "WorkspaceDeployInterruptedError";
+    this.exitCode = 128 + (os.constants.signals[signal] ?? 0);
+  }
+}
+
 async function runAppBuildsConcurrently(
   workspaceRoot: string,
   apps: string[],
@@ -487,11 +520,27 @@ async function runAppBuildsConcurrently(
     `[workspace-deploy] Running up to ${concurrency} app builds at once`,
   );
   const failures: { app: string; error: unknown }[] = [];
+  let interrupted: NodeJS.Signals | undefined;
+  // Installing a listener replaces Node's default exit-on-signal, so a
+  // cancelled deploy must stop its builds itself or they keep writing into
+  // the workspace after it is gone. A second signal force-kills them.
+  const onSignal = (signal: NodeJS.Signals) => {
+    const force = interrupted !== undefined;
+    interrupted ??= signal;
+    for (const child of activeBuildProcesses) {
+      killBuildProcessTree(child, force ? "SIGKILL" : signal);
+    }
+  };
+  for (const signal of INTERRUPT_SIGNALS) process.on(signal, onSignal);
   let next = 0;
   const worker = async () => {
     // Stop taking new builds after a failure, but let in-flight builds finish
     // so their output and errors are not cut off mid-stream.
-    while (next < apps.length && failures.length === 0) {
+    while (
+      next < apps.length &&
+      failures.length === 0 &&
+      interrupted === undefined
+    ) {
       const app = apps[next++];
       const started = Date.now();
       try {
@@ -504,9 +553,16 @@ async function runAppBuildsConcurrently(
       }
     }
   };
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, apps.length) }, worker),
-  );
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, apps.length) }, worker),
+    );
+  } finally {
+    for (const signal of INTERRUPT_SIGNALS) process.off(signal, onSignal);
+  }
+  if (interrupted) {
+    throw new WorkspaceDeployInterruptedError(interrupted);
+  }
   if (failures.length > 0) {
     logAppBuildTimings(timings, concurrency);
     const details = failures
@@ -552,17 +608,21 @@ function runAppBuildProcess(
       env: build.env,
       stdio: ["ignore", "pipe", "pipe"],
       shell: process.platform === "win32",
+      detached: process.platform !== "win32",
     });
+    activeBuildProcesses.add(child);
     prefixLines(child.stdout, process.stdout, build.app);
     prefixLines(child.stderr, process.stderr, build.app);
-    child.on("error", (error) =>
+    child.on("error", (error) => {
+      activeBuildProcesses.delete(child);
       reject(
         new Error(
           `could not start pnpm --filter ${build.app} build: ${error.message}`,
         ),
-      ),
-    );
+      );
+    });
     child.on("close", (code, signal) => {
+      activeBuildProcesses.delete(child);
       if (code === 0) {
         resolve();
         return;

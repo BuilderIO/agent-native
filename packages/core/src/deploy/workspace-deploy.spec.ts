@@ -2197,6 +2197,37 @@ describe.skipIf(process.platform === "win32")(
       );
     });
 
+    it("stops in-flight builds and skips the rest when the deploy is interrupted", async () => {
+      for (const app of ["first", "second", "third"]) {
+        makeWorkspaceApp(tmpDir, app);
+      }
+      installFakePnpm(
+        ['touch "started-$2"', "sleep 30", 'touch "finished-$2"'].join("\n"),
+      );
+      const listenersBefore = process.listenerCount("SIGTERM");
+
+      const result = runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only", "--concurrency=2"],
+      });
+      const started = (app: string) =>
+        fs.existsSync(path.join(tmpDir, `started-${app}`));
+      await vi.waitFor(
+        () => expect(started("first") && started("second")).toBe(true),
+        { timeout: 10_000 },
+      );
+      process.emit("SIGTERM", "SIGTERM");
+
+      await expect(result).rejects.toMatchObject({
+        name: "WorkspaceDeployInterruptedError",
+        signal: "SIGTERM",
+        exitCode: 143,
+      });
+      expect(started("third")).toBe(false);
+      expect(fs.existsSync(path.join(tmpDir, "finished-first"))).toBe(false);
+      expect(process.listenerCount("SIGTERM")).toBe(listenersBefore);
+    });
+
     it("reports a pnpm that cannot be started", async () => {
       makeWorkspaceApp(tmpDir, "dispatch");
       makeWorkspaceApp(tmpDir, "starter");
