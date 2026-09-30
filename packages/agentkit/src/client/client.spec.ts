@@ -3731,6 +3731,79 @@ describe("AgentKitClient", () => {
     await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
   });
 
+  it("promotes queued work after the run it followed finishes during preparation", async () => {
+    const terminal = Promise.withResolvers<void>();
+    const capabilityDiscovery =
+      Promise.withResolvers<
+        Awaited<ReturnType<NonNullable<AgentTransport["discoverCapabilities"]>>>
+      >();
+    const capabilityDiscoveryStarted = Promise.withResolvers<void>();
+    let currentTime = "2026-09-30T00:00:00.000Z";
+    let discoveryCount = 0;
+    const steerQueuedMessage = vi.fn(async () => undefined);
+    const transport: AgentTransport = {
+      async discoverCapabilities() {
+        discoveryCount += 1;
+        if (discoveryCount === 1) {
+          return {
+            protocol: negotiateAgentKitProtocolVersion(
+              createAgentKitProtocolVersionOffer(),
+            ),
+            capabilities: [{ id: "messageQueue", state: "available" }],
+            discoveredAt: currentTime,
+            expiresAt: "2026-09-30T00:01:00.000Z",
+          };
+        }
+        capabilityDiscoveryStarted.resolve();
+        return capabilityDiscovery.promise;
+      },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        await terminal.promise;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+      async queueMessage(input) {
+        return {
+          message: {
+            id: "queued-1",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-09-30T00:00:00.000Z",
+          },
+        };
+      },
+      steerQueuedMessage,
+    };
+    const client = new AgentKitClient({ transport, now: () => currentTime });
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Run" });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual(["run-1"]),
+    );
+
+    currentTime = "2026-09-30T00:02:00.000Z";
+    const queuedMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Run next",
+    });
+    await capabilityDiscoveryStarted.promise;
+    terminal.resolve();
+    await run.completed;
+    capabilityDiscovery.resolve({
+      protocol: negotiateAgentKitProtocolVersion(
+        createAgentKitProtocolVersionOffer(),
+      ),
+      capabilities: [{ id: "messageQueue", state: "available" }],
+      discoveredAt: currentTime,
+    });
+    await queuedMessage;
+
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+  });
+
   it("merges a stale load without discarding newer optimistic and run state", async () => {
     const snapshot =
       Promise.withResolvers<
