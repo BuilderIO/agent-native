@@ -63,6 +63,10 @@ describe("runModeChange Interact navigation", () => {
       "designEditor.pendingVisualStyles.interactBlocked",
     );
     expect(args.onPendingVisualEditsBlocked).toHaveBeenCalledOnce();
+    expect(args.setActiveFileId).not.toHaveBeenCalled();
+    expect(args.setMode).not.toHaveBeenCalled();
+    expect(args.setSelectedElement).not.toHaveBeenCalled();
+    expect(args.setOverviewInteractScreenId).not.toHaveBeenCalled();
     expect(args.enterSingleScreen).not.toHaveBeenCalled();
   });
 
