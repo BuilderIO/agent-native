@@ -38,7 +38,8 @@ function isAutoSyncEnabled(source: SourceRow): boolean {
   return (
     source.provider === "slack" ||
     source.provider === "granola" ||
-    source.provider === "github"
+    source.provider === "github" ||
+    source.provider === "zoom"
   );
 }
 

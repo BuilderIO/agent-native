@@ -56,6 +56,13 @@ describe("Brain source sync scheduling", () => {
     ).toBe(true);
   });
 
+  it("makes a never-synced active Zoom source due for auto-sync", () => {
+    const zoomSource = source({ provider: "zoom", configJson: "{}" });
+
+    expect(isBrainSourceDue(zoomSource, Date.parse(FAILED_AT))).toBe(true);
+    expect(nextBrainSourceSyncAt(zoomSource)).not.toBeNull();
+  });
+
   it("keeps paused and non-polling sources out of automatic retries", () => {
     const now = Date.parse(FAILED_AT) + POLL_INTERVAL_MS;
 
