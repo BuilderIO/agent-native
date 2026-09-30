@@ -2623,7 +2623,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 collapsed={false}
                 collapsible={false}
                 feedback={footerFeedback}
-                className="space-y-1 px-2"
+                className="space-y-1 border-t-0 px-2"
                 orgSwitcher={
                   <OrgSwitcher className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
                 }
