@@ -860,5 +860,53 @@ describe("patch-database-items", () => {
         ids.properties.rank,
       ),
     ).toEqual([1, 2]);
+
+    const keyPatch = (row: SeededRow, value: string) => ({
+      itemId: row.itemId,
+      documentId: row.documentId,
+      expectedRowRevision: row.rowRevision,
+      propertyEntries: [
+        { propertyId: key, propertyType: "text" as const, value },
+      ],
+    });
+    const claimed = await asOwner(() =>
+      patchRows.run({
+        ...envelope(discovered, "distinct-keys"),
+        rows: [keyPatch(rows[0], "T-1"), keyPatch(rows[1], "T-2")],
+      }),
+    );
+    expect(claimed.receipt.counts.updated).toBe(2);
+    const after = new Map(
+      claimed.receipt.rows.map((row) => [row.itemId, row.revisions.after]),
+    );
+    const revised = rows.map((row) => ({
+      ...row,
+      rowRevision: after.get(row.itemId)!,
+    }));
+    await expect(
+      asOwner(() =>
+        patchRows.run({
+          ...envelope(discovered, "changed-key"),
+          rows: [keyPatch(revised[0], "T-9"), keyPatch(revised[1], "T-2")],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "NATURAL_KEY_CONFLICT",
+      details: {
+        rows: [
+          expect.objectContaining({
+            index: 0,
+            itemId: rows[0].itemId,
+            errorCode: "NATURAL_KEY_IMMUTABLE",
+          }),
+        ],
+      },
+    });
+    expect(
+      await storedValues(
+        rows.map((row) => row.documentId),
+        key,
+      ),
+    ).toEqual(["T-1", "T-2"]);
   });
 });

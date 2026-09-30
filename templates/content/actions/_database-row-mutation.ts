@@ -1794,6 +1794,121 @@ function chunked<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+// The set-based form of ensureNaturalKeyClaim: a few statements for the whole
+// batch, so a full batch doesn't hold the collection lock through per-row
+// round trips. A claimed key still can't change, and when several rows claim
+// one key, ON CONFLICT DO NOTHING keeps the first, as the per-row loop did.
+async function claimNaturalKeys(
+  tx: Db,
+  context: MutationContext,
+  rows: CanonicalRowPatch[],
+  patches: Map<string, string>[],
+  now: string,
+): Promise<RowPatchIssue[]> {
+  const propertyId = context.database.naturalKeyPropertyId;
+  if (!propertyId) return [];
+  const requested = rows.flatMap((row, index) => {
+    const keyValueJson = patches[index].get(propertyId);
+    return keyValueJson === undefined ? [] : [{ index, row, keyValueJson }];
+  });
+  if (requested.length === 0) return [];
+  const claims = schema.contentDatabaseItemKeyClaims;
+  const scope = and(
+    eq(claims.databaseId, context.database.id),
+    eq(claims.propertyId, propertyId),
+  );
+  const claimedKeys = new Map(
+    (
+      await tx
+        .select({
+          documentId: claims.documentId,
+          keyValueJson: claims.keyValueJson,
+        })
+        .from(claims)
+        .where(
+          and(
+            scope,
+            inArray(
+              claims.documentId,
+              requested.map(({ row }) => row.documentId),
+            ),
+          ),
+        )
+    ).map((claim) => [claim.documentId, claim.keyValueJson]),
+  );
+  const issues: RowPatchIssue[] = [];
+  const claimable = requested.filter(({ index, row, keyValueJson }) => {
+    const claimed = claimedKeys.get(row.documentId);
+    if (claimed === undefined || claimed === keyValueJson) return true;
+    issues.push({
+      index,
+      itemId: row.itemId,
+      documentId: row.documentId,
+      errorCode: "NATURAL_KEY_IMMUTABLE",
+      message:
+        "A claimed database natural key cannot be changed. Create a new row instead.",
+      details: { propertyId, itemId: row.itemId, documentId: row.documentId },
+    });
+    return false;
+  });
+  if (claimable.length > 0) {
+    for (const chunk of chunked(claimable, ROW_PATCH_WRITE_CHUNK)) {
+      await tx
+        .insert(claims)
+        .values(
+          chunk.map(({ row, keyValueJson }) => ({
+            id: nanoid(),
+            ownerEmail: context.database.ownerEmail,
+            orgId: context.database.orgId,
+            databaseId: context.database.id,
+            propertyId,
+            keyValueJson,
+            itemId: row.itemId,
+            documentId: row.documentId,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoNothing();
+    }
+    const owners = new Map(
+      (
+        await tx
+          .select({
+            keyValueJson: claims.keyValueJson,
+            itemId: claims.itemId,
+            documentId: claims.documentId,
+          })
+          .from(claims)
+          .where(
+            and(
+              scope,
+              inArray(
+                claims.keyValueJson,
+                claimable.map(({ keyValueJson }) => keyValueJson),
+              ),
+            ),
+          )
+      ).map((owner) => [owner.keyValueJson, owner]),
+    );
+    for (const { index, row, keyValueJson } of claimable) {
+      const owner = owners.get(keyValueJson);
+      if (owner?.itemId === row.itemId && owner.documentId === row.documentId) {
+        continue;
+      }
+      issues.push({
+        index,
+        itemId: row.itemId,
+        documentId: row.documentId,
+        errorCode: "NATURAL_KEY_CONFLICT",
+        message: "The natural key is already in use.",
+        details: { propertyId },
+      });
+    }
+  }
+  return issues.sort((left, right) => left.index - right.index);
+}
+
 function canonicalRowPatches(rows: DatabaseRowPatchInput[]) {
   if (rows.length === 0 || rows.length > DATABASE_ROW_PATCH_LIMIT) {
     throw new ActionContractError(
@@ -2119,23 +2234,10 @@ async function patchRowsInsideTransaction(
       })),
     );
   }
-  const keyIssues: RowPatchIssue[] = [];
-  for (const [index, row] of rows.entries()) {
-    try {
-      await ensureNaturalKeyClaim(tx, context, {
-        itemId: row.itemId,
-        documentId: row.documentId,
-        values: patches[index],
-        now,
-      });
-    } catch (error) {
-      keyIssues.push(rowPatchValidationIssue(index, row, error));
-    }
-  }
   rowPatchIssues(
     "NATURAL_KEY_CONFLICT",
     "Some rows claim a natural key that is already in use or cannot change; nothing was written.",
-    keyIssues,
+    await claimNaturalKeys(tx, context, rows, patches, now),
   );
 
   const after = await rowSnapshots(tx, context.database.id, rows, revisionIds);
