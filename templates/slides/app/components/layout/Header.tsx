@@ -86,7 +86,9 @@ export function HomeHeaderActions({
 }) {
   return (
     <>
-      <div className="slides-home-search w-full">{search}</div>
+      {search ? (
+        <div className="slides-home-search w-full">{search}</div>
+      ) : null}
       <HeaderControls showNotifications={false}>{children}</HeaderControls>
     </>
   );

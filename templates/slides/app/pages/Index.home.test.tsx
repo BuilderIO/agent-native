@@ -1217,27 +1217,33 @@ describe("Slides prompt-led home", () => {
         <Header />
       </MemoryRouter>,
     );
-    const search = within(mountedHeader.container).getByRole("searchbox", {
-      name: "Search decks",
-    });
-    Object.defineProperty(search, "getClientRects", {
-      value: () => [{ width: 100, height: 32 }],
-    });
-    for (const candidate of document.querySelectorAll<HTMLInputElement>(
-      "[data-home-search]",
-    )) {
-      if (candidate === search) continue;
-      Object.defineProperty(candidate, "getClientRects", { value: () => [] });
-    }
+    expect(
+      within(mountedHeader.container).queryByRole("searchbox", {
+        name: "Search decks",
+      }),
+    ).toBeNull();
     const slash = new KeyboardEvent("keydown", {
       key: "/",
       bubbles: true,
       cancelable: true,
     });
     document.dispatchEvent(slash);
-    expect(slash.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(search);
+    expect(slash.defaultPrevented).toBe(false);
     mountedHeader.unmount();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Recent" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(
+      screen.queryByRole("button", { name: "home.showAllDecks" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "home.showMineDecks" }),
+    ).toBeNull();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Templates" }), {
+      button: 0,
+      ctrlKey: false,
+    });
     expect(
       screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
     ).toBe("/templates");

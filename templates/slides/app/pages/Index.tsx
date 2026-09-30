@@ -2216,21 +2216,24 @@ export default function Index({ active = true }: { active?: boolean }) {
     loadError,
     deckCount: decks.length,
   });
+  const hasDecks = viewState === "decks";
   const homeHeaderActions = useMemo(
     () => (
       <HomeHeaderActions
         search={
-          <DeckSearchInput
-            value={deckSearch}
-            onChange={setDeckSearch}
-            className="w-full"
-          />
+          hasDecks ? (
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full"
+            />
+          ) : null
         }
       >
         <ImportDeckButton controller={deckImport} />
       </HomeHeaderActions>
     ),
-    [deckImport, deckSearch, setDeckSearch],
+    [deckImport, deckSearch, hasDecks, setDeckSearch],
   );
   if (isStartingNewDeck) {
     return (
@@ -2255,11 +2258,13 @@ export default function Index({ active = true }: { active?: boolean }) {
       mobileToolbar={
         isHome ? (
           <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
-            <DeckSearchInput
-              value={deckSearch}
-              onChange={setDeckSearch}
-              className="min-w-0 flex-1"
-            />
+            {hasDecks ? (
+              <DeckSearchInput
+                value={deckSearch}
+                onChange={setDeckSearch}
+                className="min-w-0 flex-1"
+              />
+            ) : null}
             <ImportDeckButton controller={deckImport} />
           </div>
         ) : null
@@ -2438,7 +2443,9 @@ export default function Index({ active = true }: { active?: boolean }) {
             </Button>
           }
           recentActions={
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            hasDecks ? (
+              <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            ) : null
           }
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={
