@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +23,7 @@ vi.mock("@/pages/Index", async () => {
   return {
     default: function MockHome({ active }: { active: boolean }) {
       const [draft, setDraft] = React.useState("");
+      const [stagedAttachments, setStagedAttachments] = React.useState(0);
       const [portalOpen, setPortalOpen] = React.useState(false);
       useSetHeaderActions(active ? <span>home actions</span> : null);
       React.useEffect(() => {
@@ -41,6 +43,13 @@ vi.mock("@/pages/Index", async () => {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
+          <button
+            type="button"
+            onClick={() => setStagedAttachments((count) => count + 1)}
+          >
+            Stage attachment
+          </button>
+          <output data-testid="staged-attachments">{stagedAttachments}</output>
           <button type="button" onClick={() => setPortalOpen(true)}>
             Open Home portal
           </button>
@@ -57,7 +66,12 @@ vi.mock("@/pages/Index", async () => {
 });
 
 function HomeRoute() {
-  return <Link to="/templates">Open templates</Link>;
+  return (
+    <>
+      <Link to="/templates">Open templates</Link>
+      <Link to="/deck/draft-test">Open deck</Link>
+    </>
+  );
 }
 
 function TemplatesRoute() {
@@ -67,6 +81,19 @@ function TemplatesRoute() {
       <Link to="/home">Back to decks</Link>
     </>
   );
+}
+
+function DeckRoute() {
+  return (
+    <>
+      <h1>Deck</h1>
+      <Link to="/home">Back to decks</Link>
+    </>
+  );
+}
+
+function SessionGate({ children }: { children: ReactNode }) {
+  return <>{children}</>;
 }
 
 function HeaderActionsStatus() {
@@ -85,6 +112,14 @@ function App({ initialEntry }: { initialEntry: string }) {
         <Route element={<HomeLayout />}>
           <Route path="/home" element={<HomeRoute />} />
           <Route path="/templates" element={<TemplatesRoute />} />
+          <Route
+            path="/deck/:id"
+            element={
+              <SessionGate>
+                <DeckRoute />
+              </SessionGate>
+            }
+          />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -146,6 +181,32 @@ describe("persistent home route layout", () => {
     expect(screen.getByRole("heading", { name: "Templates" })).toBeTruthy();
     expect(screen.queryByLabelText("Home draft")).toBeNull();
     expect(mocks.mounts).toBe(0);
+  });
+
+  it("preserves home drafts while importing a deck", async () => {
+    render(<App initialEntry="/home" />);
+    const draft = screen.getByLabelText("Home draft");
+    fireEvent.change(draft, { target: { value: "reference attached" } });
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "Stage attachment" }));
+    }
+    fireEvent.click(screen.getByRole("link", { name: "Open deck" }));
+
+    expect(screen.getByRole("heading", { name: "Deck" })).toBeTruthy();
+    expect((draft as HTMLInputElement).value).toBe("reference attached");
+    expect(screen.getByTestId("staged-attachments").textContent).toBe("6");
+    expect(draft.parentElement?.hasAttribute("hidden")).toBe(true);
+    expect(mocks.mounts).toBe(1);
+    expect(mocks.unmounts).toBe(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Back to decks" }));
+
+    expect(
+      (screen.getByLabelText("Home draft") as HTMLInputElement).value,
+    ).toBe("reference attached");
+    expect(screen.getByTestId("staged-attachments").textContent).toBe("6");
+    expect(mocks.mounts).toBe(1);
+    expect(mocks.unmounts).toBe(0);
   });
 
   it("mounts home when the route has a trailing slash or case variant", () => {

@@ -24,6 +24,11 @@ const messages = {
     retry: "Erneut versuchen",
     search: "Suchen",
   },
+  chatHome: {
+    description:
+      "Erkunde den zulässigen Kontokontext, Folgeaufgaben und Belege in Native SQL und verbundenen Datensätzen.",
+    placeholder: "Frage zu deinem CRM",
+  },
   commandMenu: {
     placeholder: "Datensätze, Listen und Befehle suchen…",
     groupRecords: "Datensätze",
@@ -59,21 +64,11 @@ const messages = {
     showHelp: "Diese Hilfe anzeigen",
   },
   settings: {
-    title: "CRM-Einstellungen",
-    description:
-      "Native SQL hält CRM-eigene Datensätze in Postgres. HubSpot und Salesforce nutzen Arbeitsbereich-Verbindungen; ihre Spiegel speichern nur freigegebene Felder, begrenzte Metadaten und Referenzen auf Belege.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     mcpAbout:
       "Verbinde CRM mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in CRM für dich arbeiten: Datensätze finden, Felder aktualisieren und Aufgaben verwalten. Sie sieht nur, was du sehen kannst.",
   },
   connection: {
     tab: "Verbindung",
-    title: "CRM-Verbindung",
-    description:
-      "Woher die Datensätze dieses CRM stammen und wie viel es von jedem Datensatz besitzt.",
     modesTitle: "Verfügbare Modi",
     modeNative: "Natives SQL",
     modeNativeHelp:
@@ -103,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "Felder",
-    title: "Felder",
-    description:
-      "Die typisierten Attribute hinter jedem Datensatz und jeder Liste. API-Slug und Typ eines Feldes stehen nach dem Anlegen fest; alles andere lässt sich ändern.",
     target: "Objekt oder Liste",
     targetPlaceholder: "Objekttyp oder Liste auswählen",
     listsGroup: "Listen",
@@ -251,8 +243,6 @@ const messages = {
   },
   advanced: {
     tab: "Erweitert",
-    title: "Erweitert",
-    description: "Neukonfiguration und Verhalten bei der Datenaufbewahrung.",
     reconfigure: "CRM neu konfigurieren",
     reconfigureHelp:
       "Wechsle zwischen Native SQL und einer HubSpot- oder Salesforce-Begleitung oder starte die Erstsynchronisierung erneut.",
@@ -572,9 +562,6 @@ const messages = {
   },
   intelligence: {
     tab: "Intelligenz",
-    title: "Intelligenz",
-    description:
-      "Wähle die Momente aus, die CRM in begrenzten Anrufbelegen erkennen soll. Intelligente Tracker werden über Ask CRM ausgewertet, niemals direkt in diesem Einstellungsbildschirm.",
     loading: "Tracker werden geladen…",
     kindKeyword: "Schlüsselwort",
     kindSmart: "Intelligent",

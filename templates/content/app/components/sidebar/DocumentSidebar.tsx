@@ -1,24 +1,23 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   setClientAppState,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentSidebarViewOrder,
-  ContentNavigationContext,
   Document,
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
@@ -80,10 +79,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  contentFilesCollectionFilter,
+  contentRowTargets,
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
+import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
-  invalidateContentDatabaseNavigationQueries,
+  contentDatabaseNavigationQueryFilter,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -102,6 +107,7 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  useContentNavigationContext,
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
@@ -111,8 +117,10 @@ import {
   useMoveDocument,
   useUpdateDocument,
   documentQueryFilter,
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
+  seedCreatedDocumentNavigation,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
@@ -120,6 +128,7 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import { filesNavigationOrder } from "@/lib/files-navigation";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -505,9 +514,15 @@ function WorkspaceSidebarItem({
     expanded,
     deferInitialReadUntilDocumentId,
   );
+  // The paged tree draws cloud Files; only local-source matching needs rows.
+  const needsFilesRows = localFileMode || localWorkingCopies.length > 0;
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled, systemRole: "files" },
+    {
+      enabled: deferredFilesDatabase.enabled,
+      systemRole: "files",
+      ...(needsFilesRows ? {} : { limit: 0 }),
+    },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -608,12 +623,7 @@ function WorkspaceSidebarItem({
   const pagedOverrides = filesPersonalView.data?.overrides;
   const { activeViewId, order: sidebarOrder } = localFileMode
     ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
-    : {
-        activeViewId: pagedOverrides?.activeViewId ?? "default",
-        order: pagedOverrides?.views.find(
-          (view) => view.id === (pagedOverrides.activeViewId ?? "default"),
-        )?.sidebarOrder ?? { mode: "custom" as const, itemIds: [] },
-      };
+    : filesNavigationOrder(pagedOverrides);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -984,9 +994,7 @@ export function DocumentSidebar({
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
 
   const restoreDocument = useRestoreDocument();
-  const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
-  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const ensureContentSpaces = useEnsureContentSpaces();
@@ -1347,10 +1355,19 @@ export function DocumentSidebar({
         // Space selection remains usable when best-effort agent context sync fails.
       });
   }, [selectedSpace]);
-  const removeLocalFileSource = useActionMutation<
+  const removeLocalFileSource = useContentActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
-  >("remove-local-file-source");
+  >("remove-local-file-source", {
+    invalidates: [
+      contentDatabaseNavigationQueryFilter(),
+      ["action", "get-document"],
+      ["action", "get-content-database"],
+      ["action", "get-content-navigation-context"],
+      ["action", "get-content-recent"],
+      ["action", "list-content-spaces"],
+    ],
+  });
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
@@ -1364,6 +1381,12 @@ export function DocumentSidebar({
     () => normalizeCollapsedSections(storedCollapsedSections),
     [storedCollapsedSections],
   );
+  const { data: trashedDocuments } = useTrashedDocuments({
+    enabled: !collapsedSections.trash,
+  });
+  const { data: trashedDatabases } = useTrashedContentDatabases({
+    enabled: !collapsedSections.trash,
+  });
   useEffect(() => {
     try {
       if (
@@ -1431,11 +1454,7 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const navigationContextQuery = useActionQuery<ContentNavigationContext>(
-    "get-content-navigation-context",
-    activeDocumentId ? { id: activeDocumentId } : undefined,
-    { enabled: Boolean(activeDocumentId) },
-  );
+  const navigationContextQuery = useContentNavigationContext(activeDocumentId);
   useEffect(() => {
     const filesDatabaseId =
       navigationContextQuery.data?.workspaceFilesDatabaseId ?? null;
@@ -1601,6 +1620,11 @@ export function DocumentSidebar({
         return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        rootFilesDatabaseId ?? null,
+      );
       if (rootFilesDatabaseId) {
         const optimisticItem: ContentDatabaseItem = {
           id: `optimistic-${id}`,
@@ -1652,6 +1676,7 @@ export function DocumentSidebar({
         );
         settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
             contentDatabaseByIdQueryKey(rootFilesDatabaseId),
@@ -1723,6 +1748,12 @@ export function DocumentSidebar({
         });
       }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        contentSpaces.find((space) => space.id === rootSpaceId)
+          ?.filesDatabaseId ?? null,
+      );
       navigateToDocument(id);
       onNavigate?.();
 
@@ -1762,6 +1793,7 @@ export function DocumentSidebar({
           );
         }
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         settleOptimisticListRefresh(id);
         if (window.location.pathname === `/page/${id}`) {
           void navigate(previousPath, {
@@ -1991,7 +2023,11 @@ export function DocumentSidebar({
   const moveDocument = useMoveDocument();
   const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+    onSuccess: (_result, { documentId }) =>
+      invalidateContentQueries(queryClient, [
+        ...contentRowTargets(queryClient, [documentId]),
+        contentFilesCollectionFilter(),
+      ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
   const sidebarPageActions = useMemo<SidebarPageActions>(

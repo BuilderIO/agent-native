@@ -47,7 +47,8 @@ vi.mock("./agent-engine-provider-models-route.js", () => ({
     envVar === "OPENAI_API_KEY" ? "openai" : "anthropic",
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: async () => null,
   putSetting: async () => {},
   deleteSetting: async () => {},

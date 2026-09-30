@@ -1,6 +1,6 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { resolveDefaultMailHref } from "@/lib/inbox-tabs";
@@ -65,11 +65,24 @@ async function resolveRootInboxHref(): Promise<string> {
   }
 }
 
-export function loader(_args: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect("/inbox"));
+function redirectHome(request: Request) {
+  const url = new URL(request.url);
+  const inboxHref =
+    url.searchParams.get("onboarding") === "preview"
+      ? `/inbox${url.search}`
+      : "/inbox";
+  throw withSsrHtmlContentType(redirect(inboxHref));
 }
 
-export async function clientLoader(_args: LoaderFunctionArgs) {
+export function loader({ request }: LoaderFunctionArgs) {
+  return redirectHome(request);
+}
+
+export async function clientLoader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("onboarding") === "preview") {
+    return redirect(`/inbox${url.search}`);
+  }
   throw withSsrHtmlContentType(redirect(await resolveRootInboxHref()));
 }
 

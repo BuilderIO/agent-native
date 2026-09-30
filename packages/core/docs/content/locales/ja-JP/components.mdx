@@ -13,11 +13,11 @@ Agent-Native には完全なサイドバーが同梱されていますが、サ�
 フォーカスされたクライアントのサブパスからブラウザ UI をインポートします:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -187,22 +187,22 @@ Toolkit のスタイルに共有の寸法が含まれます。`@agent-native/too
 
 ## エージェントとチャット UI {#agent-chat-ui}
 
-| API                                  | インポートパス                                    | 次の場合に使用します                                                                                          |
-| ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` または `/client/chat` | アプリの周りに完全なサイドバーが必要です。                                                                    |
-| `<AgentToggleButton>`                | `@agent-native/core/client` または `/client/chat` | サイドバー用に独自のヘッダー ボタンをレンダリングします。                                                     |
-| `<AgentPanel>`                       | `@agent-native/core/client` または `/client/chat` | 独自のレイアウト、ルート、ダイアログ、またはサイドカラムに完全なパネルが必要です。                            |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` または `/client/chat` | サイドバー ラッパーを使用せずにパネル モードまたはページ モードでチャットしたいと考えています。               |
-| `<AssistantChat>`                    | `@agent-native/core/client` または `/client/chat` | 標準の会話とコンポーザーのランタイムを維持しながら、周囲のクロムを所有したいと考えています。                  |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` または `/client/chat` | `AgentPanel` クロムなしでフレームワークのスレッド タブが必要です。                                            |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` または `/client/chat` | 正規化されたチャット イベントをストリーミングする BYO エージェント エンドポイントがあります。                 |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` または `/client/chat` | あなたは OpenAI エージェント SDK ストリームを持っており、それを中心とした標準チャット UI を必要としています。 |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` または `/client/chat` | OpenAI 応答イベント ストリームがあり、それをチャット UI に正規化したいと考えています。                        |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` または `/client/chat` | AG-UI イベント ストリームがあり、チャット UI に正規化したいと考えています。                                   |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` または `/client/chat` | あなたは Claude エージェント SDK ストリームを持っており、それをチャット UI に正規化したいと考えています。     |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` または `/client/chat` | Vercel AI SDK ストリームがあり、それをチャット UI に正規化したいと考えています。                              |
-| `useChatThreads()`                   | `@agent-native/core/client` または `/client/chat` | カスタム スレッド リスト、履歴ピッカー、またはスコープ付きチャット UI が必要です。                            |
-| `sendToAgentChat()`                  | `@agent-native/core/client` または `/client/chat` | 製品アクションは、エージェント チャットに手動で作業させる必要があります。                                     |
+| API                                  | インポートパス                         | 次の場合に使用します                                                                                          |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | アプリの周りに完全なサイドバーが必要です。                                                                    |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | サイドバー用に独自のヘッダー ボタンをレンダリングします。                                                     |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | 独自のレイアウト、ルート、ダイアログ、またはサイドカラムに完全なパネルが必要です。                            |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | サイドバー ラッパーを使用せずにパネル モードまたはページ モードでチャットしたいと考えています。               |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | 標準の会話とコンポーザーのランタイムを維持しながら、周囲のクロムを所有したいと考えています。                  |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | `AgentPanel` クロムなしでフレームワークのスレッド タブが必要です。                                            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 正規化されたチャット イベントをストリーミングする BYO エージェント エンドポイントがあります。                 |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | あなたは OpenAI エージェント SDK ストリームを持っており、それを中心とした標準チャット UI を必要としています。 |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | OpenAI 応答イベント ストリームがあり、それをチャット UI に正規化したいと考えています。                        |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | AG-UI イベント ストリームがあり、チャット UI に正規化したいと考えています。                                   |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | あなたは Claude エージェント SDK ストリームを持っており、それをチャット UI に正規化したいと考えています。     |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | Vercel AI SDK ストリームがあり、それをチャット UI に正規化したいと考えています。                              |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | カスタム スレッド リスト、履歴ピッカー、またはスコープ付きチャット UI が必要です。                            |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | 製品アクションは、エージェント チャットに手動で作業させる必要があります。                                     |
 
 `AgentChatRuntime` は、標準チャット シェルの BYO エージェント コントラクトです。パス
 外部エージェントが電源を投入する必要がある場合の `runtime` から `<AssistantChat>`
@@ -216,7 +216,7 @@ Agent-Native が作曲家、トランスクリプト、ツール カード、お
 最短のカスタム ルートはまだ配線済みのサーフェスです:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -226,7 +226,8 @@ export default function ChatRoute() {
 標準ランタイム周辺のカスタム クロムの場合:
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -253,7 +254,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## チャットフィールドとコンポーザー {#composer}
 
-カスタム UI でサイドバーと同じチャット フィールドが必要な場合は、`@agent-native/core/client/composer`
+カスタム UI でサイドバーと同じチャット フィールドが必要な場合は、`@agent-native/toolkit/app/chat/composer`
 を使用してください。`@agent-native/toolkit/composer` はポータブルな素の Tiptap と UI 実装を提供します。
 フレームワーク サービスと使うには `ComposerRuntimeAdaptersProvider` でラップしてサービスを渡します。Core は添付、メンション、スキル、音声、モデル選択を接続済みのラッパーです。
 
@@ -268,7 +269,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 ほとんどのカスタム UI は `PromptComposer` で始まる必要があります:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -320,7 +321,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 アプリはアクセス確認済みの選択肢を登録できます。ここでは `labels` が翻訳済み文言を持ち、`stageReference` がホストの準備済みコンテキストを更新します。
 
 ```tsx
-import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
 import { Link } from "react-router";
 
 const contextMenuItems: ComposerContextMenuItem[] = [
@@ -424,7 +425,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 ## 会話のレンダリング {#conversation}
 
-トランスクリプト スタイルのレンダリングには `@agent-native/core/client/conversation` を使用します
+トランスクリプト スタイルのレンダリングには `@agent-native/toolkit/app/chat/conversation` を使用します
 完全なエージェント ランタイム外。
 
 | API                                             | 次の場合に使用します                                                         |
@@ -442,7 +443,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 アクションの結果をアプリ品質の UI としてレンダリングする必要がある場合は、ネイティブ ツール ウィジェットを使用します
 プレーンな JSON ではなく、内部チャット。組み込みの再利用可能な出力には、
 `DataTableWidget`、`DataChartWidget`、および `DataWidgetResult`;それらはエクスポートされます
-`@agent-native/core/client/chat` およびルート クライアント エントリから。参照
+`@agent-native/core/client/widgets` およびルート クライアント エントリから。参照
 アクション結果コントラクトの場合は [Native チャット UI](/docs/native-chat-ui)。
 
 | API                              | 次の場合に使用します                                                                             |
@@ -541,7 +542,7 @@ import {
 
 ## リッチエディタ {#rich-editor}
 
-共有マークダウン エディターが必要な場合は、`@agent-native/core/client/editor` を使用します
+共有マークダウン エディターが必要な場合は、`@agent-native/toolkit/editor` を使用します
 計画、コンテンツ、リソース、共同作業ドキュメントで使用される表面
 経験。
 
@@ -559,7 +560,7 @@ import {
 基本的な制御されたエディターは、マークダウン インとマークダウン アウトだけです。
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -576,7 +577,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -672,9 +673,9 @@ function WorkspaceResources() {
 | 通知             | `<NotificationsBell>`                                             | `@agent-native/core/client/notifications` |
 | 進捗状況         | `<RunsTray>`、進行フックとタイプ                                  | `@agent-native/core/client/progress`      |
 | オンボーディング | `useOnboarding()`、オンボーディング パネル フック                 | `@agent-native/core/client/onboarding`    |
-| 可観測性         | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                    | `@agent-native/core/client/observability` |
+| 可観測性         | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                    | `@agent-native/toolkit/app/observability` |
 | リソース         | `<ResourcesPanel>`、`<ResourceTree>`、リソースフック              | `@agent-native/core/client/resources`     |
-| リッチエディタ   | `<SharedRichEditor>`、スラッシュ コマンド、ブロック ノード フック | `@agent-native/core/client/editor`        |
+| リッチエディタ   | `<SharedRichEditor>`、スラッシュ コマンド、ブロック ノード フック | `@agent-native/toolkit/editor`            |
 
 ## 一回限りのテキスト補完 {#one-off-text-completion}
 

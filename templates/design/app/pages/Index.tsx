@@ -1,13 +1,9 @@
 import {
-  BuilderSetupCard,
+  fetchAgentEngineConfiguredState,
+  type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
-import {
-  snapshotComposerContextItems,
-  type PromptComposerSubmitOptions,
-  type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -35,6 +31,13 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import {
+  PromptComposer,
+  snapshotComposerContextItems,
+  type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
@@ -166,6 +169,7 @@ export default function Index() {
   );
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -231,6 +235,18 @@ export default function Index() {
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
   useEffect(() => {
+    if (
+      accessibleDesignsSummary.isSuccess &&
+      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0 &&
+      !homeLibraryTabWasSelectedRef.current
+    ) {
+      setHomeSection("recent");
+    }
+  }, [
+    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignsSummary.isSuccess,
+  ]);
+  useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
   }, [hasSearchResultsSection]);
   const {
@@ -261,15 +277,49 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const agentEngineConfigured = agentEngine.state === "configured";
+  const [preflightAgentEngineState, setPreflightAgentEngineState] =
+    useState<AgentEngineConfiguredState | null>(null);
+  const preflightRequestIdRef = useRef(0);
+  const effectiveAgentEngineState =
+    preflightAgentEngineState ?? agentEngine.state;
+  const agentEngineConfigured =
+    effectiveAgentEngineState === "configured" && !agentEngine.missing;
+  const agentEngineMissing =
+    effectiveAgentEngineState === "missing" || agentEngine.missing;
+  const canChatRef = useRef(agentEngineConfigured);
+  canChatRef.current = agentEngineConfigured;
+  useEffect(() => {
+    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
+      preflightRequestIdRef.current += 1;
+      setPreflightAgentEngineState(null);
+    }
+  }, [agentEngine.state]);
+  const ensureAgentEngineConfigured = useCallback(async () => {
+    if (agentEngineConfigured) return true;
+    const requestId = ++preflightRequestIdRef.current;
+    let nextState: AgentEngineConfiguredState;
+    try {
+      nextState = await fetchAgentEngineConfiguredState();
+    } catch {
+      nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+    }
+    if (requestId !== preflightRequestIdRef.current) {
+      return canChatRef.current;
+    }
+    setPreflightAgentEngineState(nextState);
+    canChatRef.current = nextState === "configured";
+    return canChatRef.current;
+  }, [agentEngine.state, agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
-    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+    if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
+    preflightRequestIdRef.current += 1;
+    setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
-  const quickActionsEnabled = agentEngineConfigured && !agentEngine.missing;
+  const quickActionsEnabled = agentEngineConfigured;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -633,7 +683,7 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      if (agentEngine.state !== "configured") return;
+      if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
@@ -809,7 +859,6 @@ export default function Index() {
       void navigate(`/design/${id}`);
     },
     [
-      agentEngine.state,
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
@@ -1058,9 +1107,9 @@ export default function Index() {
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
-        connectionAttached={!agentEngineConfigured && agentEngine.missing}
+        connectionAttached={agentEngineMissing}
         connection={
-          agentEngineConfigured ? null : agentEngine.missing ? (
+          agentEngineConfigured ? null : agentEngineMissing ? (
             <BuilderSetupCard
               attached
               fullWidth
@@ -1068,32 +1117,26 @@ export default function Index() {
               bouncePulse={setupCardBouncePulse}
               onConnected={retryAgentEngineStatus}
             />
-          ) : (
+          ) : effectiveAgentEngineState === "unavailable" ? (
             <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
               <span role="status">
-                {t(
-                  agentEngine.state === "unknown"
-                    ? "agentChat.setup.checkingProvider"
-                    : "agentChat.setup.providerStatusUnavailable",
-                )}
+                {t("agentChat.setup.providerStatusUnavailable")}
               </span>
-              {agentEngine.state === "unavailable" ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={retryAgentEngineStatus}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={retryAgentEngineStatus}
+              >
+                {t("agentChat.common.retry")}
+              </button>
             </div>
-          )
+          ) : null
         }
         composer={
           <div
             data-design-home-composer
             className={
-              agentEngine.missing
+              agentEngineMissing
                 ? "agent-composer-area--attached-above"
                 : undefined
             }
@@ -1104,11 +1147,11 @@ export default function Index() {
               inline
               open
               onOpenChange={() => {}}
+              composerComponent={PromptComposer}
               composerRef={composerRef}
-              disabled={!agentEngineConfigured}
-              submissionDisabled={!agentEngineConfigured}
+              onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={false}
+              modelStatusChecksEnabled={agentEngineConfigured}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={
@@ -1165,40 +1208,42 @@ export default function Index() {
           </div>
         }
         quickActions={
-          <AgentSuggestionBar
-            suggestions={homeSuggestions.map((suggestion, index) => ({
-              ...suggestion,
-              id: suggestion.id ?? `design-home-${index}`,
-              disabled:
-                !quickActionsEnabled ||
-                newDesignHandoffPending ||
-                quickStartPending,
-            }))}
-            ariaLabel={t("home.suggestedPrompts")}
-            className="px-0 py-0"
-            onSelect={async (suggestion) => {
-              if (
-                !quickActionsEnabled ||
-                quickStartRef.current ||
-                !composerRef.current
-              )
-                return;
-              quickStartRef.current = true;
-              submissionErrorRef.current = false;
-              setQuickStartPending(true);
-              try {
-                const accepted = await composerRef.current.submitWithText(
-                  agentSuggestionPrompt(suggestion),
-                );
-                if (!accepted && !submissionErrorRef.current) {
-                  toast.error(t("homeContext.notReady"));
+          quickActionsEnabled ? (
+            <AgentSuggestionBar
+              suggestions={homeSuggestions.map((suggestion, index) => ({
+                ...suggestion,
+                id: suggestion.id ?? `design-home-${index}`,
+                disabled:
+                  !quickActionsEnabled ||
+                  newDesignHandoffPending ||
+                  quickStartPending,
+              }))}
+              ariaLabel={t("home.suggestedPrompts")}
+              className="px-0 py-0"
+              onSelect={async (suggestion) => {
+                if (
+                  !quickActionsEnabled ||
+                  quickStartRef.current ||
+                  !composerRef.current
+                )
+                  return;
+                quickStartRef.current = true;
+                submissionErrorRef.current = false;
+                setQuickStartPending(true);
+                try {
+                  const accepted = await composerRef.current.submitWithText(
+                    agentSuggestionPrompt(suggestion),
+                  );
+                  if (!accepted && !submissionErrorRef.current) {
+                    toast.error(t("homeContext.notReady"));
+                  }
+                } finally {
+                  quickStartRef.current = false;
+                  setQuickStartPending(false);
                 }
-              } finally {
-                quickStartRef.current = false;
-                setQuickStartPending(false);
-              }
-            }}
-          />
+              }}
+            />
+          ) : null
         }
       >
         {accessibleDesignsSummary.isError ? (
@@ -1209,7 +1254,10 @@ export default function Index() {
         ) : null}
         <PromptHomeLibrary
           value={homeSection}
-          onValueChange={setHomeSection}
+          onValueChange={(value) => {
+            homeLibraryTabWasSelectedRef.current = true;
+            setHomeSection(value);
+          }}
           labels={{
             templates: t("navigation.templates"),
             recent: t("home.recent"),

@@ -198,9 +198,27 @@ describe("backfill-search-embeddings", () => {
     mocks.getDb.mockReturnValue(createDb());
   });
 
-  it("defaults to a bounded metadata-only dry run", async () => {
+  it("requires an explicit preview or queue mode", async () => {
+    const jsonSchema = action.tool.parameters;
+
+    expect(jsonSchema?.required).toContain("mode");
+    expect(jsonSchema?.properties?.mode).toMatchObject({
+      enum: ["preview", "queue"],
+    });
+    expect(
+      backfillSearchEmbeddingsSchema.safeParse({ sourceId: "source-1" })
+        .success,
+    ).toBe(false);
+    await expect(
+      action.run({ sourceId: "source-1" } as Parameters<typeof action.run>[0]),
+    ).rejects.toThrow();
+    expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
+  });
+
+  it("previews a bounded page without queueing", async () => {
     const args = backfillSearchEmbeddingsSchema.parse({
       sourceId: "source-1",
+      mode: "preview",
     });
 
     const result = await action.run(args);
@@ -215,7 +233,7 @@ describe("backfill-search-embeddings", () => {
       mocks.readEmbeddingReadiness,
     );
     expect(result).toMatchObject({
-      dryRun: true,
+      mode: "preview",
       sourceId: "source-1",
       scanned: 1,
       matched: 1,
@@ -231,12 +249,8 @@ describe("backfill-search-embeddings", () => {
 
   it("requires approval and durably queues missing embeddings", async () => {
     expect(action.needsApproval).toBe(backfillSearchEmbeddingsNeedsApproval);
-    expect(backfillSearchEmbeddingsNeedsApproval({ dryRun: false })).toBe(true);
-    expect(backfillSearchEmbeddingsNeedsApproval({ dryRun: "false" })).toBe(
-      true,
-    );
-    expect(backfillSearchEmbeddingsNeedsApproval({ dryRun: true })).toBe(false);
-    expect(backfillSearchEmbeddingsNeedsApproval({ dryRun: "true" })).toBe(
+    expect(backfillSearchEmbeddingsNeedsApproval({ mode: "queue" })).toBe(true);
+    expect(backfillSearchEmbeddingsNeedsApproval({ mode: "preview" })).toBe(
       false,
     );
     expect(backfillSearchEmbeddingsNeedsApproval({})).toBe(false);
@@ -244,7 +258,7 @@ describe("backfill-search-embeddings", () => {
 
     const result = await action.run({
       sourceId: "source-1",
-      dryRun: false,
+      mode: "queue",
       force: false,
       limit: 25,
     });
@@ -258,7 +272,7 @@ describe("backfill-search-embeddings", () => {
       payload: { requiredEmbeddingSetId: readiness.embeddingSetId },
     });
     expect(result).toMatchObject({
-      dryRun: false,
+      mode: "queue",
       matched: 1,
       queued: 1,
       failed: 0,
@@ -284,7 +298,7 @@ describe("backfill-search-embeddings", () => {
     await expect(
       action.run({
         sourceId: "source-1",
-        dryRun: false,
+        mode: "queue",
         force: false,
         limit: 25,
       }),
@@ -304,7 +318,7 @@ describe("backfill-search-embeddings", () => {
     await expect(
       action.run({
         sourceId: "source-1",
-        dryRun: false,
+        mode: "queue",
         force: false,
         limit: 25,
       }),
@@ -319,7 +333,7 @@ describe("backfill-search-embeddings", () => {
 
     const result = await action.run({
       sourceId: "source-1",
-      dryRun: false,
+      mode: "queue",
       force: false,
       captureIds: ["capture-1"],
       limit: 25,
@@ -362,7 +376,7 @@ describe("backfill-search-embeddings", () => {
 
     const result = await action.run({
       sourceId: "source-1",
-      dryRun: true,
+      mode: "preview",
       force: false,
       limit: 25,
     });
@@ -383,7 +397,7 @@ describe("backfill-search-embeddings", () => {
 
     const result = await action.run({
       sourceId: "source-1",
-      dryRun: true,
+      mode: "preview",
       force: false,
       limit: 2,
     });

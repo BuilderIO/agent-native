@@ -56,12 +56,15 @@ export interface ActionRunContext {
   networkPeer?: string;
   delegationDepth?: number;
   visitedApps?: string[];
+  /** Remote targets that returned a terminal precondition in this turn. */
+  blockedA2ATargets?: Map<string, string>;
   attachments?: AgentChatAttachment[];
   signal?: AbortSignal;
   actionName?: string;
   threadId?: string;
   runId?: string;
   turnId?: string;
+  toolCallId?: string;
   approvedToolCallKey?: string;
 }
 

@@ -30,11 +30,6 @@ const messages = {
     pageExtension: "扩展",
     pageExtensions: "扩展",
   },
-  settings: {
-    languageTitle: "语言",
-    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-    languageLabel: "界面语言",
-  },
   agent: {
     emptyState: "让智能体查看或修改这个应用。",
     suggestionCalendar: "帮我看看日历和邮件——今天有什么任务？",
@@ -149,6 +144,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "建议处理队列",
+    noQueueMatch: "没有匹配的队列",
+    urgentProbability: "紧急概率 {{percent}}%",
+    applyRoute: "应用队列",
+    routingError: "无法生成队列建议。",
     panelTitle: "字段",
     panelSubtitle: "任务详情",
     closeLabel: "关闭字段面板",

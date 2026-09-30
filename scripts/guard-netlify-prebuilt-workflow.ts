@@ -106,13 +106,12 @@ export function validateReusableWorkflowPermissions(
   const permissions = asRecord(workflow.permissions);
   if (
     permissions?.contents !== "read" ||
-    permissions?.["pull-requests"] !== "read" ||
     Object.keys(permissions ?? {}).some(
-      (permission) => !["contents", "pull-requests"].includes(permission),
+      (permission) => permission !== "contents",
     )
   ) {
     return [
-      `${reusablePath} must declare only contents: read and pull-requests: read for the reusable deploy job`,
+      `${reusablePath} must declare only contents: read for the reusable deploy job`,
     ];
   }
   return [];
@@ -143,15 +142,6 @@ export function validateReusableCallerPermissions(
         `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
       );
     }
-    if (
-      asRecord(job.with)?.target === "preview" &&
-      asRecord(job.with)?.deploy === true &&
-      permissions?.["pull-requests"] !== "read"
-    ) {
-      issues.push(
-        `${path} ${jobName} preview caller must grant pull-requests: read for the trusted PR recheck`,
-      );
-    }
   }
   return issues;
 }
@@ -161,47 +151,29 @@ export function validateReusablePreviewRecordPlacement(
 ): string[] {
   const deploy = asRecord(asRecord(workflow.jobs)?.deploy);
   const steps = Array.isArray(deploy?.steps) ? deploy.steps.map(asRecord) : [];
+  const scripts = steps
+    .map((step) => String(asRecord(step?.with)?.script ?? ""))
+    .join("\n");
   const stepIndex = (name: string) =>
     steps.findIndex((step) => step?.name === name);
   const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
   const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
   const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
   const sourceIndex = stepIndex("Validate the source revision");
-  const prRecheckIndex = stepIndex(
-    "Revalidate the internal PR before preview upload",
-  );
   const trustedPreviewBuildIndex = stepIndex(
     "Build trusted preview Functions for the PR artifact",
   );
-  const prRecheck = steps[prRecheckIndex];
-  const prRecheckEnv = asRecord(prRecheck?.env);
-  const prRecheckScript = String(asRecord(prRecheck?.with)?.script ?? "");
   if (
     recordIndex < 0 ||
     previewSmokeIndex < 0 ||
     docsSmokeIndex < 0 ||
     recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex) ||
     sourceIndex < 0 ||
-    prRecheckIndex <= sourceIndex ||
-    trustedPreviewBuildIndex <= prRecheckIndex ||
-    !String(prRecheck?.if ?? "").includes("inputs.target == 'preview'") ||
-    !String(prRecheck?.if ?? "").includes("inputs.deploy") ||
-    !String(prRecheck?.if ?? "").includes("inputs.pull_request_number > 0") ||
-    prRecheckEnv?.PULL_REQUEST_NUMBER !== "${{ inputs.pull_request_number }}" ||
-    prRecheckEnv?.SOURCE_REF !== "${{ steps.source.outputs.source_ref }}" ||
-    !prRecheckScript.includes("github.rest.pulls.get") ||
-    !prRecheckScript.includes("pullRequest.state !== 'open'") ||
-    !prRecheckScript.includes("pullRequest.base.ref !== 'main'") ||
-    !prRecheckScript.includes("pullRequest.base.repo?.full_name") ||
-    !prRecheckScript.includes("pullRequest.author_association") ||
-    !prRecheckScript.includes(
-      "pullRequest.head.sha !== process.env.SOURCE_REF",
-    ) ||
-    !prRecheckScript.includes("pullRequest.head.repo?.full_name") ||
-    !prRecheckScript.includes("pullRequest.user?.type !== 'User'")
+    trustedPreviewBuildIndex <= sourceIndex ||
+    scripts.includes("github.rest.pulls.get")
   ) {
     return [
-      `${reusablePath} must revalidate the current internal PR before trusted preview deploy steps and publish records only after smoke checks`,
+      `${reusablePath} must keep PR API reads in the caller and publish records only after smoke checks`,
     ];
   }
   return [];
@@ -292,9 +264,27 @@ export function validateNetlifyPrPreviewWorkflow(
   const build = asRecord(jobs?.build);
   const buildWith = asRecord(build?.with);
   const buildPermissions = asRecord(build?.permissions);
+  const revalidate = asRecord(jobs?.revalidate);
+  const revalidatePermissions = asRecord(revalidate?.permissions);
+  const revalidateSteps = Array.isArray(revalidate?.steps)
+    ? revalidate.steps.map(asRecord)
+    : [];
+  const revalidateStep = revalidateSteps.find(
+    (step) => step?.name === "Confirm the authorized PR head is still current",
+  );
+  const revalidateEnv = asRecord(revalidateStep?.env);
+  const revalidateScript = String(asRecord(revalidateStep?.with)?.script ?? "");
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
-  const deployConcurrency = asRecord(deploy?.concurrency);
+  const workflowConcurrency = asRecord(workflow.concurrency);
+  const previewSiteConcurrency = previewEligibleSiteNames()
+    .map(
+      (site) =>
+        `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
+    )
+    .join(" || ");
+  const expectedPreviewConcurrencyExpression = `( github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' ) && github.event.comment.user.type == 'User' && ( ${previewSiteConcurrency} || format('unrecognized-{0}', github.run_id) ) || format('ignored-{0}', github.run_id)`;
+  const expectedPreviewConcurrencyGroup = `netlify-pr-preview-\${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-\${{ ${expectedPreviewConcurrencyExpression} }}`;
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
   const deploymentScript = githubScript(deployment ?? {});
@@ -347,9 +337,14 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} must disable automatic PR previews and retain only closed-PR cleanup`,
     );
   }
-  if (workflow.concurrency !== undefined) {
+  if (
+    String(workflowConcurrency?.group ?? "")
+      .replace(/\s+/g, " ")
+      .trim() !== expectedPreviewConcurrencyGroup ||
+    workflowConcurrency?.["cancel-in-progress"] !== false
+  ) {
     issues.push(
-      `${pullRequestPath} must coordinate preview deploys and cleanup per PR and app at the job level`,
+      `${pullRequestPath} must serialize authorized PR-and-site requests before revalidation and isolate ignored comments`,
     );
   }
   const authorizeIf = String(authorize?.if ?? "")
@@ -455,6 +450,45 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
+    !revalidate ||
+    revalidate["runs-on"] !== "ubuntu-latest" ||
+    !Array.isArray(revalidate.needs) ||
+    !revalidate.needs.includes("authorize") ||
+    !revalidate.needs.includes("build") ||
+    !String(revalidate.if ?? "").includes(
+      "needs.authorize.result == 'success'",
+    ) ||
+    !String(revalidate.if ?? "").includes("needs.build.result == 'success'") ||
+    revalidatePermissions?.["pull-requests"] !== "read" ||
+    Object.keys(revalidatePermissions ?? {}).some(
+      (permission) => permission !== "pull-requests",
+    ) ||
+    !revalidateStep ||
+    revalidateEnv?.PULL_REQUEST_NUMBER !==
+      "${{ needs.authorize.outputs.pull_request_number }}" ||
+    revalidateEnv?.SOURCE_REF !== "${{ needs.authorize.outputs.source_ref }}" ||
+    !revalidateScript.includes("github.rest.pulls.get") ||
+    !revalidateScript.includes("pullRequest.state !== 'open'") ||
+    !revalidateScript.includes("pullRequest.base.ref !== 'main'") ||
+    !revalidateScript.includes(
+      "pullRequest.base.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
+    !revalidateScript.includes(
+      "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+    ) ||
+    !revalidateScript.includes(
+      "pullRequest.head.sha !== process.env.SOURCE_REF",
+    ) ||
+    !revalidateScript.includes(
+      "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
+    !revalidateScript.includes("pullRequest.user?.type !== 'User'")
+  ) {
+    issues.push(
+      `${pullRequestPath} must revalidate the pinned internal PR after build with only read permissions before deploy`,
+    );
+  }
+  if (
     !deployment ||
     deployment["runs-on"] !== "ubuntu-latest" ||
     !Array.isArray(deployment.needs) ||
@@ -524,14 +558,13 @@ export function validateNetlifyPrPreviewWorkflow(
     issues.push(`${pullRequestPath} deploy job must pass target=preview`);
   }
   if (
-    !deployConcurrency ||
-    deployConcurrency.group !==
-      "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}" ||
-    deployConcurrency["cancel-in-progress"] !== false ||
-    asRecord(deploy.permissions)?.["pull-requests"] !== "read"
+    asRecord(deploy.permissions)?.contents !== "read" ||
+    Object.keys(asRecord(deploy.permissions) ?? {}).some(
+      (permission) => permission !== "contents",
+    )
   ) {
     issues.push(
-      `${pullRequestPath} deploy job must retain each app request in its PR-and-app queue and permit the trusted PR recheck`,
+      `${pullRequestPath} deploy job must retain contents access only`,
     );
   }
   if (deployWith?.build_context !== "deploy-preview") {
@@ -560,12 +593,15 @@ export function validateNetlifyPrPreviewWorkflow(
     !Array.isArray(deploy?.needs) ||
     !deploy.needs.includes("authorize") ||
     !deploy.needs.includes("build") ||
+    !deploy.needs.includes("revalidate") ||
     !String(deploy.if ?? "").includes("needs.authorize.result == 'success'") ||
     !String(deploy.if ?? "").includes("needs.build.result == 'success'") ||
+    !String(deploy.if ?? "").includes("needs.revalidate.result == 'success'") ||
     deployWith?.site !== "${{ needs.authorize.outputs.site }}" ||
     deployWith?.source_ref !== "${{ needs.authorize.outputs.source_ref }}" ||
     deployWith?.pull_request_number !==
-      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}"
+      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}" ||
+    deploy?.concurrency !== undefined
   ) {
     issues.push(
       `${pullRequestPath} deploy job must wait for authorization and the secret-free build`,
@@ -597,7 +633,7 @@ export function validateNetlifyPrPreviewWorkflow(
     JSON.stringify(cleanupMatrix.site) !==
       JSON.stringify(previewEligibleSiteNames()) ||
     cleanupConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}" ||
+      "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}" ||
     cleanupConcurrency["cancel-in-progress"] !== true ||
     !source.includes('--site "$SITE_NAME"')
   ) {
@@ -1026,10 +1062,15 @@ const parsedPreviewSmokeIndex = parsedStepIndex(
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedNetlifyMigrationIndex = parsedStepIndex(
+  "Run the release migration from the Netlify environment",
+);
 const parsedClipsMigrationIndex = parsedStepIndex(
   "Run Clips release migrations",
 );
 const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
+const parsedMailMigrationIndex = parsedStepIndex("Run Mail release migrations");
+const parsedChatMigrationIndex = parsedStepIndex("Run Chat release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -1145,6 +1186,58 @@ if (
 ) {
   issues.push(
     `${reusablePath} must pause automatic Netlify builds before running CRM release migrations`,
+  );
+}
+const mailMigrationStep = reusableSteps[parsedMailMigrationIndex];
+const mailMigrationIf = String(mailMigrationStep?.if ?? "");
+const mailMigrationRun = String(mailMigrationStep?.run ?? "");
+const netlifyMigrationIf = String(
+  reusableSteps[parsedNetlifyMigrationIndex]?.if ?? "",
+);
+const buildWithNetlifyIndex = parsedStepIndex(
+  "Build with the Netlify project configuration",
+);
+const buildWithNetlifyEnv = asRecord(reusableSteps[buildWithNetlifyIndex]?.env);
+if (
+  parsedMailMigrationIndex < 0 ||
+  parsedMailMigrationIndex <= parsedPauseIndex ||
+  parsedMailMigrationIndex >= parsedUnlockIndex ||
+  !mailMigrationIf.includes("inputs.target == 'production'") ||
+  !mailMigrationIf.includes("inputs.migration_only") ||
+  !mailMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !mailMigrationIf.includes("source_template == 'mail'") ||
+  !netlifyMigrationIf.includes("inputs.migration_only") ||
+  !netlifyMigrationIf.includes("source_template == 'mail'") ||
+  !mailMigrationRun.includes("netlify api getSiteDatabase") ||
+  !mailMigrationRun.includes("netlify api getEnvVars") ||
+  !mailMigrationRun.includes("netlifydb_owner") ||
+  !mailMigrationRun.includes("pnpm --filter mail migrate:production") ||
+  !String(buildWithNetlifyEnv?.SKIP_BUILD_MIGRATIONS ?? "").includes(
+    "steps.target.outputs.source_template == 'mail'",
+  )
+) {
+  issues.push(
+    `${reusablePath} must skip Mail build-time migrations and run production Mail migrations with Netlify's writable owner connection before unlocking the deploy`,
+  );
+}
+const chatMigrationStep = reusableSteps[parsedChatMigrationIndex];
+const chatMigrationIf = String(chatMigrationStep?.if ?? "");
+const chatMigrationRun = String(chatMigrationStep?.run ?? "");
+if (
+  parsedChatMigrationIndex < 0 ||
+  parsedChatMigrationIndex <= parsedPauseIndex ||
+  parsedChatMigrationIndex >= parsedUnlockIndex ||
+  !chatMigrationIf.includes("inputs.target == 'production'") ||
+  !chatMigrationIf.includes("inputs.deploy") ||
+  !chatMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !chatMigrationIf.includes("source_template == 'chat'") ||
+  !chatMigrationRun.includes("netlify api getSiteDatabase") ||
+  !chatMigrationRun.includes("netlify api getEnvVars") ||
+  !chatMigrationRun.includes("netlifydb_owner") ||
+  !chatMigrationRun.includes("pnpm --filter chat migrate:production")
+) {
+  issues.push(
+    `${reusablePath} must run Chat framework release migrations against its Netlify site database before unlocking a production deploy`,
   );
 }
 if (
@@ -1919,6 +2012,23 @@ if (
   )
 ) {
   issues.push(`${betaPath} must reject manual source_ref values outside main`);
+}
+
+const netlifyCliSaveIndex = parsedStepIndex("Save the pinned Netlify CLI");
+const netlifyCliSave = reusableSteps[netlifyCliSaveIndex];
+const firstRepoInstallIndex = reusableSteps.findIndex((step) =>
+  String(step?.run ?? "").includes("pnpm install"),
+);
+if (
+  netlifyCliSaveIndex < 0 ||
+  !String(netlifyCliSave?.if ?? "").includes("inputs.target != 'preview'") ||
+  !String(asRecord(netlifyCliSave?.with)?.path ?? "").startsWith("~/") ||
+  firstRepoInstallIndex < 0 ||
+  netlifyCliSaveIndex > firstRepoInstallIndex
+) {
+  issues.push(
+    `${reusablePath} must save the Netlify CLI cache outside the checkout, before any repo install, and never from preview runs`,
+  );
 }
 
 if (issues.length) {

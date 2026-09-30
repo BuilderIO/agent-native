@@ -334,6 +334,30 @@ agents.example.com {
 
 </Callout>
 
+## Self-hosted workspace के लिए Dispatch कॉन्फ़िगर करें {#dispatch-workspace-apps}
+
+Production Dispatch images में अक्सर केवल `.output/` होता है, इसलिए server runtime पर app directories खोज नहीं सकता। यह manifest Dispatch service पर सेट करें। दोनों variables में एक ही JSON रखें: Vite variable Dispatch build के समय पढ़ा जाता है और दूसरा server runtime पर। केवल इस workspace के apps शामिल करें। हर `path`, `APP_BASE_PATH` और proxy route से मेल खाना चाहिए। APP_URL को अपने रिवर्स प्रॉक्सी द्वारा दिए गए सार्वजनिक ओरिजिन पर भी सेट करें।
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## नए workspace में invitations चालू करें {#workspace-invites}
+
+अगर workspace में signup के लिए invitation ज़रूरी है, तो shared database और auth वाले हर app container में ये access variables सेट करें:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+उदाहरण वाले पते की जगह हर workspace के पहले administrator का verified email दें। खाली database पर वह पहले sign in करता है, शुरुआती organization का owner बनता है, और फिर Settings → Organization → Members में टीम को invite कर सकता है। पूरी bootstrap प्रक्रिया के लिए [Administered deployments](/docs/administered-deployments) देखें।
+
 ## आगे क्या है
 
 - [**तैनाती**](/docs/deployment) — कार्यस्थान तैनात करने से पहले एक स्थायी डेटाबेस, एक Nitro preset, और एक platform चुनें

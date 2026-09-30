@@ -184,11 +184,14 @@ async function runDeterministicOperation(
   if (row.operation === "search-index") {
     const { indexBrainCapture, readCaptureEmbeddingCoverage } =
       await import("../server/lib/search-index.js");
-    const result = await indexBrainCapture(context.capture.id);
     const requiredEmbeddingSetId =
       typeof payload.requiredEmbeddingSetId === "string"
         ? payload.requiredEmbeddingSetId
         : null;
+    const result = await indexBrainCapture(
+      context.capture.id,
+      requiredEmbeddingSetId ?? undefined,
+    );
     if (requiredEmbeddingSetId) {
       if (!result.indexed) {
         throw new Error(

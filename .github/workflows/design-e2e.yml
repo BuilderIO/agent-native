@@ -1,20 +1,13 @@
 name: Design E2E (browser)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "templates/design/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/creative-context/**"
-      - ".github/workflows/design-e2e.yml"
-  workflow_dispatch:
+  schedule:
+    - cron: "37 9 * * *"
+  workflow_dispatch: {}
 
 concurrency:
   group: design-e2e
-  cancel-in-progress: false
-  queue: max
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -71,6 +64,15 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Migrate the isolated test database
+        working-directory: templates/design
+        env:
+          APP_NAME: design
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DESIGN_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+        run: pnpm migrate:production
 
       - name: Run shard
         working-directory: templates/design

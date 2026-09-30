@@ -68,6 +68,7 @@ vi.mock("./builtin-tools.js", () => ({
     open_app: {
       tool: {
         description: "Open a workspace app",
+        title: "Open Mail",
         parameters: {
           type: "object",
           properties: {
@@ -1248,6 +1249,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("create_workspace_app");
     expect(names).not.toContain("list_templates");
+    const openAppTool = toolsOut.result.tools.find(
+      (tool: any) => tool.name === "open_app",
+    );
+    expect(openAppTool.inputSchema.required).toBeUndefined();
+    expect(openAppTool.annotations.title).toBe("Open Mail");
+    expect(openAppTool._meta["openai/ui"].entrypoints).toEqual([
+      { type: "global" },
+      { type: "thread" },
+    ]);
+    expect(openAppTool._meta.ui.resourceUri).toBe(
+      "ui://mail/open_app/shell-v65",
+    );
     expect(JSON.stringify(toolsOut)).not.toContain(
       "INTERNAL_TOOL_BLOAT_SENTINEL",
     );

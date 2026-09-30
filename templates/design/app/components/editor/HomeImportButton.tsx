@@ -1,9 +1,9 @@
-import { openAgentSettings } from "@agent-native/core/client/command-navigation";
 import {
   actionErrorMessage,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSettings } from "@agent-native/toolkit/app/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useId, useRef, useState } from "react";
@@ -98,12 +98,12 @@ export function HomeImportButton() {
       />
       <Popover open={open} onOpenChange={changeOpen}>
         <PopoverAnchor asChild>
-          <div className="inline-flex">
+          <div className="inline-flex shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   ref={menuTrigger}
-                  size="icon-sm"
+                  size="sm"
                   disabled={busy}
                   aria-label={t("home.import")}
                 >

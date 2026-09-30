@@ -1,6 +1,12 @@
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig, type AppConfig } from "../app-config/index.js";
-import { renderEmail, emailStrong } from "./email-template.js";
+import type { ShareEmailExtras } from "../sharing/registry.js";
+import {
+  renderEmail,
+  emailQuote,
+  emailStrong,
+  type EmailTemplateApp,
+} from "./email-template.js";
 
 export const AGENT_NATIVE_REPLY_TO = "agent-native@builder.io";
 
@@ -64,6 +70,15 @@ function resolveAppLogoUrl(): string | undefined {
   return isFirstPartyApp(app) ? undefined : app.logoUrl;
 }
 
+export function resolveEmailBrandApp(): EmailTemplateApp {
+  const brand = resolveBrand();
+  return { name: brand.name, logoUrl: brand.logoUrl };
+}
+
+export function resolveEmailApp(): EmailTemplateApp {
+  return { name: resolveAppName(), logoUrl: resolveAppLogoUrl() };
+}
+
 export interface RenderInviteEmailArgs {
   invitee: string;
   orgName: string;
@@ -99,6 +114,40 @@ export function renderInviteEmail(
     subject: `${inviter} invited you to join ${orgName}${onApp}`,
     html,
     text,
+  };
+}
+
+export interface RenderBuilderCreditLimitEmailArgs {
+  subject: string;
+  heading: string;
+  body: string;
+  upgradeLabel: string;
+  upgradeUrl: string;
+}
+
+export function renderBuilderCreditLimitEmail(
+  args: RenderBuilderCreditLimitEmailArgs,
+): RenderedEmailMessage {
+  const brand = resolveBrand();
+  const { html, text } = renderEmail({
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: args.body,
+    heading: args.heading,
+    paragraphs: [args.body],
+    cta: { label: args.upgradeLabel, url: args.upgradeUrl },
+  });
+  return {
+    subject: args.subject,
+    html,
+    text,
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
+      : undefined,
   };
 }
 
@@ -306,4 +355,59 @@ export function renderResetPasswordEmail(
         }
       : undefined,
   };
+}
+
+export interface RenderResourceSharedEmailArgs {
+  recipientEmail: string;
+  sender: { name: string; email: string };
+  resource: { type: string; label: string; title: string; url: string };
+  role: "viewer" | "commenter" | "editor" | "admin";
+  message?: string;
+  app: EmailTemplateApp;
+  heroHtml?: string;
+  extras?: ShareEmailExtras;
+}
+
+const SHARE_ROLE_VERBS: Record<RenderResourceSharedEmailArgs["role"], string> =
+  {
+    viewer: "view",
+    commenter: "comment on",
+    editor: "edit",
+    admin: "edit and manage access to",
+  };
+
+export function renderResourceSharedEmail(
+  args: RenderResourceSharedEmailArgs,
+): RenderedEmailMessage {
+  const senderName = stripCrlf(args.sender.name);
+  const resourceTitle = stripCrlf(args.resource.title);
+  const resourceLabel = args.resource.label.toLowerCase();
+  const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
+  const subject = `${senderName} shared with you: "${resourceTitle}"`;
+  const messageParagraph = args.message?.trim()
+    ? emailQuote(args.message)
+    : null;
+  const defaultParagraphs = [
+    `${emailStrong(senderName)} (${emailStrong(args.sender.email)}) has invited you to ${SHARE_ROLE_VERBS[args.role]} the following ${resourceLabel}:`,
+    ...(messageParagraph ? [messageParagraph] : []),
+  ];
+  const extras = args.extras;
+  const { html, text } = renderEmail({
+    brandName: args.app.name,
+    brandLogoUrl: args.app.logoUrl,
+    preheader: subject,
+    heading: `${senderName} shared ${article} ${resourceLabel}`,
+    paragraphs: extras?.paragraphs
+      ? messageParagraph
+        ? [messageParagraph, ...extras.paragraphs]
+        : extras.paragraphs
+      : defaultParagraphs,
+    resourceBlock: { name: resourceTitle },
+    heroHtml: args.heroHtml,
+    cta: { label: "Open", url: args.resource.url },
+    secondaryCta: extras?.secondaryCta,
+    linkBlock: extras?.linkBlock,
+    closingParagraphs: extras?.closingParagraphs,
+  });
+  return { subject, html, text };
 }

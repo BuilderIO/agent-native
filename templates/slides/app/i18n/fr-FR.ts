@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Intégrations" } },
   templatesPage: {
     actions: "Actions du modèle {{title}}",
     previewAction: "Aperçu",
@@ -19,6 +20,9 @@ const messages = {
     slidePosition: "Diapositive {{current}} sur {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["fr-FR"],
+  common: {
+    loading: "Chargement...",
+  },
   root: {
     commandPresentations: "Présentations",
     searchDecks: "Rechercher des decks",
@@ -44,15 +48,11 @@ const messages = {
   settings: {
     agentObservability: "Observabilité de l’agent",
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour cette app.",
     labs: "Labs",
     labsIntro:
       "Essayez les fonctionnalités expérimentales avant leur lancement.",
     labLayoutOverflowWarningDescription:
       "Afficher l’avertissement de débordement de la mise en page dans l’éditeur.",
-    emailNotifications: "Notifications par e-mail",
-    emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente votre deck ou répond dans un fil.",
     saveFailed: "Échec de l’enregistrement",
     notificationsEmail: "E-mail",
     commentsAndReplies: "Commentaires et réponses",
@@ -61,10 +61,6 @@ const messages = {
     retry: "Réessayer",
     mcpAbout:
       "Connectez Slides à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Slides pour vous : créer des decks, ajouter des diapositives et exporter vers PowerPoint. Elle ne voit que ce que vous pouvez voir.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
@@ -179,6 +175,15 @@ const messages = {
     saveReconnect: "Les changements seront enregistrés à la reconnexion",
     saveFailedDescription:
       "Vos dernières modifications sont uniquement sur cet appareil. Téléchargez une sauvegarde avant de partir.",
+    slideConflictReview: "Examiner",
+    slideConflictTitle: "Cette diapositive a été modifiée ailleurs",
+    slideConflictDescription:
+      "Une autre personne a enregistré une version plus récente. Garder votre brouillon remplacera le contenu enregistré de cette diapositive, ou utilisez la dernière version.",
+    slideConflictUseLatest: "Utiliser la dernière version",
+    slideConflictKeepDraft: "Garder mon brouillon",
+    slideConflictKeepEditing: "Continuer la modification",
+    slideConflictResolutionFailed:
+      "Impossible de résoudre le conflit. Votre brouillon est toujours ici.",
     offline: "Hors ligne",
     selected: "sélectionné",
     chooseDesignSystem: "Choisir un système de design",
@@ -601,6 +606,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Enregistré" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -669,6 +675,21 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Erreur 403",
+    noAccessTitle: "Vous n'avez pas accès",
+    noAccessDescription:
+      "Demandez l'accès au propriétaire du deck ou passez au bon compte.",
+    noteLabel: "Ajoutez une note pour le propriétaire (facultatif)",
+    notePlaceholder: "Je relis ce deck",
+    requesting: "Demande en cours",
+    requestFailed: "Votre demande n'a pas été envoyée. Veuillez réessayer.",
+    requestSentDescription:
+      "Nous vous enverrons un e-mail dès que le propriétaire aura approuvé votre demande.",
+    goHome: "Accueil",
+    signedInAs: "Connecté en tant que",
+    switchAccount: "Changer de compte",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -716,6 +737,9 @@ const messages = {
     accessApprovalTitle: "Accès accordé",
     accessApprovalAlreadyTitle: "Accès déjà accordé",
     accessApprovalMessage: "{{email}} peut maintenant ouvrir ce deck.",
+    accessApprovalRequesterEmailed: "Nous l'avons prévenu par e-mail.",
+    accessApprovalRequesterEmailFailed:
+      "Impossible d'envoyer un e-mail à {{email}}. Prévenez-le qu'il peut maintenant ouvrir le deck.",
     accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce deck.",
     accessApprovalErrorTitle: "Impossible d’accorder l’accès",
     accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",
@@ -858,12 +882,14 @@ const messages = {
       networkFailed:
         "La demande d’importation a expiré ou la connexion réseau a été interrompue. Vérifiez votre connexion et réessayez.",
       notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+      unsupportedFileType:
+        "Ce type de fichier n’est pas pris en charge. Choisissez un fichier compatible.",
       uploadLimitExceeded:
         "Le téléversement dépasse une limite autorisée. Réduisez la taille du fichier ou choisissez moins de fichiers, puis réessayez.",
     },
     importDeck: "Importer une présentation",
     context: {
-      websiteReference: "Joindre un site web",
+      websiteReference: "Ajouter un site web",
       websiteUrlLabel: "URL du site web",
       websiteUrl: "Collez l’URL d’un site web",
       figmaUrlLabel: "Lien Figma",
@@ -878,7 +904,7 @@ const messages = {
       searchPresentations: "Rechercher des présentations…",
       menu: {
         system: "Utiliser un système de design",
-        figma: "Joindre Figma",
+        figma: "Ajouter Figma",
         design: "Utiliser un design comme référence",
         deck: "Utiliser une présentation comme référence",
         searchDesign: "Rechercher dans Design…",
@@ -899,6 +925,8 @@ const messages = {
       notReady:
         "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
       emptySource: "Cette source n’a fourni aucun contexte utilisable.",
+      websiteReadFailed:
+        "Impossible de lire automatiquement ce site web. Copiez-collez plutôt le texte pertinent.",
       figmaReadFailed:
         "Design n’a pas pu lire cette référence Figma. Vérifiez le jeton d’accès Figma enregistré dans Design et que le compte associé peut ouvrir le fichier, puis réessayez.",
       tooMany: "Choisissez jusqu’à 20 références.",
@@ -1059,6 +1087,11 @@ const messages = {
     createFirstDeck: "Créez votre premier deck",
     emptyDescription:
       "Créez de belles présentations avec la génération par IA.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+    },
   },
 };
 

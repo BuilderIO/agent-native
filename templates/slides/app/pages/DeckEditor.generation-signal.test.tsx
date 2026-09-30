@@ -122,6 +122,7 @@ vi.mock("@/context/DeckContext", () => ({
     reorderSlides: vi.fn(),
     setDeckSlides: vi.fn(),
     undo: vi.fn(),
+    undoAvailability: {},
     loading: false,
     loadError: false,
   }),
@@ -134,17 +135,48 @@ vi.mock("@/context/DeckContext", () => ({
   markSlideEditingActive: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   AGENT_CHAT_SUBMIT_TARGET_EVENT: "agentNative.chatSubmitTarget",
   AGENT_CHAT_SUBMIT_RESULT_EVENT: "agentNative.chatSubmitResult",
+  fetchAgentEngineConfiguredState: async () => "unavailable",
   sendToAgentChat: mocks.sendToAgentChat,
-  useGuidedQuestionFlow: () => ({
-    questions: [],
-    handleSubmit: vi.fn(),
-    handleSkip: vi.fn(),
-    refetchPendingQuestion: vi.fn(async () => false),
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
   }),
 }));
+vi.mock(
+  "@agent-native/toolkit/app/chat/agentkit-chat",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/agentkit-chat")
+    >()),
+    useGuidedQuestionFlow: () => ({
+      questions: [],
+      handleSubmit: vi.fn(),
+      handleSkip: vi.fn(),
+      refetchPendingQuestion: vi.fn(async () => false),
+    }),
+  }),
+);
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   const original =
@@ -189,13 +221,18 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: null, isLoading: false, isError: false }),
 }));
 
+const resetDeckAccessRequest = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-deck-access", () => ({
   useDeckAccessStatus: () => ({
     data: { exists: true, hasAccess: true, visibility: "private" },
     isError: false,
     isLoading: false,
   }),
-  useRequestDeckAccess: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useRequestDeckAccess: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+    reset: resetDeckAccessRequest,
+  }),
 }));
 vi.mock("@/hooks/use-deck-design-system", () => ({
   useDeckDesignSystem: () => ({
@@ -347,6 +384,7 @@ describe("DeckEditor generation signal wiring", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     router?.dispose();
     router = undefined;
     if (originalLocksDescriptor) {
@@ -1017,6 +1055,29 @@ describe("DeckEditor generation signal wiring", () => {
     expect(
       screen.getByTestId("generating-preview").getAttribute("data-busy"),
     ).toBe("false");
+  });
+
+  it("offers a retry after a submit-only generation route fails to start", async () => {
+    vi.useFakeTimers();
+    mocks.broadGenerating = false;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: ["/deck/deck-1?generationSubmitId=submit-1"],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    expect(
+      screen.getByTestId("generating-preview").getAttribute("data-busy"),
+    ).toBe("true");
+    act(() => vi.runOnlyPendingTimers());
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("generating-preview")).toBeNull();
   });
 
   it("recovers an empty-deck failure after its terminal save fails and reloads", async () => {

@@ -1,17 +1,68 @@
+import type { AssistantChatComposerContext } from "@agent-native/toolkit/app/chat/chat";
+import { snapshotComposerContextItems } from "@agent-native/toolkit/composer/context-items";
 // @vitest-environment happy-dom
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const { callAction, query, identity } = vi.hoisted(() => ({
-  callAction: vi.fn(),
-  query: { refresh: 0, enabled: true },
-  identity: { email: "one@example.test", orgId: "one" },
-}));
+const { callAction, query, identity, navigate, capabilities } = vi.hoisted(
+  () => ({
+    callAction: vi.fn(),
+    query: { refresh: 0, enabled: true },
+    identity: {
+      email: "one@example.test",
+      orgId: "one",
+      authUserId: undefined as string | undefined,
+    },
+    navigate: vi.fn(),
+    capabilities: {
+      data: {
+        sources: { figma: { available: true } },
+        integrations: [] as Array<{
+          id: string;
+          label: string;
+          kind: "provider-api" | "mcp";
+        }>,
+      },
+    },
+  }),
+);
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    useAgentKitCapabilities: () => capabilities,
+  }),
+);
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => query.enabled,
 }));
+vi.mock("@/hooks/use-design-systems", () => ({
+  useDesignSystems: () => ({
+    designSystems: [],
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
 const translate = (key: string) => key;
-vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => translate,
+  useFormatters: () => ({ formatDate: (value: string) => value }),
+}));
+vi.mock("@/components/deck/SlideRenderer", () => ({ default: () => null }));
+vi.mock("react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router")>()),
+  useNavigate: () => navigate,
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction,
   actionErrorMessage: (error: Error) =>
     error?.message.replace(/^Action failed: /, ""),
@@ -22,6 +73,7 @@ vi.mock("@agent-native/toolkit/composer", async () => ({
   ...(await vi.importActual("@agent-native/toolkit/composer/context-items")),
 }));
 import { useSlidesComposerContext } from "./SlidesComposerContext";
+import { SlidesComposerContextProvider } from "./SlidesComposerContextProvider";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -32,11 +84,22 @@ beforeEach(() => {
       clear: () => storage.clear(),
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      key: (index: number) => [...storage.keys()][index] ?? null,
+      get length() {
+        return storage.size;
+      },
     },
   });
   window.localStorage.clear();
   identity.email = "one@example.test";
   identity.orgId = "one";
+  identity.authUserId = undefined;
+  capabilities.data = {
+    sources: { figma: { available: true } },
+    integrations: [],
+  };
+  navigate.mockReset();
   query.refresh = 0;
   query.enabled = true;
   callAction.mockImplementation(async (_action, args) => ({
@@ -86,6 +149,331 @@ function attachFrames(
 }
 
 describe("Slides context readiness and identity", () => {
+  it("restores reference metadata across same-thread surface remounts and re-reads content", async () => {
+    let model!: AssistantChatComposerContext;
+    const provider = (threadId: string, tabId: string) => (
+      <SlidesComposerContextProvider threadId={threadId} tabId={tabId} isActive>
+        {(value) => {
+          model = value;
+          return null;
+        }}
+      </SlidesComposerContextProvider>
+    );
+    const view = render(provider("thread", "sidebar-tab"));
+    const action = model.menuItems[0].children!.find(
+      (item) => item.id === "website",
+    )!;
+    if (!("picker" in action) || !action.picker?.onSelect)
+      throw new Error("Missing website picker");
+    const url = "https://example.com/reference";
+    await act(async () =>
+      action.picker!.onSelect!({ id: url, title: "Website" }, request()),
+    );
+    await waitFor(() => expect(model.contextItems[0]?.status).toBe("ready"));
+    view.rerender(<></>);
+    callAction.mockResolvedValueOnce({
+      id: "website-hash",
+      title: "Website",
+      context: "Fresh after handoff",
+    });
+    view.rerender(provider("thread", "page-tab"));
+    await waitFor(() =>
+      expect(model.contextItems[0]?.context).toBe("Fresh after handoff"),
+    );
+    const stored = [...Array(window.localStorage.length)]
+      .map((_, index) =>
+        window.localStorage.getItem(window.localStorage.key(index)!),
+      )
+      .join("");
+    expect(stored).toContain(url);
+    expect(stored).not.toContain("Visual language");
+    expect(stored).not.toContain("Fresh after handoff");
+    view.rerender(provider("other-thread", "other-tab"));
+    expect(model.contextItems).toEqual([]);
+    identity.authUserId = "different-auth-user";
+    view.rerender(provider("thread", "page-tab"));
+    expect(model.contextItems).toEqual([]);
+    identity.authUserId = undefined;
+    identity.orgId = "different-org";
+    view.rerender(provider("thread", "page-tab"));
+    expect(model.contextItems).toEqual([]);
+    identity.orgId = "one";
+    view.rerender(provider("thread", "page-tab"));
+    await waitFor(() => expect(model.contextItems[0]?.status).toBe("ready"));
+    let prepared!: typeof model.contextItems;
+    await act(async () => {
+      prepared = await model.prepareSubmission(model.contextItems);
+    });
+    act(() => model.submissionAccepted(prepared));
+    view.rerender(<></>);
+    view.rerender(provider("thread", "sidebar-tab"));
+    expect(model.contextItems).toEqual([]);
+  });
+  it("mounts a distinct controller per chat and resets for a different authentication identity", async () => {
+    const models = new Map<string, AssistantChatComposerContext>();
+    const providers = () =>
+      ["one", "two"].map((threadId) => (
+        <SlidesComposerContextProvider
+          key={threadId}
+          threadId={threadId}
+          tabId={threadId}
+          isActive={threadId === "one"}
+        >
+          {(model) => {
+            models.set(threadId, model);
+            return null;
+          }}
+        </SlidesComposerContextProvider>
+      ));
+    const view = render(<>{providers()}</>);
+    const action = models
+      .get("one")!
+      .menuItems[0].children!.find((item) => item.id === "website")!;
+    if (!("picker" in action) || !action.picker?.onSelect)
+      throw new Error("Missing website picker");
+    await act(async () =>
+      action.picker!.onSelect!(
+        { id: "https://example.com/one", title: "One" },
+        request(),
+      ),
+    );
+    await waitFor(() =>
+      expect(models.get("one")!.contextItems[0]?.status).toBe("ready"),
+    );
+    expect(models.get("two")!.contextItems).toEqual([]);
+    expect(models.get("two")!.menuItems).toEqual([]);
+    identity.authUserId = "another-auth-identity";
+    view.rerender(<>{providers()}</>);
+    expect(models.get("one")!.contextItems).toEqual([]);
+    expect(models.get("two")!.contextItems).toEqual([]);
+  });
+  it("does not share chat selections with another thread or persisted Home context", async () => {
+    const saved = JSON.stringify({
+      designSystemId: null,
+      references: [{ source: "slides", id: "home", title: "Home" }],
+    });
+    window.localStorage.setItem(
+      "slides-home-context:one@example.test:one",
+      saved,
+    );
+    const first = renderHook(() =>
+      useSlidesComposerContext({
+        ...defaults,
+        scopeKey: "one",
+        persistSelection: false,
+      }),
+    );
+    const second = renderHook(() =>
+      useSlidesComposerContext({
+        ...defaults,
+        scopeKey: "two",
+        persistSelection: false,
+      }),
+    );
+    expect(first.result.current.props.contextItems).toEqual([]);
+    const website = picker(first.result.current, "website");
+    await act(async () =>
+      website.onSelect!(
+        { id: "https://example.com/one", title: "One" },
+        request(),
+      ),
+    );
+    await waitFor(() =>
+      expect(first.result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+    expect(second.result.current.props.contextItems).toEqual([]);
+    expect(
+      window.localStorage.getItem("slides-home-context:one@example.test:one"),
+    ).toBe(saved);
+  });
+
+  it("revalidates exactly the captured subset and clears it without dropping later additions", async () => {
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, persistSelection: false }),
+    );
+    const url = "https://example.com/one";
+    await act(async () =>
+      picker(result.current, "website").onSelect!(
+        { id: url, title: "One" },
+        request(),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+    const captured = snapshotComposerContextItems(
+      result.current.props.contextItems,
+    );
+    await act(async () =>
+      picker(result.current, "website").onSelect!(
+        { id: "https://example.com/two", title: "Two" },
+        request(),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        result.current.props.contextItems.every(
+          (item) => item.status === "ready",
+        ),
+      ).toBe(true),
+    );
+    callAction.mockClear();
+    callAction.mockResolvedValueOnce({
+      id: "website-hash",
+      title: "Refreshed",
+      context: "New source content",
+    });
+    let prepared!: Awaited<ReturnType<typeof result.current.beforeSend>>;
+    await act(async () => {
+      prepared = await result.current.beforeSend(captured);
+    });
+    expect(prepared.items).toHaveLength(1);
+    expect(prepared.items[0].context).toBe("New source content");
+    expect(callAction).toHaveBeenCalledTimes(1);
+    expect(callAction.mock.calls[0][1].url).toBe(url);
+    act(() => result.current.submissionAccepted(prepared.items));
+    await waitFor(() =>
+      expect(result.current.props.contextItems).toHaveLength(1),
+    );
+    expect(result.current.props.contextItems[0].key).toContain(
+      "https://example.com/two",
+    );
+  });
+
+  it("keeps a same-key replacement when an earlier version finishes submission", async () => {
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, persistSelection: false }),
+    );
+    const reference = { id: "https://example.com/one", title: "One" };
+    await act(async () =>
+      picker(result.current, "website").onSelect!(reference, request()),
+    );
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+    const captured = snapshotComposerContextItems(
+      result.current.props.contextItems,
+    );
+    let resolve!: (value: unknown) => void;
+    callAction.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const pending = result.current.beforeSend(captured);
+    await act(async () =>
+      picker(result.current, "website").onSelect!(
+        { ...reference, title: "Replacement" },
+        request(),
+      ),
+    );
+    resolve({
+      id: "website-hash",
+      title: "Original",
+      context: "Old source revalidated",
+    });
+    let prepared!: Awaited<ReturnType<typeof result.current.beforeSend>>;
+    await act(async () => {
+      prepared = await pending;
+    });
+    act(() => result.current.submissionAccepted(prepared.items));
+    await waitFor(() =>
+      expect(result.current.props.contextItems).toHaveLength(1),
+    );
+  });
+
+  it("uses captured versions even when preparation starts after a same-key replacement", async () => {
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, persistSelection: false }),
+    );
+    const reference = { id: "https://example.com/one", title: "One" };
+    await act(async () =>
+      picker(result.current, "website").onSelect!(reference, request()),
+    );
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+    const captured = snapshotComposerContextItems(
+      result.current.props.contextItems,
+    );
+    const capturedController = result.current;
+    await act(async () =>
+      picker(result.current, "website").onSelect!(reference, request()),
+    );
+    let prepared!: Awaited<ReturnType<typeof result.current.beforeSend>>;
+    await act(async () => {
+      prepared = await capturedController.beforeSend(captured);
+    });
+    act(() => result.current.submissionAccepted(prepared.items));
+    expect(result.current.props.contextItems).toHaveLength(1);
+  });
+  it("rejects a stale picker after its chat becomes inactive", () => {
+    const { result, rerender } = renderHook(
+      ({ active }) =>
+        useSlidesComposerContext({
+          ...defaults,
+          active,
+          persistSelection: false,
+        }),
+      { initialProps: { active: true } },
+    );
+    const website = picker(result.current, "website");
+    rerender({ active: false });
+    expect(result.current.props.contextMenuItems).toEqual([]);
+    expect(() =>
+      website.onSelect!(
+        { id: "https://example.com", title: "Stale" },
+        request(),
+      ),
+    ).toThrow("home.context.loadFailed");
+    expect(result.current.props.contextItems).toEqual([]);
+  });
+  it("blocks submission and retains an error selection when an attached integration is revoked", async () => {
+    const integration = {
+      id: "provider-api:figma",
+      label: "Figma",
+      kind: "provider-api" as const,
+    };
+    capabilities.data.integrations = [integration];
+    const { result, rerender } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, persistSelection: false }),
+    );
+    await act(async () =>
+      picker(result.current, "integrations").onSelect!(
+        { id: integration.id, title: integration.label },
+        request(),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+    const captured = snapshotComposerContextItems(
+      result.current.props.contextItems,
+    );
+    capabilities.data.integrations = [];
+    rerender();
+    callAction.mockRejectedValueOnce(
+      Object.assign(new Error("Integration is no longer available"), {
+        status: 403,
+      }),
+    );
+    const send = vi.fn();
+    await act(async () => {
+      await expect(
+        result.current.beforeSend(captured).then(send),
+      ).rejects.toThrow("home.context.notReady");
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(result.current.props.contextItems).toEqual([
+      expect.objectContaining({
+        key: captured[0].key,
+        status: "error",
+        context: "",
+        statusMessage: "Integration is no longer available",
+      }),
+    ]);
+  });
   it("removes context picker actions while the Home route is inactive", () => {
     const { result } = renderHook(() =>
       useSlidesComposerContext({ ...defaults, active: false }),
@@ -93,6 +481,35 @@ describe("Slides context readiness and identity", () => {
 
     expect(result.current.props.contextMenuItems).toEqual([]);
     expect(callAction).not.toHaveBeenCalled();
+  });
+
+  it("restores composer references from a generation retry", async () => {
+    const initialSelection = {
+      designSystemId: null,
+      references: [
+        { source: "slides" as const, id: "shared", title: "Shared deck" },
+      ],
+    };
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, initialSelection }),
+    );
+
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]).toMatchObject({
+        key: "slides:shared:",
+        status: "ready",
+      }),
+    );
+    let submitted!: Awaited<ReturnType<typeof result.current.beforeSend>>;
+    await act(async () => {
+      submitted = await result.current.beforeSend();
+    });
+
+    expect(submitted.selection).toEqual(initialSelection);
+    expect(submitted.items[0].context).toBe("Visual language");
+    expect(
+      window.localStorage.getItem("slides-home-context:one@example.test:one"),
+    ).toBe(JSON.stringify(initialSelection));
   });
 
   it("ignores reference reads that finish after the Home route deactivates", async () => {
@@ -216,29 +633,34 @@ describe("Slides context readiness and identity", () => {
     await rejected;
     expect(result.current.props.contextItems).toEqual([]);
   });
-  it("keeps both app sources in the agreed hierarchy with shared-only source views", async () => {
+  it("registers the deck reference with shared-only source views", async () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
     const entries = result.current.props.contextMenuItems;
     expect(entries.map((entry) => entry.id)).toEqual(["design-context"]);
     expect(entries[0].children?.map((entry) => entry.id)).toEqual([
+      "deck",
       "system",
       "figma",
       "website",
+      "integrations",
     ]);
     expect(entries[0].children?.map((entry) => entry.label)).toEqual([
+      "home.context.menu.deck",
       "home.context.menu.system",
       "home.context.menu.figma",
       "home.context.websiteReference",
+      "agentChat.composer.menu.integrations",
     ]);
     expect(
-      entries[0].children?.every(
-        (entry) => "picker" in entry && !("render" in entry),
-      ),
+      entries[0].children
+        ?.filter((entry) => "picker" in entry)
+        .every((entry) => "picker" in entry && !("render" in entry)),
     ).toBe(true);
     expect(
       "searchPlaceholder" in entries[0] && entries[0].searchPlaceholder,
     ).toBe("home.context.menu.searchDesign");
     for (const [id, key] of [
+      ["deck", "searchPresentations"],
       ["system", "searchSystems"],
       ["figma", "searchFrames"],
       ["website", "websiteUrl"],
@@ -247,6 +669,123 @@ describe("Slides context readiness and identity", () => {
         `home.context.${key}`,
       );
     }
+  });
+  it("lists, attaches, revalidates and removes a deck through the source action", async () => {
+    const id = "deck";
+    const source = "slides";
+    query.enabled = false;
+    const { result } = renderHook(() => useSlidesComposerContext(defaults));
+    expect(result.current.props.contextMenuItems[0].children).toContainEqual(
+      expect.objectContaining({ id, intent: "add-context" }),
+    );
+    const input = request({ search: "campaign", page: 2, cursor: "next" });
+    const references = [{ id: "reference-one", title: "Campaign" }];
+    callAction.mockResolvedValueOnce({
+      decks: references.map((item) => ({
+        ...item,
+        updatedAt: "2026-09-28T00:00:00Z",
+        previewSlide: { id: "slide-one", content: "<h1>Campaign</h1>" },
+      })),
+    });
+    const sourcePicker = picker(result.current, id);
+    const listed = await sourcePicker.load!(input);
+    expect(callAction).toHaveBeenLastCalledWith(
+      "list-decks",
+      {
+        includePreview: "true",
+        limit: 12,
+        search: "campaign",
+        cursor: "next",
+      },
+      { method: "GET", signal: input.signal },
+    );
+    expect(result.current.props.contextItems).toEqual([]);
+    expect(sourcePicker.link).toBeUndefined();
+    expect(sourcePicker.presentation).toMatchObject({ layout: "gallery" });
+    expect(listed.items[0].preview).toBeDefined();
+    const presentation = sourcePicker.presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    await act(async () => presentation.onAttach(listed.items, input));
+    expect(callAction).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      { source, operation: "read", id: "reference-one" },
+      { method: "GET" },
+    );
+    expect(picker(result.current, id).selectedIds).toEqual(["reference-one"]);
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]).toMatchObject({
+        status: "ready",
+        context: "Visual language",
+      }),
+    );
+    callAction.mockResolvedValueOnce({
+      id: "reference-one",
+      title: "Campaign",
+      context: "Fresh reference",
+    });
+    await act(async () => {
+      const submitted = await result.current.beforeSend();
+      expect(submitted.selection.references).toEqual([
+        { ...references[0], source },
+      ]);
+      expect(submitted.items[0].context).toBe("Fresh reference");
+    });
+    expect(callAction).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      { source, operation: "read", id: "reference-one" },
+      { method: "GET" },
+    );
+    await act(async () =>
+      result.current.props.onRemoveContextItem(
+        result.current.props.contextItems[0].key,
+      ),
+    );
+    expect(result.current.props.contextItems).toEqual([]);
+    expect(picker(result.current, id).selectedIds).toEqual([]);
+  });
+  it("gates Figma and exposes ready integrations through the shared source action", async () => {
+    capabilities.data = {
+      sources: { figma: { available: false } },
+      integrations: [
+        {
+          id: "google_drive",
+          label: "Google Drive",
+          kind: "provider-api",
+        },
+      ],
+    };
+    const { result } = renderHook(() => useSlidesComposerContext(defaults));
+    const entries = result.current.props.contextMenuItems[0].children!;
+    expect(entries.some((entry) => entry.id === "figma")).toBe(false);
+    const integrations = entries.find((entry) => entry.id === "integrations");
+    expect(integrations).toMatchObject({ intent: "invoke-integration" });
+    const integrationPicker = picker(result.current, "integrations");
+    expect(integrationPicker.items).toEqual([
+      { id: "google_drive", title: "Google Drive" },
+    ]);
+    act(() => {
+      void integrationPicker.onSelect!(
+        { id: "google_drive", title: "Google Drive" },
+        request(),
+      );
+    });
+    await waitFor(() =>
+      expect(callAction).toHaveBeenCalledWith(
+        "read-composer-source",
+        {
+          source: "integration",
+          operation: "read",
+          id: "google_drive",
+        },
+        { method: "GET" },
+      ),
+    );
+    expect(navigate).not.toHaveBeenCalled();
   });
   it("forwards paging and cancellation and refreshes without resetting identity scope", async () => {
     const { result, rerender } = renderHook(() =>
@@ -384,7 +923,7 @@ describe("Slides context readiness and identity", () => {
     );
   });
 
-  it("shows only Figma/website by default and never reads an automatic or saved draft system", async () => {
+  it("keeps references available with design systems disabled and never reads an automatic or saved draft system", async () => {
     query.enabled = false;
     const key = "slides-home-context:one@example.test:one";
     const saved = JSON.stringify({ designSystemId: "saved", references: [] });
@@ -397,7 +936,7 @@ describe("Slides context readiness and identity", () => {
     );
     expect(
       result.current.props.contextMenuItems[0].children?.map((item) => item.id),
-    ).toEqual(["figma", "website"]);
+    ).toEqual(["deck", "figma", "website", "integrations"]);
     expect(result.current.props.contextItems).toEqual([]);
     expect(callAction).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(key)).toBe(saved);

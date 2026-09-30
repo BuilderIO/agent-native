@@ -24,6 +24,11 @@ const messages = {
     retry: "Réessayer",
     search: "Rechercher",
   },
+  chatHome: {
+    description:
+      "Explorez le contexte autorisé des comptes, les suivis et les éléments de preuve dans Native SQL et les fiches connectées.",
+    placeholder: "Posez une question sur votre CRM",
+  },
   commandMenu: {
     placeholder: "Rechercher des enregistrements, listes et commandes…",
     groupRecords: "Enregistrements",
@@ -60,21 +65,11 @@ const messages = {
     showHelp: "Afficher cette aide",
   },
   settings: {
-    title: "Paramètres du CRM",
-    description:
-      "Le SQL natif garde les enregistrements du CRM dans Postgres. HubSpot et Salesforce passent par les connexions de l’espace de travail ; leurs miroirs ne stockent que les champs autorisés, des métadonnées limitées et des références de preuve bornées.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     mcpAbout:
       "Connectez CRM à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans CRM pour vous : trouver des fiches, mettre à jour des champs et gérer des tâches. Elle ne voit que ce que vous pouvez voir.",
   },
   connection: {
     tab: "Connexion",
-    title: "Connexion CRM",
-    description:
-      "D’où viennent les enregistrements de ce CRM et quelle part de chaque enregistrement lui appartient.",
     modesTitle: "Modes disponibles",
     modeNative: "SQL natif",
     modeNativeHelp:
@@ -104,9 +99,6 @@ const messages = {
   },
   fields: {
     tab: "Champs",
-    title: "Champs",
-    description:
-      "Les attributs typés derrière chaque enregistrement et chaque liste. Le slug d’API et le type d’un champ sont figés dès sa création ; tout le reste peut changer.",
     target: "Objet ou liste",
     targetPlaceholder: "Sélectionnez un type d’objet ou une liste",
     listsGroup: "Listes",
@@ -253,8 +245,6 @@ const messages = {
   },
   advanced: {
     tab: "Avancé",
-    title: "Avancé",
-    description: "Reconfiguration et comportement de conservation des données.",
     reconfigure: "Reconfigurer le CRM",
     reconfigureHelp:
       "Basculez entre le SQL natif et un compagnon HubSpot ou Salesforce, ou relancez la synchronisation initiale.",
@@ -574,9 +564,6 @@ const messages = {
   },
   intelligence: {
     tab: "Intelligence",
-    title: "Intelligence",
-    description:
-      "Choisissez les moments que le CRM doit repérer dans des preuves d’appel limitées. Les détecteurs intelligents sont évalués avec Ask CRM, jamais directement dans cet écran.",
     loading: "Chargement des détecteurs…",
     kindKeyword: "Mot-clé",
     kindSmart: "Intelligent",

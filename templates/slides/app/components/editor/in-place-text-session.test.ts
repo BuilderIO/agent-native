@@ -96,6 +96,15 @@ function select(
   window.getSelection()!.addRange(range);
 }
 
+function selectBackward(
+  start: Node,
+  startOffset: number,
+  end: Node,
+  endOffset: number,
+) {
+  window.getSelection()!.setBaseAndExtent(end, endOffset, start, startOffset);
+}
+
 function textOf(element: Element, text: string): Text {
   const found = textNodes(element).find((node) => node.data.includes(text));
   if (!found) throw new Error(`no text node with ${text}`);
@@ -378,6 +387,78 @@ describe("in-place text session: entering and ending", () => {
     select(text, 6, text, 10);
     session = startInPlaceTextSession(el);
     expect(window.getSelection()!.toString()).toBe("beta");
+  });
+
+  it("preserves an initial backward selection when entering edit mode", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    selectBackward(text, 1, text, 5);
+
+    session = startInPlaceTextSession(el);
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorNode).toBe(text);
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusNode).toBe(text);
+    expect(selection.focusOffset).toBe(1);
+  });
+
+  it("restores backward selection direction after blur and focus", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+
+    el.dispatchEvent(new FocusEvent("blur"));
+    selection.removeAllRanges();
+    el.dispatchEvent(new FocusEvent("focus"));
+
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
+    expect(selection.toString()).toBe("lpha");
+  });
+
+  it("keeps a pointer caret when refocusing after a backward selection", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    caret(text, 7);
+    el.focus();
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+
+    const selection = window.getSelection()!;
+    expect(document.activeElement).toBe(el);
+    expect(selection.isCollapsed).toBe(true);
+    expect([selection.anchorNode, selection.anchorOffset]).toEqual([text, 7]);
+  });
+
+  it("restores the saved selection when a pointer drag ends outside the editor", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    outside.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    window.getSelection()!.removeAllRanges();
+    el.focus();
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
   });
 
   it("refuses an element that is already editable", () => {
@@ -1127,6 +1208,51 @@ describe("in-place text session: commands", () => {
     expect(el.style.textAlign).toBe("");
   });
 
+  it("toggles bullets only on the selected styled row", () => {
+    const el = mount(
+      '<div id="t">' +
+        "<div><span>●</span><span>First</span></div>" +
+        "<div><span>●</span><span>Second</span></div>" +
+        "<div><span>●</span><span>Third</span></div>" +
+        "</div>",
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.children[1].children[1].firstChild!, 0);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].firstElementChild?.textContent).toBe("Second");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].firstElementChild?.textContent).toBe("●");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+  });
+
+  it("restores a bullet only on the selected styled row", () => {
+    const el = mount(
+      '<div id="t">' +
+        "<div><span>●</span><span>First</span></div>" +
+        "<div><span>●</span><span>Second</span></div>" +
+        "<div><span>●</span><span>Third</span></div>" +
+        "</div>",
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.children[1].children[1].firstChild!, 0);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+    expect(el.children[1].firstElementChild?.textContent).toBe("Second");
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(el.children[0].firstElementChild?.textContent).toBe("●");
+    expect(el.children[1].firstElementChild?.textContent).toBe("●");
+    expect(el.children[2].firstElementChild?.textContent).toBe("●");
+  });
+
   it("selects the element's text for Mod-A", () => {
     const el = mount('<p id="t">One <b>two</b></p><p>outside</p>');
     session = startInPlaceTextSession(el);
@@ -1142,6 +1268,17 @@ describe("in-place text session: commands", () => {
     type(el, "- ");
     expect(el.firstElementChild!.firstElementChild!.textContent).toBe("●");
     expect(el.textContent).toBe("●Point");
+  });
+
+  it("turns '- ' after Enter into a bullet on that line", () => {
+    const el = mount('<div id="t">First line</div>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, "First line".length);
+    beforeInput(el, "insertParagraph");
+    type(el, "- ");
+
+    expect(el.lastElementChild?.textContent).toContain("●");
+    expect(el.textContent).toBe("First line●");
   });
 
   it("turns '1. ' at the start of a leaf into an ordered list", () => {

@@ -1,16 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  AGENT_SIDEBAR_QUERY_PARAM,
-  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
-  docsUrl,
-} from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArchive,
+  IconPhoto,
   IconCalendar,
   IconFileText,
   IconFolder,
@@ -496,7 +491,7 @@ export function ClipsCommandMenu({
               onSelect={() =>
                 void navigate(
                   withQuery(`/r/${context.recordingId}`, {
-                    [AGENT_SIDEBAR_QUERY_PARAM]: AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+                    panel: "agent",
                   }),
                 )
               }
@@ -613,6 +608,13 @@ export function ClipsCommandMenu({
           <IconMicrophone2 size={16} />
           {t("navigation.dictate")}
           <CommandMenu.Shortcut>G D</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={() => void navigate("/screenshots")}
+          keywords={["screenshots", "screenshot", "images", "stills"]}
+        >
+          <IconPhoto size={16} />
+          {t("navigation.screenshots")}
         </CommandMenu.Item>
         <CommandMenu.Item
           onSelect={() => void navigate("/archive")}

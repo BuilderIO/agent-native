@@ -1,12 +1,13 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentToggleButton,
   useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
-import { trackEvent } from "@agent-native/core/client/analytics";
-import { appApiPath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+  useSendToAgentChat as useCoreSendToAgentChat,
+} from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   isFailedSessionReplayNetworkStatus,
@@ -375,7 +376,7 @@ function AskSessionPopover({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const { send, isGenerating } = useSendToAgentChat();
+  const { send, isGenerating } = useCoreSendToAgentChat();
 
   function handleSubmit(text: string) {
     const trimmed = text.trim();

@@ -1,4 +1,4 @@
-import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
+import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import {
   createRegistryBlockNode,
   type RegistryBlockDataValue,

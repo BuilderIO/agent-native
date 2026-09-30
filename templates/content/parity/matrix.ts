@@ -282,6 +282,35 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.breadcrumbs-and-link-targets",
+    surface: "editor",
+    label:
+      "Show page breadcrumbs and peer menus, and resolve page-link blocks and local-source reference previews",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/extensions/NotionExtensions.tsx",
+      "app/components/editor/ContentReferencePreview.tsx",
+      "app/hooks/use-content-links.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Breadcrumbs read the bounded active-item navigation context and load peer menus from the Files navigation page when opened; page-link blocks and reference previews resolve only their own targets instead of listing the workspace.",
+    status: "action-backed",
+    actions: ["resolve-content-links"],
+    exception:
+      "resolve-content-links is hidden with agentTool: false because it only resolves link targets for rendering; agents read linked pages with get-document and search-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-links.db.test.ts",
+      "app/hooks/use-content-links.test.ts",
+      "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -581,6 +610,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-personal-view",
       "list-document-properties",
       "reorder-document-property",
+      "search-content-database-rows",
       "set-document-property",
       "update-content-database-personal-view",
       "update-content-database-view",

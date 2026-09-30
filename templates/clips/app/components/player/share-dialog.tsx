@@ -1,12 +1,12 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentDestinationActions,
   JoinedShareControl,
@@ -427,7 +427,7 @@ function ShareRecordingContent({
 
       <div className="px-3 py-2">
         {view === "main" ? (
-          viewerReshareOnly ? (
+          viewerReshareOnly && passwordProtected ? (
             peopleTab
           ) : (
             <ShareModeTabs

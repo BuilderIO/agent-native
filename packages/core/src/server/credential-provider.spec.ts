@@ -55,17 +55,6 @@ vi.mock("./builder-oauth.js", () => ({
     mockGetBuilderOAuthSession(
       ...(args as [string, string | null | undefined, string | undefined]),
     ),
-  // Same as the real helper: the member's role, read through the mocked DB.
-  isBuilderOrgManager: async (orgId: string, email: string) => {
-    try {
-      const { readOrgMemberRole } =
-        await import("./personal-provider-key-policy.js");
-      const role = await readOrgMemberRole(orgId, email);
-      return role === "owner" || role === "admin";
-    } catch {
-      return false;
-    }
-  },
 }));
 vi.mock("./request-context.js", () => ({
   getRequestContext: () => mockGetRequestContext(),
@@ -80,7 +69,8 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   isLocalDatabase: () => mockIsLocalDatabase(),
   getDbExec: () => mockGetDbExec(),
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: any[]) => mockGetSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
@@ -2840,8 +2830,8 @@ describe("Restrict personal API keys", () => {
     );
   });
 
-  it("puts the org's Builder key pair ahead of an owner's or admin's own", async () => {
-    for (const role of ["owner", "admin"]) {
+  it("runs every role on their own Builder key pair ahead of the org's", async () => {
+    for (const role of ["owner", "admin", "member"]) {
       restrictOrg(role, false);
       storeRows({
         "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
@@ -2850,20 +2840,13 @@ describe("Restrict personal API keys", () => {
         [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
       });
       await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-        privateKey: "bpk-org",
-        source: "org",
+        privateKey: "bpk-personal",
+        source: "user",
       });
       await expect(
         resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
-      ).resolves.toBe("bpk-org");
+      ).resolves.toBe("bpk-personal");
     }
-
-    // A member keeps their own pair first.
-    restrictOrg("member", false);
-    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-      privateKey: "bpk-personal",
-      source: "user",
-    });
   });
 
   it("falls back to an admin's own Builder key pair when the org has none", async () => {

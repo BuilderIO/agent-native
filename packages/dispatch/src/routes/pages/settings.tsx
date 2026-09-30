@@ -3,13 +3,14 @@ import {
   readChatFirstModeState,
   writeChatFirstMode,
 } from "@agent-native/core/client/agent-chat";
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
   useFeatureFlag,
   useFeatureFlagState,
 } from "@agent-native/core/client/feature-flags";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { OrgMembersPage, TeamPage } from "@agent-native/core/client/org";
+import { useT } from "@agent-native/core/client/i18n";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
+import { OrgMembersPage, TeamPage } from "@agent-native/toolkit/app/org";
 import {
   AccountSettingsCard,
   CORE_SETTINGS_PAGES,
@@ -19,8 +20,8 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+} from "@agent-native/toolkit/app/settings";
+import { LanguagePicker } from "@agent-native/toolkit/app/shared";
 import { IconShield } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -247,6 +248,7 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
           <ChangelogSettingsCard markdown={changelog} />
         </div>
       }
+      whatsNewMarkdown={changelog}
     />
   );
 }

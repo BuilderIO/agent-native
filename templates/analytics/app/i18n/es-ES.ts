@@ -160,14 +160,11 @@ export default {
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
     openAgentSettings: "Gestionar agente",
-    account: "Cuenta",
     signedInAs: "Sesión iniciada como",
     credentials: "Credenciales de fuentes de datos",
     credentialsDescription:
       "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
     manageDataSources: "Gestionar fuentes de datos",
-    languageTitle: "Idioma",
-    languageLabel: "Idioma de la interfaz",
     errorEmailNotifications: "Recibir nuevas alertas de errores por email",
     errorEmailNotificationsDescription:
       "Envía un email cuando se capture un nuevo error de JavaScript. Desactivado de forma predeterminada.",
@@ -214,8 +211,6 @@ export default {
     storageSaved: "Configuración de almacenamiento guardada.",
     storageSaveFailed: "No se pudo guardar la configuración de almacenamiento.",
     alertsTitle: "Alertas",
-    alertsDescription:
-      "Gestiona reglas de eventos de analítica propia y la entrega de notificaciones.",
     alertRunNow: "Ejecutar revisión",
     alertNew: "Nueva alerta",
     alertsEmptyTitle: "Aún no hay reglas de alerta",
@@ -977,6 +972,10 @@ export default {
     recentSales: "Ventas recientes",
     recentSalesDescription: "Has realizado 265 ventas este mes.",
   },
+  analysisResult: {
+    title: "Resultado del análisis",
+    comparisonContext: "{{period}}: {{current}} frente a {{previous}}",
+  },
   routeTitles: {
     notFound: "No encontrado - Analytics",
     analysis: "Análisis - Analytics",
@@ -1094,6 +1093,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Rango personalizado",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",

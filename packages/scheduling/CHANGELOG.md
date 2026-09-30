@@ -1,5 +1,48 @@
 # @agent-native/scheduling
 
+## 0.2.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [20cd76f]
+- Updated dependencies [bbe8cbf]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [b6ffae6]
+- Updated dependencies [8853f61]
+  - @agent-native/toolkit@0.198.0
+
+## 0.2.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b8845eb: Scope booking workflows and webhook deliveries to the booking owner and organization.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+- Updated dependencies [f2e8ffe]
+- Updated dependencies [023ee9b]
+- Updated dependencies [47985fe]
+- Updated dependencies
+- Updated dependencies [fa62fdf]
+  - @agent-native/toolkit@0.23.1
+
+## 0.2.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [a20f0b4]
+  - @agent-native/toolkit@0.23.0
+
 ## 0.2.3
 
 ### Patch Changes

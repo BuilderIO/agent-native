@@ -1,18 +1,20 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { type AppearancePresetId } from "@agent-native/core/client/ui";
 import {
   SettingsGroup,
   SettingsRow,
   type SettingsAppArea,
   type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
-import {
-  AppearancePicker,
-  type AppearancePresetId,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/settings";
+import { AppearancePicker } from "@agent-native/toolkit/app/shared";
 import type { Settings } from "@shared/api";
 import { isCalendarWeekStart } from "@shared/calendar-week";
-import { IconBrandGoogle, IconBrandZoom } from "@tabler/icons-react";
+import {
+  IconBrandGoogle,
+  IconBrandZoom,
+  IconCalendarCheck,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -786,6 +788,7 @@ export function useCalendarSettingsRedesign(
       {
         id: "rules",
         label: t("settings.eventRules"),
+        icon: IconCalendarCheck,
         keywords: "jev invitation rules accept decline hide",
         content: <CalendarEventRulesArea />,
         searchEntries: [

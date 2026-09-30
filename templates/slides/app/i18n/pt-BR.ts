@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrações" } },
   templatesPage: {
     actions: "Ações do modelo {{title}}",
     previewAction: "Prévia",
@@ -19,6 +20,9 @@ const messages = {
     slidePosition: "Slide {{current}} de {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["pt-BR"],
+  common: {
+    loading: "Carregando...",
+  },
   root: {
     commandPresentations: "Apresentações",
     searchDecks: "Buscar decks",
@@ -44,14 +48,10 @@ const messages = {
   settings: {
     agentObservability: "Observabilidade do agente",
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
     labs: "Labs",
     labsIntro: "Confira recursos experimentais antes do lançamento.",
     labLayoutOverflowWarningDescription:
       "Mostrar o aviso de estouro do layout no editor.",
-    emailNotifications: "Notificações por e-mail",
-    emailNotificationsDescription:
-      "Receba um e-mail quando alguém comentar ou responder na sua apresentação.",
     saveFailed: "Falha ao salvar",
     notificationsEmail: "E-mail",
     commentsAndReplies: "Comentários e respostas",
@@ -60,10 +60,6 @@ const messages = {
     retry: "Tentar novamente",
     mcpAbout:
       "Conecte o Slides ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Slides por você: criar apresentações, adicionar slides e exportar para o PowerPoint. Ele só vê o que você pode ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -175,6 +171,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "Suas alterações mais recentes estão apenas neste dispositivo. Baixe um backup antes de sair.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Este slide foi alterado em outro lugar",
+    slideConflictDescription:
+      "Outra pessoa salvou uma versão mais recente. Manter seu rascunho substituirá o conteúdo salvo deste slide, ou use a versão mais recente.",
+    slideConflictUseLatest: "Usar a versão mais recente",
+    slideConflictKeepDraft: "Manter meu rascunho",
+    slideConflictKeepEditing: "Continuar editando",
+    slideConflictResolutionFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua aqui.",
     offline: "Offline",
     selected: "selecionado",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -591,6 +596,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Salvo" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -659,6 +665,21 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Erro 403",
+    noAccessTitle: "Você não tem acesso",
+    noAccessDescription:
+      "Peça acesso ao proprietário do deck ou mude para a conta certa.",
+    noteLabel: "Adicione uma nota para o proprietário (opcional)",
+    notePlaceholder: "Estou revisando este deck",
+    requesting: "Solicitando",
+    requestFailed: "Sua solicitação não foi enviada. Tente novamente.",
+    requestSentDescription:
+      "Enviaremos um e-mail assim que o proprietário aprovar sua solicitação.",
+    goHome: "Ir para o início",
+    signedInAs: "Conectado como",
+    switchAccount: "Trocar de conta",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -705,6 +726,9 @@ const messages = {
     accessApprovalTitle: "Acesso concedido",
     accessApprovalAlreadyTitle: "Acesso já concedido",
     accessApprovalMessage: "{{email}} agora pode abrir este deck.",
+    accessApprovalRequesterEmailed: "Enviamos um e-mail para avisar.",
+    accessApprovalRequesterEmailFailed:
+      "Não foi possível enviar um e-mail para {{email}}. Avise que já é possível abrir o deck.",
     accessApprovalAlreadyMessage: "{{email}} já tem acesso a este deck.",
     accessApprovalErrorTitle: "Não foi possível conceder acesso",
     accessApprovalInvalid: "Esta solicitação de acesso é inválida ou expirou.",
@@ -848,12 +872,14 @@ const messages = {
       networkFailed:
         "A solicitação de importação expirou ou perdeu a conexão de rede. Verifique sua conexão e tente novamente.",
       notStarted: "Conclua o login necessário e tente importar novamente.",
+      unsupportedFileType:
+        "Este tipo de arquivo não é compatível. Escolha um arquivo compatível.",
       uploadLimitExceeded:
         "O envio excede um limite permitido. Reduza o tamanho do arquivo ou escolha menos arquivos e tente novamente.",
     },
     importDeck: "Importar apresentação",
     context: {
-      websiteReference: "Anexar site",
+      websiteReference: "Adicionar site",
       websiteUrlLabel: "URL do site",
       websiteUrl: "Cole a URL de um site",
       figmaUrlLabel: "Link do Figma",
@@ -868,7 +894,7 @@ const messages = {
       searchPresentations: "Buscar apresentações…",
       menu: {
         system: "Usar um sistema de design",
-        figma: "Anexar Figma",
+        figma: "Adicionar Figma",
         design: "Usar um design como referência",
         deck: "Usar uma apresentação como referência",
         searchDesign: "Pesquisar design…",
@@ -889,6 +915,8 @@ const messages = {
       notReady:
         "O contexto está carregando ou indisponível. Tente novamente ou remova-o antes de enviar.",
       emptySource: "Esta fonte não retornou contexto utilizável.",
+      websiteReadFailed:
+        "Não foi possível ler este site automaticamente. Copie e cole o texto relevante.",
       figmaReadFailed:
         "O Design não conseguiu ler esta referência do Figma. Confira o token de acesso do Figma salvo no Design e se a conta vinculada consegue abrir o arquivo; depois tente novamente.",
       tooMany: "Escolha até 20 referências.",
@@ -1045,6 +1073,12 @@ const messages = {
     emptyTitle: "Ainda não há decks",
     createFirstDeck: "Crie seu primeiro deck",
     emptyDescription: "Crie belas apresentações com geração por IA.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable:
+        "Não foi possível confirmar se a IA está pronta.",
+    },
   },
 };
 

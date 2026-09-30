@@ -15,6 +15,7 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
+import type { ActionRunContext } from "../action.js";
 import {
   isActionContractError,
   isActionExposedToExternalAgents,
@@ -310,9 +311,15 @@ function scopeToolSearchToAdvertised(
     ...advertised,
     [TOOL_SEARCH_TOOL_NAME]: {
       ...entry,
-      run: async (args: Record<string, unknown>) => {
-        const { searchToolRegistry } = await import("../agent/tool-search.js");
-        return searchToolRegistry(advertised, args ?? {});
+      run: async (args: Record<string, unknown>, context) => {
+        const { searchToolRegistryForRequest } =
+          await import("../agent/tool-search.js");
+        return searchToolRegistryForRequest(
+          advertised,
+          args ?? {},
+          {},
+          context,
+        );
       },
     },
   };
@@ -325,6 +332,39 @@ function withoutExternalOptOuts(
     Object.entries(actions).filter(([, entry]) =>
       isActionExposedToExternalAgents(entry),
     ),
+  );
+}
+
+async function filterActionsAvailableForDiscovery(
+  actions: Record<string, ActionEntry>,
+  context: ActionRunContext,
+): Promise<Record<string, ActionEntry>> {
+  const availability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    Promise<boolean>
+  >();
+  for (const entry of Object.values(actions)) {
+    const predicate = entry.agentDiscoveryAvailable;
+    if (predicate && !availability.has(predicate)) {
+      availability.set(predicate, Promise.resolve(predicate(context)));
+    }
+  }
+
+  const resolvedAvailability = new Map<
+    NonNullable<ActionEntry["agentDiscoveryAvailable"]>,
+    boolean
+  >();
+  await Promise.all(
+    [...availability].map(async ([predicate, check]) => {
+      resolvedAvailability.set(predicate, await check);
+    }),
+  );
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) => {
+      const predicate = entry.agentDiscoveryAvailable;
+      return !predicate || resolvedAvailability.get(predicate) === true;
+    }),
   );
 }
 
@@ -1233,6 +1273,7 @@ function renderMcpAppHtml(
 
 function openAiToolDescriptorMeta(
   resource: ResolvedMcpAppResource,
+  entrypoints?: Array<{ type: "global" | "thread" }>,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
@@ -1241,6 +1282,7 @@ function openAiToolDescriptorMeta(
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
     "openai/widgetAccessible": true,
+    ...(entrypoints?.length ? { "openai/ui": { entrypoints } } : {}),
     ...(Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
@@ -1461,10 +1503,27 @@ export async function createMCPServerForRequest(
   const actions = withoutExternalOptOuts(
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
-  const visibleActions = Object.fromEntries(
+  const scopeVisibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
+  );
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
+  const orgId = await orgIdPromise;
+  const visibleActions = await runWithRequestContext(
+    {
+      userEmail: effectiveIdentity?.userEmail,
+      orgId,
+      ...(effectiveIdentity?.orgId === null
+        ? { orgScope: "personal" as const }
+        : {}),
+    },
+    () =>
+      filterActionsAvailableForDiscovery(scopeVisibleActions, {
+        caller: "mcp",
+        userEmail: effectiveIdentity?.userEmail,
+        orgId: orgId ?? null,
+      }),
   );
   // Compact/connector is the DEFAULT for every caller — hosted connectors,
   // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
@@ -1519,7 +1578,6 @@ export async function createMCPServerForRequest(
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
-  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
   const hasApprovalActions = Object.values(actions).some(
     (entry) => entry.needsApproval !== undefined,
   );
@@ -1740,11 +1798,21 @@ export async function createMCPServerForRequest(
               !Array.isArray((entry.tool as any)._meta)
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
+            const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
+            const hasOpenAppEntrypoint =
+              name === "open_app" &&
+              !inputSchema.required?.length &&
+              Boolean(inputSchema.properties?.app);
             const toolMeta = {
               ...rawToolMeta,
               ...(mcpAppResource && requestMeta?.inlineMcpApps
                 ? {
-                    ...openAiToolDescriptorMeta(mcpAppResource),
+                    ...openAiToolDescriptorMeta(
+                      mcpAppResource,
+                      hasOpenAppEntrypoint
+                        ? [{ type: "global" }, { type: "thread" }]
+                        : undefined,
+                    ),
                     [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
                     ui: mcpAppToolUiMeta(
                       mcpAppResource,
@@ -1770,7 +1838,7 @@ export async function createMCPServerForRequest(
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
-              inputSchema: mcpToolInputSchema(name, entry.tool.parameters),
+              inputSchema,
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;

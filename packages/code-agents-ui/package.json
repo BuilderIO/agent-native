@@ -60,6 +60,7 @@
     "@agent-native/agentkit": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
+    "@agent-native/toolkit": "workspace:^",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "typescript-7": "catalog:",
@@ -69,6 +70,7 @@
     "@agent-native/agentkit": ">=0.2.12",
     "@agent-native/core": ">=0.24.0",
     "@agent-native/shared-app-config": ">=0.1.0",
+    "@agent-native/toolkit": ">=0.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }

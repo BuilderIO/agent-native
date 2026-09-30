@@ -1,4 +1,3 @@
-import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import {
   getClientSurface,
   isInBuilderFrame,
@@ -8,6 +7,7 @@ import {
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/toolkit/app/chat/chat-first";
 
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
@@ -18,6 +18,7 @@ export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  defaultDescriptionKey?: string;
   path: string;
   homePath?: string;
   url?: string | null;
@@ -41,6 +42,18 @@ export interface WorkspaceAppSummary {
   agentSkillsCount?: number | null;
   archived?: boolean;
   workspaceSso?: boolean;
+  source?: WorkspaceAppSource;
+}
+
+export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
+
+/** Maps list-connected-agents' `source` onto the sidebar grouping. */
+export function workspaceAppSourceFromConnected(
+  source: string | undefined,
+): WorkspaceAppSource {
+  if (source === "builtin") return "builtin";
+  if (source === "custom") return "connected";
+  return "workspace";
 }
 
 interface WorkspaceAppHrefSource {
@@ -155,6 +168,32 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
 ): boolean {
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
+
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
+};
 
 function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
@@ -311,6 +350,15 @@ export function workspaceAppTargetPath(app: {
   return normalizeWorkspaceAppHomePath(undefined);
 }
 
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
 export function workspaceAppEmbedTarget(
   app: Pick<WorkspaceAppSummary, "path" | "url">,
 ): { path?: string; url?: string } {
@@ -411,20 +459,76 @@ export function navigateToWorkspaceApp(href: string): boolean {
   }
 }
 
+/**
+ * Mounted workspace apps plus the chat-first default built-ins that are part
+ * of this workspace. `enabledBuiltinAppIds` must come from the server
+ * (list-connected-agents entries with source "builtin"), which already applies
+ * the builder's `agent-native.builtinAgents` config. While it is unknown, no
+ * default is added. `extraApps` are appended only when no entry has that id.
+ */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  enabledBuiltinAppIds: readonly string[] | undefined,
+  extraApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+    source?: WorkspaceAppSource;
+  }[] = [],
 ): WorkspaceAppSummary[] {
+  const enabledBuiltins = new Set(
+    (enabledBuiltinAppIds ?? []).map((id) => id.trim().toLowerCase()),
+  );
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    if (!enabledBuiltins.has(id)) continue;
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
+      source: "builtin",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    const id = app.id.trim().toLowerCase();
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
+    merged.set(id, {
+      ...app,
+      id,
+      source: app.source ?? "workspace",
+      description: app.description ?? fallback?.text,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.text
+          ? fallback?.key
+          : undefined,
+    });
+  }
+
+  const existingIds = new Set(
+    [...merged.values()].map((app) => app.id.trim().toLowerCase()),
+  );
+  for (const app of extraApps) {
+    const id = app.id.trim().toLowerCase();
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
+      source: app.source ?? "connected",
+    });
+  }
 
   return [...merged.values()];
 }

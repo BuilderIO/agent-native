@@ -567,15 +567,20 @@ describe("resolveBuilderActivationWrite", () => {
     orgId: string | null = "org-123",
   ) => resolveBuilderActivationWrite({ requestedScope, orgId, role });
 
-  it("stores an owner or admin's new account as the organization's connection", () => {
-    expect(activate(null, "owner")).toEqual({
-      orgId: "org-123",
-      role: "owner",
-    });
+  it("stores a new account for the organization only when the org connection is named", () => {
     expect(activate("org", "admin")).toEqual({
       orgId: "org-123",
       role: "admin",
     });
+    expect(activate("org", "owner")).toEqual({
+      orgId: "org-123",
+      role: "owner",
+    });
+  });
+
+  it("keeps an owner or admin's activation personal when no connection is named", () => {
+    expect(activate(null, "owner")).toBeNull();
+    expect(activate(null, "admin")).toBeNull();
   });
 
   it("stores a member's new account personally", () => {

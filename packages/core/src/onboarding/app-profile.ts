@@ -302,6 +302,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Gmail",
         required: true,
         builderIncluded: false,
+        satisfiedBySignIn: true,
         keySummary: "Connect Gmail with OAuth",
         why: "Mail uses the workspace's managed Google connection; no key is pasted here.",
       },

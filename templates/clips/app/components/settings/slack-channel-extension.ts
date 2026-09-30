@@ -1,4 +1,4 @@
-import { registerChannelSettingsExtensions } from "@agent-native/core/client/settings";
+import { registerChannelSettingsExtensions } from "@agent-native/toolkit/app/settings";
 import { createElement } from "react";
 
 import { SlackSection } from "./slack-section";

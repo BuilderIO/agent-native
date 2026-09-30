@@ -333,6 +333,10 @@ describe("sendToAgentChat", () => {
               displayOnly: true,
               text: "outline",
             },
+            {
+              type: "file",
+              name: "pasted-text-2.txt",
+            },
           ],
         },
       },
@@ -352,8 +356,43 @@ describe("sendToAgentChat", () => {
         displayOnly: true,
         text: "outline",
       },
+      {
+        type: "file",
+        name: "pasted-text-2.txt",
+        displayOnly: true,
+      },
     ]);
   });
+
+  it("preserves display-only markers serialized under attachment metadata", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "make a deck from this reference",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              content: [],
+              metadata: { displayOnly: true },
+            },
+          ],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ]);
+  });
+
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 
@@ -696,6 +735,27 @@ describe("sendToAgentChat", () => {
     });
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(dispatchEventSpy).not.toHaveBeenCalled();
+
+    await flushMicrotasks();
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId },
+      }),
+    );
+  });
+
+  it("does not relay a direct MCP App chat when host delivery is unknown", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(null));
+
+    const tabId = sendToAgentChat({
+      message: "continue with this selection",
+      submit: true,
+    });
 
     await flushMicrotasks();
 

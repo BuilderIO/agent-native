@@ -6,6 +6,11 @@ import {
   firstPartyTemplateFilter,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
+  PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL,
+  PRE_CAPPED_RETENTION_OVER_TIME_SQL,
+  PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
+  PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
+  PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
   SIGNUPS_OVER_TIME_SQL,
   type ExactFirstPartyPanelReplacement,
   repairFirstPartyObservedRetentionPanels,
@@ -42,6 +47,7 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
       OR LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) = LOWER('{{appFilter}}'))
     AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
     AND ('{{timeRange}}' IN ('', 'all') OR event_date >= CASE
+      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)
       WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY)
       WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 36 DAY)
       WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
@@ -49,11 +55,12 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
       WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 371 DAY)
       ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
     END)
-    AND event_date <= CURRENT_DATE()
+    AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
 ), date_spine AS (
   SELECT date
   FROM UNNEST(GENERATE_DATE_ARRAY(
     CASE
+      WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}')
       WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
       WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
       WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 89 DAY)
@@ -62,7 +69,7 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
       WHEN '{{timeRange}}' IN ('', 'all') THEN COALESCE((SELECT MIN(event_date) FROM base), CURRENT_DATE())
       ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
     END,
-    CURRENT_DATE()
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
   )) AS date
 ), wau AS (
   SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors
@@ -74,6 +81,20 @@ export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
 SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
+
+export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    "      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)\n",
+    "",
+  )
+    .split(
+      "IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())",
+    )
+    .join("CURRENT_DATE()")
+    .replace(
+      "      WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}')\n",
+      "",
+    );
 
 export const LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL = `WITH base AS (SELECT NULLIF(user_key, '') AS user_key, event_date, user_id
 FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
@@ -132,6 +153,19 @@ LEFT JOIN cohort_sizes cs ON cs.date = a.date
 LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period
 ORDER BY date, p.period`;
 
+const PRE_CUSTOM_RETENTION_BASE_RANGE =
+  "  AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)";
+const CUSTOM_RETENTION_BASE_RANGE = `  AND event_date >= IF('{{timeRange}}' = 'custom', DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 365 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY))
+  AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE_ADD(LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())`;
+const PRE_CUSTOM_RETENTION_COVERAGE_RANGE =
+  "   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()";
+const CUSTOM_RETENTION_COVERAGE_RANGE = `   AND event_date >= IF('{{timeRange}}' = 'custom', DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 5 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY))
+   AND event_date <= IF('{{timeRange}}' = 'custom', LEAST(DATE_ADD(LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), INTERVAL 14 DAY), CURRENT_DATE()), CURRENT_DATE())`;
+const PRE_CUSTOM_RETENTION_ANCHOR_RANGE =
+  "UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY), CURRENT_DATE())) AS date";
+const CUSTOM_RETENTION_ANCHOR_RANGE =
+  "UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}') ELSE DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY) END,\n   CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()) ELSE CURRENT_DATE() END\n )) AS date";
+
 export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
     "event_name = 'session status'\n  AND signed_in = 'true'\n  AND NULLIF(user_key, '') IS NOT NULL",
@@ -139,9 +173,14 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   )
     .split("event_name = 'session status'")
     .join(BIGQUERY_SESSION_STATUS_EVENT_FILTER)
+    .replace(PRE_CUSTOM_RETENTION_BASE_RANGE, CUSTOM_RETENTION_BASE_RANGE)
     .replace(
       "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
       `all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND ${BIGQUERY_SESSION_STATUS_EVENT_FILTER}\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS`,
+    )
+    .replace(
+      PRE_CUSTOM_RETENTION_COVERAGE_RANGE,
+      CUSTOM_RETENTION_COVERAGE_RANGE,
     )
     .replace(
       "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14)\nSELECT FORMAT_DATE",
@@ -158,6 +197,48 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     .replace(
       "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nORDER BY",
       "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nLEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nORDER BY",
+    )
+    .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE);
+
+const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+  FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    CUSTOM_RETENTION_BASE_RANGE,
+    PRE_CUSTOM_RETENTION_BASE_RANGE,
+  )
+    .replace(
+      CUSTOM_RETENTION_COVERAGE_RANGE,
+      PRE_CUSTOM_RETENTION_COVERAGE_RANGE,
+    )
+    .replace(CUSTOM_RETENTION_ANCHOR_RANGE, PRE_CUSTOM_RETENTION_ANCHOR_RANGE);
+
+export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL =
+  LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\nperiods AS",
+    "all_r AS (SELECT * FROM r1 UNION ALL SELECT * FROM r2),\ncoverage_dates AS (\n SELECT DISTINCT event_date\n FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`\n WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'\n   AND event_name = 'session status'\n   AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)\n   AND event_date <= CURRENT_DATE()\n),\nperiods AS",
+  )
+    .replace(
+      "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14)\nSELECT FORMAT_DATE",
+      "periods AS (SELECT '1-7d return' AS period, 7 AS maturity_days UNION ALL SELECT '7-14d return', 14),\ncoverage AS (\n SELECT a.date, p.period, COUNTIF(c.event_date IS NOT NULL) AS observed_days, COUNT(*) AS expected_days\n FROM anchor_dates a\n CROSS JOIN periods p\n CROSS JOIN UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN p.period = '1-7d return' THEN DATE_SUB(a.date, INTERVAL 5 DAY) ELSE DATE_ADD(a.date, INTERVAL 1 DAY) END,\n   CASE WHEN p.period = '1-7d return' THEN DATE_ADD(a.date, INTERVAL 7 DAY) ELSE DATE_ADD(a.date, INTERVAL 14 DAY) END\n )) AS coverage_day\n LEFT JOIN coverage_dates c ON c.event_date = coverage_day\n GROUP BY a.date, p.period\n), last_valid AS (\n SELECT MAX(a.date) AS date\n FROM anchor_dates a\n CROSS JOIN periods p\n LEFT JOIN cohort_sizes cs ON cs.date = a.date\n LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\n WHERE a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL p.maturity_days DAY)\n   AND COALESCE(cs.users, 0) >= 5\n   AND coverage.observed_days = coverage.expected_days\n)\nSELECT FORMAT_DATE",
+    )
+    .replace(
+      "           AND COALESCE(cs.users, 0) >= 5\n      THEN",
+      "           AND COALESCE(cs.users, 0) >= 5\n           AND coverage.observed_days = coverage.expected_days\n      THEN",
+    )
+    .replace(
+      "           AND COALESCE(cs.users, 0) >= 5\n      THEN",
+      "           AND COALESCE(cs.users, 0) >= 5\n           AND coverage.observed_days = coverage.expected_days\n      THEN",
+    )
+    .replace(
+      "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nORDER BY",
+      "LEFT JOIN all_r ar ON ar.date = a.date AND ar.period = p.period\nLEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nWHERE a.date <= last_valid.date\nORDER BY",
+    )
+    .replace(
+      "SELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,",
+      "SELECT FORMAT_DATE('%b %d', a.date) AS date,",
+    )
+    .replace(
+      "FROM anchor_dates a CROSS JOIN periods p\nLEFT JOIN cohort_sizes",
+      "FROM anchor_dates a CROSS JOIN periods p CROSS JOIN last_valid\nLEFT JOIN cohort_sizes",
     );
 
 const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
@@ -171,15 +252,32 @@ const LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL =
     `    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}`,
     "    AND event_name = 'session status'\n    AND signed_in = 'true'\n    AND NULLIF(user_key, '') IS NOT NULL",
   );
+const PRE_CUSTOM_MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    "WHEN '{{timeRange}}' = '7d'",
+    "WHEN '{{timeRange}}' = '{{timeRange}}'",
+  );
+const PRE_CUSTOM_LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL =
+  PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    `    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}`,
+    "    AND event_name = 'session status'\n    AND signed_in = 'true'\n    AND NULLIF(user_key, '') IS NOT NULL",
+  );
 
 function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
-  return sql.trim() === MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim();
+  return (
+    sql.trim() === MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim() ||
+    sql.trim() === PRE_CUSTOM_MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL.trim()
+  );
 }
 
 function isLegacyFirstPartyBigQueryWauSql(sql: string): boolean {
-  return (
-    sql.replace(/\s+/g, " ").trim() ===
-    LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(/\s+/g, " ").trim()
+  return [
+    LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
+    PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
+    PRE_CUSTOM_LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
+  ].some(
+    (legacySql) =>
+      sql.replace(/\s+/g, " ").trim() === legacySql.replace(/\s+/g, " ").trim(),
   );
 }
 
@@ -194,9 +292,13 @@ function repairFirstPartyBigQueryDauSql(sql: string): string {
 }
 
 function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
-  return (
-    sql.replace(/\s+/g, " ").trim() ===
-    LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(/\s+/g, " ").trim()
+  return [
+    LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
+  ].some(
+    (legacySql) =>
+      sql.replace(/\s+/g, " ").trim() === legacySql.replace(/\s+/g, " ").trim(),
   );
 }
 
@@ -275,8 +377,19 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
       legacySql: [
         LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
         LEGACY_SIGNUPS_OVER_TIME_SQL,
+        PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
+        PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
       ],
       sql: SIGNUPS_OVER_TIME_SQL,
+    },
+    {
+      id: "retention-over-time",
+      legacySql: [
+        PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL,
+        PRE_CAPPED_RETENTION_OVER_TIME_SQL,
+        PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
+      ],
+      sql: buildPanel("retention-over-time")!.sql,
     },
     {
       id: "new-vs-recurring-users",
@@ -291,6 +404,13 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
     },
   ];
 
+function removeCustomDateRangeClauses(sql: string): string {
+  return sql.replace(
+    /\s+OR \('\{\{timeRange\}\}' = 'custom' AND [\s\S]*? <= '\{\{timeRangeEnd\}\}'\)/g,
+    "",
+  );
+}
+
 const CANONICAL_CATALOG_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   (() => {
     const seed = loadDashboardSeed(FIRST_PARTY_DASHBOARD_ID);
@@ -302,16 +422,22 @@ const CANONICAL_CATALOG_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplace
       if (!rawPanel || typeof rawPanel !== "object") return [];
       const panel = rawPanel as Record<string, unknown>;
       const id = typeof panel.id === "string" ? panel.id : "";
-      const legacySql = typeof panel.sql === "string" ? panel.sql : "";
+      const seededSql = typeof panel.sql === "string" ? panel.sql : "";
       if (!scopedMetricKeys.has(id)) return [];
       const catalogPanel = id ? buildPanel(id) : null;
-      if (!catalogPanel || !legacySql || catalogPanel.sql === legacySql) {
-        return [];
-      }
+      if (!catalogPanel) return [];
+      const legacySql = new Set<string>();
+      if (seededSql && catalogPanel.sql !== seededSql) legacySql.add(seededSql);
+      const priorCustomRangeSql = removeCustomDateRangeClauses(
+        catalogPanel.sql,
+      );
+      if (priorCustomRangeSql !== catalogPanel.sql)
+        legacySql.add(priorCustomRangeSql);
+      if (legacySql.size === 0) return [];
       return [
         {
           id,
-          legacySql: [legacySql],
+          legacySql: [...legacySql],
           sql: catalogPanel.sql,
         },
       ];

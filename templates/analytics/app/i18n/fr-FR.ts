@@ -161,14 +161,11 @@ export default {
     agentDescription:
       "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
     openAgentSettings: "Gérer l’agent",
-    account: "Compte",
     signedInAs: "Connecté en tant que",
     credentials: "Identifiants des sources de données",
     credentialsDescription:
       "Les clés API et identifiants sont gérés sur la page Sources de données.",
     manageDataSources: "Gérer les sources de données",
-    languageTitle: "Langue",
-    languageLabel: "Langue de l'interface",
     errorEmailNotifications:
       "Recevoir les nouvelles alertes d’erreur par e-mail",
     errorEmailNotificationsDescription:
@@ -216,8 +213,6 @@ export default {
     storageSaved: "Paramètres de stockage enregistrés.",
     storageSaveFailed: "Impossible d'enregistrer les paramètres de stockage.",
     alertsTitle: "Alertes",
-    alertsDescription:
-      "Gérez les règles d'événements analytics propriétaires et leurs notifications.",
     alertRunNow: "Lancer la vérification",
     alertNew: "Nouvelle alerte",
     alertsEmptyTitle: "Aucune règle d'alerte",
@@ -986,6 +981,10 @@ export default {
     recentSales: "Ventes récentes",
     recentSalesDescription: "Vous avez réalisé 265 ventes ce mois-ci.",
   },
+  analysisResult: {
+    title: "Résultat de l’analyse",
+    comparisonContext: "{{period}} : {{current}} contre {{previous}}",
+  },
   routeTitles: {
     notFound: "Introuvable - Analytics",
     analysis: "Analyse - Analytics",
@@ -1104,6 +1103,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "Plage personnalisée",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

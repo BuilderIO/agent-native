@@ -22,19 +22,28 @@ jobs:
       lint: ${{ steps.scope.outputs.lint }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       workspace_filters: ${{ steps.scope.outputs.workspace_filters }}
+      test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
       plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
       brain_evals: ${{ steps.scope.outputs.brain_evals }}
-      brain_privacy: ${{ steps.scope.outputs.brain_privacy }}
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
+      ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
-      drizzle: ${{ steps.scope.outputs.drizzle }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
+      query_budget_apps: ${{ steps.scope.outputs.query_budget_apps }}
+      neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
+      agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
+      changeset: ${{ steps.scope.outputs.changeset }}
+      script_tests: ${{ steps.scope.outputs.script_tests }}
+      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
+      has_tests: ${{ steps.lanes.outputs.has_tests }}
+      core_test_files: ${{ steps.lanes.outputs.core_test_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -46,7 +55,7 @@ jobs:
           node-version: "22"
 
       - name: Test change scope classifier
-        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
+        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
 
       - name: Test fast-test lane planner
         run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
@@ -57,6 +66,31 @@ jobs:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
+
+      # Full planning only reads manifests and counts files. Targeted planning
+      # runs `pnpm list` and `vitest list --changed`, so it needs an install.
+      - name: Install dependencies for targeted lane planning
+        if: steps.scope.outputs.full != 'true' && steps.scope.outputs.fast_tests == 'true'
+        uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
+
+      - name: Partition test packages into sharded lanes
+        id: lanes
+        if: steps.scope.outputs.full == 'true' || steps.scope.outputs.fast_tests == 'true'
+        env:
+          CI_FULL: ${{ steps.scope.outputs.full }}
+          TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
+          LANES: 2
+        run: |
+          set -euo pipefail
+          if [ "$CI_FULL" = "true" ]; then
+            node --experimental-strip-types scripts/ci-test-lanes.ts
+          else
+            base_sha="$(git rev-parse HEAD^1)"
+            CI_WORKSPACE_FILTERS="$TARGETED_WORKSPACE_FILTERS" CI_BASE_SHA="$base_sha" \
+              node --experimental-strip-types scripts/ci-test-lanes.ts
+          fi
 
   lint:
     name: Lint & format
@@ -76,7 +110,9 @@ jobs:
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
-        run: pnpm fmt:check && pnpm oxlint
+        # The tree carries ~15k pre-existing warnings; printing them buries
+        # the errors that actually fail this step.
+        run: pnpm fmt:check && pnpm oxlint --quiet
 
       - name: Check changed source files
         if: needs.change-scope.outputs.full != 'true'
@@ -112,6 +148,16 @@ jobs:
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
           fi
 
+      - name: Require changeset for publishable package changes
+        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-changeset.mjs
+
+      - name: Enforce package bump policy
+        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        run: node scripts/guard-no-major-changeset.mjs
+
   typecheck:
     name: Typecheck
     needs: change-scope
@@ -128,7 +174,7 @@ jobs:
       - name: Typecheck affected workspaces
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
         run: |
           if [ "$CI_FULL" = "true" ]; then
             pnpm typecheck
@@ -140,61 +186,18 @@ jobs:
             pnpm -r --no-bail --if-present "${filters[@]}" run typecheck
           fi
 
-  discover-lanes:
-    name: Plan test lanes
-    needs: change-scope
-    if: needs.change-scope.outputs.full == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-
-      - name: Partition test packages into sharded lanes
-        id: plan
-        env:
-          LANES: 5
-        run: node --experimental-strip-types scripts/ci-test-lanes.ts
-
-  discover-targeted-lanes:
-    name: Plan targeted test lanes
-    needs: change-scope
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-      has_tests: ${{ steps.plan.outputs.has_tests }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-
-      - name: Partition affected test packages into sharded lanes
-        id: plan
-        env:
-          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
-          LANES: 5
-        run: node --experimental-strip-types scripts/ci-test-lanes.ts
-
   test-rest:
     name: Fast tests ${{ matrix.lane }}
-    needs: [change-scope, discover-lanes]
+    needs: change-scope
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-lanes.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -249,13 +252,16 @@ jobs:
 
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
-    needs: [change-scope, discover-targeted-lanes]
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.discover-targeted-lanes.outputs.has_tests == 'true'
+    needs: change-scope
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-targeted-lanes.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -277,20 +283,40 @@ jobs:
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
-        run: >-
-          pnpm --filter @agent-native/core exec vitest run --dir src
-          --shard=${{ matrix.coreShard }}
-          --exclude "**/*.db.test.ts"
-          --exclude "**/*.integration.spec.ts"
-          --exclude "**/*.integration.test.ts"
-          --exclude "**/*.e2e.spec.ts"
-          --exclude "**/*.e2e.test.ts"
-          --exclude "**/e2e/**"
-          --exclude "**/*.live.spec.ts"
-          --exclude "**/*.live.test.ts"
-          --exclude "**/*.perf.spec.ts"
-          --exclude "**/*.perf.test.ts"
-          --exclude "**/create-e2e.spec.ts"
+        env:
+          CORE_SHARD: ${{ matrix.coreShard }}
+          CORE_TEST_MODE: ${{ matrix.coreMode }}
+          CORE_TEST_FILES: ${{ needs.change-scope.outputs.core_test_files }}
+        run: |
+          set -euo pipefail
+          args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
+          if [ "$CORE_TEST_MODE" = changed ]; then
+            core_test_files=()
+            while IFS= read -r -d '' file; do
+              core_test_files+=("$file")
+            done < <(
+              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(`${file}\0`)'
+            )
+            if ((${#core_test_files[@]} == 0)); then
+              echo "::error::Planner emitted a changed Core shard with no test files"
+              exit 1
+            fi
+            args+=("${core_test_files[@]}")
+          fi
+          args+=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          pnpm --filter @agent-native/core exec vitest "${args[@]}"
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -310,15 +336,7 @@ jobs:
 
   fast-tests:
     name: Fast tests
-    needs:
-      [
-        change-scope,
-        docs,
-        discover-lanes,
-        discover-targeted-lanes,
-        test-rest,
-        test-targeted,
-      ]
+    needs: [change-scope, docs, test-rest, test-targeted]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -328,9 +346,9 @@ jobs:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
           CI_FULL: ${{ needs.change-scope.outputs.full }}
+          FAST_TESTS: ${{ needs.change-scope.outputs.fast_tests }}
+          HAS_TESTS: ${{ needs.change-scope.outputs.has_tests }}
           DOCS_RESULT: ${{ needs.docs.result }}
-          DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
-          DISCOVER_TARGETED_LANES_RESULT: ${{ needs.discover-targeted-lanes.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
         run: |
@@ -346,35 +364,42 @@ jobs:
             echo "Docs-only change: full fast-test lanes are not required."
             exit 0
           fi
-          if [ "$CI_FULL" != "true" ]; then
-            if [ "$DISCOVER_TARGETED_LANES_RESULT" != "success" ]; then
-              echo "::error::discover-targeted-lanes did not succeed ($DISCOVER_TARGETED_LANES_RESULT)"
+          if [ "$CI_FULL" = "true" ]; then
+            if [ "$HAS_TESTS" != "true" ] || [ "$TEST_REST_RESULT" != "success" ]; then
+              echo "::error::full fast-test lanes did not succeed (has_tests=$HAS_TESTS, test-rest=$TEST_REST_RESULT)"
               exit 1
             fi
-            if [ "${{ needs.discover-targeted-lanes.outputs.has_tests }}" = "true" ]; then
+            echo "Full fast-test suite passed across all sharded lanes."
+            exit 0
+          fi
+          if [ "$FAST_TESTS" != "true" ]; then
+            if [ "$TEST_TARGETED_RESULT" != "skipped" ]; then
+              echo "::error::targeted test job ran without a fast-test selection ($TEST_TARGETED_RESULT)"
+              exit 1
+            fi
+            echo "No workspace fast tests are selected for this change set."
+            exit 0
+          fi
+          case "$HAS_TESTS" in
+            true)
               if [ "$TEST_TARGETED_RESULT" != "success" ]; then
                 echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
                 exit 1
               fi
               echo "Targeted workspace fast tests passed."
-            else
+              ;;
+            false)
               if [ "$TEST_TARGETED_RESULT" != "skipped" ] && [ "$TEST_TARGETED_RESULT" != "success" ]; then
                 echo "::error::targeted test job did not skip cleanly ($TEST_TARGETED_RESULT)"
                 exit 1
               fi
               echo "No affected workspace has a test script; targeted fast tests were skipped."
-            fi
-            exit 0
-          fi
-          for dep in "discover-lanes:$DISCOVER_LANES_RESULT" \
-                     "test-rest:$TEST_REST_RESULT"; do
-            name="${dep%%:*}"; result="${dep##*:}"
-            if [ "$result" != "success" ]; then
-              echo "::error::$name did not succeed ($result)"
+              ;;
+            *)
+              echo "::error::targeted lanes were not planned (has_tests='$HAS_TESTS')"
               exit 1
-            fi
-          done
-          echo "Full fast-test suite passed across all sharded lanes."
+              ;;
+          esac
 
   docs:
     name: Docs checks
@@ -416,47 +441,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.content == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
-      - name: Run Content DB tests
-        run: pnpm test:content-db
-
-  # Runs on every PR regardless of scope, so it must not wait on change-scope:
-  # the gate only adds a second queue wait before an unconditional job.
-  pglite-tests:
-    name: PGlite lock and migration tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
-      - name: Install isolated PGlite test driver
-        run: >-
-          npm install --ignore-scripts --no-save
-          --prefix "$RUNNER_TEMP/s2573-pglite"
-          @electric-sql/pglite@0.5.8
-
-      - name: Run PGlite lock and migration action semantics tests
-        run: node scripts/test-content-database-lock-pglite.mjs
-        env:
-          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
-
-  content-db-postgres-tests:
-    name: Content DB PostgreSQL locking
-    needs: change-scope
-    if: needs.change-scope.outputs.content == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
@@ -477,7 +462,24 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      - name: Run Content DB tests
+        run: pnpm test:content-db
+
+      - name: Install isolated PGlite test driver
+        if: ${{ !cancelled() }}
+        run: >-
+          npm install --ignore-scripts --no-save
+          --prefix "$RUNNER_TEMP/s2573-pglite"
+          @electric-sql/pglite@0.5.8
+
+      - name: Run PGlite lock and migration action semantics tests
+        if: ${{ !cancelled() }}
+        run: node scripts/test-content-database-lock-pglite.mjs
+        env:
+          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
+
       - name: Run Content PostgreSQL lock integration tests
+        if: ${{ !cancelled() }}
         run: |
           pnpm test:content-db-postgres
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
@@ -529,6 +531,45 @@ jobs:
       - name: Run Plan action E2E tests
         run: pnpm test:plan-e2e
 
+  slides-chat-e2e:
+    name: Slides chat caret in Chromium
+    needs: change-scope
+    if: >-
+      needs.change-scope.outputs.full == 'true' ||
+      contains(needs.change-scope.outputs.workspace_filters, 'templates/slides') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/core') ||
+      contains(needs.change-scope.outputs.workspace_filters, 'packages/toolkit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check selection direction and chat typing while slide text editing remains active
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+      - name: Check IME Escape preserves inline slide text editing
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check typing fidelity across Slides text surfaces
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
   brain-evals:
     name: Brain evals
     needs: change-scope
@@ -545,20 +586,8 @@ jobs:
       - name: Run brain evals
         run: pnpm test:brain-evals
 
-  brain-privacy-evals:
-    name: Brain privacy leakage evals
-    needs: change-scope
-    if: needs.change-scope.outputs.brain_privacy == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
       - name: Block privacy leaks and false positives
+        if: ${{ !cancelled() }}
         run: pnpm test:brain-privacy-evals
 
   build:
@@ -576,22 +605,103 @@ jobs:
 
       - name: Build all packages
         if: needs.change-scope.outputs.full == 'true'
-        run: pnpm build
+        run: node --experimental-strip-types scripts/ci-build-workspaces.ts --full
 
       - name: Build affected workspaces
         if: needs.change-scope.outputs.build == 'true' && needs.change-scope.outputs.full != 'true'
         env:
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
-        run: |
-          filters=()
-          while IFS= read -r filter; do
-            filters+=(--filter "$filter")
-          done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
-          pnpm -r --no-bail --if-present "${filters[@]}" run build
+        run: node --experimental-strip-types scripts/ci-build-workspaces.ts
 
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
+
+  neon-query-budget:
+    name: Cold-request query budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_query_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
+      AUTH_DISABLED: "true"
+      BETTER_AUTH_SECRET: neon-query-budget-test-secret
+      DATABASE_URL: pglite:memory
+      NETLIFY: "true"
+      NODE_ENV: production
+      RUN_BACKGROUND_JOBS: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      # change-scope owns the app list: every template when shared code
+      # changed, otherwise only the templates this change touched.
+      - name: Build and measure the affected first-party templates
+        env:
+          QUERY_BUDGET_APPS: ${{ needs.change-scope.outputs.query_budget_apps }}
+        run: |
+          set -euo pipefail
+          mapfile -t apps < <(jq -r '.[]' <<< "$QUERY_BUDGET_APPS")
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "::error::change-scope selected the query budget but no templates to measure."
+            exit 1
+          fi
+          echo "Measuring: ${apps[*]}"
+          for app in "${apps[@]}"; do
+            app_dir="templates/$app"
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+            release_migrations=""
+            if [[ -f "$app_dir/netlify.toml" ]]; then
+              release_migrations="$(python3 -c 'import pathlib, sys, tomllib; print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get("context", {}).get("production", {}).get("environment", {}).get("AGENT_NATIVE_RELEASE_MIGRATIONS", ""))' "$app_dir/netlify.toml")"
+            fi
+            if [[ "$release_migrations" == "1" ]]; then
+              export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+            else
+              unset AGENT_NATIVE_RELEASE_MIGRATIONS
+            fi
+            NITRO_PRESET=netlify pnpm --filter "$app" build
+            pnpm ops:neon-query-budget --app "$app" --mode check
+            rm -rf "$app_dir/.netlify" "$app_dir/.output" "$app_dir/.vercel" "$app_dir/dist" "$app_dir/build"
+          done
+
+  neon-connection-budget:
+    name: Serverless Postgres connection budget
+    needs: change-scope
+    if: needs.change-scope.outputs.neon_connection_budget == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: neon-budget
+          POSTGRES_DB: neon_budget
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d neon_budget"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # guard:allow-secret-literal — local ephemeral CI Postgres service only.
+      DATABASE_URL: postgresql://postgres:neon-budget@127.0.0.1:5432/neon_budget
+      NETLIFY: "true"
+      NETLIFY_FUNCTION_NAME: neon-query-budget
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Measure one cold and five warm requests against local Postgres
+        run: pnpm ops:neon-connection-budget
 
   trusted-acceptance:
     name: Trusted acceptance substrate
@@ -628,20 +738,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Free disk for scaffold smoke
-        run: |
-          df -h
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/local/share/boost \
-            /usr/share/dotnet \
-            /usr/share/swift
-          docker system prune -af || true
-          sudo apt-get clean
-          df -h
+      - uses: ./.github/actions/free-disk
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -730,6 +827,8 @@ jobs:
     if: needs.change-scope.outputs.ssr_boot == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SSR_BOOT_APPS: ${{ needs.change-scope.outputs.ssr_boot_apps }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -739,24 +838,32 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Build Content template (Cloudflare Workers preset)
+        if: contains(fromJSON(env.SSR_BOOT_APPS), 'content')
         run: NITRO_PRESET=cloudflare_module pnpm --filter content build
 
-      - name: Build Plan, Clips, and Assets templates (netlify preset)
-        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips --filter assets build
-
-      - name: Import SSR handler — must not crash at cold-start
-        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
+      - name: Build and import the affected Netlify SSR handlers
+        if: >-
+          contains(fromJSON(env.SSR_BOOT_APPS), 'plan') ||
+          contains(fromJSON(env.SSR_BOOT_APPS), 'clips') ||
+          contains(fromJSON(env.SSR_BOOT_APPS), 'assets')
+        run: |
+          mapfile -t apps < <(jq -r '.[] | select(. != "content")' <<< "$SSR_BOOT_APPS")
+          filters=()
+          for app in "${apps[@]}"; do filters+=(--filter "$app"); done
+          NITRO_PRESET=netlify pnpm "${filters[@]}" build
+          NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs "${apps[@]}"
 
       - name: Build and import Plan SSR handlers (Vercel and AWS Lambda)
+        if: contains(fromJSON(env.SSR_BOOT_APPS), 'plan')
         run: |
           NITRO_PRESET=vercel pnpm --filter plan build
           VERCEL=true timeout 120 node scripts/ssr-boot-smoke.mjs --preset vercel plan
@@ -768,7 +875,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -787,52 +894,80 @@ jobs:
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
 
+      - name: Test Neon transfer alert and offline backtest
+        run: pnpm test:neon-transfer-alert
+
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
+
+      - name: Test unbounded read guards
+        run: >-
+          pnpm exec tsx --test
+          scripts/guard-no-unbounded-table-reads.test.ts
+          scripts/guard-no-unscoped-queries.test.ts
+          scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
       - name: Run security guards
         run: pnpm guards
 
-  guard-no-drizzle-push:
-    name: Guard — no drizzle-kit push in build paths
-    needs: change-scope
-    if: needs.change-scope.outputs.drizzle == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Run root script tests for this change
+        if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}
+        env:
+          SCRIPT_TESTS: ${{ needs.change-scope.outputs.script_tests }}
+        run: |
+          set -euo pipefail
+          node_tests=()
+          vitest_tests=()
+          while IFS= read -r file; do
+            if grep -q -E "from ['\"]vitest['\"]" "$file"; then
+              vitest_tests+=("$file")
+            else
+              node_tests+=("$file")
+            fi
+          done < <(node -e 'for (const file of JSON.parse(process.env.SCRIPT_TESTS)) console.log(file)')
+          status=0
+          if ((${#node_tests[@]} > 0)); then
+            pnpm exec tsx --test "${node_tests[@]}" || status=1
+          fi
+          if ((${#vitest_tests[@]} > 0)); then
+            pnpm exec vitest run "${vitest_tests[@]}" || status=1
+          fi
+          exit "$status"
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-
-      - name: Scan netlify.toml + package.json for `drizzle-kit push`
-        run: node scripts/guard-no-drizzle-push.mjs
-
-  qa-static:
-    name: QA — static template checks
-    needs: change-scope
-    if: needs.change-scope.outputs.qa_static == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      # These checks read source files only — no DB, browser, network, or
-      # secrets — so they're safe to run on every PR. (The heavier harnesses —
-      # test:mcp:e2e, qa:public-share, qa:composer-geometry — need a live
-      # server / DB / browser and belong in a separate, set-up job.)
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          install: no-scripts
-
+      # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)
+        if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
         run: pnpm qa:template-routes
 
       - name: Template action audit (advisory)
+        if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
         run: pnpm actions:audit
+
+  standalone-chat:
+    name: Generate + run standalone Chat
+    needs: change-scope
+    # Required check: run when selected, and also when change-scope did not
+    # succeed so the check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.agentkit_acceptance == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+    steps:
+      - name: Require a successful change scope
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/standalone-chat-acceptance

@@ -3,7 +3,27 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Improved
+
+- Related pages can be loaded past the first 25 results
+
+### Fixed
+
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Added
+
+- Link rows across collections with relation properties
+
 ## 2026-09-26
+
+### Improved
+
+- Command search now shows matching titles instantly from documents already loaded in the sidebar, filling in richer results as the server responds.
 
 ### Fixed
 
@@ -13,6 +33,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Ask the agent to turn comment, reply, and mention emails on or off.
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
 
 ### Improved

@@ -24,6 +24,11 @@ const messages = {
     retry: "Tentar novamente",
     search: "Buscar",
   },
+  chatHome: {
+    description:
+      "Explore o contexto permitido das contas, tarefas de acompanhamento e evidências no Native SQL e nos registros conectados.",
+    placeholder: "Pergunte sobre seu CRM",
+  },
   commandMenu: {
     placeholder: "Busque registros, listas e comandos…",
     groupRecords: "Registros",
@@ -60,21 +65,11 @@ const messages = {
     showHelp: "Mostrar esta ajuda",
   },
   settings: {
-    title: "Configurações do CRM",
-    description:
-      "O SQL nativo mantém os registros do CRM no Postgres. HubSpot e Salesforce usam conexões do espaço de trabalho; seus espelhos guardam apenas campos permitidos, metadados com escopo e referências limitadas de evidência.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     mcpAbout:
       "Conecte o CRM ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no CRM por você: encontrar registros, atualizar campos e gerenciar tarefas. Ele só vê o que você pode ver.",
   },
   connection: {
     tab: "Conexão",
-    title: "Conexão do CRM",
-    description:
-      "De onde vêm os registros deste CRM e quanto de cada registro pertence a ele.",
     modesTitle: "Modos disponíveis",
     modeNative: "SQL nativo",
     modeNativeHelp:
@@ -104,9 +99,6 @@ const messages = {
   },
   fields: {
     tab: "Campos",
-    title: "Campos",
-    description:
-      "Os atributos tipados por trás de cada registro e de cada lista. O slug de API e o tipo de um campo ficam fixos assim que ele é criado; todo o resto pode mudar.",
     target: "Objeto ou lista",
     targetPlaceholder: "Selecione um tipo de objeto ou uma lista",
     listsGroup: "Listas",
@@ -253,8 +245,6 @@ const messages = {
   },
   advanced: {
     tab: "Avançado",
-    title: "Avançado",
-    description: "Reconfiguração e comportamento de retenção de dados.",
     reconfigure: "Reconfigurar o CRM",
     reconfigureHelp:
       "Alterne entre o SQL nativo e um acompanhante do HubSpot ou do Salesforce, ou refaça a sincronização inicial.",
@@ -569,9 +559,6 @@ const messages = {
   },
   intelligence: {
     tab: "Inteligência",
-    title: "Inteligência",
-    description:
-      "Escolha os momentos que o CRM deve perceber em evidências de chamadas limitadas. Rastreadores inteligentes são avaliados pelo Ask CRM, nunca diretamente nesta tela.",
     loading: "Carregando rastreadores…",
     kindKeyword: "Palavra-chave",
     kindSmart: "Inteligente",

@@ -5,7 +5,7 @@ packages:
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@bacons/apple-targets"
-  - "@agent-native/core"
+  - "@agent-native/*"
   - "@modelcontextprotocol/client"
   - "@modelcontextprotocol/core"
   - "@modelcontextprotocol/node"
@@ -20,7 +20,7 @@ overrides:
   "@sentry/bundler-plugins": "10.73.0"
   "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
-  better-auth: "1.7.4"
+  better-auth: "1.7.6"
   nf3: "0.3.17"
   "@types/node": "^25.8.0"
   "@tanstack/react-query": "^5.101.2"
@@ -79,6 +79,7 @@ onlyBuiltDependencies:
   - canvas
   - electron
   - esbuild
+  - ffmpeg-static
   - lightningcss
   - node-pty
   - tesseract.js
@@ -88,6 +89,7 @@ allowBuilds:
   canvas: true
   electron: true
   esbuild: true
+  ffmpeg-static: true
   lightningcss: true
   node-pty: true
   tesseract.js: true

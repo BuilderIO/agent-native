@@ -8,7 +8,7 @@ import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -291,6 +291,12 @@ export function CalendarEventRules() {
             ) : null}
           </div>
         </div>
+        <Link
+          to={buildSettingsRoute("agent:automations")}
+          className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          {t("settings.eventRulesAutomationLink")}
+        </Link>
       </TabsContent>
       <TabsContent value="activity">
         {settings?.eventRuleActivity?.length ? (

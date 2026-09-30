@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockWebsite = vi.hoisted(() => vi.fn());
-vi.mock(
-  "@agent-native/core/server",
-  () => import("../../../packages/core/src/server/composer-website-source.js"),
-);
-vi.mock("./import-from-url.js", () => ({ default: { run: mockWebsite } }));
-
 const mocks = vi.hoisted(() => ({
+  website: vi.fn(),
+  integrationIntent: vi.fn(),
   user: vi.fn(),
   peer: vi.fn(),
   list: vi.fn(),
   snapshot: vi.fn(),
   figma: vi.fn(),
 }));
+vi.mock("@agent-native/core/server", async () => ({
+  ...(await import("../../../packages/core/src/server/composer-website-source.js")),
+  readAgentKitIntegrationIntent: mocks.integrationIntent,
+}));
+vi.mock("./import-from-url.js", () => ({ default: { run: mocks.website } }));
 vi.mock("@agent-native/core/a2a", () => ({
   readPeerComposerSource: mocks.peer,
 }));
@@ -36,7 +36,7 @@ import action from "./read-composer-source.js";
 
 describe("local website references", () => {
   it("reads partial website context locally without peer discovery", async () => {
-    mockWebsite.mockResolvedValue({
+    mocks.website.mockResolvedValue({
       status: "partial",
       designMd: "# Website",
       warnings: ["Static extraction only."],
@@ -54,7 +54,7 @@ describe("local website references", () => {
     expect(mocks.peer).not.toHaveBeenCalled();
   });
   it("fails when the extractor returns failed instead of throwing", async () => {
-    mockWebsite.mockResolvedValue({
+    mocks.website.mockResolvedValue({
       status: "failed",
       error: "private extraction diagnostics",
     });
@@ -107,6 +107,43 @@ describe("Design composer references", () => {
     });
     expect(mocks.snapshot).not.toHaveBeenCalled();
     expect(mocks.peer).not.toHaveBeenCalled();
+  });
+
+  it("resolves connected integration selections into invocation intents", async () => {
+    mocks.integrationIntent.mockResolvedValue({
+      id: "github",
+      title: "GitHub",
+      context: "Use the connected GitHub tools when relevant.",
+    });
+    const result = await action.run(
+      { source: "integration", operation: "read", id: "github", page: 1 },
+      { orgId: "org-one" },
+    );
+
+    expect(mocks.integrationIntent).toHaveBeenCalledWith("design", "github", {
+      userEmail: "member@example.com",
+      orgId: "org-one",
+    });
+    expect(result).toEqual({
+      id: "github",
+      title: "GitHub",
+      context: "Use the connected GitHub tools when relevant.",
+    });
+  });
+
+  it("rejects a connection revoked after the capability list was loaded", async () => {
+    mocks.integrationIntent.mockResolvedValue(null);
+    await expect(
+      action.run({
+        source: "integration",
+        operation: "read",
+        id: "github",
+        page: 1,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: "agentkit_integration_unavailable",
+    });
   });
 
   it("lists compact scoped metadata with search and pagination", async () => {

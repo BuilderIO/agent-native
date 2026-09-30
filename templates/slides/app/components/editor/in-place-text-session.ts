@@ -11,6 +11,7 @@ import {
   convertMarkdownPrefixToBullet,
   extractWithoutCopiedIdentity,
   findEnclosingList,
+  hasMarkdownBulletPrefixAtCaret,
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
@@ -238,6 +239,7 @@ interface TextOffsets {
   to: number;
   fromBefore: boolean;
   toBefore: boolean;
+  backward: boolean;
 }
 
 interface Snapshot extends TextOffsets {
@@ -758,6 +760,8 @@ export function startInPlaceTextSession(
     /** Where the edit left the selection; a run only continues from there. */
     after: TextOffsets | null;
   } | null = null;
+  let focusSelection: TextOffsets | null = null;
+  let pointerFocusPending = false;
   let edited = false;
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
@@ -909,7 +913,8 @@ export function startInPlaceTextSession(
   const notify = () => {
     authorZwspOrdinals();
     unscroll();
-    if (lastEdit) lastEdit.after = selectionOffsets(true);
+    focusSelection = selectionOffsets(true);
+    if (lastEdit) lastEdit.after = focusSelection;
     options.onInput?.();
   };
 
@@ -923,23 +928,41 @@ export function startInPlaceTextSession(
   }
 
   function selectionOffsets(breaks = false): TextOffsets {
+    const selection = window.getSelection();
     const range = selectionRange();
-    if (!range) return { from: 0, to: 0, fromBefore: false, toBefore: false };
+    if (!range) {
+      return {
+        from: 0,
+        to: 0,
+        fromBefore: false,
+        toBefore: false,
+        backward: false,
+      };
+    }
     const { startContainer, startOffset, endContainer, endOffset } = range;
     return {
       from: textOffset(el, startContainer, startOffset, breaks),
       to: textOffset(el, endContainer, endOffset, breaks),
       fromBefore: endsText(startContainer, startOffset),
       toBefore: endsText(endContainer, endOffset),
+      backward:
+        !range.collapsed &&
+        selection?.anchorNode === endContainer &&
+        selection.anchorOffset === endOffset,
     };
   }
 
   function select(
     start: readonly [Node, number],
     end: readonly [Node, number],
+    backward = false,
   ) {
     const selection = window.getSelection();
     if (!selection) return;
+    if (backward) {
+      selection.setBaseAndExtent(end[0], end[1], start[0], start[1]);
+      return;
+    }
     const range = document.createRange();
     range.setStart(...start);
     range.setEnd(...end);
@@ -948,13 +971,35 @@ export function startInPlaceTextSession(
   }
 
   function selectOffsets(
-    { from, to, fromBefore, toBefore }: TextOffsets,
+    { from, to, fromBefore, toBefore, backward }: TextOffsets,
     breaks = false,
   ) {
     select(
       textPoint(el, from, fromBefore, breaks),
       textPoint(el, to, toBefore, breaks),
+      backward,
     );
+  }
+
+  function onBlur() {
+    const range = selectionRange();
+    if (range) focusSelection = selectionOffsets(true);
+    else if (lastEdit?.after) focusSelection = lastEdit.after;
+  }
+
+  function onFocus() {
+    if (!pointerFocusPending && active && focusSelection) {
+      selectOffsets(focusSelection, true);
+    }
+    pointerFocusPending = false;
+  }
+
+  function onPointerDown() {
+    pointerFocusPending = document.activeElement !== el;
+  }
+
+  function onPointerUp() {
+    pointerFocusPending = false;
   }
 
   /**
@@ -976,7 +1021,7 @@ export function startInPlaceTextSession(
       ([node, offset]) =>
         node instanceof Text && el.contains(node) && offset <= node.length,
     );
-    if (points && intact) select(points[0], points[1]);
+    if (points && intact) select(points[0], points[1], offsets.backward);
     else selectOffsets(offsets);
     return true;
   }
@@ -1023,7 +1068,8 @@ export function startInPlaceTextSession(
       lastEdit.after?.from === selection.from &&
       lastEdit.after.to === selection.to &&
       lastEdit.after.fromBefore === selection.fromBefore &&
-      lastEdit.after.toBefore === selection.toBefore;
+      lastEdit.after.toBefore === selection.toBefore &&
+      lastEdit.after.backward === selection.backward;
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
     undoStack.push(snapshot());
@@ -1682,7 +1728,7 @@ export function startInPlaceTextSession(
     prefix.setStart(block, 0);
     prefix.setEnd(caret.startContainer, caret.startOffset);
     const typed = prefix.toString().replaceAll(ZERO_WIDTH_SPACE, "");
-    if (block === el && /^[-*] $/.test(typed)) {
+    if (block === el && hasMarkdownBulletPrefixAtCaret(el)) {
       command(() => {
         const tag = el.tagName;
         const look = headingTextLook(el);
@@ -1803,6 +1849,57 @@ export function startInPlaceTextSession(
     toggleList: (kind) =>
       command(() =>
         keepingSelection(() => {
+          const range = selectionRange();
+          const rows = Array.from(el.children).filter(
+            (child): child is HTMLElement =>
+              child instanceof HTMLElement && isBulletRow(child),
+          );
+          const selectedRows = range
+            ? rows.filter((row) =>
+                range.collapsed
+                  ? row.contains(range.startContainer)
+                  : range.intersectsNode(row),
+              )
+            : [];
+          const selectedUnmarkedRows = range
+            ? Array.from(el.children).filter(
+                (child): child is HTMLElement =>
+                  child instanceof HTMLElement &&
+                  !isBulletRow(child) &&
+                  ["DIV", "LI", "P"].includes(child.tagName) &&
+                  rows.some((row) => row.tagName === child.tagName) &&
+                  (range.collapsed
+                    ? child.contains(range.startContainer)
+                    : range.intersectsNode(child)),
+              )
+            : [];
+          if (
+            kind === "bullet" &&
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0
+          ) {
+            const marker = rows[0].firstElementChild;
+            if (marker && isBulletMarker(marker)) {
+              for (const row of selectedUnmarkedRows) {
+                const copy = marker.cloneNode(true) as HTMLElement;
+                stripCopiedIdentity(copy);
+                row.prepend(copy);
+              }
+              return true;
+            }
+          }
+          if (
+            kind === "bullet" &&
+            selectedRows.length !== 0 &&
+            selectedRows.length < rows.length
+          ) {
+            for (const row of selectedRows) {
+              const marker = row.firstElementChild;
+              if (marker && isBulletMarker(marker)) marker.remove();
+            }
+            return true;
+          }
           const next = toggleSlideList(el, kind);
           if (!next) return false;
           if (next !== el) rebind(next);
@@ -2097,6 +2194,10 @@ export function startInPlaceTextSession(
   }
 
   const listeners: [string, (event: never) => void][] = [
+    ["blur", onBlur],
+    ["focus", onFocus],
+    ["pointerdown", onPointerDown],
+    ["pointerup", onPointerUp],
     ["beforeinput", onBeforeInput],
     ["input", onInput],
     ["keydown", onKeyDown],
@@ -2209,6 +2310,8 @@ export function startInPlaceTextSession(
     if (!active) return;
     active = false;
     unlisten(el);
+    document.removeEventListener("pointerup", onPointerUp);
+    document.removeEventListener("pointercancel", onPointerUp);
     unscroll();
     for (const [ancestor] of pinnedScroll) {
       ancestor.removeEventListener("scroll", unscroll);
@@ -2244,9 +2347,17 @@ export function startInPlaceTextSession(
     selection && selection.rangeCount > 0
       ? selection.getRangeAt(0).cloneRange()
       : null;
+  const initialBackward = Boolean(
+    initialRange &&
+    !initialRange.collapsed &&
+    selection?.anchorNode === initialRange.endContainer &&
+    selection.anchorOffset === initialRange.endOffset,
+  );
   el.setAttribute("contenteditable", "true");
   el.setAttribute("data-editing-block", "true");
   listen(el);
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
   for (const [ancestor] of pinnedScroll) {
     ancestor.addEventListener("scroll", unscroll);
   }
@@ -2262,8 +2373,11 @@ export function startInPlaceTextSession(
     el.contains(initialRange.endContainer) &&
     (!point || initialRange.comparePoint(...point) === 0)
   ) {
-    selection.removeAllRanges();
-    selection.addRange(initialRange);
+    select(
+      [initialRange.startContainer, initialRange.startOffset],
+      [initialRange.endContainer, initialRange.endOffset],
+      initialBackward,
+    );
   } else if (point) {
     placeCaret(...point);
     // A double-click in an object's move band has its default prevented, so
@@ -2293,6 +2407,7 @@ export function startInPlaceTextSession(
   if (!hasRenderedContent(el) && !el.textContent?.includes(ZERO_WIDTH_SPACE)) {
     settleCaret(el, el.childNodes.length);
   }
+  focusSelection = selectionOffsets(true);
 
   return {
     get element() {

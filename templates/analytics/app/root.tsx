@@ -1,13 +1,13 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   callAction,
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -22,6 +22,7 @@ import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
+import "@/lib/register-analysis-result-renderer";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -176,4 +177,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

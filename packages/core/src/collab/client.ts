@@ -1,7 +1,3 @@
-import {
-  dedupeCollabUsersByEmail,
-  type CollabUser,
-} from "@agent-native/toolkit/collab-ui";
 import { useEffect, useMemo, useState } from "react";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
@@ -13,13 +9,14 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
-  isReconcileLeadClient,
   type CollabUser,
-} from "@agent-native/toolkit/collab-ui";
+} from "./types.js";
+export { isReconcileLeadClient } from "./lead-client.js";
 
 export interface UseCollaborativeDocOptions {
   docId: string | null;

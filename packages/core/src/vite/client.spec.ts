@@ -13,6 +13,7 @@ import { signEmbedSessionToken } from "../server/embed-session.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
+  _clientOptionalPeerStubPlugin,
   _devActionBridgeOrigin,
   _devActionBridgePlugin,
   _findCorePackageRoot,
@@ -435,6 +436,90 @@ describe("Nitro dev startup recovery", () => {
   });
 });
 
+describe("client optional peer stubs", () => {
+  it("stubs only absent optional client packages and throws typed errors on use", () => {
+    const cwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "core-vite-optional-peer-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({ name: "external-app", dependencies: {} }),
+      );
+      const plugin = _clientOptionalPeerStubPlugin(cwd);
+      const resolveId = plugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      const load = plugin?.load as ((id: string) => string | null) | undefined;
+      const id = resolveId?.("@rrweb/record");
+      expect(id).toBe("\0agent-native-client-optional-peer-stub:@rrweb/record");
+      expect(load?.(String(id))).toContain(
+        'new OptionalPeerDependencyError("@rrweb/record")',
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          dependencies: { "@rrweb/record": "^2.1.0" },
+        }),
+      );
+      const presentPlugin = _clientOptionalPeerStubPlugin(cwd);
+      const presentResolveId = presentPlugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(presentResolveId?.("@rrweb/record")).toBe(null);
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          optionalDependencies: { "@rrweb/record": "^2.1.0" },
+        }),
+      );
+      const optionalPlugin = _clientOptionalPeerStubPlugin(cwd);
+      const optionalResolveId = optionalPlugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(optionalResolveId?.("@rrweb/record")).toBe(null);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves linkedom/worker available to external Core consumers", async () => {
+    const cwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "core-vite-linkedom-consumer-"),
+    );
+    try {
+      const corePackagePath = path.resolve(
+        import.meta.dirname,
+        "../../package.json",
+      );
+      const corePackage = JSON.parse(fs.readFileSync(corePackagePath, "utf-8"));
+      expect(corePackage.dependencies?.linkedom).toBeTruthy();
+      await expect(import("linkedom/worker")).resolves.toHaveProperty(
+        "parseHTML",
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, "package.json"),
+        JSON.stringify({
+          name: "external-app",
+          dependencies: { "@agent-native/core": "^0.0.0" },
+        }),
+      );
+      const plugin = _clientOptionalPeerStubPlugin(cwd);
+      const resolveId = plugin?.resolveId as
+        | ((id: string) => string | null)
+        | undefined;
+      expect(resolveId?.("linkedom/worker")).toBe(null);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
     .flat()
@@ -450,7 +535,12 @@ function flatPlugins(plugins: any[] | undefined): any[] {
 
 describe("dev action bridge origin", () => {
   beforeEach(() => {
+    vi.stubEnv("DATABASE_URL", undefined);
     mockWriteDevActionDiscoveryFile.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   // The recorded origin must BE the URL Vite prints: the browser cookie jar
@@ -532,32 +622,55 @@ describe("dev action bridge origin", () => {
 
 describe("design system theme plugin", () => {
   it("emits normalized build-time CSS from a virtual module", async () => {
-    const plugins = flatPlugins(
-      defineConfig({
-        designSystemTheme: {
-          colors: {
-            light: { primary: "oklch(60% 0.2 250)", background: "white" },
-            dark: { background: "#101010" },
-          },
-        },
-      }).plugins,
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-theme-app-"));
+    fs.writeFileSync(path.join(appRoot, "package.json"), "{}");
+    const toolkitRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../toolkit",
     );
-    const plugin = plugins.find(
-      (candidate) => candidate.name === "agent-native-design-system-theme",
+    const toolkitLink = path.join(
+      appRoot,
+      "node_modules/@agent-native/toolkit",
     );
+    fs.mkdirSync(path.dirname(toolkitLink), { recursive: true });
+    fs.symlinkSync(toolkitRoot, toolkitLink, "dir");
 
-    expect(plugin).toBeDefined();
-    const resolved = await plugin.resolveId("virtual:agent-native-theme.css");
-    const css = await plugin.load(resolved);
-    expect(css).toContain("--primary:");
-    expect(css).toContain("--background: 0 0% 6.275%");
-    expect(await plugin.transformIndexHtml()).toEqual([
-      expect.objectContaining({
-        tag: "style",
-        children: css,
-        injectTo: "head",
-      }),
-    ]);
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const plugins = flatPlugins(
+        defineConfig({
+          designSystemTheme: {
+            colors: {
+              light: {
+                primary: "oklch(60% 0.2 250)",
+                background: "white",
+              },
+              dark: { background: "#101010" },
+            },
+          },
+        }).plugins,
+      );
+      const plugin = plugins.find(
+        (candidate) => candidate.name === "agent-native-design-system-theme",
+      );
+
+      expect(plugin).toBeDefined();
+      await plugin.configResolved?.({} as never);
+      const resolved = await plugin.resolveId("virtual:agent-native-theme.css");
+      const css = await plugin.load(resolved);
+      expect(css).toContain("--primary:");
+      expect(css).toContain("--background: 0 0% 6.275%");
+      expect(await plugin.transformIndexHtml()).toEqual([
+        expect.objectContaining({
+          tag: "style",
+          children: css,
+          injectTo: "head",
+        }),
+      ]);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 
   it("does not add theme CSS when a theme is not configured", () => {
@@ -1513,7 +1626,6 @@ describe("route warmup config", () => {
       expect(packageVersions).toEqual(
         expect.objectContaining({
           "@agent-native/core": expect.any(String),
-          "@agent-native/toolkit": expect.any(String),
         }),
       );
     } finally {
@@ -2272,35 +2384,44 @@ describe("agentNative Vite plugin preset", () => {
     );
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
-    const config = (await configPlugin.config(
-      {
-        define: {
-          __APP_DEFINE__: JSON.stringify("ok"),
-          __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify({
-            strategy: "off",
-          }),
-        },
-        server: {
-          port: 4242,
-          fs: {
-            allow: ["/tmp/app-assets"],
-            deny: ["secret.txt"],
+    const previousCwd = process.cwd();
+    let config: any;
+    process.chdir(
+      path.resolve(import.meta.dirname, "../../../..", "templates/chat"),
+    );
+    try {
+      config = await configPlugin.config(
+        {
+          define: {
+            __APP_DEFINE__: JSON.stringify("ok"),
+            __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify({
+              strategy: "off",
+            }),
+          },
+          server: {
+            port: 4242,
+            fs: {
+              allow: ["/tmp/app-assets"],
+              deny: ["secret.txt"],
+            },
+          },
+          build: {
+            outDir: "build/client",
+          },
+          optimizeDeps: {
+            include: ["date-fns"],
+            exclude: ["lodash"],
+          },
+          resolve: {
+            dedupe: ["zustand"],
+            alias: { "~": "/tmp/app" },
           },
         },
-        build: {
-          outDir: "build/client",
-        },
-        optimizeDeps: {
-          include: ["date-fns"],
-          exclude: ["lodash"],
-        },
-        resolve: {
-          dedupe: ["zustand"],
-          alias: { "~": "/tmp/app" },
-        },
-      },
-      { command: "serve", mode: "development" },
-    )) as any;
+        { command: "serve", mode: "development" },
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
 
     const routeWarmup = JSON.parse(
       String(config.define.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
@@ -2321,11 +2442,12 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.build.outDir).toBe("build/client");
     expect(config.build.cssMinify).toBe("esbuild");
     expect(config.optimizeDeps.include).toContain(
-      "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",
+      "@agent-native/toolkit > @assistant-ui/react > assistant-stream > secure-json-parse",
     );
     expect(config.optimizeDeps.include).toContain("date-fns");
     expect(config.optimizeDeps.exclude).toContain("lodash");
     expect(config.resolve.dedupe).toContain("zustand");
+    expect(config.resolve.dedupe).toContain("@agent-native/core");
     expect(config.resolve.dedupe).toEqual(
       expect.arrayContaining([
         "@assistant-ui/react",
@@ -2349,16 +2471,34 @@ describe("agentNative Vite plugin preset", () => {
   });
 
   it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
-    const plugins = flatPlugins(agentNative());
-    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const previous = {
+      SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+      SENTRY_ORG: process.env.SENTRY_ORG,
+      SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+    };
+    try {
+      delete process.env.SENTRY_AUTH_TOKEN;
+      delete process.env.SENTRY_ORG;
+      delete process.env.SENTRY_PROJECT;
 
-    const config = (await configPlugin.config(
-      {},
-      { command: "build", mode: "production" },
-    )) as any;
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (p) => p?.name === "agent-native-config",
+      );
 
-    expect(config.build.sourcemap).toBe(false);
-    expect(plugins.map((p) => p?.name)).not.toContain("sentry-vite-plugin");
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
+
+      expect(config.build.sourcemap).toBe(false);
+      expect(plugins.map((p) => p?.name)).not.toContain("sentry-vite-plugin");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("emits hidden sourcemaps and adds the Sentry upload plugin when configured", async () => {
@@ -3319,6 +3459,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const Text = stub;");
     expect(code).toContain("export const XmlElement = stub;");
     expect(code).toContain("export const UndoManager = stub;");
+    expect(code).toContain("export const ySyncPluginKey = stub;");
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const DOMSerializer = stub;");
@@ -3400,6 +3541,25 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("lets toolkit keep its pinned Tabler copy when the app declares another", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@tabler/icons-react": "^3.46.0",
+          "@tanstack/react-query": "^5.101.2",
+        },
+      }),
+    );
+
+    const dedupe = _getClientDedupe(tmpDir);
+    expect(dedupe).toContain("@tanstack/react-query");
+    expect(dedupe).not.toContain("@tabler/icons-react");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it("pre-optimizes core client deps when core is source-aliased", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
     const coreRoot = path.resolve(import.meta.dirname, "../..");
@@ -3435,11 +3595,13 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain("@agent-native/core/client/ui");
     expect(deps).not.toContain("@agent-native/core/client/uploads");
     expect(deps).not.toContain("@agent-native/core/client/widgets");
-    expect(deps).toContain("@agent-native/core > @assistant-ui/react");
-    expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
-    expect(deps).toContain("@agent-native/core > @sentry/browser");
+    expect(deps).toContain("@agent-native/toolkit > @assistant-ui/react");
+    expect(deps).not.toContain("@agent-native/core > @assistant-ui/react");
+    expect(deps).toContain("@agent-native/toolkit > @codemirror/lang-sql");
+    expect(deps).not.toContain("@agent-native/core > @codemirror/lang-sql");
+    expect(deps).not.toContain("@agent-native/core > @sentry/browser");
     expect(deps).toContain(
-      "@agent-native/core > @shadcn/react/message-scroller",
+      "@agent-native/toolkit > @shadcn/react/message-scroller",
     );
     expect(deps).not.toContain("@agent-native/core > @tiptap/react");
     expect(deps).not.toContain("@agent-native/core > @radix-ui/react-dialog");
@@ -3449,11 +3611,13 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain(
       "@agent-native/core > @radix-ui/react-hover-card",
     );
-    expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
-    expect(deps).toContain("@agent-native/core > @xterm/xterm");
+    expect(deps).toContain("@agent-native/toolkit > @uiw/react-codemirror");
+    expect(deps).not.toContain("@agent-native/core > @uiw/react-codemirror");
+    expect(deps).toContain("@agent-native/toolkit > @xterm/xterm");
+    expect(deps).not.toContain("@agent-native/core > @xterm/xterm");
     expect(deps).toContain("@agent-native/core > i18next");
     expect(deps).toContain("@agent-native/core > react-i18next");
-    expect(deps).toContain("@agent-native/core > shiki/core");
+    expect(deps).toContain("@agent-native/toolkit > shiki/core");
     expect(deps).toContain("@paper-design/shaders-react");
     expect(deps).not.toContain(
       "@agent-native/core > @paper-design/shaders-react",
@@ -3463,7 +3627,10 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain("react-dom/server");
     expect(deps).toContain("react-router");
     expect(deps).not.toContain("@agent-native/core > react-router");
-    expect(deps).toContain("@agent-native/core > highlight.js/lib/core");
+    expect(deps).toContain(
+      "@agent-native/toolkit > lowlight > highlight.js/lib/core",
+    );
+    expect(deps).toContain("@agent-native/toolkit > highlight.js/lib/core");
     expect(deps).toContain(
       "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
     );
@@ -3561,7 +3728,7 @@ describe("local-core dev aliases and router dedupe", () => {
       );
       expect(config.optimizeDeps?.noDiscovery).toBe(true);
       expect(exclude).not.toContain("@radix-ui/react-tooltip");
-      expect(include).not.toContain("@agent-native/agentkit/react");
+      expect(include).not.toContain("@agent-native/toolkit/app/agentkit");
       expect(include).not.toContain("@agent-native/toolkit/composer");
       expect(include).not.toContain(
         "@agent-native/toolkit/editor/SharedRichEditor",
@@ -3571,9 +3738,10 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(include).not.toContain("mermaid");
       expect(include).toEqual(
         expect.arrayContaining([
-          "@agent-native/agentkit/react/components",
-          "@agent-native/agentkit/react/context",
-          "@agent-native/agentkit/react/root",
+          "@agent-native/toolkit/app/agentkit/react/components",
+          "@agent-native/toolkit/app/agentkit/react/context",
+          "@agent-native/toolkit/app/agentkit/react/root",
+          "@agent-native/toolkit/app/chat/agentkit-chat/index",
           "@agent-native/core/client/agent-native-icon",
           "@agent-native/core/client/agentkit-chat/composer",
           "@agent-native/core/client/agentkit-chat/connections",
@@ -3601,6 +3769,18 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sheet",
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
+          "@agent-native/toolkit > lowlight > highlight.js/lib/core",
+          "@agent-native/toolkit > highlight.js/lib/core",
+          "@agent-native/toolkit > highlight.js/lib/languages/bash",
+          "@agent-native/toolkit > highlight.js/lib/languages/css",
+          "@agent-native/toolkit > highlight.js/lib/languages/javascript",
+          "@agent-native/toolkit > highlight.js/lib/languages/json",
+          "@agent-native/toolkit > highlight.js/lib/languages/markdown",
+          "@agent-native/toolkit > highlight.js/lib/languages/python",
+          "@agent-native/toolkit > highlight.js/lib/languages/sql",
+          "@agent-native/toolkit > highlight.js/lib/languages/typescript",
+          "@agent-native/toolkit > highlight.js/lib/languages/xml",
+          "@agent-native/toolkit > highlight.js/lib/languages/yaml",
           "@tanstack/react-query",
           "next-themes",
           "react-router",
@@ -3617,15 +3797,15 @@ describe("local-core dev aliases and router dedupe", () => {
           "react-dom",
           "react-dom/client",
           "react-dom/server",
-          "@agent-native/core > @assistant-ui/react",
-          "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",
-          "@agent-native/core > react-markdown > void-elements",
-          "@agent-native/core > react-markdown > unified > extend",
-          "@agent-native/core > react-markdown > hast-util-to-jsx-runtime > style-to-js",
-          "@agent-native/core > react-markdown > remark-parse > mdast-util-from-markdown > micromark > debug",
-          "@agent-native/core > recharts > decimal.js-light",
-          "@agent-native/core > recharts > eventemitter3",
-          "@agent-native/core > recharts > react-is",
+          "@agent-native/toolkit > @assistant-ui/react",
+          "@agent-native/toolkit > @assistant-ui/react > assistant-stream > secure-json-parse",
+          "@agent-native/toolkit > react-markdown > void-elements",
+          "@agent-native/toolkit > react-markdown > unified > extend",
+          "@agent-native/toolkit > react-markdown > hast-util-to-jsx-runtime > style-to-js",
+          "@agent-native/toolkit > react-markdown > remark-parse > mdast-util-from-markdown > micromark > debug",
+          "@agent-native/toolkit > recharts > decimal.js-light",
+          "@agent-native/toolkit > recharts > eventemitter3",
+          "@agent-native/toolkit > recharts > react-is",
           "clsx",
           "tailwind-merge",
           "zustand",
@@ -3709,7 +3889,6 @@ describe("local-core dev aliases and router dedupe", () => {
       "@agent-native/core/client/navigation": "client/navigation/index.ts",
       "@agent-native/core/client/route-chunk-recovery":
         "client/route-chunk-recovery/index.ts",
-      "@agent-native/core/client/settings": "client/settings/index.ts",
       "@agent-native/core/client/ui": "client/ui/index.ts",
       "@agent-native/core/client/uploads": "client/uploads/index.ts",
       "@agent-native/core/client/widgets": "client/widgets/index.ts",
@@ -3739,6 +3918,120 @@ describe("local-core dev aliases and router dedupe", () => {
             (alias) =>
               alias.find.test(specifier) &&
               alias.replacement.endsWith(path.join("src", sourcePath)),
+          ),
+        ).toBe(true);
+      }
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("aliases resolvable Core package exports to their source modules", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-core-export-aliases-"),
+    );
+    const appDir = path.join(tmpDir, "templates", "chat");
+    const coreRoot = path.join(tmpDir, "packages", "core");
+    const coreSrcDir = path.join(coreRoot, "src");
+    const exports = {
+      ".": {
+        browser: "./dist/index.browser.js",
+        default: "./dist/index.js",
+      },
+      "./client/use-session": "./dist/client/use-session.js",
+      "./client/use-after-paint": "./dist/client/use-after-paint.js",
+      "./shared/ssr-session-bootstrap":
+        "./dist/shared/ssr-session-bootstrap.js",
+      "./client/chat": "./dist/client/tombstone/chat.js",
+      "./client/settings": "./dist/client/tombstone/settings.js",
+      "./client/observability": "./dist/client/tombstone/observability.js",
+      "./client/db-admin": "./dist/client/tombstone/db-admin.js",
+      "./client/agentkit-chat": "./dist/client/tombstone/agentkit-chat.js",
+      "./client/org-switcher": "./dist/client/tombstone/org-switcher.js",
+      "./client/team-page": "./dist/client/tombstone/team-page.js",
+      "./blocks": "./dist/client/tombstone/blocks.js",
+    };
+    const sourceModules = {
+      "index.ts": "export {};\n",
+      "index.browser.ts": "export {};\n",
+      "client/use-session.ts": "export {};\n",
+      "client/use-after-paint.ts": "export {};\n",
+      "shared/ssr-session-bootstrap.ts": "export {};\n",
+      "client/tombstone/chat.ts": "export {};\n",
+      "client/tombstone/settings.ts": "export {};\n",
+      "client/tombstone/observability.ts": "export {};\n",
+      "client/tombstone/db-admin.ts": "export {};\n",
+      "client/tombstone/agentkit-chat.ts": "export {};\n",
+      "client/tombstone/org-switcher.ts": "export {};\n",
+      "client/tombstone/team-page.ts": "export {};\n",
+      "client/tombstone/blocks.ts": "export {};\n",
+    };
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(coreSrcDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, "package.json"), "{}");
+    fs.writeFileSync(
+      path.join(coreRoot, "package.json"),
+      JSON.stringify({ exports }),
+    );
+    for (const [relativePath, contents] of Object.entries(sourceModules)) {
+      const sourcePath = path.join(coreSrcDir, relativePath);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, contents);
+    }
+
+    try {
+      process.chdir(appDir);
+      const config = defineConfig();
+      const exclude =
+        (config.optimizeDeps as { exclude?: string[] } | undefined)?.exclude ??
+        [];
+      const aliases =
+        (
+          config.resolve as {
+            alias?: Array<{ find: RegExp; replacement: string }>;
+          }
+        )?.alias ?? [];
+
+      for (const [specifier, relativePath] of [
+        ["@agent-native/core", "index.browser.ts"],
+        ["@agent-native/core/client/use-session", "client/use-session.ts"],
+        [
+          "@agent-native/core/client/use-after-paint",
+          "client/use-after-paint.ts",
+        ],
+        [
+          "@agent-native/core/shared/ssr-session-bootstrap",
+          "shared/ssr-session-bootstrap.ts",
+        ],
+        ["@agent-native/core/client/chat", "client/tombstone/chat.ts"],
+        ["@agent-native/core/client/settings", "client/tombstone/settings.ts"],
+        [
+          "@agent-native/core/client/observability",
+          "client/tombstone/observability.ts",
+        ],
+        ["@agent-native/core/client/db-admin", "client/tombstone/db-admin.ts"],
+        [
+          "@agent-native/core/client/agentkit-chat",
+          "client/tombstone/agentkit-chat.ts",
+        ],
+        [
+          "@agent-native/core/client/org-switcher",
+          "client/tombstone/org-switcher.ts",
+        ],
+        [
+          "@agent-native/core/client/team-page",
+          "client/tombstone/team-page.ts",
+        ],
+        ["@agent-native/core/blocks", "client/tombstone/blocks.ts"],
+      ]) {
+        expect(exclude).toContain(specifier);
+        expect(
+          aliases.some(
+            (alias) =>
+              alias.find.test(specifier) &&
+              alias.replacement.endsWith(path.join("src", relativePath)),
           ),
         ).toBe(true);
       }
@@ -3805,6 +4098,18 @@ describe("local-core dev aliases and router dedupe", () => {
       };
       const noExternal = ssr.noExternal ?? [];
       const external = ssr.external ?? [];
+      const coreNoExternal = noExternal.find(
+        (entry) =>
+          entry instanceof RegExp &&
+          entry.test("@agent-native/core/client/hooks") &&
+          !entry.test("@agent-native/core-extra"),
+      );
+      const toolkitNoExternal = noExternal.find(
+        (entry) =>
+          entry instanceof RegExp &&
+          entry.test("@agent-native/toolkit/app/chat") &&
+          !entry.test("@agent-native/toolkit-extra"),
+      );
       const routerNoExternal = noExternal.find(
         (entry) =>
           entry instanceof RegExp &&
@@ -3813,6 +4118,8 @@ describe("local-core dev aliases and router dedupe", () => {
           !entry.test("react-router-extra"),
       );
 
+      expect(coreNoExternal).toBeDefined();
+      expect(toolkitNoExternal).toBeDefined();
       expect(routerNoExternal).toBeDefined();
       expect(external).not.toContain("react-router");
       expect(external).not.toContain("react-router/dom");
@@ -3883,22 +4190,31 @@ describe("local-core dev aliases and router dedupe", () => {
       "@agent-native",
       "core",
     );
+    const installedToolkit = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "toolkit",
+    );
     fs.mkdirSync(path.join(installedCore, "src"), { recursive: true });
     fs.mkdirSync(path.join(installedCore, "dist"), { recursive: true });
+    fs.mkdirSync(path.join(installedToolkit, "src"), { recursive: true });
+    fs.mkdirSync(path.join(installedToolkit, "dist"), { recursive: true });
     fs.writeFileSync(path.join(installedCore, "src/index.ts"), "export {};\n");
     fs.writeFileSync(path.join(installedCore, "dist/index.js"), "export {};\n");
+    fs.writeFileSync(
+      path.join(installedToolkit, "src/index.ts"),
+      "export {};\n",
+    );
+    fs.writeFileSync(
+      path.join(installedToolkit, "dist/index.js"),
+      "export {};\n",
+    );
     fs.writeFileSync(
       path.join(installedCore, "package.json"),
       JSON.stringify({
         name: "@agent-native/core",
         main: "dist/index.js",
-        dependencies: {
-          "@assistant-ui/react": "0.12.28",
-          "@assistant-ui/react-markdown": "0.12.11",
-          "@assistant-ui/store": "0.2.13",
-          "@assistant-ui/tap": "0.5.16",
-          "highlight.js": "11.11.1",
-        },
         devDependencies: {
           "@excalidraw/excalidraw": "0.18.1",
           mermaid: "11.15.0",
@@ -3906,37 +4222,83 @@ describe("local-core dev aliases and router dedupe", () => {
       }),
     );
     fs.writeFileSync(
+      path.join(installedToolkit, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/toolkit",
+        main: "dist/index.js",
+        dependencies: {
+          "@assistant-ui/react": "0.12.28",
+          "@assistant-ui/react-markdown": "0.12.11",
+          "@assistant-ui/store": "0.2.13",
+          "@assistant-ui/tap": "0.5.16",
+          "highlight.js": "11.11.1",
+          lowlight: "3.3.0",
+          "react-markdown": "10.1.0",
+          recharts: "3.9.2",
+        },
+        peerDependencies: {
+          mermaid: ">=11",
+          "@xterm/xterm": ">=6",
+        },
+        peerDependenciesMeta: {
+          mermaid: { optional: true },
+          "@xterm/xterm": { optional: true },
+        },
+      }),
+    );
+    fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({
-        dependencies: { "@agent-native/core": "^0.118.0" },
+        dependencies: {
+          "@agent-native/core": "^0.196.0",
+          "@agent-native/toolkit": "^0.1.0",
+        },
       }),
     );
 
     expect(_findCorePackageRoot(tmpDir)).toBe(fs.realpathSync(installedCore));
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain("@agent-native/core");
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > @assistant-ui/react",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > @assistant-ui/react-markdown",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > @assistant-ui/store",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > @assistant-ui/tap",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > lowlight > highlight.js/lib/core",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > highlight.js/lib/core",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > highlight.js/lib/languages/javascript",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > react-markdown",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > recharts",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
       "@agent-native/core > @assistant-ui/react",
     );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
-      "@agent-native/core > @assistant-ui/react-markdown",
-    );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
-      "@agent-native/core > @assistant-ui/store",
-    );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
-      "@agent-native/core > @assistant-ui/tap",
-    );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
-      "@agent-native/core > highlight.js/lib/core",
-    );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
-      "@agent-native/core > highlight.js/lib/languages/javascript",
-    );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
       "@agent-native/core > @excalidraw/excalidraw",
     );
-    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
       "@agent-native/core > mermaid",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/toolkit > mermaid",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/toolkit > @xterm/xterm",
     );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -4039,11 +4401,14 @@ describe("local-core dev aliases and router dedupe", () => {
       );
       const agentkitStylesAlias = aliases.find((alias) =>
         alias.find instanceof RegExp
-          ? alias.find.test("@agent-native/agentkit/react/styles.css")
-          : alias.find === "@agent-native/agentkit/react/styles.css",
+          ? alias.find.test(
+              "@agent-native/toolkit/app/agentkit/react/styles.css",
+            )
+          : alias.find ===
+            "@agent-native/toolkit/app/agentkit/react/styles.css",
       );
       expect(agentkitStylesAlias?.replacement).toBe(
-        path.join(agentkitRoot, "src/react/styles.css"),
+        path.join(toolkitRoot, "src/app/$1.css"),
       );
       const protocolAlias = aliases.find((alias) =>
         alias.find instanceof RegExp

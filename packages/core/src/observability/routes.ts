@@ -8,11 +8,13 @@ import {
   type H3Event,
 } from "h3";
 
+import { isActionContractError } from "../action.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestContext } from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
+import { promoteTraceEvalFromStore } from "./actions/promote-trace-eval.js";
 import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
   getObservabilityOverview,
@@ -25,7 +27,7 @@ import {
   getFeedbackStats,
   getSatisfactionScores,
   getEvalStats,
-  listExperiments,
+  listExperimentsPageResult,
   insertExperiment,
   getExperiment,
   updateExperiment,
@@ -138,6 +140,54 @@ export function createObservabilityHandler() {
       parts[2] === "evals"
     ) {
       return getEvalsForRun(decodeURIComponent(parts[1]), { userId: owner });
+    }
+
+    // POST /traces/:runId/promote — turn a completed run into a CI eval case.
+    // Same owner scope as GET /traces/:runId: a guessed runId from another
+    // user is not_found, never an empty passing fixture.
+    if (
+      method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "traces" &&
+      parts[2] === "promote"
+    ) {
+      const runId = decodeURIComponent(parts[1]);
+      let body: { mustContain?: unknown; datasetName?: unknown };
+      try {
+        const raw = await readBody(event);
+        // An unreadable or non-object payload is not the same as an absent
+        // one. Absent bodies arrive as `{}` and may promote; garbage must not.
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid JSON body" };
+        }
+        body = raw as { mustContain?: unknown; datasetName?: unknown };
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid JSON body" };
+      }
+      try {
+        return await promoteTraceEvalFromStore(
+          {
+            runId,
+            mustContain:
+              typeof body.mustContain === "string"
+                ? body.mustContain
+                : undefined,
+            datasetName:
+              typeof body.datasetName === "string"
+                ? body.datasetName
+                : undefined,
+          },
+          { userId: owner },
+        );
+      } catch (err) {
+        if (isActionContractError(err)) {
+          setResponseStatus(event, err.statusCode);
+          return { error: err.errorCode, message: err.message };
+        }
+        throw err;
+      }
     }
 
     if (method === "GET" && parts.length === 2 && parts[0] === "traces") {
@@ -269,6 +319,7 @@ export function createObservabilityHandler() {
         import("./feedback.js")
           .then(({ computeSatisfactionScore }) =>
             computeSatisfactionScore(threadId!, {
+              ownerEmail: owner,
               userId: owner,
             }).catch(() => {}),
           )
@@ -348,7 +399,15 @@ export function createObservabilityHandler() {
     }
 
     if (method === "GET" && parts.length === 1 && parts[0] === "experiments") {
-      return listExperiments();
+      const q = getQuery(event);
+      const beforeCreatedAt = Number(q.beforeCreatedAt);
+      const beforeId = typeof q.beforeId === "string" ? q.beforeId : undefined;
+      return listExperimentsPageResult({
+        limit: parseLimit(q),
+        ...(Number.isFinite(beforeCreatedAt) && beforeId
+          ? { before: { createdAt: beforeCreatedAt, id: beforeId } }
+          : {}),
+      });
     }
 
     if (

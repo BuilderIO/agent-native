@@ -2,41 +2,41 @@ import type {
   AgentConnectionRequest,
   AgentMessage,
 } from "@agent-native/agentkit";
+import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentMessageView,
   AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
-} from "@agent-native/agentkit/react/components";
+} from "@agent-native/toolkit/app/agentkit/react/components";
 import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
-} from "@agent-native/agentkit/react/context";
-import {
-  BuilderSetupCard,
-  isMissingLlmProviderRunError,
-} from "@agent-native/core/client/agent-chat";
-import { CoreAgentKitRoot } from "@agent-native/core/client/agentkit-chat";
-import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
+} from "@agent-native/toolkit/app/agentkit/react/context";
+import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
-} from "@agent-native/core/client/agentkit-chat/connections";
-import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/connections";
+import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
-} from "@agent-native/core/client/agentkit-chat/questions";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/questions";
 import {
   findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
-} from "@agent-native/core/client/agentkit-chat/suggestions";
-import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
-import { trackEvent } from "@agent-native/core/client/analytics";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/suggestions";
+import {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+} from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import {
   useCallback,
@@ -492,7 +492,6 @@ function ChatEmptyState() {
   return (
     <div className="agentkit-chat-empty-copy">
       <h1>{t("chat.heroTitle")}</h1>
-      <p>{t("chat.heroDescription")}</p>
     </div>
   );
 }

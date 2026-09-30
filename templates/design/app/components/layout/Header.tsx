@@ -2,14 +2,14 @@ import {
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
 } from "@agent-native/core/client/agent-chat";
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { RunsTray } from "@agent-native/core/client/progress";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
 import { useCallback } from "react";
 import { useLocation } from "react-router";
 
@@ -102,9 +102,7 @@ export function Header() {
           {title ?? <ResolvedTitle />}
         </div>
         {isHome ? (
-          <div className="design-home-header-search min-w-0 w-full justify-self-center">
-            {actions}
-          </div>
+          <div className="design-home-header-search w-full">{actions}</div>
         ) : null}
         <div className="flex items-center justify-end gap-2 shrink-0">
           {isHome ? <HomeImportButton /> : null}
@@ -126,7 +124,7 @@ export function MobileHeaderActions() {
       className={cn(
         "flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden",
         isHome &&
-          "design-home-mobile-header-actions justify-start overflow-x-hidden border-b-0",
+          "design-home-mobile-header-actions justify-start overflow-visible border-b-0",
       )}
     >
       {isHome ? <div className="min-w-0 flex-1">{actions}</div> : actions}

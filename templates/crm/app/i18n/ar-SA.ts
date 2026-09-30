@@ -23,6 +23,11 @@ const messages = {
     retry: "إعادة المحاولة",
     search: "بحث",
   },
+  chatHome: {
+    description:
+      "استكشف سياق الحسابات المسموح به، وأعمال المتابعة، والأدلة عبر Native SQL والسجلات المتصلة.",
+    placeholder: "اسأل عن CRM الخاص بك",
+  },
   commandMenu: {
     placeholder: "ابحث في السجلات والقوائم والأوامر…",
     groupRecords: "السجلات",
@@ -58,19 +63,11 @@ const messages = {
     showHelp: "عرض هذه المساعدة",
   },
   settings: {
-    title: "إعدادات CRM",
-    description:
-      "يبقي SQL الأصلي سجلات CRM الخاصة بـ CRM في Postgres. يستخدم HubSpot وSalesforce اتصالات مساحة العمل؛ ولا تخزن مرايا هذه الاتصالات سوى الحقول المسموح بها وبيانات وصفية محدودة النطاق ومراجع أدلة محدودة.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     mcpAbout:
       "اربط CRM بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في CRM نيابةً عنك: البحث عن السجلات وتحديث الحقول وإدارة المهام. ولا يرى إلا ما يمكنك رؤيته.",
   },
   connection: {
     tab: "الاتصال",
-    title: "اتصال CRM",
-    description: "من أين تأتي سجلات هذا الـ CRM، وكم يملك من كل سجل.",
     modesTitle: "الأوضاع المتاحة",
     modeNative: "SQL أصلي",
     modeNativeHelp:
@@ -99,9 +96,6 @@ const messages = {
   },
   fields: {
     tab: "الحقول",
-    title: "الحقول",
-    description:
-      "السمات ذات الأنواع التي تقوم عليها كل سجل وكل قائمة. يثبت معرّف API ونوع الحقل بمجرد إنشائه، وكل ما عداهما قابل للتغيير.",
     target: "كائن أو قائمة",
     targetPlaceholder: "اختر نوع كائن أو قائمة",
     listsGroup: "القوائم",
@@ -247,8 +241,6 @@ const messages = {
   },
   advanced: {
     tab: "متقدم",
-    title: "متقدم",
-    description: "سلوك إعادة الضبط والاحتفاظ بالبيانات.",
     reconfigure: "إعادة ضبط CRM",
     reconfigureHelp:
       "بدّل بين SQL الأصلي ومرافق HubSpot أو Salesforce، أو أعد تشغيل المزامنة الأولية.",
@@ -557,9 +549,6 @@ const messages = {
   },
   intelligence: {
     tab: "الذكاء",
-    title: "الذكاء",
-    description:
-      "اختر اللحظات التي ينبغي أن يلاحظها CRM في أدلة المكالمات المحدودة. تُقيَّم أدوات التتبع الذكية عبر Ask CRM، وليس مباشرةً في شاشة الإعدادات هذه.",
     loading: "جارٍ تحميل أدوات التتبع…",
     kindKeyword: "كلمة رئيسية",
     kindSmart: "ذكي",

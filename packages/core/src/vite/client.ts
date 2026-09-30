@@ -4,12 +4,8 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
 import { randomUUID } from "node:crypto";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
-import {
-  renderDesignSystemThemeCss,
-  type DesignSystemTheme,
-} from "@agent-native/toolkit/design-system/theme";
 import {
   loadEnv,
   type ConfigEnv,
@@ -40,7 +36,7 @@ import {
 } from "../config.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
+import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
   RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
   resolveRecurringJobsBuildMarker,
@@ -74,6 +70,7 @@ import {
   normalizeMcpIntegrationsConfig,
   type McpIntegrationsConfigInput,
 } from "../shared/mcp-integration-config.js";
+import { isMissingPeer } from "../shared/optional-peer.js";
 import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
@@ -94,6 +91,7 @@ import {
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
 import {
   createSentrySourceMapUploadPlugin,
@@ -732,7 +730,8 @@ function hasDep(pkg: string, cwd: string): boolean {
     return !!(
       pkgJson.dependencies?.[pkg] ||
       pkgJson.devDependencies?.[pkg] ||
-      pkgJson.peerDependencies?.[pkg]
+      pkgJson.peerDependencies?.[pkg] ||
+      pkgJson.optionalDependencies?.[pkg]
     );
   } catch {
     return false;
@@ -746,15 +745,34 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
     const pkgJson = JSON.parse(
       fs.readFileSync(path.join(coreRoot, "package.json"), "utf-8"),
     );
-    return !!(pkgJson.dependencies?.[pkg] || pkgJson.devDependencies?.[pkg]);
+    return !!(
+      pkgJson.dependencies?.[pkg] ||
+      (findCoreSrcDir(cwd) && pkgJson.devDependencies?.[pkg])
+    );
   } catch {
     return false;
   }
 }
 
+function hasToolkitDep(pkg: string, cwd: string): boolean {
+  if (!hasDep("@agent-native/toolkit", cwd)) return false;
+  const toolkitRoot = findToolkitPackageRoot(cwd);
+  if (!toolkitRoot) return false;
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(toolkitRoot, "package.json"), "utf-8"),
+  );
+  const optionalPeer =
+    packageJson.peerDependenciesMeta?.[pkg]?.optional === true;
+  return !!(
+    packageJson.dependencies?.[pkg] ||
+    (packageJson.peerDependencies?.[pkg] && !optionalPeer) ||
+    (findLocalToolkitSourceRoot(cwd) && packageJson.devDependencies?.[pkg])
+  );
+}
+
 function hasOptimizeDep(pkg: string, cwd: string): boolean {
   if (pkg === "@agent-native/core" && findCorePackageRoot(cwd)) return true;
-  return hasDep(pkg, cwd) || hasCoreDep(pkg, cwd);
+  return hasDep(pkg, cwd) || hasToolkitDep(pkg, cwd) || hasCoreDep(pkg, cwd);
 }
 
 function getClientDedupe(cwd: string): string[] {
@@ -784,6 +802,11 @@ function getClientDedupe(cwd: string): string[] {
     "@tailwindcss/vite",
   ]);
 
+  // Stateless, so one copy is not required. Forcing the app's copy breaks
+  // toolkit's generated icon catalog, which imports every export of the exact
+  // Tabler version toolkit pins; newer Tabler releases rename icons.
+  const versionPinnedByDependents = new Set(["@tabler/icons-react"]);
+
   try {
     const corePkgPath = path.resolve(__dirname, "../../package.json");
     const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
@@ -801,8 +824,10 @@ function getClientDedupe(cwd: string): string[] {
       ...Object.keys(appPkg.devDependencies ?? {}),
     ]);
 
+    if (appDeps.has("@agent-native/core")) always.add("@agent-native/core");
+
     for (const dep of coreDeps) {
-      if (serverOnly.has(dep)) continue;
+      if (serverOnly.has(dep) || versionPinnedByDependents.has(dep)) continue;
       if (
         appDeps.has(dep) ||
         dep.startsWith("@radix-ui/") ||
@@ -845,6 +870,63 @@ function findCorePackageRoot(cwd: string): string | null {
     // The app may not have installed Core yet; fall through to null.
   }
 
+  return null;
+}
+
+function findToolkitPackageRoot(cwd: string): string | null {
+  const localSourceRoot = findLocalToolkitSourceRoot(cwd);
+  if (localSourceRoot) return localSourceRoot;
+
+  let resolved: string;
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    resolved = appRequire.resolve("@agent-native/toolkit");
+  } catch (error) {
+    if (isMissingPeer(error, "@agent-native/toolkit")) return null;
+    throw error;
+  }
+
+  let dir = path.dirname(resolved);
+  for (let i = 0; i < 20; i++) {
+    const packageJsonPath = path.join(dir, "package.json");
+    if (fs.existsSync(packageJsonPath)) {
+      const packageJson = JSON.parse(
+        fs.readFileSync(packageJsonPath, "utf-8"),
+      ) as { name?: string };
+      if (packageJson.name === "@agent-native/toolkit") {
+        return fs.realpathSync(dir);
+      }
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return null;
+}
+
+function findLocalToolkitSourceRoot(cwd: string): string | null {
+  const coreRoot = findLocalCoreSourceRoot(cwd);
+  const candidates = [
+    path.resolve(cwd, "packages/toolkit"),
+    path.resolve(cwd, "../../packages/toolkit"),
+    path.resolve(cwd, "../toolkit"),
+    ...(coreRoot ? [path.resolve(coreRoot, "../toolkit")] : []),
+  ];
+  for (const candidate of candidates) {
+    const packageJsonPath = path.join(candidate, "package.json");
+    if (!fs.existsSync(packageJsonPath)) continue;
+    const packageJson = JSON.parse(
+      fs.readFileSync(packageJsonPath, "utf-8"),
+    ) as { name?: string };
+    if (
+      packageJson.name === "@agent-native/toolkit" &&
+      fs.existsSync(path.join(candidate, "src/index.ts"))
+    ) {
+      return fs.realpathSync(candidate);
+    }
+  }
   return null;
 }
 
@@ -909,15 +991,27 @@ function getReactRouterAliases(
 function getAssistantUiRequire(cwd: string): NodeJS.Require | null {
   try {
     const appRequire = createRequire(path.join(cwd, "package.json"));
-    let assistantUiEntry: string;
+    let assistantUiEntry: string | undefined;
     try {
       assistantUiEntry = appRequire.resolve("@assistant-ui/react");
     } catch {
-      const coreRequire = createRequire(
-        appRequire.resolve("@agent-native/core"),
-      );
-      assistantUiEntry = coreRequire.resolve("@assistant-ui/react");
+      const owners = [
+        ...(hasDep("@agent-native/toolkit", cwd)
+          ? ["@agent-native/toolkit"]
+          : []),
+        ...(hasDep("@agent-native/core", cwd) ? ["@agent-native/core"] : []),
+      ];
+      for (const owner of owners) {
+        try {
+          const ownerRequire = createRequire(appRequire.resolve(owner));
+          assistantUiEntry = ownerRequire.resolve("@assistant-ui/react");
+          break;
+        } catch {
+          continue;
+        }
+      }
     }
+    if (!assistantUiEntry) return null;
     return createRequire(assistantUiEntry);
   } catch {
     // coercion-ok: null is the typed absence state for an unavailable optional peer graph.
@@ -1045,19 +1139,22 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           // imports. Eagerly including every leaf would rebuild the old
           // all-app prebundle under a different set of entry names.
         ] as Array<{ specifier: string; packageName?: string }>)),
-    { specifier: "@amplitude/analytics-browser" },
+    ...(hasDep("@amplitude/analytics-browser", cwd)
+      ? [{ specifier: "@amplitude/analytics-browser" }]
+      : []),
     { specifier: "@assistant-ui/react" },
     { specifier: "@assistant-ui/react-markdown" },
     { specifier: "@assistant-ui/store" },
     { specifier: "@assistant-ui/tap" },
     {
-      specifier: "@agent-native/core > @assistant-ui/react > assistant-stream",
-      packageName: "@agent-native/core",
+      specifier:
+        "@agent-native/toolkit > @assistant-ui/react > assistant-stream",
+      packageName: "@agent-native/toolkit",
     },
     {
       specifier:
-        "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
-      packageName: "@agent-native/core",
+        "@agent-native/toolkit > @assistant-ui/react > assistant-stream/utils",
+      packageName: "@agent-native/toolkit",
     },
     {
       specifier: "zustand",
@@ -1108,7 +1205,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-toggle" },
     { specifier: "@radix-ui/react-toggle-group" },
     { specifier: "@radix-ui/react-tooltip" },
-    { specifier: "@sentry/browser" },
+    ...(hasDep("@sentry/browser", cwd)
+      ? [{ specifier: "@sentry/browser" }]
+      : []),
     {
       specifier: "@shadcn/react/message-scroller",
       packageName: "@shadcn/react",
@@ -1168,13 +1267,19 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
-    { specifier: "highlight.js/lib/core", packageName: "highlight.js" },
+    {
+      specifier: "highlight.js/lib/core",
+      packageName: "highlight.js",
+    },
+    {
+      specifier: "lowlight > highlight.js/lib/core",
+      packageName: "lowlight",
+    },
     { specifier: "html2canvas" },
     { specifier: "i18next" },
     { specifier: "input-otp" },
     { specifier: "lowlight" },
     { specifier: "mermaid" },
-    { specifier: "nanoid" },
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },
@@ -1244,6 +1349,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     )
     .map(({ specifier, packageName }) => {
       const dependencyName = packageName ?? specifier;
+      if (!hasDep(dependencyName, cwd) && hasToolkitDep(dependencyName, cwd)) {
+        return `@agent-native/toolkit > ${specifier}`;
+      }
       if (!hasDep(dependencyName, cwd) && hasCoreDep(dependencyName, cwd)) {
         return `@agent-native/core > ${specifier}`;
       }
@@ -1255,11 +1363,12 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
   const standaloneChatEntries =
     findCoreSrcDir(cwd) === null
       ? [
-          ...(hasDep("@agent-native/agentkit", cwd)
+          ...(hasDep("@agent-native/toolkit", cwd)
             ? [
-                "@agent-native/agentkit/react/components",
-                "@agent-native/agentkit/react/context",
-                "@agent-native/agentkit/react/root",
+                "@agent-native/toolkit/app/agentkit/react/components",
+                "@agent-native/toolkit/app/agentkit/react/context",
+                "@agent-native/toolkit/app/agentkit/react/root",
+                "@agent-native/toolkit/app/chat/agentkit-chat/index",
               ]
             : []),
           ...(hasDep("@agent-native/core", cwd)
@@ -1330,15 +1439,37 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
       ? ["class-variance-authority"]
       : []),
     ...(hasDep("sonner", cwd) ? ["sonner"] : []),
-    "@agent-native/core > @assistant-ui/react",
-    "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",
-    "@agent-native/core > react-markdown > void-elements",
-    "@agent-native/core > react-markdown > unified > extend",
-    "@agent-native/core > react-markdown > hast-util-to-jsx-runtime > style-to-js",
-    "@agent-native/core > react-markdown > remark-parse > mdast-util-from-markdown > micromark > debug",
-    "@agent-native/core > recharts > decimal.js-light",
-    "@agent-native/core > recharts > eventemitter3",
-    "@agent-native/core > recharts > react-is",
+    ...(hasToolkitDep("lowlight", cwd)
+      ? ["@agent-native/toolkit > lowlight > highlight.js/lib/core"]
+      : []),
+    ...(hasToolkitDep("highlight.js", cwd)
+      ? [
+          "@agent-native/toolkit > highlight.js/lib/core",
+          "@agent-native/toolkit > highlight.js/lib/languages/bash",
+          "@agent-native/toolkit > highlight.js/lib/languages/css",
+          "@agent-native/toolkit > highlight.js/lib/languages/javascript",
+          "@agent-native/toolkit > highlight.js/lib/languages/json",
+          "@agent-native/toolkit > highlight.js/lib/languages/markdown",
+          "@agent-native/toolkit > highlight.js/lib/languages/python",
+          "@agent-native/toolkit > highlight.js/lib/languages/sql",
+          "@agent-native/toolkit > highlight.js/lib/languages/typescript",
+          "@agent-native/toolkit > highlight.js/lib/languages/xml",
+          "@agent-native/toolkit > highlight.js/lib/languages/yaml",
+        ]
+      : []),
+    ...(hasDep("@agent-native/toolkit", cwd)
+      ? [
+          "@agent-native/toolkit > @assistant-ui/react",
+          "@agent-native/toolkit > @assistant-ui/react > assistant-stream > secure-json-parse",
+          "@agent-native/toolkit > react-markdown > void-elements",
+          "@agent-native/toolkit > react-markdown > unified > extend",
+          "@agent-native/toolkit > react-markdown > hast-util-to-jsx-runtime > style-to-js",
+          "@agent-native/toolkit > react-markdown > remark-parse > mdast-util-from-markdown > micromark > debug",
+          "@agent-native/toolkit > recharts > decimal.js-light",
+          "@agent-native/toolkit > recharts > eventemitter3",
+          "@agent-native/toolkit > recharts > react-is",
+        ]
+      : []),
     ...(hasDep("clsx", cwd) ? ["clsx"] : []),
     ...(hasDep("tailwind-merge", cwd) ? ["tailwind-merge"] : []),
     ...(hasDep("zustand", cwd) ? ["zustand", "zustand/shallow"] : []),
@@ -1366,8 +1497,51 @@ function getAgentKitOptimizeExcludes(
     "@agent-native/agentkit",
     "@agent-native/core",
     ...CORE_CLIENT_SUBPATHS,
+    ...getCoreSourceSubpaths(cwd),
     "@agent-native/toolkit",
   ];
+}
+
+function getCoreSourceEntries(cwd: string): Array<[string, string]> {
+  const coreSrc = findCoreSrcDir(cwd);
+  if (!coreSrc) return [];
+
+  const packageJsonPath = path.join(coreSrc, "..", "package.json");
+  if (!fs.existsSync(packageJsonPath)) return [];
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")) as {
+    exports?: Record<string, unknown>;
+  };
+  const exports = packageJson.exports ?? {};
+
+  const entries: Array<[string, string]> = [];
+  for (const [subpath, value] of Object.entries(exports)) {
+    if (subpath.includes("*")) continue;
+    const target =
+      typeof value === "string"
+        ? value
+        : value && typeof value === "object"
+          ? ((value as Record<string, unknown>).browser ??
+            (value as Record<string, unknown>).default)
+          : undefined;
+    if (typeof target !== "string" || !target.startsWith("./dist/")) continue;
+
+    const sourceBase = path.join(coreSrc, target.slice("./dist/".length));
+    const sourcePath = [".ts", ".tsx", ".mts", ".jsx"]
+      .map((extension) => sourceBase.replace(/\.(?:mjs|cjs|js)$/, extension))
+      .find((candidate) => fs.existsSync(candidate));
+    if (!sourcePath) continue;
+
+    const specifier =
+      subpath === "."
+        ? "@agent-native/core"
+        : "@agent-native/core" + subpath.slice(1);
+    entries.push([specifier, sourcePath]);
+  }
+  return entries;
+}
+
+function getCoreSourceSubpaths(cwd: string): string[] {
+  return getCoreSourceEntries(cwd).map(([specifier]) => specifier);
 }
 
 function getCoreSourceAliases(
@@ -1376,7 +1550,10 @@ function getCoreSourceAliases(
   const coreSrc = findCoreSrcDir(cwd);
   if (!coreSrc) return [];
 
-  const entries: Record<string, string> = {
+  const entries: Record<string, string> = Object.fromEntries(
+    getCoreSourceEntries(cwd),
+  );
+  const fallbackEntries: Record<string, string> = {
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/server/edge": path.join(coreSrc, "server/edge.ts"),
@@ -1384,14 +1561,6 @@ function getCoreSourceAliases(
     "@agent-native/core/client/agent-chat": path.join(
       coreSrc,
       "client/agent-chat/index.ts",
-    ),
-    "@agent-native/core/client/agentkit-chat": path.join(
-      coreSrc,
-      "client/agentkit-chat/index.ts",
-    ),
-    "@agent-native/core/client/agent-native-icon": path.join(
-      coreSrc,
-      "client/components/icons/AgentNativeIcon.tsx",
     ),
     "@agent-native/core/client/analytics": path.join(
       coreSrc,
@@ -1401,10 +1570,6 @@ function getCoreSourceAliases(
       coreSrc,
       "client/automation/index.ts",
     ),
-    "@agent-native/core/client/chat": path.join(
-      coreSrc,
-      "client/chat/index.ts",
-    ),
     "@agent-native/core/client/changelog": path.join(
       coreSrc,
       "client/changelog/index.ts",
@@ -1412,14 +1577,6 @@ function getCoreSourceAliases(
     "@agent-native/core/client/collab": path.join(
       coreSrc,
       "client/collab/index.ts",
-    ),
-    "@agent-native/core/client/composer": path.join(
-      coreSrc,
-      "client/composer/index.ts",
-    ),
-    "@agent-native/core/client/conversation": path.join(
-      coreSrc,
-      "client/conversation/index.ts",
     ),
     "@agent-native/core/client/dev-overlay": path.join(
       coreSrc,
@@ -1518,19 +1675,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/route-chunk-recovery/index.ts",
     ),
-    "@agent-native/core/client/settings": path.join(
-      coreSrc,
-      "client/settings/index.ts",
-    ),
     "@agent-native/core/client/theme": path.join(coreSrc, "client/theme.ts"),
-    "@agent-native/core/client/error-boundary": path.join(
-      coreSrc,
-      "client/ErrorBoundary.tsx",
-    ),
-    "@agent-native/core/client/feedback": path.join(
-      coreSrc,
-      "client/FeedbackButton.tsx",
-    ),
     "@agent-native/core/client/ui": path.join(coreSrc, "client/ui/index.ts"),
     "@agent-native/core/client/uploads": path.join(
       coreSrc,
@@ -1544,44 +1689,15 @@ function getCoreSourceAliases(
       coreSrc,
       "client/api-path.ts",
     ),
-    "@agent-native/core/client/clipboard": path.join(
-      coreSrc,
-      "client/clipboard.ts",
-    ),
     "@agent-native/core/client/zoom-gesture": path.join(
       coreSrc,
       "client/zoom-gesture.ts",
     ),
-    "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
       "client/blocks/server.ts",
     ),
-    "@agent-native/core/client/extensions": path.join(
-      coreSrc,
-      "client/extensions/index.ts",
-    ),
-    "@agent-native/core/client/tools": path.join(
-      coreSrc,
-      "client/extensions/index.ts",
-    ),
     "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
-    "@agent-native/core/client/org-switcher": path.join(
-      coreSrc,
-      "client/org/OrgSwitcher.tsx",
-    ),
-    "@agent-native/core/client/team-page": path.join(
-      coreSrc,
-      "client/org/TeamPage.tsx",
-    ),
-    "@agent-native/core/client/db-admin": path.join(
-      coreSrc,
-      "client/db-admin/index.ts",
-    ),
-    "@agent-native/core/client/observability": path.join(
-      coreSrc,
-      "client/observability/index.ts",
-    ),
     "@agent-native/core/client/onboarding": path.join(
       coreSrc,
       "client/onboarding/index.ts",
@@ -1659,11 +1775,10 @@ function getCoreSourceAliases(
       coreSrc,
       "server/entry-server.tsx",
     ),
-    "@agent-native/core/styles/agent-native.css": path.join(
-      coreSrc,
-      "styles/agent-native.css",
-    ),
   };
+  for (const [specifier, sourcePath] of Object.entries(fallbackEntries)) {
+    if (!(specifier in entries)) entries[specifier] = sourcePath;
+  }
 
   return Object.entries(entries).map(([find, replacement]) => ({
     find: new RegExp(`^${find.replace(/[/]/g, "\\/")}$`),
@@ -1707,6 +1822,24 @@ export interface ClientConfigOptions {
    * ```
    */
   reactRouter?: boolean | Record<string, unknown>;
+}
+
+export interface DesignSystemTheme {
+  colors: {
+    light: Record<string, string | undefined>;
+    dark?: Record<string, string | undefined>;
+  };
+  radius?: string;
+  typography?: {
+    fontFamily?: string;
+    monoFontFamily?: string;
+    baseFontSize?: string;
+  };
+  elevation?: {
+    low?: string;
+    medium?: string;
+    high?: string;
+  };
 }
 
 export interface AgentNativeVitePluginOptions extends Omit<
@@ -2449,6 +2582,69 @@ const ALWAYS_SSR_STUBBED = [
   "@xterm/addon-web-links",
 ];
 
+const CLIENT_OPTIONAL_PEER_EXPORTS: Record<string, string[]> = {
+  "@amplitude/analytics-browser": ["init", "track"],
+  "@excalidraw/excalidraw": ["convertToExcalidrawElements", "exportToSvg"],
+  "@excalidraw/mermaid-to-excalidraw": ["parseMermaidToExcalidraw"],
+  "@rrweb/record": ["record"],
+  "@sentry/browser": [
+    "captureException",
+    "init",
+    "setTag",
+    "setUser",
+    "withScope",
+  ],
+  "@xterm/addon-fit": ["FitAddon"],
+  "@xterm/addon-web-links": ["WebLinksAddon"],
+  "@xterm/xterm": ["Terminal"],
+  mermaid: [],
+};
+
+function clientOptionalPeerStubPlugin(cwd: string): Plugin | null {
+  const missing = new Set(
+    Object.keys(CLIENT_OPTIONAL_PEER_EXPORTS).filter(
+      (packageName) =>
+        !hasDep(packageName, cwd) &&
+        !(findCoreSrcDir(cwd) && hasCoreDep(packageName, cwd)),
+    ),
+  );
+  if (!missing.size) return null;
+
+  const stubIdPrefix = "\0agent-native-client-optional-peer-stub:";
+  const coreSourceDir = findCoreSrcDir(cwd);
+  const errorModule = coreSourceDir
+    ? path.join(coreSourceDir, "shared/optional-peer.ts").replaceAll("\\", "/")
+    : "@agent-native/core/shared/optional-peer";
+
+  return {
+    name: "agent-native-client-optional-peer-stub",
+    enforce: "pre",
+    resolveId(id) {
+      const packageName = id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+      return missing.has(packageName) ? `${stubIdPrefix}${packageName}` : null;
+    },
+    load(id) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      const packageName = id.slice(stubIdPrefix.length);
+      const exports = CLIENT_OPTIONAL_PEER_EXPORTS[packageName] ?? [];
+      return [
+        `import { OptionalPeerDependencyError } from ${JSON.stringify(errorModule)};`,
+        `function missingOptionalPeer() { throw new OptionalPeerDependencyError(${JSON.stringify(packageName)}); }`,
+        ...exports.map((name) => `export const ${name} = missingOptionalPeer;`),
+        ...(packageName === "mermaid"
+          ? [
+              "const mermaid = new Proxy({}, { get: () => missingOptionalPeer });",
+              "export default mermaid;",
+            ]
+          : []),
+      ].join("\n");
+    },
+  };
+}
+
 function ssrStubPlugin(packages: string[]): Plugin | null {
   if (!packages.length) return null;
   const stubbed = new Set(packages);
@@ -2551,6 +2747,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "XmlElement",
     "XmlFragment",
     "XmlText",
+    "ySyncPluginKey",
   ];
   return {
     name: "agent-native-ssr-stub-heavy-libs",
@@ -3350,12 +3547,31 @@ const RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID = `\0${DESIGN_SYSTEM_THEME_MODULE_I
 
 function createDesignSystemThemePlugin(
   theme: DesignSystemTheme | undefined,
+  cwd: string,
 ): Plugin | null {
   if (!theme) return null;
-  const css = renderDesignSystemThemeCss(theme);
+  let css = "";
 
   return {
     name: "agent-native-design-system-theme",
+    async configResolved() {
+      try {
+        const require = createRequire(path.join(cwd, "package.json"));
+        const modulePath =
+          require.resolve("@agent-native/toolkit/design-system/theme");
+        const { renderDesignSystemThemeCss } = (await import(
+          pathToFileURL(modulePath).href
+        )) as {
+          renderDesignSystemThemeCss(theme: DesignSystemTheme): string;
+        };
+        css = renderDesignSystemThemeCss(theme);
+      } catch (error) {
+        throw new Error(
+          "The designSystemTheme Vite option requires @agent-native/toolkit. Install it in the app to render the configured theme.",
+          { cause: error },
+        );
+      }
+    },
     resolveId(id) {
       if (id === DESIGN_SYSTEM_THEME_MODULE_ID) {
         return RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID;
@@ -3624,15 +3840,28 @@ function nitroPresetMarkerPlugin(
 
 const AUTH_CLIENT_ASSET_PATH = "assets/auth-client.js";
 
-function authClientEntryPath(): string {
-  const sourceEntry = path.resolve(__dirname, "../client/auth/entry.tsx");
-  return fs.existsSync(sourceEntry)
-    ? sourceEntry
-    : path.resolve(__dirname, "../client/auth/entry.js");
+function authClientEntryPath(cwd: string): string | null {
+  const candidates = [
+    path.resolve(__dirname, "../../../toolkit/src/app/auth/entry.tsx"),
+  ];
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const toolkitEntry = appRequire.resolve("@agent-native/toolkit");
+    const toolkitRoot = path.resolve(path.dirname(toolkitEntry), "..");
+    candidates.push(
+      path.join(toolkitRoot, "src/app/auth/entry.tsx"),
+      path.join(toolkitRoot, "dist/app/auth/entry.js"),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") {
+      throw error;
+    }
+  }
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
-function authClientAssetPlugin(): Plugin {
-  const entry = authClientEntryPath();
+function authClientAssetPlugin(cwd: string): Plugin {
+  const entry = authClientEntryPath(cwd);
   let isBuild = false;
   let hasReactRouterHmr = false;
   return {
@@ -3648,6 +3877,14 @@ function authClientAssetPlugin(): Plugin {
     },
     buildStart() {
       if (!isBuild) return;
+      if (!entry) {
+        this.emitFile({
+          type: "asset",
+          fileName: AUTH_CLIENT_ASSET_PATH,
+          source: "",
+        });
+        return;
+      }
       this.emitFile({
         type: "chunk",
         id: entry,
@@ -3663,6 +3900,13 @@ function authClientAssetPlugin(): Plugin {
           !pathname.endsWith(`/${AUTH_CLIENT_ASSET_PATH}`)
         ) {
           next();
+          return;
+        }
+
+        if (!entry) {
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/javascript");
+          res.end("");
           return;
         }
 
@@ -3747,12 +3991,13 @@ function createAgentNativePlugins(
     userPlugins?: any[];
   },
 ): any[] {
+  const cwd = process.cwd();
   const { appBasePath } = getConfiguredAppBasePath();
-  const nitroPlugin = createNitroDevPlugin(options, appBasePath, process.cwd());
+  const nitroPlugin = createNitroDevPlugin(options, appBasePath, cwd);
   const includeNitro = !isBuildCommand(command);
   const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
   const runtimeEnv = resolveAgentNativeRuntimeEnv(
-    process.cwd(),
+    cwd,
     process.env.NODE_ENV === "production" ? "production" : "development",
   );
   const enterpriseAuthAdaptersEnabled = [
@@ -3767,6 +4012,7 @@ function createAgentNativePlugins(
       : [];
 
   return [
+    migrationDiagnosticPlugin(),
     persistent5xxRecovery(),
     presetMarkerPlugin,
     ssrStubPlugin([
@@ -3775,12 +4021,13 @@ function createAgentNativePlugins(
       ...(options.ssrStubs ?? []),
     ]),
     enterpriseAuthAdapterStubPlugin(enterpriseAuthAdaptersEnabled),
+    clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
-    authClientAssetPlugin(),
+    authClientAssetPlugin(cwd),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3800,7 +4047,7 @@ function createAgentNativePlugins(
         : []),
     nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,
-    createDesignSystemThemePlugin(options.designSystemTheme),
+    createDesignSystemThemePlugin(options.designSystemTheme, cwd),
     createTailwindPlugin(options),
     // No-ops unless a Sentry auth token/org/project is configured.
     ...createSentrySourceMapUploadPlugin(runtimeEnv),
@@ -4175,6 +4422,7 @@ function createAgentNativeConfig(
           ...(userConfig.ssr ?? {}),
           noExternal: [
             /^@agent-native\/core(\/.*)?$/,
+            /^@agent-native\/toolkit(\/.*)?$/,
             ...(hasDep("react-router", cwd) ? [/^react-router(\/.*)?$/] : []),
             /^@radix-ui\//,
             ...(hasDep("@agent-native/scheduling", cwd)
@@ -4207,7 +4455,9 @@ function createAgentNativeConfig(
         ...(options.optimizeDeps?.include ?? []),
       ],
       exclude: [
-        ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
+        ...(findCoreSrcDir(cwd) !== null
+          ? [...CORE_CLIENT_SUBPATHS, ...getCoreSourceSubpaths(cwd)]
+          : []),
         ...(usesAgentKit ? getAgentKitOptimizeExcludes(cwd, command) : []),
         ...localWorkspacePackageDeps
           .filter(
@@ -4313,6 +4563,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 }
 
 export {
+  clientOptionalPeerStubPlugin as _clientOptionalPeerStubPlugin,
   devActionBridgePlugin as _devActionBridgePlugin,
   devActionBridgeOrigin as _devActionBridgeOrigin,
   getClientDedupe as _getClientDedupe,

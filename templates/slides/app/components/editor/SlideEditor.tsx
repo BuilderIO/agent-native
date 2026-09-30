@@ -1340,15 +1340,20 @@ function ElementSelectionOutline({
           <>
             <span
               aria-hidden="true"
-              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-primary"
+              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-[var(--design-editor-accent-color)]"
               style={{ top: -18, pointerEvents: "none", zIndex: 2 }}
             />
             <span
               data-slide-rotate-handle="true"
               onPointerDown={onRotateStart}
-              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full border-2 border-primary bg-background"
+              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full"
               style={{ pointerEvents: "auto", cursor: "grab", zIndex: 3 }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0.5 rounded-full border-2 border-foreground bg-[var(--design-editor-accent-color)]"
+              />
+            </span>
           </>
         )}
         <span
@@ -2118,7 +2123,10 @@ export default function SlideEditor({
   }, [onUpdateSlide]);
   const textSessionRef = useRef<TextEditSession | null>(null);
   const exitInlineEditRef = useRef<
-    (newer?: SlideContentReplaceDetail) => string | undefined
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit?: boolean,
+    ) => string | undefined
   >(() => undefined);
   /**
    * Every other content write commits an open text edit first. The write
@@ -2717,7 +2725,10 @@ export default function SlideEditor({
 
   /** Exit edit mode, saving changed content without changing its layout. */
   const exitInlineEdit = useCallback(
-    (newer?: SlideContentReplaceDetail): string | undefined => {
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit = false,
+    ): string | undefined => {
       const el = editingElRef.current;
       if (!el) return;
 
@@ -2760,11 +2771,15 @@ export default function SlideEditor({
         selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
       });
       setEditingEl(null);
-      if (escape.action === "select-object" && selectionTarget && selector) {
-        selectElementForStyling(selectionTarget, selector);
-      } else if (escape.action === "clear-selection") {
+      if (clearSelectionAfterExit || escape.action === "clear-selection") {
         clearSelectedElement();
         syncSelectionToAppState(null);
+      } else if (
+        escape.action === "select-object" &&
+        selectionTarget &&
+        selector
+      ) {
+        selectElementForStyling(selectionTarget, selector);
       } else {
         syncSelectionToAppState(null);
       }
@@ -3641,6 +3656,7 @@ export default function SlideEditor({
   // state. Gesture cancellation is deliberately ahead of selection clearing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key !== "Escape") return;
       const target = e.target instanceof Element ? e.target : null;
       const editing = editingElRef.current;
@@ -3673,7 +3689,7 @@ export default function SlideEditor({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (action === "edit") {
-        exitInlineEdit();
+        exitInlineEdit(undefined, true);
       } else if (action === "gesture") {
         activeGestureCancelRef.current?.();
       } else if (action === "mode") {
@@ -4499,6 +4515,58 @@ export default function SlideEditor({
     },
     [getRichTextEditorSurface, selectedElementSelector],
   );
+
+  const enableSelectedObjectPositioning = useCallback(() => {
+    const slideContent = getSlideContent();
+    const element =
+      resolveSelectedElement() ??
+      (selectedImg && slideContent
+        ? (findPersistedImageObject(selectedImg, slideContent) ?? selectedImg)
+        : selectedImg);
+    if (!element || isPersistedFreeformObject(element)) return;
+
+    const frozen = freezeElementForFreeformSelection(element);
+    if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+      frozen?.restoreDescendants?.();
+      frozen?.restoreMarkdownTree?.();
+      return;
+    }
+
+    preserveSlideObjectLayoutSpacer(element);
+    const positioningLayer = resolveSlidePositioningLayer(element);
+    if (!frozen.restoreMarkdownTree && positioningLayer) {
+      releaseSlideObjectFromLeftBoxes(element, positioningLayer);
+    }
+    const html = readCurrentSlideContentHtml();
+
+    if (frozen.restoreMarkdownTree) {
+      const objectId = element.getAttribute("data-slide-object-id");
+      if (objectId) {
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      }
+      frozen.restoreMarkdownTree();
+    }
+    if (html !== null) onUpdateSlideRef.current({ content: html });
+
+    const selector = getBuilderSelector(element);
+    if (selector) selectElementForStyling(element, selector);
+  }, [
+    freezeElementForFreeformSelection,
+    getSlideContent,
+    readCurrentSlideContentHtml,
+    resolveSelectedElement,
+    selectedImg,
+    selectElementForStyling,
+  ]);
 
   const applyStylePatchToElement = useCallback(
     (
@@ -6736,13 +6804,89 @@ export default function SlideEditor({
     (e: React.PointerEvent, outlineRect: DOMRect) => {
       if (readOnly || e.button !== 0) return;
       if (editingElRef.current) exitInlineEdit();
-      const selection = getObjectOperationSelection();
-      if (!selection) return;
-      const movable = collectMovableSlideObjects(
-        selection.elements,
-        getObjectGeometry,
-      );
-      if (movable.length !== selection.elements.length) return;
+      let promotion: {
+        element: HTMLElement;
+        snapshot: {
+          className: string;
+          style: string | null;
+          objectId: string | null;
+          contentEditable: string | null;
+          editingBlock: string | null;
+        };
+        restoreMarkdownTree?: () => void;
+        restoreDescendants?: () => void;
+        wasFlow: boolean;
+      } | null = null;
+      const removeFreeformLayoutSpacer = (element: HTMLElement) => {
+        const objectId = element.getAttribute("data-slide-object-id");
+        if (!objectId) return;
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      };
+      const restorePromotion = () => {
+        if (!promotion) return;
+        removeFreeformLayoutSpacer(promotion.element);
+        promotion.restoreDescendants?.();
+        if (promotion.restoreMarkdownTree) {
+          promotion.restoreMarkdownTree();
+        } else {
+          restoreSlideObjectDomSnapshot(promotion.element, promotion.snapshot);
+        }
+        if (promotion.snapshot.objectId) {
+          promotion.element.setAttribute(
+            "data-slide-object-id",
+            promotion.snapshot.objectId,
+          );
+        } else {
+          promotion.element.removeAttribute("data-slide-object-id");
+        }
+        promotion = null;
+      };
+      let elements = getObjectOperationSelection()?.elements;
+      if (!elements) {
+        if (multiSelection.size > 0) return;
+        const slideContent = getSlideContent();
+        const element =
+          resolveSelectedElement() ??
+          (selectedImg && slideContent
+            ? (findPersistedImageObject(selectedImg, slideContent) ??
+              selectedImg)
+            : null);
+        if (!element) return;
+
+        promotion = {
+          element,
+          snapshot: {
+            className: element.className,
+            style: element.getAttribute("style"),
+            objectId: element.getAttribute("data-slide-object-id"),
+            contentEditable: element.getAttribute("contenteditable"),
+            editingBlock: element.getAttribute("data-editing-block"),
+          },
+          wasFlow: getComputedStyle(element).position !== "absolute",
+        };
+        const frozen = freezeElementForFreeformSelection(element);
+        promotion.restoreMarkdownTree = frozen?.restoreMarkdownTree;
+        promotion.restoreDescendants = frozen?.restoreDescendants;
+        if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+          restorePromotion();
+          return;
+        }
+        elements = [frozen.element];
+      }
+      const movable = collectMovableSlideObjects(elements, getObjectGeometry);
+      if (movable.length !== elements.length) {
+        restorePromotion();
+        return;
+      }
 
       e.preventDefault();
       e.stopPropagation();
@@ -6792,12 +6936,16 @@ export default function SlideEditor({
       };
 
       const restore = () => {
-        for (const member of members) {
-          const originalStyle = originalStyles.get(member.objectId);
-          if (originalStyle === null || originalStyle === undefined) {
-            member.element.removeAttribute("style");
-          } else {
-            member.element.setAttribute("style", originalStyle);
+        if (promotion) {
+          restorePromotion();
+        } else {
+          for (const member of members) {
+            const originalStyle = originalStyles.get(member.objectId);
+            if (originalStyle === null || originalStyle === undefined) {
+              member.element.removeAttribute("style");
+            } else {
+              member.element.setAttribute("style", originalStyle);
+            }
           }
         }
         if (multiSelection.size > 0) {
@@ -6843,22 +6991,44 @@ export default function SlideEditor({
           restore();
           return;
         }
+        if (multiSelection.size === 0) {
+          const element = members[0]?.element;
+          const selector = element && getBuilderSelector(element);
+          if (element && selector) selectElementForStyling(element, selector);
+        }
+        if (promotion?.wasFlow) {
+          preserveSlideObjectLayoutSpacer(promotion.element);
+          if (!promotion.restoreMarkdownTree) {
+            const positioningLayer = resolveSlidePositioningLayer(
+              promotion.element,
+            );
+            if (positioningLayer) {
+              releaseSlideObjectFromLeftBoxes(
+                promotion.element,
+                positioningLayer,
+              );
+            }
+          }
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html === null) {
+          restore();
+          return;
+        }
+        if (promotion?.restoreMarkdownTree) {
+          removeFreeformLayoutSpacer(promotion.element);
+          promotion.restoreMarkdownTree();
+        }
         if (multiSelection.size > 0) {
           pendingMultiSelectionResyncRef.current = {
             objectIds: members.map((member) => member.objectId),
             paths: [],
           };
-        } else {
-          const element = members[0]?.element;
-          const selector = element && getBuilderSelector(element);
-          if (element && selector) selectElementForStyling(element, selector);
         }
-        const html = readCurrentSlideContentHtml();
-        if (html !== null) {
-          onUpdateSlideRef.current({ content: html }, undefined, {
-            persistence: "immediate",
-          });
-        }
+        promotion = null;
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          persistence: "immediate",
+        });
       };
 
       const onCancel = () => {
@@ -6874,13 +7044,19 @@ export default function SlideEditor({
     [
       applyObjectGeometry,
       exitInlineEdit,
+      findPersistedImageObject,
+      freezeElementForFreeformSelection,
       getObjectGeometry,
+      getSlideContent,
       getObjectOperationSelection,
       multiSelection,
       onUpdateSlideRef,
       readCurrentSlideContentHtml,
       readOnly,
+      releaseSlideObjectFromLeftBoxes,
       refreshMultiSelectionRects,
+      resolveSelectedElement,
+      selectedImg,
       scheduleMultiSelectionRects,
       selectElementForStyling,
       selectionOverlayMeasurementKey,
@@ -8836,6 +9012,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
@@ -8876,6 +9053,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
@@ -9232,7 +9410,7 @@ export default function SlideEditor({
             !readOnly ? (e) => startGroupDrag(e, multiSelection) : undefined
           }
           onRotateStart={
-            !readOnly
+            !readOnly && objectOperationSelection
               ? (e) => startRotateSelection(e, multiSelectionBounds)
               : undefined
           }

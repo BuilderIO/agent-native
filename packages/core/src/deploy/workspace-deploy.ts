@@ -29,6 +29,10 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import {
+  BUILTIN_AGENTS_ENV_KEY,
+  workspaceBuiltinAgentsJson,
+} from "../server/builtin-agents.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -123,14 +127,22 @@ interface WorkspaceAppManifestEntry {
   protectedPaths: string[];
 }
 
+function builtinAgentsEnvSnippet(): string {
+  const json = getAppConfig().workspace.builtinAgentsJson;
+  if (!json) return "";
+  return `
+  processRef.env[${JSON.stringify(BUILTIN_AGENTS_ENV_KEY)}] ??= ${JSON.stringify(json)};
+`;
+}
+
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
   const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
   if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
-    return "";
+    return builtinAgentsEnvSnippet();
   }
-  return `
+  return `${builtinAgentsEnvSnippet()}
   const directoryOrigin =
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
     ${JSON.stringify(orgDirectoryUrl ?? null)} ||
@@ -228,6 +240,11 @@ export async function runWorkspaceDeploy(
     );
   }
   assertValidWorkspaceAppIds(apps);
+  // Child builds inherit process.env, and the function shims embed it so
+  // deployed apps see the builder config without the workspace package.json.
+  const builtinAgentsJson = workspaceBuiltinAgentsJson(workspaceRoot);
+  if (builtinAgentsJson)
+    process.env[BUILTIN_AGENTS_ENV_KEY] = builtinAgentsJson;
   const workspaceApps = await readWorkspaceAppManifest(
     workspaceRoot,
     apps,

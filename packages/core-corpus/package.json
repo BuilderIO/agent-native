@@ -1,0 +1,31 @@
+{
+  "name": "@agent-native/core-corpus",
+  "version": "0.198.0",
+  "description": "Opt-in source corpus for Agent-Native Core source-search.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/core-corpus"
+  },
+  "files": [
+    "corpus"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "node ../core/scripts/materialize-source-corpus.mjs --output corpus",
+    "prepack": "pnpm build"
+  }
+}

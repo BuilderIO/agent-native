@@ -1,11 +1,9 @@
 import type {
+  AgentChatRuntime,
+  AgentChatRuntimeMessage,
   CodeAgentChatController,
   CodeAgentChatTranscriptEvent,
 } from "@agent-native/core/client/agent-chat";
-import type {
-  AgentChatRuntime,
-  AgentChatRuntimeMessage,
-} from "@agent-native/core/client/chat";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -13,6 +11,8 @@ import {
   CODE_AGENT_CONVERSATION_MEDIA_TYPE,
   createCodeAgentAgentKitRuntime,
   startCodeAgentExternalTranscriptBridge,
+  type CodeAgentChatController,
+  type CodeAgentChatTranscriptEvent,
 } from "./code-agent-agentkit-runtime.js";
 
 function event(

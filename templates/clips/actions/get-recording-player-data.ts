@@ -1,15 +1,58 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
+
+/** Seconds to the end of the next whole step: between one and two steps. */
+function steppedTokenTtlSeconds(nowMs = Date.now()): number {
+  const now = Math.floor(nowMs / 1000);
+  const stepEnd =
+    (Math.floor(now / IMAGE_TOKEN_STEP_SECONDS) + 2) * IMAGE_TOKEN_STEP_SECONDS;
+  return stepEnd - now;
+}
+
+/**
+ * The movable marks stored on a screenshot, if any.
+ *
+ * They live alongside the video editor's own entries in `editsJson`, so this
+ * refuses unreadable edits rather than making them look like "no marks".
+ */
+function screenshotAnnotationsOf(editsJson: string | null): unknown[] {
+  const edits = readEditsRecord(editsJson);
+  const marker = edits?.[BURN_IN_PROGRESS_KEY];
+  const markerEditsJson =
+    marker && typeof marker === "object" && !Array.isArray(marker)
+      ? (marker as { editsJson?: unknown }).editsJson
+      : undefined;
+  const effectiveEdits =
+    typeof markerEditsJson === "string"
+      ? readEditsRecord(markerEditsJson)
+      : edits;
+  if (!effectiveEdits) {
+    throw new Error("CLIPS_SCREENSHOT_EDITS_UNREADABLE");
+  }
+  const annotations = effectiveEdits.annotations;
+  if (annotations === undefined) return [];
+  if (!Array.isArray(annotations)) {
+    throw new Error("CLIPS_SCREENSHOT_EDITS_UNREADABLE");
+  }
+  return annotations;
+}
+
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
-import { isHeldForRedaction } from "../server/lib/pending-redactions.js";
+import {
+  BURN_IN_PROGRESS_KEY,
+  isHeldForRedaction,
+  readEditsRecord,
+} from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -21,6 +64,10 @@ import {
   countRecordingViews,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import {
+  editorScreenshotEditsJson,
+  viewerScreenshotEditsJson,
+} from "../server/lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
@@ -283,6 +330,19 @@ export default defineAction({
       proxyRemoteMedia: true,
     });
 
+    // The picture goes through the thumbnail route, which asks everyone but
+    // the owner for the share password, the same as the video route does.
+    // The token expires on a fixed step rather than a fixed time from now:
+    // it is part of the <img> URL, and a token minted fresh on every refetch
+    // would make the browser download the whole picture again each time.
+    const imageAccessToken =
+      isImageRecording(rec) && rec.password && access.role !== "owner"
+        ? signShortLivedToken({
+            resourceId: rec.id,
+            ttlSeconds: steppedTokenTtlSeconds(),
+          })
+        : null;
+
     return {
       role: access.role,
       canComment: canCommentRecording,
@@ -293,6 +353,30 @@ export default defineAction({
         organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
+        kind: resolveRecordingKind(rec.kind),
+        // A screenshot is served through the thumbnail route, which is the
+        // full stored image and already enforces the share password, expiry
+        // and visibility — the same gate the video URL goes through.
+        imageUrl: isImageRecording(rec)
+          ? resolvePlayerThumbnailUrl(rec, { accessToken: imageAccessToken })
+          : null,
+        // Editing material, for people who can edit. A viewer is served the
+        // flattened picture and nothing else — the base is the same image
+        // without the movable marks, so there is no reason to hand it out.
+        // Proxied like every other media URL: the stored object lives in a
+        // private bucket the browser cannot reach directly.
+        baseImageUrl:
+          isImageRecording(rec) && canEditRecording
+            ? (resolvePlayerThumbnailUrl(rec, {
+                base: true,
+                accessToken: imageAccessToken,
+              }) ??
+              resolvePlayerThumbnailUrl(rec, { accessToken: imageAccessToken }))
+            : null,
+        annotations:
+          isImageRecording(rec) && canEditRecording
+            ? screenshotAnnotationsOf(rec.editsJson)
+            : [],
         thumbnailUrl: resolvePlayerThumbnailUrl(rec),
         animatedThumbnailUrl: rec.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(rec, { animated: true })
@@ -308,10 +392,20 @@ export default defineAction({
         sourceAppName: rec.sourceAppName,
         sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
-        editsJson: rec.editsJson,
+        // Same reasoning as the public endpoint: a viewer of a screenshot has
+        // no use for the mark list, and `redactions` would tell them where
+        // content was hidden and how much of it there was.
+        editsJson: !isImageRecording(rec)
+          ? rec.editsJson
+          : canEditRecording
+            ? editorScreenshotEditsJson(rec.editsJson)
+            : viewerScreenshotEditsJson(rec.editsJson),
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
+        // The version of the stored bytes. A redaction burn or a screenshot
+        // edit replaces the file behind a URL that stays the same, so without
+        // this the browser keeps showing the copy it already has.
         mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,

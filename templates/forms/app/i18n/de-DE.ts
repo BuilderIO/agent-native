@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "Erstelle eine Kundenfeedback-Umfrage",
     suggestionSubmissions: "Zeige Einreichungen nach Tag",
     suggestionExport: "Antworten als CSV exportieren",
+    topSignal: "Wichtigstes Signal",
+    draftFollowUp: "Rückfrage entwerfen",
   },
   sidebar: {
     collapseSidebar: "Seitenleiste einklappen",

@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
@@ -398,6 +398,32 @@ describe("createAgentNativeChatRuntime", () => {
           prompt: "Review the result in detail.",
         },
       ],
+    });
+  });
+
+  it("forwards pending-selection suppression to the agent request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([{ type: "text", text: "Done" }, { type: "done" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-selection",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Use this selection once",
+      metadata: { agentNativeSkipPendingSelectionContext: true },
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Use this selection once",
+      skipPendingSelectionContext: true,
     });
   });
 
@@ -997,6 +1023,10 @@ describe("createAgentNativeChatRuntime", () => {
             isError: true,
           },
           {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+          {
             type: "tool_start",
             id: "call-1",
             tool: "publish-release",
@@ -1089,6 +1119,62 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ]),
     });
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationBody.structuredHistory.slice(-6)).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Waiting for approval. " }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-0", name: "read-release", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-0",
+            content: "Release lookup failed.",
+            isError: true,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "publish-release",
+            input: approvedInput,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+          },
+        ],
+      },
+    ]);
     expect(events.at(-1)).toMatchObject({
       type: "done",
       reason: "complete",
@@ -1110,6 +1196,10 @@ describe("createAgentNativeChatRuntime", () => {
               : undefined,
           content: [
             { type: "text", text: "Waiting for approval. " },
+            {
+              type: "text",
+              text: "Release lookup failed; requesting approval. ",
+            },
             { type: "text", text: "Release published." },
           ],
         },

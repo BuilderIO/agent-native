@@ -148,6 +148,11 @@ vi.mock("./better-auth-instance.js", () => ({
     updateUser: (...args: any[]) => updateUserMock(...args),
   }),
 }));
+const provisionFederatedOrganizationMock = vi.fn(async () => "linked");
+vi.mock("../org/federation.js", () => ({
+  provisionFederatedOrganization: (...args: any[]) =>
+    provisionFederatedOrganizationMock(...args),
+}));
 vi.mock("../org/accept-pending.js", () => ({
   acceptPendingInvitationsForEmail: (...args: any[]) =>
     acceptPendingInvitationsForEmailMock(...args),
@@ -557,6 +562,43 @@ describe("identity SSO browser contract", () => {
       expect.anything(),
       "alice@example.test",
       expect.objectContaining({ hasProductionSession: false }),
+    );
+  });
+
+  it("hands the callback request to the organization it activates from a signed org context", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                jti: "jti-org-context",
+                org_id: "dispatch-org-1",
+                org_name: "Example Org",
+                org_role: "member",
+              }),
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin("/welcome");
+    const callbackEvent = event(
+      `/_agent-native/identity/callback?code=${"o".repeat(43)}&state=${state}`,
+      { cookies: { ...loginEvent.cookies } },
+    );
+
+    const response = await handleIdentitySso(callbackEvent, "/callback");
+
+    expect(response.status).toBe(302);
+    expect(provisionFederatedOrganizationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "dispatch-org-1",
+        role: "member",
+        email: "alice@example.test",
+      }),
+      { event: callbackEvent },
     );
   });
 

@@ -2,6 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
+import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
 import { IMAGE_MODELS, IMAGE_QUALITY_TIERS } from "../shared/api.js";
 import { getAssetOrThrow } from "./_helpers.js";
 import generateImage from "./generate-image.js";
@@ -10,6 +14,11 @@ import { resolveLiveBatchContinuation } from "./variant-slots.js";
 export default defineAction({
   description:
     "Apply a source-guided full-image edit to an existing image. Use for small revisions; true masked/inpaint edits depend on provider support and are not assumed.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     assetId: z.string(),
     instruction: z.string().min(1),

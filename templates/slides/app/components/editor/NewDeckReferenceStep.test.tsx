@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Deck } from "@/context/DeckContext";
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
   FileStorageSetupPopover: ({
     open,
     status,
@@ -461,6 +461,92 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
       "disabled",
       false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Figma" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "https://www.figma.com/file/abc123" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Website link and enables it for a valid one", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Website" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "https://example.com" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Google Slides link but allows a bare picker file ID", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "@" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "presentation_123" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for a URL that is not a Google Slides presentation link", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "https://example.com" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
     );
   });
 

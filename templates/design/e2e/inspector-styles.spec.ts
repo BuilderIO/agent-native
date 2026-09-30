@@ -812,7 +812,9 @@ test("appearance controls use droplet blend menu and inline independent corners"
     appearanceSection.getByRole("combobox", { name: /Normal|Blend/i }),
   ).toHaveCount(0);
 
-  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
+  await appearanceSection
+    .getByRole("button", { name: "Blend mode", exact: true })
+    .click();
   await expect(
     page.getByRole("menuitem", { name: /Pass through/i }),
   ).toBeVisible();
@@ -821,11 +823,22 @@ test("appearance controls use droplet blend menu and inline independent corners"
     .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
     .toBe("isolate");
 
-  await appearanceSection.getByRole("button", { name: "Blend mode" }).click();
-  await page.getByRole("menuitem", { name: /Pass through/i }).click();
+  await expect(
+    appearanceSection.getByRole("button", {
+      name: "Blend mode: Normal",
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  await appearanceSection
+    .getByRole("button", { name: "Remove blend mode", exact: true })
+    .click();
   await expect
     .poll(() => selectedElementStyle(page, "Alpha Button", "isolation"))
     .toBe("auto");
+  await expect(
+    appearanceSection.getByRole("button", { name: "Remove blend mode" }),
+  ).toHaveCount(0);
 
   const radiusInput = appearanceSection.locator(
     'input[aria-label="Corner radius" i]',

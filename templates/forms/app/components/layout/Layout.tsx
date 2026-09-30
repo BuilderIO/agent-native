@@ -1,17 +1,14 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
-import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
-import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -33,13 +30,9 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const t = useT();
   const isAskRoute = location.pathname === "/ask";
-  // The redesigned Settings brings its own navigation, header, and agent
-  // toggle, so it renders full width. While the flag loads it shows the
-  // shell's skeleton, which needs the same frame.
-  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const isRedesignedSettingsRoute =
-    isSettingsPathname(location.pathname) &&
-    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "forms",
     activePath: location.pathname,
@@ -67,7 +60,7 @@ export function Layout({ children }: LayoutProps) {
       location.pathname.startsWith(prefix),
     ) &&
     !isAskRoute &&
-    !isRedesignedSettingsRoute;
+    !isSettingsRoute;
 
   function openAskAgentFullscreen() {
     focusAgentChat();
@@ -77,7 +70,7 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="agent-layout-shell flex h-screen overflow-hidden">
-        {isRedesignedSettingsRoute ? null : (
+        {isSettingsRoute ? null : (
           <div className="agent-layout-left-drawer flex shrink-0">
             <Sidebar />
           </div>

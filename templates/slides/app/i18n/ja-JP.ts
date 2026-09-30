@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "連携" } },
   templatesPage: {
     actions: "{{title}} のテンプレート操作",
     previewAction: "プレビュー",
@@ -20,6 +21,9 @@ const messages = {
     slidePosition: "スライド {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ja-JP"],
+  common: {
+    loading: "読み込み中...",
+  },
   root: {
     commandPresentations: "プレゼンテーション",
     searchDecks: "デッキを検索",
@@ -45,14 +49,10 @@ const messages = {
   settings: {
     agentObservability: "エージェントの可観測性",
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
     labLayoutOverflowWarningDescription:
       "エディターでレイアウトのはみ出し警告を表示します。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
     notificationsEmail: "メール",
     commentsAndReplies: "コメントと返信",
@@ -61,10 +61,6 @@ const messages = {
     retry: "再試行",
     mcpAbout:
       "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -176,6 +172,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
+    slideConflictReview: "確認",
+    slideConflictTitle: "このスライドは別の場所で変更されました",
+    slideConflictDescription:
+      "別の編集者が新しいバージョンを保存しました。下書きを保持すると保存済みのスライド内容が置き換わります。最新バージョンを使用することもできます。",
+    slideConflictUseLatest: "最新バージョンを使用",
+    slideConflictKeepDraft: "下書きを保持",
+    slideConflictKeepEditing: "編集を続ける",
+    slideConflictResolutionFailed:
+      "競合を解決できませんでした。下書きは保持されています。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
@@ -585,6 +590,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "保存済み" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -650,6 +656,21 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "エラー 403",
+    noAccessTitle: "アクセス権がありません",
+    noAccessDescription:
+      "デッキのオーナーにアクセスをリクエストするか、正しいアカウントに切り替えてください。",
+    noteLabel: "オーナーへのメモを追加（任意）",
+    notePlaceholder: "このデッキを確認しています",
+    requesting: "リクエスト中",
+    requestFailed: "リクエストを送信できませんでした。もう一度お試しください。",
+    requestSentDescription:
+      "オーナーがリクエストを承認したら、すぐにメールでお知らせします。",
+    goHome: "ホームへ",
+    signedInAs: "ログイン中のアカウント:",
+    switchAccount: "アカウントを切り替える",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
@@ -695,6 +716,9 @@ const messages = {
     accessApprovalTitle: "アクセスを許可しました",
     accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
     accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalRequesterEmailed: "メールでお知らせしました。",
+    accessApprovalRequesterEmailFailed:
+      "{{email}} にメールを送信できませんでした。デッキを開けるようになったことを伝えてください。",
     accessApprovalAlreadyMessage:
       "{{email}} はすでにこのデッキにアクセスできます。",
     accessApprovalErrorTitle: "アクセスを許可できませんでした",
@@ -837,12 +861,14 @@ const messages = {
         "インポートがタイムアウトしたか、ネットワーク接続が切断されました。接続を確認して、もう一度お試しください。",
       notStarted:
         "必要なサインインを完了してから、インポートを再試行してください。",
+      unsupportedFileType:
+        "このファイル形式はサポートされていません。対応しているファイルを選択してください。",
       uploadLimitExceeded:
         "アップロードが許可された上限を超えています。ファイルを小さくするか、選択するファイルを減らして再試行してください。",
     },
     importDeck: "デッキをインポート",
     context: {
-      websiteReference: "ウェブサイトを添付",
+      websiteReference: "ウェブサイトを追加",
       websiteUrlLabel: "ウェブサイトのURL",
       websiteUrl: "ウェブサイトのURLを貼り付け",
       figmaUrlLabel: "Figmaリンク",
@@ -857,7 +883,7 @@ const messages = {
       searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
-        figma: "Figmaを添付",
+        figma: "Figmaを追加",
         design: "デザインを参照",
         deck: "プレゼンテーションを参照",
         searchDesign: "デザインを検索…",
@@ -878,6 +904,8 @@ const messages = {
       notReady:
         "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
       emptySource: "このソースには利用可能なコンテキストがありません。",
+      websiteReadFailed:
+        "このウェブサイトを自動で読み取れませんでした。関連するテキストをコピーして貼り付けてください。",
       figmaReadFailed:
         "Design でこの Figma 参照を読み込めませんでした。Design に保存されている Figma アクセストークンと、紐づくアカウントでファイルを開けることを確認して、もう一度お試しください。",
       tooMany: "参照は20件まで選択できます。",
@@ -1033,6 +1061,11 @@ const messages = {
     emptyTitle: "まだデッキがありません",
     createFirstDeck: "最初のデッキを作成",
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+    },
   },
 };
 

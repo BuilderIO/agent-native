@@ -891,6 +891,34 @@ describe("McpClientManager", () => {
       expect(typeof seenOnError[0]).toBe("function");
 
       expect(() => seenOnError[0]?.(new Error("socket hang up"))).not.toThrow();
+      expect(mgr.getStatus().errors.remote).toBeTruthy();
+      expect(mgr.connectedServers).toEqual([]);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("records transport errors delivered during the MCP handshake", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      transport.onerror?.(new Error("handshake transport failed"));
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      serverFixtures["http https://example.com/mcp"] = {
+        tools: [{ name: "ping" }],
+        callImpl: () => ({ content: [] }),
+      };
+      const mgr = new McpClientManager({
+        servers: {
+          remote: { type: "http", url: "https://example.com/mcp" },
+        },
+      });
+      await mgr.start();
+
+      expect(mgr.getStatus().errors.remote).toBeTruthy();
+      expect(mgr.connectedServers).toEqual([]);
     } finally {
       FakeClient.prototype.connect = origConnect;
     }

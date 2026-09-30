@@ -241,6 +241,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
   "get-builder-credit-usage": "automation",
+  "get-builder-credit-status": "automation",
   "get-builder-referral-info": "automation",
 
   "context-manifest-get": "contextXray",
@@ -264,6 +265,13 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-audit-events": "audit",
   "get-audit-event": "audit",
   "export-audit-events": "audit",
+  // Observability promotion reuses `labs` until a dedicated group exists.
+  // A new FRAMEWORK_TOOL_GROUPS member is filtered at thirteen composition
+  // sites; do not add `observability` in the same change as this action.
+  "promote-trace-eval": "labs",
+
+  "export-resource-pack": "resources",
+  "import-resource-pack": "resources",
 
   "create-resource-version": "history",
   "list-resource-versions": "history",

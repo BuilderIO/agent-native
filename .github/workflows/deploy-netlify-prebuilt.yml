@@ -180,7 +180,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
   # Beta and production lanes share the canonical production site queue so a
@@ -310,36 +309,6 @@ jobs:
             }
             core.setFailed(`Unknown deployment target: ${target}`);
 
-      - name: Revalidate the internal PR before preview upload
-        if: inputs.target == 'preview' && inputs.deploy && inputs.pull_request_number > 0
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
-          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
-        with:
-          script: |
-            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
-            if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
-              throw new Error('Pull request number must be a positive integer.');
-            }
-            const { data: pullRequest } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pullRequestNumber,
-            });
-            const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
-            if (
-              pullRequest.state !== 'open' ||
-              pullRequest.base.ref !== 'main' ||
-              pullRequest.base.repo?.full_name?.toLowerCase() !== fullName ||
-              pullRequest.head.repo?.full_name?.toLowerCase() !== fullName ||
-              pullRequest.user?.type !== 'User' ||
-              !['OWNER', 'MEMBER'].includes(pullRequest.author_association) ||
-              pullRequest.head.sha !== process.env.SOURCE_REF
-            ) {
-              throw new Error('PR preview requires the current head of an open, internal PR targeting main.');
-            }
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.checkout_ref || steps.source.outputs.source_ref }}
@@ -353,8 +322,34 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # The CLI is cached outside the checkout and installed before any repo
+      # code runs. Preview runs build PR code in this job, so they may restore
+      # the cache but never save it.
+      - name: Restore the pinned Netlify CLI
+        id: netlify-cli-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.netlify-cli
+          key: netlify-cli-27.5.2-build-36.4.8-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc') }}
+
       - name: Install the pinned Netlify CLI
-        run: npm install --global netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
+        if: steps.netlify-cli-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: npm install --global --prefix "$HOME/.netlify-cli" netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
+
+      - name: Save the pinned Netlify CLI
+        if: steps.netlify-cli-cache.outputs.cache-hit != 'true' && inputs.target != 'preview'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.netlify-cli
+          key: netlify-cli-27.5.2-build-36.4.8-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc') }}
+
+      - name: Put the pinned Netlify CLI on PATH
+        run: |
+          echo "$HOME/.netlify-cli/bin" >> "$GITHUB_PATH"
+          "$HOME/.netlify-cli/bin/netlify" --version
 
       - name: Validate rollout mode
         env:
@@ -461,7 +456,10 @@ jobs:
             librsvg2-dev
 
       - name: Run the release migration from the Netlify environment
-        if: inputs.migration_only
+        if: >-
+          inputs.migration_only &&
+          !(inputs.target == 'production' &&
+          steps.target.outputs.source_template == 'mail')
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -505,7 +503,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations || (inputs.target == 'production' && steps.target.outputs.source_template == 'mail') }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
@@ -947,6 +945,99 @@ jobs:
             fi
           done
           echo "::error::CRM release migration failed after 3 attempts."
+          exit 1
+
+      - name: Run Mail release migrations
+        if: >-
+          inputs.target == 'production' &&
+          (inputs.migration_only ||
+          (inputs.deploy && inputs.deploy_mode == 'production')) &&
+          steps.target.outputs.source_template == 'mail'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts 2>/dev/null ||
+              true
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getEnvVars \
+                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+            )"
+          fi
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter mail migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Mail migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Mail release migration failed after 3 attempts."
+          exit 1
+
+      - name: Run Chat release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'chat'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" 2>/dev/null |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts 2>/dev/null ||
+              true
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            migration_database_url="$(
+              netlify api getEnvVars \
+                --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+                BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+            )"
+          fi
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter chat migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Chat migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Chat release migration failed after 3 attempts."
           exit 1
 
       - name: Unlock the published production deploy

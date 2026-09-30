@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { ActionRunContext } from "../action.js";
@@ -143,7 +143,21 @@ vi.mock("../agent/run-store.js", () => ({
   },
 }));
 
+// Cleared after each test too, not only before: a marker the last test sets
+// would otherwise outlive this file, and the next spec in the same worker
+// would run as a Lambda invocation that refuses local PGlite.
+function clearHostedRuntimeEnv() {
+  delete process.env.NETLIFY;
+  delete process.env.NETLIFY_LOCAL;
+  delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.VERCEL;
+  delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
+}
+
 describe("call-agent action", () => {
+  afterEach(clearHostedRuntimeEnv);
+
   beforeEach(() => {
     vi.clearAllMocks();
     findAgentMock.mockResolvedValue({
@@ -152,12 +166,7 @@ describe("call-agent action", () => {
     });
     resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
     managedHandlerMock.mockReset();
-    delete process.env.NETLIFY;
-    delete process.env.NETLIFY_LOCAL;
-    delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
-    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
-    delete process.env.VERCEL;
-    delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
+    clearHostedRuntimeEnv();
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
     getA2AContinuationsMock.mockResolvedValue([]);
@@ -168,6 +177,10 @@ describe("call-agent action", () => {
     const { tool } = await import("./call-agent.js");
 
     expect(tool.description).toContain("Use message by default");
+    expect(tool.description).toContain(
+      "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
+    );
+    expect(tool.description).toContain("availability alone is not a reason");
     expect(tool.description).toContain(
       "The receiver owns provider, schema, query, join, and SQL decisions",
     );
@@ -695,6 +708,50 @@ describe("call-agent action", () => {
       }
     },
   );
+
+  it("contains a child turn stop and blocks retrying that target", async () => {
+    callAgentMock.mockRejectedValueOnce(
+      Object.assign(new Error("remote task failed"), {
+        name: "A2ATaskTerminalError",
+        taskId: "task-child-stop",
+        state: "failed",
+        responseText:
+          "I stopped because get-capture needs an editor role.\n" +
+          "code: permanent_precondition",
+        errorCode: "permanent_precondition",
+      }),
+    );
+    const { run } = await import("./call-agent.js");
+    const blockedA2ATargets = new Map<string, string>();
+    const context = { send: vi.fn(), blockedA2ATargets } as any;
+
+    let firstError: unknown;
+    try {
+      await run(
+        { agent: "analytics", message: "inspect the account" },
+        context,
+      );
+    } catch (error) {
+      firstError = error;
+    }
+
+    expect(firstError).toMatchObject({
+      errorCode: "a2a_child_permanent_precondition",
+    });
+    expect((firstError as Error).message).toContain(
+      "Do not call Slides again this turn",
+    );
+    expect((firstError as Error).message).toContain("<<<diagnostic-snippet");
+    expect((firstError as Error).message).toContain(
+      "code: permanent_precondition",
+    );
+    expect(blockedA2ATargets.has("slides")).toBe(true);
+
+    await expect(
+      run({ agent: "analytics", message: "retry with raw content" }, context),
+    ).rejects.toThrow("Not calling Slides again this turn");
+    expect(callAgentMock).toHaveBeenCalledOnce();
+  });
 
   it("emits error when a direct semantic read returns a failed status", async () => {
     invokeActionMock.mockResolvedValueOnce({

@@ -32,6 +32,12 @@ for (const sourceFile of walk("src")) {
   if (extension !== ".ts" && extension !== ".tsx" && extension !== ".css") {
     continue;
   }
+  if (
+    /\.(?:spec|test)\.(?:ts|tsx)$/.test(sourceFile) ||
+    sourceFile.endsWith(".e2e-host.tsx")
+  ) {
+    continue;
+  }
 
   const relativeSource = relative("src", sourceFile);
   const withoutExtension = relativeSource.slice(0, -extension.length);

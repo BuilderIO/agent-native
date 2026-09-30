@@ -1,7 +1,6 @@
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
@@ -92,21 +91,25 @@
 }
 
 .assets-create-chat-intro {
-  display: none;
-}
-
-.assets-create-chat-panel
-  [data-agent-empty-state="centered"]
-  .assets-create-chat-intro {
   display: grid;
   justify-items: center;
-  gap: 0.75rem;
-  margin: 0 auto 1rem;
-  padding-bottom: 1rem;
+  margin: 0 auto;
   text-align: center;
 }
 
-.assets-create-chat-panel [data-agent-empty-state="centered"] {
+.assets-create-chat-intro > div:empty {
+  display: none;
+}
+
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .assets-create-chat-intro {
+  display: grid;
+  justify-items: center;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
   justify-content: safe center;
 }
 
@@ -117,51 +120,6 @@
   font-weight: 650;
   letter-spacing: 0;
   line-height: 1.1;
-}
-
-.assets-create-chat-intro p {
-  margin: 0;
-  max-width: 38rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.9375rem;
-  line-height: 1.55;
-}
-
-.assets-create-chat-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.assets-create-chat-pill-row button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  min-height: 2rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: 999px;
-  padding: 0.375rem 0.75rem;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.assets-create-chat-pill-row button:hover {
-  border-color: hsl(var(--foreground) / 0.25);
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.assets-create-chat-pill-row button:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
 }
 
 @container agent-native-main (min-width: 940px) {
@@ -239,24 +197,21 @@
   }
 }
 
-.assets-create-chat-panel
-  [data-agent-empty-state="centered"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
 }
 
-.assets-create-chat-panel
-  [data-agent-empty-state="centered"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-area {
   width: 100%;
   max-width: min(750px, 100%);
   padding: 0;
 }
 
-.assets-create-chat-panel
-  [data-agent-empty-state="centered"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-root {
   min-height: 7.875rem;
   border-color: hsl(var(--border));
@@ -265,8 +220,7 @@
   box-shadow: none;
 }
 
-.assets-create-chat-panel
-  [data-agent-empty-state="centered"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-prosemirror {
   min-height: 5.0625rem;
   font-size: 1rem;
@@ -274,30 +228,26 @@
 }
 
 @media (max-width: 767px) {
-  .assets-create-chat-panel [data-agent-empty-state="centered"] {
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
     padding: 1rem;
     padding-bottom: 5rem;
   }
 
-  .assets-create-chat-panel
-    [data-agent-empty-state="centered"]
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .assets-create-chat-intro {
     width: 100%;
-    margin-bottom: 0.875rem;
   }
 
   .assets-create-chat-intro h1 {
     font-size: 1.75rem;
   }
 
-  .assets-create-chat-panel
-    [data-agent-empty-state="centered"]
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .agent-composer-area {
     width: 100%;
   }
 
-  .assets-create-chat-panel
-    [data-agent-empty-state="centered"]
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .agent-composer-root {
     min-height: 6.75rem;
   }

@@ -94,7 +94,7 @@ description: "एक्शन-घोषित देशी चैट रें�
 
 सर्वर actions को सर्वर-सुरक्षित सहायक और स्कीमा आयात करना चाहिए
 `@agent-native/core/data-widgets`; क्लाइंट कोड
-`@agent-native/core/client/chat` या `@agent-native/core/client`.
+`@agent-native/core/client/widgets` या `@agent-native/core/client`.
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -228,7 +228,7 @@ export default defineAction({
 कार्रवाई पर:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -361,15 +361,13 @@ when: (args, result) => {
 
 </Diagram>
 
-सभी कनेक्टर `@agent-native/core/client/chat` (और रूट
+सभी कनेक्टर `@agent-native/core/client/agent-chat` (और रूट
 `@agent-native/core/client` प्रविष्टि)। जब आपका एजेंट
 एक POST एंडपॉइंट को उजागर कर सकता है जो SSE या NDJSON रनटाइम इवेंट लौटाता है:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -395,7 +393,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -438,7 +436,7 @@ iframes.
 जब आप रनटाइम ऑब्जेक्ट के रूप में अंतर्निहित Agent-Native ट्रांसपोर्ट चाहते हैं, तो इसका उपयोग करें:
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -447,6 +445,8 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 कस्टम AgentKit transport के लिए `<AssistantChat createTransport={...} />` का उपयोग करें, या यदि होस्ट पहले से turns चलाता है तो `runtime` पास करें। मौजूदा `assistant-ui ChatModelAdapter` implementations को AgentKit transcript और composer का उपयोग करने के लिए `AgentTransport` या `AgentChatRuntime` पर पोर्ट करना होगा। `PromptComposer` का उपयोग तब करें जब आपका product पूरा external transcript संभालता हो और उसे केवल Agent-Native composer field चाहिए।
+
+पुराने और नए API का मानचित्र और माइग्रेशन चरण देखने के लिए [AgentKit चैट माइग्रेशन गाइड](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md) देखें।
 
 OpenAI, AG-UI, Claude एजेंट SDK, और वर्सेल AI SDK स्ट्रीम मानक का उपयोग कर सकते हैं
 कनेक्टर सहायक। ACP कोडिंग-एजेंट/एडिटर इंटरऑपरेबिलिटी बनी हुई है,

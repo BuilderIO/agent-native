@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   __resetEventBus,
   emit,
+  emitAsync,
   listSubscriptions,
   subscribe,
   unsubscribe,
@@ -104,6 +105,49 @@ describe("event-bus", () => {
       emit("e", {});
 
       expect(order).toEqual([1, 2, 3]);
+    });
+
+    it("awaits all handlers and preserves a caller-supplied event id", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const received: string[] = [];
+      subscribe("queued.event", async (_payload, meta) => {
+        await gate;
+        received.push(meta.eventId);
+      });
+      subscribe("queued.event", async (_payload, meta) => {
+        received.push(meta.eventId);
+      });
+
+      let settled = false;
+      const emission = emitAsync(
+        "queued.event",
+        { ok: true },
+        { eventId: "stable-event-1", owner: "alice@example.com" },
+      ).then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      release();
+      await emission;
+
+      expect(received).toEqual(["stable-event-1", "stable-event-1"]);
+    });
+
+    it("rejects when a handler fails to accept an awaited event", async () => {
+      const accepted = vi.fn();
+      subscribe("queued.failure", async () => {
+        throw new Error("queue unavailable");
+      });
+      subscribe("queued.failure", accepted);
+
+      await expect(
+        emitAsync("queued.failure", {}, { eventId: "retry-me" }),
+      ).rejects.toThrow(/failed to accept/);
+      expect(accepted).toHaveBeenCalledOnce();
     });
   });
 

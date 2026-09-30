@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
+import { resolveRecordingKind } from "@shared/recording-kind";
 import {
   and,
   asc,
@@ -31,6 +32,7 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import { transcriptHasTextSql } from "./lib/transcript-text.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -116,6 +118,12 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to recordings carrying this tag"),
+    kind: z
+      .enum(["video", "image", "all"])
+      .default("all")
+      .describe(
+        'Filter by what the row holds: "video" for clips, "image" for screenshots, "all" (the default) for both',
+      ),
     search: z
       .string()
       .nullish()
@@ -234,6 +242,13 @@ export default defineAction({
       );
     }
 
+    // Screenshots and clips live in one table; the Screenshots view is this
+    // filter, and the unified library passes "all" so it still shows both.
+    if (args.kind === "image" || args.kind === "video") {
+      whereClauses.push(eq(schema.recordings.kind, args.kind));
+    }
+
+    // Tag filter — join-ish via subquery
     if (args.tag) {
       whereClauses.push(
         sql`EXISTS (SELECT 1 FROM ${schema.recordingTags} rt WHERE rt.recording_id = ${schema.recordings.id} AND rt.tag = ${args.tag})`,
@@ -285,8 +300,10 @@ export default defineAction({
           sourceAppName: schema.recordings.sourceAppName,
           sourceWindowTitle: schema.recordings.sourceWindowTitle,
           description: schema.recordings.description,
+          kind: schema.recordings.kind,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
           durationMs: schema.recordings.durationMs,
           editsJson: schema.recordings.editsJson,
           status: schema.recordings.status,
@@ -320,10 +337,7 @@ export default defineAction({
         },
         transcriptStatus: schema.recordingTranscripts.status,
         transcriptHasText: sql<number>`(
-          CASE WHEN (
-            TRIM(COALESCE(${schema.recordingTranscripts.fullText}, '')) <> ''
-            OR COALESCE(${schema.recordingTranscripts.segmentsJson}, '') LIKE '%"text":"_%'
-          ) THEN 1 ELSE 0 END
+          CASE WHEN ${transcriptHasTextSql()} THEN 1 ELSE 0 END
         )`,
       })
       .from(schema.recordings)
@@ -412,6 +426,9 @@ export default defineAction({
         sourceAppName: r.sourceAppName,
         sourceWindowTitle: r.sourceWindowTitle,
         description: r.description,
+        // A screenshot card has no duration, play affordance or transcript,
+        // so the grid has to be able to tell the two apart.
+        kind: resolveRecordingKind(r.kind),
         thumbnailUrl: resolvePlayerThumbnailUrl(r),
         animatedThumbnailUrl: r.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(r, { animated: true })

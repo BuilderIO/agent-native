@@ -36,10 +36,14 @@ const mocks = vi.hoisted(() => ({
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
   agentEngine: { state: "configured", missing: false },
+  fetchAgentEngineConfiguredState: vi.fn(),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,
@@ -60,6 +64,29 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     </div>
   ),
   useAgentEngineConfigured: () => mocks.agentEngine,
+  fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
+}));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: ({
+    bouncePulse = 0,
+    onConnected,
+  }: {
+    bouncePulse?: number;
+    onConnected?: () => void;
+  }) => (
+    <div
+      data-setup-card
+      data-testid="ai-setup-card"
+      data-bounce-pulse={bouncePulse}
+    >
+      Connect AI
+      <button type="button" onClick={onConnected}>
+        Connect Builder.io
+      </button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
+  ),
+  BuilderSetupContent: () => null,
 }));
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
@@ -72,23 +99,31 @@ vi.mock("@/components/QueryErrorState", () => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
+vi.mock("@agent-native/core/client/feature-flags", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/feature-flags")
+  >()),
   useFeatureFlag: () => mocks.fullAppBuilding,
 }));
 
-vi.mock("@agent-native/core/client/collab", () => ({
+vi.mock("@agent-native/core/client/collab", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/collab")
+  >()),
   emailToColor: () => "#000000",
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
   useOrgMembers: () => ({ data: undefined }),
 }));
 
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => mocks.systemsEnabled,
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: async () => ({ agentContext: "Frozen selected system" }),
   actionErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : undefined,
@@ -184,7 +219,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: async () => undefined,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useFormatters: () => ({ formatDate: (value: string) => value }),
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
     if (key === "home.starterDashboardPrompt") return mocks.starterPrompt;
@@ -258,6 +295,31 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     return null;
   },
 }));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {
+        scopeKey: "test",
+        searchPlaceholder: "Search integrations",
+        items: [],
+        loading: false,
+        emptyMessage: "No integrations",
+        onSelect: () => {},
+      },
+    }),
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: true } }, integrations: [] },
+    }),
+  }),
+);
 
 vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
@@ -334,6 +396,7 @@ beforeEach(async () => {
   mocks.ownStatus = "success";
   mocks.templatesError = false;
   mocks.agentEngine = { state: "configured", missing: false };
+  mocks.fetchAgentEngineConfiguredState.mockResolvedValue("configured");
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -365,7 +428,12 @@ it("does not query or apply a default system when workflows are disabled", async
     mocks.promptProps?.contextMenuItems[0].children.map(
       (item: { id: string }) => item.id,
     ),
-  ).toEqual(["figma-reference", "website-reference"]);
+  ).toEqual([
+    "design-reference",
+    "figma-reference",
+    "website-reference",
+    "integrations",
+  ]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
   expect(mocks.createDesign).toHaveBeenCalledWith(
     expect.objectContaining({ designSystemId: null }),
@@ -478,12 +546,25 @@ describe("Index skip to editor", () => {
           link.href.endsWith("/settings/keys"),
       ),
     ).toBe(true);
+    expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
-      disabled: true,
-      submissionDisabled: true,
       showModelSelector: false,
       modelStatusChecksEnabled: false,
+      onBeforeSubmit: expect.any(Function),
     });
+    expect(mocks.promptProps?.composerComponent).toBeDefined();
+    mocks.fetchAgentEngineConfiguredState.mockRejectedValueOnce(
+      new Error("temporary failure"),
+    );
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = (await mocks.promptProps?.onBeforeSubmit?.()) ?? true;
+    });
+    expect(canSubmit).toBe(false);
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.providerStatusUnavailable",
+    );
     await act(async () =>
       mocks.promptProps?.onSubmit?.("Build a dashboard", [], {}),
     );
@@ -508,30 +589,43 @@ describe("Index skip to editor", () => {
     );
     expect(
       container
-        .querySelector("[data-setup-card]")
+        .querySelector("[data-setup-card][data-bounce-pulse]")
         ?.getAttribute("data-bounce-pulse"),
     ).toBe("1");
 
     mocks.agentEngine = { state: "configured", missing: false };
     await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
-      disabled: false,
-      submissionDisabled: false,
       showModelSelector: true,
-      modelStatusChecksEnabled: false,
+      modelStatusChecksEnabled: true,
     });
     expect(container.textContent).not.toContain("Connect AI");
     expect(container.querySelector("[data-testid='ai-setup-card']")).toBeNull();
   });
 
-  it("keeps chat closed while provider status is unresolved and offers retry when unavailable", async () => {
+  it("keeps chat interactive while provider status is unresolved and checks before submit", async () => {
     mocks.agentEngine = { state: "unknown", missing: false };
     await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("agentChat.setup.checkingProvider");
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.checkingProvider",
+    );
+    expect(
+      container.querySelector('[role="status"][aria-label="common.loading"]'),
+    ).toBeNull();
+    expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
-      disabled: true,
-      submissionDisabled: true,
+      onBeforeSubmit: expect.any(Function),
     });
+    mocks.fetchAgentEngineConfiguredState.mockResolvedValueOnce("unavailable");
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await mocks.promptProps?.onBeforeSubmit?.();
+    });
+    expect(canSubmit).toBe(false);
+    expect(container.textContent).toContain(
+      "agentChat.setup.providerStatusUnavailable",
+    );
 
     mocks.agentEngine = { state: "unavailable", missing: false };
     await act(async () => root.render(<Index />));
@@ -547,12 +641,60 @@ describe("Index skip to editor", () => {
     dispatch.mockRestore();
   });
 
-  it("shows generic home suggestions while provider setup is pending", async () => {
-    mocks.agentEngine = { state: "missing", missing: true };
+  it("ignores a stale readiness check after the provider hook reports configured", async () => {
+    mocks.agentEngine = { state: "unknown", missing: false };
     await act(async () => root.render(<Index />));
-    expect(container.textContent).not.toContain("Generated dashboard");
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
+    let resolveStatus: (state: "missing") => void = () => {};
+    mocks.fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"missing">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    let preflight = Promise.resolve(false);
+    await act(async () => {
+      preflight =
+        mocks.promptProps?.onBeforeSubmit?.() ?? Promise.resolve(false);
+    });
+
+    mocks.agentEngine = { state: "configured", missing: false };
+    await act(async () => root.render(<Index />));
+    await act(async () => resolveStatus("missing"));
+
+    expect(await preflight).toBe(true);
+    expect(container.textContent).not.toContain("Connect AI");
   });
+
+  it.each([
+    { state: "missing", missing: true, ready: false },
+    { state: "unknown", missing: false, ready: false },
+    { state: "unavailable", missing: false, ready: false },
+    { state: "configured", missing: false, ready: true },
+    { state: "configured", missing: true, ready: false },
+  ])(
+    "gates home composer and suggestions for $state (missing=$missing)",
+    async ({ state, missing, ready }) => {
+      mocks.agentEngine = { state, missing };
+      await act(async () => root.render(<Index />));
+      expect(mocks.promptProps?.disabled).not.toBe(true);
+      expect(mocks.promptProps).toMatchObject({
+        showModelSelector: ready,
+        modelStatusChecksEnabled: ready,
+      });
+      expect(container.textContent).not.toContain(
+        "agentChat.setup.checkingProvider",
+      );
+      expect(container.textContent).not.toContain("Checking AI connection");
+      expect(
+        Boolean(
+          container.querySelector('[aria-label="home.suggestedPrompts"]'),
+        ),
+      ).toBe(ready);
+      expect(container.textContent?.includes("Generated dashboard")).toBe(
+        ready,
+      );
+      expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+    },
+  );
 
   it("does not navigate on failure and allows a successful retry", async () => {
     mocks.createDesign
@@ -728,22 +870,57 @@ describe("home library", () => {
       compact: "true",
       includePreview: "false",
     });
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
     expect(container.textContent).toContain("navigation.templates");
     expect(container.textContent).toContain("home.recent");
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("home.recent");
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+  });
+
+  it("preserves an explicit Templates choice made while the summary is pending", async () => {
+    mocks.ownCount = 1;
+    mocks.ownStatus = "pending";
+    await act(async () => root.render(<Index />));
+    const templates = container.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]',
+    )!;
+    expect(templates.textContent).toBe("navigation.templates");
+    await act(async () =>
+      templates.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
   });
 
   it("does not treat pending or failed ownership reads as successful empty results", async () => {
     mocks.ownCount = 3;
     mocks.ownStatus = "pending";
     await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("home.recent");
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
     mocks.ownStatus = "error";
     await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("home.recent");
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
     const retry =
       container.querySelector<HTMLButtonElement>("[data-query-error]");
     expect(retry).not.toBeNull();

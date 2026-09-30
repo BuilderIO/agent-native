@@ -1,5 +1,5 @@
-import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import type { ReviewThread } from "@agent-native/toolkit/app/review";
 import type {
   DistanceGuideBand,
   EqualGapGuide,
@@ -148,8 +148,10 @@ export interface ScreenMetadata {
   previewToken?: string;
 }
 
+export type DuplicateMode = "cmd-d" | "alt-click" | "alt-drag";
+
 export interface DuplicateRequest {
-  mode: "alt-click" | "alt-drag";
+  mode: DuplicateMode;
   screen: ScreenFile;
   canvasPosition: { x: number; y: number };
   canvasFrameGeometryById?: FrameGeometryById;

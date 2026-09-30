@@ -8,6 +8,8 @@ import {
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { coreMessagesForLocale } from "../packages/core/src/localization/core-messages.js";
+import defaultEnglishMessages from "../packages/core/src/localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   isValidLocaleCode,
@@ -16,8 +18,21 @@ import {
   type LocaleCode,
 } from "../packages/core/src/localization/shared.js";
 import { splitDocSegments } from "../packages/docs/lib/doc-block-segments";
+import { toolkitMessagesForLocale } from "../packages/toolkit/src/app/i18n/catalog.js";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
+const toolkitCatalogDir = path.join(
+  rootDir,
+  "packages",
+  "toolkit",
+  "src",
+  "app",
+  "i18n",
+  "catalogs",
+);
+const toolkitPropLocalizedSources = new Set([
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
+]);
 const pluralSuffixes = new Set(["zero", "one", "two", "few", "many", "other"]);
 const supportedLocaleSet = new Set<string>(SUPPORTED_LOCALES);
 
@@ -210,13 +225,24 @@ async function checkCatalogKeyCoverage(catalogDirs: string[]) {
 
     const source = await loadFlatCatalog(sourceCatalog);
     if (source.errors.length > 0) continue;
-    const sourceKeys = source.flat;
-    const sourceRoot = path.dirname(dir);
+    const sourceKeys =
+      dir === toolkitCatalogDir
+        ? flattenCatalogMessages(
+            toolkitMessagesForLocale(DEFAULT_LOCALE),
+            coreMessagesForLocale(DEFAULT_LOCALE),
+            defaultEnglishMessages,
+          )
+        : source.flat;
+    const sourceRoot =
+      dir === toolkitCatalogDir
+        ? path.join(rootDir, "packages", "toolkit", "src", "app")
+        : path.dirname(dir);
 
     for (const file of collectSourceFiles(sourceRoot)) {
       const rel = path.relative(rootDir, file);
       if (
         rel.includes("/i18n/") ||
+        toolkitPropLocalizedSources.has(rel) ||
         rawLiteralFileIgnore.some((part) => rel.includes(part))
       ) {
         continue;
@@ -306,14 +332,7 @@ async function checkCatalogEnglishValueDebt(catalogDirs: string[]) {
 export function findCatalogDirs(): string[] {
   const candidates = [
     path.join(rootDir, "app", "i18n"),
-    path.join(
-      rootDir,
-      "packages",
-      "core",
-      "src",
-      "localization",
-      "core-messages",
-    ),
+    toolkitCatalogDir,
     path.join(
       rootDir,
       "packages",
@@ -332,6 +351,12 @@ export function findCatalogDirs(): string[] {
       .map((entry) => path.join(rootDir, "templates", entry, "app", "i18n")),
   ];
   return [...new Set(candidates)].filter((dir) => existsSync(dir)).sort();
+}
+
+function flattenCatalogMessages(...messages: unknown[]): FlatCatalog {
+  const flat = new Map<string, string>();
+  for (const value of messages) flattenCatalog(value, [], flat, []);
+  return flat;
 }
 
 function safeReadDir(dir: string) {

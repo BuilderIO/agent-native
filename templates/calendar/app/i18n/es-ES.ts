@@ -7,7 +7,6 @@ export default {
     connecting: "Conectando...",
     clipboardUnavailable: "El acceso al portapapeles no está disponible",
     disconnect: "Desconectar",
-    notConnected: "No conectado",
     loadFailed: "No se pudieron cargar estos datos.",
     retry: "Reintentar",
     saving: "Guardando...",
@@ -208,10 +207,6 @@ export default {
   },
   settings: {
     title: "Ajustes",
-    description: "Configura tu calendario e integraciones.",
-    languageTitle: "Idioma",
-    languageDescription: "Elige el idioma de la interfaz de Calendar.",
-    languageLabel: "Idioma de la interfaz",
     agentTitle: "Gestionar agente",
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
@@ -225,13 +220,8 @@ export default {
     zoomConnectFailed: "No se pudo conectar Zoom",
     zoomDisconnected: "Zoom desconectado",
     zoomDisconnectFailed: "No se pudo desconectar Zoom",
-    general: "General",
-    generalDescription: "Valores predeterminados del calendario y reservas.",
-    timezone: "Zona horaria",
-    saveSettings: "Guardar ajustes",
     saved: "Ajustes guardados",
     saveFailed: "No se pudieron guardar los ajustes",
-    appearance: "Apariencia",
     appearanceDescription:
       "Elige un tema de color para tu workspace o pídeselo al agente.",
     desktopNotifications: "Notificaciones de escritorio",
@@ -246,24 +236,15 @@ export default {
       "Sincroniza eventos y gestiona todo en un solo lugar.",
     zoomDescription:
       "Conecta Zoom para crear enlaces de reunión para eventos y reservas.",
-    zoomNotConfigured: "No configurado",
     zoomCredentialsPrompt:
       "Añade credenciales OAuth de Zoom para habilitar la conexión.",
-    bookingTitleLabel: "Título alternativo de la página de reserva",
     bookingTitlePlaceholder: "Reservar una reunión",
-    bookingTitleHelp:
-      "Se usa solo cuando un enlace de reserva no tiene título. Crea, abre y copia URL públicas desde Enlaces de reserva.",
-    bookingDescriptionLabel: "Descripción alternativa de la página de reserva",
     bookingDescriptionPlaceholder: "Elige una hora que te venga bien.",
-    bookingDescriptionHelp:
-      "Se usa solo cuando un enlace de reserva no tiene descripción propia.",
-    defaultDurationLabel: "Duración predeterminada del evento (minutos)",
-    defaultDurationHelp:
-      "Duración predeterminada para eventos nuevos y franjas de reserva. Cada enlace de reserva puede anularla.",
     weekStartLabel: "La semana empieza el",
     weekStartSunday: "Domingo - sábado",
     weekStartMonday: "Lunes - domingo",
     eventRules: "Reglas de invitación",
+    eventRulesAutomationLink: "Para otras acciones, crea una automatización.",
     eventRulesConnectJev: "Conecta Jev para usar las reglas de invitación",
     eventRulesFreeBuilderOrApiKey:
       "Gratis con Builder.io o añade una clave de API.",
@@ -633,6 +614,7 @@ export default {
     fieldRequired: "{{label}} es obligatorio",
     linkDisabled: "{{title}} deshabilitado",
     linkEnabled: "{{title}} habilitado",
+    advanced: "Avanzado",
     linkVisibility: "Visibilidad del enlace",
     linkVisibilityDescription: "Desactívelo para desactivar la página pública.",
     loadingMeetingTypes: "Cargando tipos de reuniones",

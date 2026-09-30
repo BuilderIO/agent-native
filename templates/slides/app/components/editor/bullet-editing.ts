@@ -173,14 +173,42 @@ export function isBulletList(el: HTMLElement): boolean {
   return rows >= 1 && rows >= kids.length - 1;
 }
 
-/** Regex for a markdown-style bullet prefix: a dash or asterisk plus a space,
- * at the very start of a block's content (e.g. "- " or "* "). */
+/** Regex for a markdown-style bullet prefix at the start of a line. */
 const MARKDOWN_BULLET_PREFIX = /^[-*] $/;
 
+function markdownBulletPrefixRange(
+  el: HTMLElement,
+): { range: Range; previousBreak: HTMLBRElement | null } | null {
+  if (isBulletRow(el) || isBulletList(el)) return null;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const caret = selection.getRangeAt(0);
+  if (!caret.collapsed || !el.contains(caret.endContainer)) return null;
+
+  const range = el.ownerDocument.createRange();
+  range.selectNodeContents(el);
+  range.setEnd(caret.endContainer, caret.endOffset);
+  let previousBreak: HTMLBRElement | null = null;
+  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const element = node as HTMLElement;
+    if (element.tagName === "BR" && range.intersectsNode(element)) {
+      previousBreak = element as HTMLBRElement;
+    }
+  }
+  if (previousBreak) range.setStartAfter(previousBreak);
+  const typed = range.toString().replaceAll(ZERO_WIDTH_SPACE, "");
+  return MARKDOWN_BULLET_PREFIX.test(typed) ? { range, previousBreak } : null;
+}
+
+export function hasMarkdownBulletPrefixAtCaret(el: HTMLElement): boolean {
+  return markdownBulletPrefixRange(el) !== null;
+}
+
 /**
- * If `el`'s content starts with a markdown-style "- "/"* " prefix and the
- * caret sits right after it, convert `el`'s content into a styled bullet row
- * — a small marker span plus a text span holding the rest of `el`'s content —
+ * If the current line in `el` starts with a markdown-style "- "/"* " prefix
+ * and the caret sits right after it, convert the line into a styled bullet row
+ * — a small marker span plus a text span holding the rest of the line —
  * nested inside `el`, which becomes the list container. `el` itself must stay
  * the contentEditable root (nesting the row rather than turning `el` itself
  * into the row) so a later Enter's cloned sibling row lands inside the same
@@ -189,23 +217,9 @@ const MARKDOWN_BULLET_PREFIX = /^[-*] $/;
  * isn't a collapsed caret.
  */
 export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
-  if (isBulletRow(el) || isBulletList(el)) return false;
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return false;
-  const caretRange = sel.getRangeAt(0);
-  if (!caretRange.collapsed) return false;
-
-  const beforeCaretRange = document.createRange();
-  beforeCaretRange.selectNodeContents(el);
-  beforeCaretRange.setEnd(caretRange.endContainer, caretRange.endOffset);
-  // A freshly-placed text box seeds its content with a zero-width-space
-  // placeholder (see placeTextBoxAt) so it has a font to inherit before any
-  // real text exists. Strip it before testing so "- " typed as the very
-  // first characters is still recognized as a bullet prefix.
-  const beforeCaretText = beforeCaretRange
-    .toString()
-    .replace(new RegExp(ZERO_WIDTH_SPACE, "g"), "");
-  if (!MARKDOWN_BULLET_PREFIX.test(beforeCaretText)) return false;
+  const prefix = markdownBulletPrefixRange(el);
+  if (!prefix) return false;
+  const { range: beforeCaretRange, previousBreak } = prefix;
   beforeCaretRange.deleteContents();
 
   const marker = document.createElement("span");
@@ -215,7 +229,19 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   marker.textContent = "\u25CF";
 
   const textSpan = document.createElement("span");
-  while (el.firstChild) textSpan.appendChild(el.firstChild);
+  let rowInsertionRange: Range | null = null;
+  if (previousBreak) {
+    const breaks = Array.from(el.querySelectorAll("br"));
+    const nextBreak = breaks[breaks.indexOf(previousBreak) + 1];
+    const line = el.ownerDocument.createRange();
+    line.setStartAfter(previousBreak);
+    if (nextBreak) line.setEndBefore(nextBreak);
+    else line.setEnd(el, el.childNodes.length);
+    textSpan.append(extractWithoutCopiedIdentity(line));
+    rowInsertionRange = line;
+  } else {
+    while (el.firstChild) textSpan.appendChild(el.firstChild);
+  }
   const restFirstChild = textSpan.firstChild;
   let placeholderZws: Text | null = null;
   if (!restFirstChild) {
@@ -228,13 +254,19 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   row.style.alignItems = "baseline";
   row.style.gap = "0.7em";
   row.append(marker, textSpan);
-  el.append(row);
+  if (previousBreak) {
+    // A hard line break inside the editable root is one paragraph boundary.
+    // Keep earlier lines where they are and turn only this line into a row.
+    if (!rowInsertionRange) return false;
+    rowInsertionRange.insertNode(row);
+  } else {
+    el.append(row);
+    if (!el.style.display) el.style.display = "flex";
+    if (!el.style.flexDirection) el.style.flexDirection = "column";
+    if (!el.style.gap) el.style.gap = "0.6em";
+  }
 
-  if (!el.style.display) el.style.display = "flex";
-  if (!el.style.flexDirection) el.style.flexDirection = "column";
-  if (!el.style.gap) el.style.gap = "0.6em";
-
-  const range = document.createRange();
+  const range = el.ownerDocument.createRange();
   if (restFirstChild) {
     range.setStartBefore(restFirstChild);
   } else {
@@ -244,6 +276,8 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
     range.setStart(placeholderZws as Text, ZERO_WIDTH_SPACE.length);
   }
   range.collapse(true);
+  const sel = window.getSelection();
+  if (!sel) return false;
   sel.removeAllRanges();
   sel.addRange(range);
   return true;

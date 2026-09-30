@@ -10,6 +10,7 @@ import {
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
 import {
+  getRequestContext,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
   runWithRequestContext,
@@ -35,6 +36,7 @@ export type AgentRunOwnerContext = {
   identityAuthenticatedAtMs?: number;
   name?: string;
   orgId?: string | null;
+  orgScope?: "personal" | null;
 };
 
 export const AGENT_RUN_OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
@@ -154,20 +156,22 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
-  orgId?: string | null,
-): Promise<AgentRunOwnerContext | null> {
-  try {
-    const { getRunOwnerEmail } = await import("../agent/run-store.js");
-    const owner = await getRunOwnerEmail(runId);
-    if (!owner) return null;
-    return seedAgentRunOwnerContext(event, {
-      owner,
-      anonymous: false,
-      ...(orgId !== undefined ? { orgId } : {}),
+): Promise<AgentRunOwnerContext> {
+  const { getTurnInitiatorByRun } = await import("../agent/run-store.js");
+  const initiator = await getTurnInitiatorByRun(runId);
+  if (!initiator) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: "Agent turn initiator is unavailable",
     });
-  } catch {
-    return null;
   }
+  return seedAgentRunOwnerContext(event, {
+    owner: initiator.email,
+    anonymous: initiator.anonymous,
+    ...(initiator.authUserId ? { authUserId: initiator.authUserId } : {}),
+    orgScope: initiator.orgScope,
+    orgId: initiator.orgId,
+  });
 }
 
 export async function resolveAgentRunOwnerContext(
@@ -183,6 +187,7 @@ export async function resolveAgentRunOwnerContext(
   const { getSession } = await import("./auth.js");
   const session = await getSession(event);
   if (session?.email) {
+    const orgScope = getRequestContext()?.orgScope;
     const identityAuthenticatedAtMs = getRequestIdentityAuthenticatedAtMs(
       event,
       session.email,
@@ -195,6 +200,7 @@ export async function resolveAgentRunOwnerContext(
         : {}),
       ...(session.authUserId ? { authUserId: session.authUserId } : {}),
       name: session.name,
+      ...(orgScope ? { orgScope } : {}),
     });
   }
 
@@ -287,6 +293,10 @@ export async function resolveAgentRunRequestContext(options: {
     ...(options.ownerContext.authUserId
       ? { authUserId: options.ownerContext.authUserId }
       : {}),
+    ...(options.ownerContext.orgScope === "personal"
+      ? { orgScope: "personal" as const }
+      : {}),
+    ...(options.ownerContext.anonymous ? { agentRunAnonymous: true } : {}),
     ...(options.ownerContext.identityAuthenticatedAtMs !== undefined
       ? {
           identityAuthenticatedAtMs:

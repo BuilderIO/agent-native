@@ -1,13 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
-import {
-  isInboxScopedAppLabel,
-  mailLabelsInclude,
-  mailLabelsIncludeAny,
-} from "@shared/gmail-labels";
-import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { inboxTabHref } from "@shared/inbox-threads";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
@@ -18,6 +13,7 @@ import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
   FOCUS_COMPOSE_DRAFT_EVENT,
@@ -27,7 +23,7 @@ import {
   EMPTY_LABELS,
   useEmails,
   useLabels,
-  useMarkRead,
+  useMarkThreadRead,
   useSettings,
 } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -51,6 +47,8 @@ import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
   inboxThreadKey,
+  isInboxScopedLabel,
+  resolveInboxEmailQueryScope,
   savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import {
@@ -67,10 +65,12 @@ function ContactPanel({
   emailId,
   contactEmail,
   emails,
+  allowEmailSearch,
 }: {
   emailId: string | undefined;
   contactEmail?: string;
   emails: EmailMessage[];
+  allowEmailSearch: boolean;
 }) {
   const t = useT();
   const email = useMemo(
@@ -91,7 +91,7 @@ function ContactPanel({
     isFetchingNextPage,
     isFetchNextPageError,
   } = useEmails("all", normalizedDisplayEmail || undefined, undefined, {
-    enabled: Boolean(normalizedDisplayEmail),
+    enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch,
   });
   const contactPageFetchesRef = useRef(0);
   const contactGenerationRef = useRef(0);
@@ -170,6 +170,26 @@ function ContactPanel({
   );
 }
 
+function ContactPanelSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col">
+      <div className="space-y-1.5 px-4 pt-4 pb-3">
+        <Skeleton className="h-4 w-8" />
+        <Skeleton className="h-3 w-40 max-w-full" />
+        <Skeleton className="h-3 w-28" />
+      </div>
+      <div className="flex items-center gap-2 px-4 py-2">
+        <Skeleton className="size-5 rounded-md" />
+        <Skeleton className="h-3 w-14" />
+      </div>
+      <div className="mx-4 h-px bg-border/30" />
+      <div className="px-4 py-2">
+        <Skeleton className="h-3 w-20" />
+      </div>
+    </div>
+  );
+}
+
 function formatSidebarSender(thread: ThreadSummary): string {
   if (thread.messageCount <= 1) {
     return thread.latestMessage.from.name || thread.latestMessage.from.email;
@@ -201,7 +221,7 @@ function ThreadListSidebar({
   onNavigateThread: (threadId: string) => void;
 }) {
   const navigate = useNavigate();
-  const markRead = useMarkRead();
+  const markThreadRead = useMarkThreadRead();
   const threads = useMemo(() => groupIntoThreads(emails), [emails]);
   const selectAllThreads = useCallback(() => {
     if (threads.length === 0) return;
@@ -230,12 +250,10 @@ function ThreadListSidebar({
               key={email.id}
               onClick={() => {
                 setSelectedIds(new Set());
-                if (!email.isRead)
-                  markRead.mutate({
-                    id: email.id,
-                    isRead: true,
+                if (thread.hasUnread)
+                  markThreadRead.mutate({
+                    threadId: threadKey,
                     accountEmail: email.accountEmail,
-                    threadId: email.threadId || email.id,
                   });
                 onNavigateThread(threadKey);
                 void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
@@ -249,7 +267,10 @@ function ThreadListSidebar({
                     : "hover:bg-accent dark:hover:bg-[var(--mail-sidebar-hover-surface)]",
               )}
             >
-              <div className="flex items-center gap-1.5 min-w-0 w-full">
+              <div
+                data-an-mask
+                className="flex items-center gap-1.5 min-w-0 w-full"
+              >
                 {thread.hasUnread && (
                   <div className="h-[7px] w-[7px] rounded-full bg-primary shrink-0" />
                 )}
@@ -260,7 +281,6 @@ function ThreadListSidebar({
                       ? "font-semibold text-foreground"
                       : "text-foreground/90",
                   )}
-                  title={senderName}
                 >
                   {senderName}
                 </span>
@@ -271,7 +291,6 @@ function ThreadListSidebar({
                       ? "font-medium text-foreground"
                       : "text-muted-foreground/90",
                   )}
-                  title={email.subject}
                 >
                   {email.subject}
                 </span>
@@ -382,6 +401,7 @@ export function InboxPage() {
   }, [changeSortMode, showPrioritySort, sortMode]);
   useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
   const [searchParams] = useSearchParams();
+  const isOnboardingPreview = searchParams.get("onboarding") === "preview";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -422,31 +442,7 @@ export function InboxPage() {
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
-  const activeLabelRecord = useMemo(() => {
-    if (!activeLabel) return undefined;
-    const normalizedId = activeLabel.includes("/")
-      ? activeLabel
-          .slice(activeLabel.lastIndexOf("/") + 1)
-          .replace(/_/g, " ")
-          .toLowerCase()
-      : activeLabel.toLowerCase();
-    return labels.find(
-      (label) =>
-        label.id === activeLabel ||
-        label.id === normalizedId ||
-        label.name.toLowerCase() === activeLabel.toLowerCase(),
-    );
-  }, [activeLabel, labels]);
-  const activeLabelIsInboxScoped =
-    !!activeLabel &&
-    activeLabelRecord?.type !== "user" &&
-    isInboxScopedAppLabel(activeLabelRecord?.id ?? activeLabel);
-  const shouldNormalizeCombinedInboxRoute =
-    combineInbox &&
-    view === "inbox" &&
-    (activeLabelIsInboxScoped ||
-      activeInboxTab === OTHER_INBOX_TAB_PARAM ||
-      activeInboxTab === ALL_TAB_PARAM);
+  const activeLabelIsInboxScoped = isInboxScopedLabel(activeLabel, labels);
 
   const activeSavedFilter = settings?.savedFilters?.find(
     (filter) => filter.id === activeFilterId,
@@ -457,6 +453,21 @@ export function InboxPage() {
   );
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
+  const {
+    shouldNormalizeCombinedInboxRoute,
+    clientSliceTab,
+    effectiveLabel,
+    emailView,
+  } = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped,
+    activeSavedFilter: !!activeSavedFilter,
+    combineInbox,
+    triageLabels,
+    searchQuery,
+  });
 
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
@@ -537,15 +548,27 @@ export function InboxPage() {
     { enabled: isInboxView && inboxExtraOffsets.length > 0 },
   );
   const inboxItems = useMemo(
-    () => [
-      ...(inboxThreads.data?.items ?? []),
-      ...mergeInboxThreadPages(inboxExtraPages.map((page) => page.data)),
-    ],
+    () =>
+      mergeInboxThreadPages([
+        inboxThreads.data,
+        ...inboxExtraPages.map((page) => page.data),
+      ]),
     [inboxThreads.data?.items, inboxExtraPages],
   );
   const inboxHasNextPage =
     isInboxView && inboxThreads.data !== undefined
-      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)
+      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total, {
+          complete:
+            inboxExtraPages[inboxExtraPages.length - 1]?.data?.complete ??
+            inboxThreads.data.complete,
+          lastPageLength:
+            inboxExtraPages[inboxExtraPages.length - 1]?.data?.items.length ??
+            inboxThreads.data.items.length,
+          pageSize: INBOX_PAGE_SIZE,
+          totalIsLowerBound: inboxThreads.data.tabs.find(
+            (tab) => tab.id === inboxThreads.data.activeTabId,
+          )?.totalIsLowerBound,
+        })
       : false;
   const inboxIsFetchingNextPage = inboxExtraPages.some(
     (page) => page.isFetching,
@@ -588,6 +611,7 @@ export function InboxPage() {
 
   useEffect(() => {
     if (
+      isOnboardingPreview ||
       settingsLoading ||
       settingsError ||
       !settings ||
@@ -615,6 +639,7 @@ export function InboxPage() {
     activeInboxTab,
     activeLabel,
     combineInbox,
+    isOnboardingPreview,
     isGoogleConnected,
     navigate,
     routeThreadId,
@@ -627,7 +652,7 @@ export function InboxPage() {
   ]);
 
   useEffect(() => {
-    if (!shouldNormalizeCombinedInboxRoute) return;
+    if (isOnboardingPreview || !shouldNormalizeCombinedInboxRoute) return;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("label");
     nextParams.delete("tab");
@@ -639,31 +664,18 @@ export function InboxPage() {
       },
       { replace: true },
     );
-  }, [navigate, searchParams, shouldNormalizeCombinedInboxRoute]);
+  }, [
+    isOnboardingPreview,
+    navigate,
+    searchParams,
+    shouldNormalizeCombinedInboxRoute,
+  ]);
 
-  const isPinnedTab =
-    !!activeLabel &&
-    view === "inbox" &&
-    mailLabelsInclude(triageLabels, activeLabel);
-  const mailboxWideLabelTab =
-    view === "inbox" && !!activeLabel && !activeLabelIsInboxScoped;
-  const clientSliceTab =
-    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
     !combineInbox &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
     !searchQuery;
-  const effectiveLabel = shouldNormalizeCombinedInboxRoute
-    ? undefined
-    : clientSliceTab
-      ? undefined
-      : (activeLabel ?? undefined);
-  const emailView = activeSavedFilter
-    ? "inbox"
-    : mailboxWideLabelTab
-      ? "all"
-      : view;
   const {
     data: fetchedEmails,
     isLoading: emailsIsLoading,
@@ -930,27 +942,6 @@ export function InboxPage() {
     prevThreadsRef.current = rawThreads;
     return rawThreads;
   }, [rawThreads]);
-  const activeSubject = threadId
-    ? threads.find(
-        (thread) =>
-          (thread.latestMessage.threadId || thread.latestMessage.id) ===
-          threadId,
-      )?.latestMessage.subject
-    : undefined;
-
-  useEffect(() => {
-    if (!activeSubject) return;
-    const nextTitle = `${normalizeDocumentTitle(
-      activeSubject,
-      t("mail.routeTitles.emailThread"),
-    )} — Mail`;
-    const previousTitle = document.title;
-    document.title = nextTitle;
-    return () => {
-      if (document.title === nextTitle) document.title = previousTitle;
-    };
-  }, [activeSubject, t]);
-
   const threadIds = useMemo(
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],
@@ -1124,14 +1115,20 @@ export function InboxPage() {
         )}
       </div>
 
-      {/* Right contact panel — hidden during initial load or when maximized */}
-      {!emailListLoading && !(hasThread && isMaximized) && (
+      {!(hasThread && isMaximized) && (
         <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
-          <ContactPanel
-            emailId={contactEmailId}
-            contactEmail={sidebarContactEmail}
-            emails={emails}
-          />
+          {emailListLoading ? (
+            <ContactPanelSkeleton />
+          ) : (
+            <ContactPanel
+              emailId={contactEmailId}
+              contactEmail={sidebarContactEmail}
+              emails={emails}
+              allowEmailSearch={
+                !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
+              }
+            />
+          )}
         </div>
       )}
     </div>

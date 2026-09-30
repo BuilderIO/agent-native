@@ -150,13 +150,10 @@ export default {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
-    account: "账户",
     signedInAs: "登录身份",
     credentials: "数据源凭据",
     credentialsDescription: "API 密钥和凭据在数据源页面管理。",
     manageDataSources: "管理数据源",
-    languageTitle: "语言",
-    languageLabel: "界面语言",
     errorEmailNotifications: "通过电子邮件接收新的错误提醒",
     errorEmailNotificationsDescription:
       "捕获新的 JavaScript 错误时发送电子邮件。默认关闭。",
@@ -199,7 +196,6 @@ export default {
     storageSaved: "存储设置已保存。",
     storageSaveFailed: "无法保存存储设置。",
     alertsTitle: "提醒",
-    alertsDescription: "管理第一方分析事件规则和通知投递。",
     alertRunNow: "运行检查",
     alertNew: "新建提醒",
     alertsEmptyTitle: "还没有提醒规则",
@@ -910,6 +906,10 @@ export default {
     recentSales: "最近销售",
     recentSalesDescription: "你本月完成了 265 笔销售。",
   },
+  analysisResult: {
+    title: "分析结果",
+    comparisonContext: "{{period}}：{{current}}，此前为 {{previous}}",
+  },
   routeTitles: {
     notFound: "未找到 - Analytics",
     analysis: "分析 - Analytics",
@@ -1024,6 +1024,7 @@ export default {
       'Remove "{{name}}" from this dashboard? This cannot be undone.',
   },
   sqlDashboard: {
+    customRange: "自定义范围",
     untitledDashboard: "无标题仪表板",
     dashboardFallback: "仪表板",
     viewOnly: "您对此仪表板只有查看权限。",

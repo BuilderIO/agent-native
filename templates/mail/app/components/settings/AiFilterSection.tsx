@@ -4,7 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -24,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import type { DragEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -68,10 +69,17 @@ import { labelTabHref } from "@/lib/inbox-tabs";
 
 type RuleMode = AiFilterRuleMode;
 
-const RULE_MODES: RuleMode[] = ["important", "tag", "filtered", "archive"];
+const RULE_MODES: RuleMode[] = [
+  "important",
+  "notify",
+  "tag",
+  "filtered",
+  "archive",
+];
 const EMPTY_RULES: AutomationRule[] = [];
 const RULE_MODE_HELP_KEYS: Record<RuleMode, string> = {
   important: "mail.aiFilter.importantRuleHelp",
+  notify: "mail.aiFilter.notifyModeHelp",
   tag: "mail.aiFilter.aiTagRuleHelp",
   filtered: "mail.aiFilter.spamRuleHelp",
   archive: "mail.aiFilter.skipInboxRuleHelp",
@@ -268,19 +276,25 @@ function RuleBackfillStatus({
   status,
   loading,
   starting,
-  failed,
   undoing,
   reviewHref,
   onUndo,
+  onRetry,
+  retrying,
+  canRetry,
+  showFailure,
 }: {
   ruleId: string;
   status: AiFilterBackfillStatus | undefined;
   loading: boolean;
   starting: boolean;
-  failed: boolean;
   undoing: boolean;
   reviewHref: string | null;
   onUndo: (runId: string, undoToken: string) => void;
+  onRetry: () => void;
+  retrying: boolean;
+  canRetry: boolean;
+  showFailure: boolean;
 }) {
   const t = useT();
   const working =
@@ -291,7 +305,8 @@ function RuleBackfillStatus({
     status?.status === "undoing" ||
     undoing;
 
-  if (!starting && !loading && !failed && !status && !undoing) return null;
+  if (!starting && !loading && !status && !undoing) return null;
+  if (status?.status === "failed" && !showFailure) return null;
 
   if (working) {
     const percent =
@@ -304,7 +319,7 @@ function RuleBackfillStatus({
     const message =
       undoing || status?.status === "undoing"
         ? t("mail.aiFilter.ruleBackfillUndoing")
-        : starting || loading
+        : starting || loading || status?.totalThreads === 0
           ? t("mail.aiFilter.ruleBackfillStarting")
           : t("mail.aiFilter.ruleBackfillProgress", {
               processed: status?.processedThreads ?? 0,
@@ -326,26 +341,58 @@ function RuleBackfillStatus({
     );
   }
 
-  if (failed || status?.status === "failed") {
+  const ruleStatus = status?.perRule.find((item) => item.ruleId === ruleId);
+  if (status?.status === "failed") {
     return (
       <div
         role="alert"
         className="flex items-center justify-between gap-2 border-t border-border/40 px-3 py-2.5"
       >
-        <p className="text-xs text-destructive">
-          {t("mail.aiFilter.ruleBackfillFailed")}
-        </p>
-        {status?.undoToken && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7"
-            onClick={() => onUndo(status.runId, status.undoToken!)}
-            disabled={undoing}
-          >
-            {t("mail.actions.undo")}
-          </Button>
-        )}
+        <div className="min-w-0">
+          {ruleStatus && ruleStatus.matchedCount > 0 && (
+            <p className="mb-1 text-xs font-medium text-foreground">
+              {t("mail.aiFilter.ruleBackfillMatches", {
+                count: ruleStatus.matchedCount,
+              })}
+            </p>
+          )}
+          <p className="text-xs text-destructive">
+            {t(
+              status.failedRuleId
+                ? "mail.aiFilter.ruleBackfillFailed"
+                : "mail.aiFilter.ruleBackfillRunFailed",
+            )}
+          </p>
+          {status?.error && (
+            <p className="mt-1 break-words text-xs text-muted-foreground">
+              {status.error}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {status.undoToken && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={() => onUndo(status.runId, status.undoToken!)}
+              disabled={undoing}
+            >
+              {t("mail.actions.undo")}
+            </Button>
+          )}
+          {canRetry && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={onRetry}
+              disabled={retrying || undoing}
+            >
+              {t("mail.error.tryAgain")}
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -360,8 +407,10 @@ function RuleBackfillStatus({
     );
   }
 
-  const ruleStatus = status.perRule.find((item) => item.ruleId === ruleId);
-  if (!ruleStatus) {
+  const completedRuleStatus = status.perRule.find(
+    (item) => item.ruleId === ruleId,
+  );
+  if (!completedRuleStatus) {
     return status.failedThreads > 0 ? (
       <p
         role="alert"
@@ -378,14 +427,14 @@ function RuleBackfillStatus({
     <div className="space-y-2 border-t border-border/40 px-3 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-medium text-foreground">
-          {ruleStatus.matchedCount > 0
+          {completedRuleStatus.matchedCount > 0
             ? t("mail.aiFilter.ruleBackfillMatches", {
-                count: ruleStatus.matchedCount,
+                count: completedRuleStatus.matchedCount,
               })
             : t("mail.aiFilter.ruleBackfillNoMatches")}
         </p>
         <div className="flex items-center gap-1">
-          {reviewHref && ruleStatus.matchedCount > 0 && (
+          {reviewHref && completedRuleStatus.matchedCount > 0 && (
             <Button variant="ghost" size="sm" className="h-7" asChild>
               <Link to={reviewHref}>
                 {t("mail.aiFilter.ruleBackfillReview")}
@@ -412,9 +461,9 @@ function RuleBackfillStatus({
           })}
         </p>
       )}
-      {ruleStatus.previews.length > 0 && (
+      {completedRuleStatus.previews.length > 0 && (
         <ul className="divide-y divide-border/40">
-          {ruleStatus.previews.slice(0, 3).map((preview) => (
+          {completedRuleStatus.previews.slice(0, 3).map((preview) => (
             <li
               key={preview.id}
               className="min-w-0 py-1.5 first:pt-0 last:pb-0"
@@ -433,8 +482,9 @@ function RuleBackfillStatus({
   );
 }
 
-export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
+export function AiFilterSection() {
   const t = useT();
+  const { hash } = useLocation();
   const navigate = useNavigate();
   const { data: state, isLoading: filterLoading } = useAiFilter();
   const automations = useAutomations();
@@ -524,6 +574,40 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
     }
   }, [state?.autoFilterThreshold]);
 
+  const scrolledHash = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state || (automations.isError && automations.data === undefined))
+      return;
+
+    const targetId = hash.slice(1);
+    if (
+      scrolledHash.current === hash ||
+      (targetId !== "tags" && targetId !== "importance-rules")
+    ) {
+      return;
+    }
+
+    const scrollToTarget = () => {
+      const target = document.getElementById(targetId);
+      if (!target?.getClientRects().length) return false;
+      target.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      scrolledHash.current = hash;
+      return true;
+    };
+
+    if (scrollToTarget()) return;
+
+    const observer = new MutationObserver(() => {
+      if (scrollToTarget()) observer.disconnect();
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [automations.data, automations.isError, hash, state]);
+
   const updateAiSettings = (
     next:
       | { enabled: boolean }
@@ -568,6 +652,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
 
   const modeLabel = (mode: RuleMode) => {
     if (mode === "important") return t("mail.aiFilter.importantMode");
+    if (mode === "notify") return t("mail.aiFilter.notifyMode");
     if (mode === "tag") return t("mail.aiFilter.aiTagsTitle");
     if (mode === "filtered") return t("mail.aiFilter.filteredMode");
     return t("mail.aiFilter.autoArchiveMode");
@@ -590,13 +675,16 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
     });
   };
 
-  const queueRuleBackfill = async (ruleId: string) => {
+  const queueRuleBackfill = async (
+    ruleId: string,
+    ruleIds: string[] = [ruleId],
+  ) => {
     const requestSequence = ++backfillRequestSequence.current;
     setQueueingBackfillRuleId(ruleId);
     try {
       const result = await manageBackfill.mutateAsync({
         operation: "start",
-        ruleIds: [ruleId],
+        ruleIds,
       });
       if ("runId" in result)
         backfillToastRules.current.set(result.runId, ruleId);
@@ -801,7 +889,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   if (automations.isError && automations.data === undefined) {
     return (
       <div
-        className="flex max-w-180 items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+        className="flex w-full items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
         role="alert"
       >
         <span className="text-sm text-muted-foreground">
@@ -820,7 +908,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   }
 
   if (filterLoading || automations.isLoading || !state) {
-    return <Skeleton className="h-72 w-full max-w-180" />;
+    return <Skeleton className="h-72 w-full" />;
   }
 
   const decisions = latestAiFilterDecisions(state).slice(0, 5);
@@ -833,26 +921,30 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
       disabled={!jevConfigured && !state.enabled}
     />
   );
+  const manageAutomationsLink = (
+    <Link
+      to={buildSettingsRoute("agent:automations")}
+      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {t("mail.aiFilter.manageAutomationsLink")}
+    </Link>
+  );
 
   return (
     <>
-      <div className="max-w-180 space-y-7 pb-10">
-        {embedded ? (
-          <SettingsGroup id="ai-filter-settings">
-            <SettingsRow
-              id="ai-filter-enabled"
-              label={t("mail.aiFilter.triageTitle")}
-              control={enabledSwitch}
-            />
-          </SettingsGroup>
-        ) : (
-          <div className="flex items-center justify-between border-b border-border/50 pb-4">
-            <h2 className="text-base font-semibold text-foreground">
-              {t("mail.aiFilter.triageTitle")}
-            </h2>
-            {enabledSwitch}
-          </div>
-        )}
+      <div className="w-full space-y-7 pb-10">
+        <SettingsGroup id="ai-filter-settings">
+          <SettingsRow
+            id="ai-filter-enabled"
+            label={t("mail.aiFilter.triageTitle")}
+            control={
+              <div className="flex items-center gap-3">
+                {manageAutomationsLink}
+                {enabledSwitch}
+              </div>
+            }
+          />
+        </SettingsGroup>
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />
@@ -883,6 +975,26 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
               {t("mail.aiFilter.newRule")}
             </Button>
           </div>
+
+          {recentBackfills.isError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 px-3 py-2"
+            >
+              <p className="min-w-0 text-xs text-destructive">
+                {t("mail.aiFilter.backfillStatusLoadFailed")}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7"
+                onClick={() => void recentBackfills.refetch()}
+                disabled={recentBackfills.isFetching}
+              >
+                {t("mail.error.tryAgain")}
+              </Button>
+            </div>
+          )}
 
           {newRuleOpen && (
             <form
@@ -917,6 +1029,11 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                   </Tooltip>
                 ))}
               </div>
+              {newRuleMode === "notify" ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("mail.aiFilter.notifyModeHelp")}
+                </p>
+              ) : null}
               {newRuleMode === "tag" && (
                 <div className="space-y-1.5">
                   <label
@@ -976,9 +1093,26 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
           <div className="space-y-5">
             {RULE_MODES.map((mode) => {
               const modeRules = rulesByMode[mode];
-              if (mode !== "filtered" && modeRules.length === 0) return null;
+              if (
+                mode !== "filtered" &&
+                mode !== "important" &&
+                mode !== "tag" &&
+                modeRules.length === 0
+              ) {
+                return null;
+              }
+              const anchorId =
+                mode === "tag"
+                  ? "tags"
+                  : mode === "important"
+                    ? "importance-rules"
+                    : undefined;
               return (
-                <section key={mode} className="space-y-2">
+                <section
+                  key={mode}
+                  id={anchorId}
+                  className="scroll-mt-6 space-y-2"
+                >
                   <div className="flex items-center gap-1">
                     <h4 className="text-sm font-semibold text-foreground">
                       {modeLabel(mode)}
@@ -991,6 +1125,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                         variant="ghost"
                         size="sm"
                         className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                        disabled={!jevConfigured}
                         onClick={() => {
                           setNewRuleMode("filtered");
                           setNewRuleOpen(true);
@@ -1000,12 +1135,58 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                         {t("mail.aiFilter.newRule")}
                       </Button>
                     )}
+                    {(mode === "important" || mode === "tag") &&
+                      modeRules.length === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                          disabled={!jevConfigured}
+                          onClick={() => {
+                            setNewRuleMode(mode);
+                            setNewRuleOpen(true);
+                          }}
+                        >
+                          <IconPlus className="size-4" />
+                          {t("mail.aiFilter.newRule")}
+                        </Button>
+                      )}
                     {modeRules.map((rule) => {
-                      const status = recentBackfills.data?.find((run) =>
-                        run.perRule.some(
-                          (progress) => progress.ruleId === rule.id,
+                      const status = recentBackfills.isError
+                        ? undefined
+                        : recentBackfills.data?.find((run) =>
+                            run.perRule.some(
+                              (progress) => progress.ruleId === rule.id,
+                            ),
+                          );
+                      const failedRuleIsPresent = Boolean(
+                        status?.failedRuleId &&
+                        instructions.some(
+                          (instruction) =>
+                            instruction.id === status.failedRuleId,
                         ),
                       );
+                      const failureRuleId = status?.failedRuleId
+                        ? failedRuleIsPresent
+                          ? status.failedRuleId
+                          : undefined
+                        : status?.perRule.find((progress) =>
+                            instructions.some(
+                              (instruction) =>
+                                instruction.id === progress.ruleId,
+                            ),
+                          )?.ruleId;
+                      const failureDisplayRuleId =
+                        failureRuleId ??
+                        status?.perRule.find((progress) =>
+                          instructions.some(
+                            (instruction) => instruction.id === progress.ruleId,
+                          ),
+                        )?.ruleId;
+                      const statusForDisplay =
+                        status?.failedRuleId && !failedRuleIsPresent
+                          ? { ...status, failedRuleId: undefined }
+                          : status;
                       return (
                         <div key={rule.id} className="overflow-hidden">
                           <RuleRow
@@ -1037,14 +1218,43 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                           {(queueingBackfillRuleId === rule.id || status) && (
                             <RuleBackfillStatus
                               ruleId={rule.id}
-                              status={status}
+                              status={statusForDisplay}
                               loading={!status && recentBackfills.isLoading}
                               starting={queueingBackfillRuleId === rule.id}
-                              failed={!status && recentBackfills.isError}
                               undoing={undoingBackfill}
                               reviewHref={reviewHrefForRule(rule)}
+                              retrying={queueingBackfillRuleId === rule.id}
+                              showFailure={
+                                status?.status !== "failed" ||
+                                rule.id === failureDisplayRuleId
+                              }
+                              canRetry={
+                                state?.enabled === true &&
+                                jevConfigured &&
+                                rule.enabled &&
+                                status?.status === "failed" &&
+                                (status.appliedThreads === 0 ||
+                                  ((status.restoredThreads ?? 0) === 0 &&
+                                    (status.undoFailures ?? 0) === 0)) &&
+                                status.perRule.length > 0 &&
+                                status.perRule.every((progress) =>
+                                  instructions.some(
+                                    (instruction) =>
+                                      instruction.id === progress.ruleId &&
+                                      instruction.enabled,
+                                  ),
+                                )
+                              }
                               onUndo={(runId, undoToken) =>
                                 void undoRuleBackfill(runId, undoToken)
+                              }
+                              onRetry={() =>
+                                void queueRuleBackfill(
+                                  rule.id,
+                                  status?.perRule.map(
+                                    (progress) => progress.ruleId,
+                                  ) ?? [rule.id],
+                                )
                               }
                             />
                           )}

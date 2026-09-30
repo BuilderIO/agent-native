@@ -1,8 +1,6 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 
 import { shouldEnableBrainProviderStatusChecks } from "@/lib/brain-chat-readiness";
@@ -39,31 +37,28 @@ export default function AskRoute() {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="brain-chat-panel"
-        defaultMode="chat"
-        storageKey="brain"
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={t("ask.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("ask.composerPlaceholder")}
-        providerStatusChecksEnabled={shouldEnableBrainProviderStatusChecks()}
-        composerSlot={
-          <div className="brain-chat-intro">
-            <h1>{t("ask.heroTitle")}</h1>
-            <p>{t("ask.heroDescription")}</p>
-          </div>
-        }
-      />
-    </div>
+    <AgentChatHome
+      className="h-full min-h-0"
+      chatViewTransition
+      surfaceClassName="brain-chat-panel"
+      defaultMode="chat"
+      storageKey="brain"
+      browserTabId={TAB_ID}
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={t("ask.emptyState")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("ask.composerPlaceholder")}
+      providerStatusChecksEnabled={shouldEnableBrainProviderStatusChecks()}
+      homeIntroSlot={
+        <div className="brain-chat-intro">
+          <h1>{t("ask.heroTitle")}</h1>
+        </div>
+      }
+    />
   );
 }

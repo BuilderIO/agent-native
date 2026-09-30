@@ -1,5 +1,4 @@
-import * as Sentry from "@sentry/node";
-
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import type { AuthSession } from "./auth.js";
 import {
   resolveDeployEnvironment,
@@ -12,7 +11,8 @@ import {
 import { getRequestContext } from "./request-context.js";
 import { resolveServerSentryDsn } from "./sentry-config.js";
 
-let _initStarted = false;
+let Sentry: typeof import("@sentry/node") | undefined;
+let _initPromise: Promise<boolean> | undefined;
 let _initSucceeded = false;
 
 function parseTracesSampleRate(): number {
@@ -23,9 +23,8 @@ function parseTracesSampleRate(): number {
   return n;
 }
 
-export function initServerSentry(): boolean {
-  if (_initStarted) return _initSucceeded;
-  _initStarted = true;
+export function initServerSentry(): Promise<boolean> {
+  if (_initPromise) return _initPromise;
 
   const dsn = resolveServerSentryDsn();
   if (!dsn) {
@@ -34,65 +33,75 @@ export function initServerSentry(): boolean {
         "[agent-native] SENTRY_SERVER_DSN/SENTRY_DSN not set — server Sentry disabled.",
       );
     }
-    return false;
+    _initPromise = Promise.resolve(false);
+    return _initPromise;
   }
 
-  Sentry.init({
-    dsn,
-    environment: resolveDeployEnvironment(),
-    release: resolveServerRelease(),
-    tracesSampleRate: parseTracesSampleRate(),
-    sendDefaultPii: false,
-    beforeSend(event) {
-      event.tags = {
-        ...event.tags,
-        deployment_environment: resolveDeployEnvironment(),
-      };
+  _initPromise = loadOptionalPeer("@sentry/node", () => import("@sentry/node"))
+    .then((sentry) => {
+      Sentry = sentry;
+      sentry.init({
+        dsn,
+        environment: resolveDeployEnvironment(),
+        release: resolveServerRelease(),
+        tracesSampleRate: parseTracesSampleRate(),
+        sendDefaultPii: false,
+        beforeSend(event) {
+          event.tags = {
+            ...event.tags,
+            deployment_environment: resolveDeployEnvironment(),
+          };
 
-      if (!shouldReportErrorSignal(errorSignalFromSentryEvent(event))) {
-        return null;
-      }
+          if (!shouldReportErrorSignal(errorSignalFromSentryEvent(event))) {
+            return null;
+          }
 
-      if (event.request) {
-        if (event.request.headers) {
-          const headers = event.request.headers as Record<string, string>;
-          for (const k of Object.keys(headers)) {
-            const lk = k.toLowerCase();
-            if (
-              lk === "cookie" ||
-              lk === "authorization" ||
-              lk === "set-cookie" ||
-              lk === "proxy-authorization"
-            ) {
-              delete headers[k];
+          if (event.request) {
+            if (event.request.headers) {
+              const headers = event.request.headers as Record<string, string>;
+              for (const k of Object.keys(headers)) {
+                const lk = k.toLowerCase();
+                if (
+                  lk === "cookie" ||
+                  lk === "authorization" ||
+                  lk === "set-cookie" ||
+                  lk === "proxy-authorization"
+                ) {
+                  delete headers[k];
+                }
+              }
+            }
+            delete (event.request as Record<string, unknown>).cookies;
+          }
+
+          if (event.user) {
+            const user = event.user as Record<string, unknown>;
+            delete user.ip_address;
+            const hasIdentity =
+              typeof user.id === "string" ||
+              typeof user.email === "string" ||
+              typeof user.username === "string";
+            if (!hasIdentity) {
+              delete event.user;
             }
           }
-        }
-        delete (event.request as Record<string, unknown>).cookies;
-      }
 
-      if (event.user) {
-        const user = event.user as Record<string, unknown>;
-        delete user.ip_address;
-        const hasIdentity =
-          typeof user.id === "string" ||
-          typeof user.email === "string" ||
-          typeof user.username === "string";
-        if (!hasIdentity) {
-          delete event.user;
-        }
-      }
+          if (event.contexts && typeof event.contexts === "object") {
+            delete (event.contexts as Record<string, unknown>).runtime_env;
+          }
 
-      if (event.contexts && typeof event.contexts === "object") {
-        delete (event.contexts as Record<string, unknown>).runtime_env;
-      }
-
-      return event;
-    },
-  });
-
-  _initSucceeded = true;
-  return true;
+          return event;
+        },
+      });
+      _initSucceeded = true;
+      return true;
+    })
+    .catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`[agent-native] Server Sentry disabled: ${detail}`);
+      return false;
+    });
+  return _initPromise;
 }
 
 export function isServerSentryEnabled(): boolean {
@@ -112,7 +121,7 @@ export function isServerSentryEnabled(): boolean {
  * never throws into the request path.
  */
 export function setSentryUserForRequest(session: AuthSession | null): void {
-  if (!_initSucceeded) return;
+  if (!_initSucceeded || !Sentry) return;
   try {
     const scope = Sentry.getIsolationScope();
     if (!session) {
@@ -139,7 +148,7 @@ export function setSentryRequestContext(ctx: {
   userEmail?: string;
   orgId?: string;
 }): void {
-  if (!_initSucceeded) return;
+  if (!_initSucceeded || !Sentry) return;
   try {
     const scope = Sentry.getIsolationScope();
     if (ctx.userEmail) {
@@ -175,16 +184,17 @@ export function captureAuthError(
   },
 ): string | undefined {
   if (getRequestContext()?.isSyntheticTraffic) return undefined;
-  if (!_initSucceeded) return undefined;
+  if (!_initSucceeded || !Sentry) return undefined;
+  const sentry = Sentry;
   try {
-    return Sentry.withScope((scope) => {
+    return sentry.withScope((scope) => {
       scope.setLevel("warning");
       scope.setTag("auth", context.route);
       if (context.path) scope.setTag("path", context.path);
       if (context.email) {
         scope.setUser({ id: context.email, email: context.email });
       }
-      return Sentry.captureException(error);
+      return sentry.captureException(error);
     });
   } catch {
     return undefined;
@@ -205,9 +215,10 @@ export function captureRouteError(
   context: RouteErrorContext = {},
 ): string | undefined {
   if (getRequestContext()?.isSyntheticTraffic) return undefined;
-  if (!_initSucceeded) return undefined;
+  if (!_initSucceeded || !Sentry) return undefined;
+  const sentry = Sentry;
   try {
-    return Sentry.withScope((scope) => {
+    return sentry.withScope((scope) => {
       if (context.route) scope.setTag("route", context.route);
       if (context.method) scope.setTag("method", context.method);
       if (context.userAgent) scope.setTag("userAgent", context.userAgent);
@@ -226,7 +237,7 @@ export function captureRouteError(
           scope.setContext(k, v);
         }
       }
-      return Sentry.captureException(error);
+      return sentry.captureException(error);
     });
   } catch {
     return undefined;
