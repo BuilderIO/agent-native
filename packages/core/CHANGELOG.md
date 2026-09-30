@@ -51,6 +51,21 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.198.1
+
+### Patch Changes
+
+- 0b127e9: Clear chat input immediately on submit and show the pending response status in the transcript.
+- fc8fce1: Make MCP App chat bridges preserve host results and reject unsafe fallbacks.
+- Release all public npm packages with a patch version bump.
+- affa25c: Keep provider readiness checks quiet around chat composers.
+- 905b078: Fix the `useSendToAgentChat` migration from Core's mixed chat subpath to Toolkit's composer UI. See the [Core UI migration guide](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).
+- bbd485b: The shared Vitest config (`@agent-native/core/vitest-config`) now allows 30 seconds per test instead of Vitest's 5-second default, so tests that boot PGlite or import a server bundle no longer time out when test workers use every core.
+- Updated dependencies [0b127e9]
+- Updated dependencies
+  - @agent-native/agentkit@0.198.1
+  - @agent-native/recap-cli@0.5.51
+
 ## 0.198.0
 
 ### Minor Changes
@@ -3613,11 +3628,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - d492462: Support TipTap mark rule helpers in generated SSR stubs.
-
-## 0.164.16
-
-### Patch Changes
-
-- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
