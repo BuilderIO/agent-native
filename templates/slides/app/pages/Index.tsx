@@ -286,7 +286,9 @@ const storedReferenceSelectionSchema = z.object({
   designSystemId: z.string().nullable().optional(),
   automaticReferenceDeckId: z.string().nullable().optional(),
   referenceDeckId: z.string().nullable().optional(),
-  referenceDeckIdSource: z.enum(["prompt", "selection"]).optional(),
+  referenceDeckIdSource: z
+    .enum(["prompt", "selection", "automatic"])
+    .optional(),
   referenceFilePaths: z.array(z.string()).optional(),
   importedReferenceFilePath: z.string().optional(),
   referenceSource: z
@@ -1537,6 +1539,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         ? (retryReferenceSelection?.referenceFilePaths ?? [])
         : [];
       const carriedImportedReference =
+        reusingRetryInputs &&
         retryReferenceSelection?.referenceDeckId &&
         retryReferenceSelection.importedReferenceFilePath
           ? {
@@ -1586,27 +1589,37 @@ export default function Index({ active = true }: { active?: boolean }) {
         ? null
         : hasExplicitComposerDeckReference
           ? null
-          : retryReferenceSelection?.referenceDeckIdSource === "prompt"
-            ? reusingRetryInputs
-              ? (retryReferenceSelection.referenceDeckId ??
-                promptReferenceDeckId ??
-                null)
-              : (promptReferenceDeckId ?? null)
-            : retryReferenceSelection?.referenceDeckId !== undefined
-              ? retryReferenceSelection.referenceDeckId
-              : (carriedImportedReference?.deckId ??
-                promptReferenceDeckId ??
-                (generationComposerContext ? null : undefined));
+          : retryReferenceSelection?.referenceDeckIdSource === "automatic"
+            ? (promptReferenceDeckId ??
+              (reusingRetryInputs
+                ? (carriedImportedReference?.deckId ??
+                  retryReferenceSelection.referenceDeckId)
+                : null) ??
+              (generationComposerContext ? null : undefined))
+            : retryReferenceSelection?.referenceDeckIdSource === "prompt"
+              ? reusingRetryInputs
+                ? (retryReferenceSelection.referenceDeckId ??
+                  promptReferenceDeckId ??
+                  null)
+                : (promptReferenceDeckId ?? null)
+              : retryReferenceSelection?.referenceDeckId !== undefined
+                ? retryReferenceSelection.referenceDeckId
+                : (carriedImportedReference?.deckId ??
+                  promptReferenceDeckId ??
+                  (generationComposerContext ? null : undefined));
       const referenceDeckIdSource = hasExplicitComposerDeckReference
         ? "selection"
-        : retryReferenceSelection?.referenceDeckIdSource === "selection" ||
-            (retryReferenceSelection?.referenceDeckId !== undefined &&
-              retryReferenceSelection.referenceDeckIdSource !== "prompt")
-          ? "selection"
-          : retryReferenceSelection?.referenceDeckIdSource === "prompt" ||
-              promptReferenceDeckId
-            ? "prompt"
-            : undefined;
+        : retryReferenceSelection?.referenceDeckIdSource === "automatic"
+          ? "automatic"
+          : retryReferenceSelection?.referenceDeckIdSource === "selection" ||
+              (retryReferenceSelection?.referenceDeckId !== undefined &&
+                retryReferenceSelection.referenceDeckIdSource !== "prompt" &&
+                retryReferenceSelection.referenceDeckIdSource !== "automatic")
+            ? "selection"
+            : retryReferenceSelection?.referenceDeckIdSource === "prompt" ||
+                promptReferenceDeckId
+              ? "prompt"
+              : undefined;
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
         ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),
@@ -1885,7 +1898,8 @@ export default function Index({ active = true }: { active?: boolean }) {
         pending.files,
         {
           ...selection,
-          ...(selection.referenceDeckId !== undefined
+          ...(selection.referenceDeckId !== undefined &&
+          selection.referenceDeckIdSource === undefined
             ? { referenceDeckIdSource: "selection" as const }
             : {}),
           ...(composerContext ? { composerContext, contextItems } : {}),

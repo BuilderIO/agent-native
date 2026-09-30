@@ -70,8 +70,9 @@ describe("new deck generation flow", () => {
     expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
     expect(source).toContain("referenceSelection.referenceSource");
     expect(source).toContain(
-      "retryReferenceSelection?.referenceDeckId !== undefined",
+      'retryReferenceSelection?.referenceDeckIdSource === "automatic"',
     );
+    expect(source).toContain("selection.referenceDeckIdSource === undefined");
     expect(source).toContain(
       "selection.referenceDeckId === carriedImportedReference.deckId",
     );
@@ -96,8 +97,10 @@ describe("new deck generation flow", () => {
       "options?.contextItems ?? retryReferenceSelection.contextItems",
     );
     expect(promptSubmit).toContain(
-      "retryReferenceSelection?.referenceDeckId !== undefined",
+      'retryReferenceSelection?.referenceDeckIdSource === "automatic"',
     );
+    expect(promptSubmit).toContain("promptReferenceDeckId ??");
+    expect(promptSubmit).toContain("!reusingRetryInputs");
     expect(promptSubmit).toContain(
       "designSystemId: generationComposerContext.designSystemId",
     );
