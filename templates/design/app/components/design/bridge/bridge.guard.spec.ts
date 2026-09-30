@@ -10864,6 +10864,61 @@ it("editor chrome bridge appends cross-parent drops into plain frames but keeps 
   expect(reorderTargetForPoint(sourceOutside, 20, 70)).toBe(slot);
 });
 
+it("editor chrome bridge retains the nested auto-layout parent while Space is held", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const outer = { parentElement: body } as unknown as Element;
+  const row = {
+    parentElement: outer,
+    getBoundingClientRect: () => ({
+      left: 100,
+      top: 100,
+      right: 300,
+      bottom: 220,
+    }),
+  } as unknown as Element;
+  const dragged = { parentElement: row } as unknown as Element;
+  const sibling = { parentElement: row } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  const slot = {
+    anchor: sibling,
+    placement: "after",
+    axis: "x",
+    dropMode: "flow-insert",
+  };
+  let insertionSlotAvailable = true;
+  const flowMoveTargetForPoint = compileBridgeFunction<
+    (
+      el: Element,
+      x: number,
+      y: number,
+      excludeEls?: Element[],
+      keepCurrentParent?: boolean,
+    ) => Record<string, unknown>
+  >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
+    document,
+    elementFromEditorPoint: () => outer,
+    nearestChildInsertionTarget: (parent: Element) =>
+      parent === row && insertionSlotAvailable ? slot : null,
+    parentFlowAxis: () => "x",
+    isAutoLayoutElement: (element: Element) =>
+      element === outer || element === row,
+  });
+
+  expect(flowMoveTargetForPoint(dragged, 420, 150, undefined, true)).toBe(slot);
+  insertionSlotAvailable = false;
+  expect(
+    flowMoveTargetForPoint(dragged, 420, 150, undefined, true),
+  ).toMatchObject({
+    anchor: row,
+    placement: "inside",
+    axis: "x",
+    dropMode: "flow-insert",
+  });
+});
+
 it("editor chrome bridge promotes an empty body drop through clipped frames to the board root", () => {
   const body = { parentElement: null } as unknown as Element;
   const outer = {
