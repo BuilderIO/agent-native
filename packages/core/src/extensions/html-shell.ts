@@ -25,8 +25,9 @@ export const EXTENSION_FRAME_ANCESTORS = [
 // The two constants below are the policy an app gets before it configures
 // anything. `buildExtensionIframeCsp()` resolves `extensions.iframeImageSources`
 // and `extensions.iframeMediaSources` and is what the render route sets, so a
-// deployment that widens the display-only directives still gets the same
-// `connect-src 'self'` egress boundary as one that does not.
+// deployment that widens img-src / media-src still gets the same
+// `connect-src 'self'` as one that does not. A remote image or media
+// origin is its own egress permission: the browser requests that URL.
 export const EXTENSION_IFRAME_CSP = `${extensionIframeCspBase(DEFAULT_EXTENSION_DISPLAY_SOURCES, DEFAULT_EXTENSION_DISPLAY_SOURCES)} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
 
 export const EXTENSION_IFRAME_META_CSP = extensionIframeCspBase(
@@ -63,11 +64,13 @@ export function buildExtensionIframeCsp(): string {
  *      header sanitization, and method allowlist; do not relax those gates
  *      for "convenience" in this file or any caller.
  *
- *   3. `connect-src` stays `'self'` and stays out of app config. An app that
- *      needs remote images sets `extensions.iframeImageSources`, which reaches
- *      only `img-src` / `media-src`. That is deliberate, not an oversight: the
- *      bridge is the permission-gated egress path, and widening a
- *      display-only directive into a second one would route around it.
+ *   3. `connect-src` stays `'self'` and stays out of app config. Remote
+ *      images and media are `extensions.iframeImageSources` /
+ *      `iframeMediaSources`, which reach only `img-src` / `media-src`.
+ *      Each allowed remote origin is an explicit egress permission: the
+ *      browser sends the URL, and extension script can encode data into
+ *      it. API calls stay on the permission-gated host bridge. Token
+ *      validation still stops a value from appending another directive.
  *
  * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
  * `extensions` skill. When in doubt, fail closed.

@@ -345,9 +345,10 @@ describe("extension iframe display-only media sources", () => {
     expect(csp).not.toContain("frame-ancestors *");
   });
 
-  // SECURITY: the display-only directives are the configurable part. The
-  // egress boundary is not, or a widened `img-src` would be a second way out
-  // of the sandbox around the permission-gated host bridge.
+  // SECURITY: img-src / media-src are the configurable directives. connect-src
+  // and the other directives stay locked. A remote img-src origin is its own
+  // egress permission (the browser requests the URL); it must not also rewrite
+  // connect-src or inject another directive.
   it("leaves connect-src and every other directive at the framework default", () => {
     const locked = {
       "default-src": ["'none'"],
