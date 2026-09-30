@@ -68,8 +68,9 @@ function isCloudflareProductionRuntime(env: NodeJS.ProcessEnv): boolean {
   };
   return (
     hasCloudflareRuntime() &&
-    (runtime.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ ??
-      (env.NODE_ENV === "production" || env.NODE_ENV === "test"))
+    (env.NODE_ENV === "test" ||
+      (runtime.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ ??
+        env.NODE_ENV === "production"))
   );
 }
 

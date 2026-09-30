@@ -410,6 +410,17 @@ describe("db/client Postgres URL handling", () => {
     vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", false);
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE worker_guard_test (id TEXT)"),
+    ).toThrow(/release job/);
+
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
   });
 
   it.each([
