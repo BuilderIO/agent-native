@@ -1841,9 +1841,7 @@ describe("Slides prompt-led home", () => {
       ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
       deleteDeck: vi.fn(),
     });
-    const prompt = await screen.findByRole("textbox", {
-      name: "Presentation prompt",
-    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
     const referenceSelection = {
       designSystemId: composerContext.designSystemId,
       composerContext,
