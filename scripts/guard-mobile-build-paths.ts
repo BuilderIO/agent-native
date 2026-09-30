@@ -122,6 +122,49 @@ function resolveImport(fromFile: string, specifier: string): string | null {
   return resolveWorkspaceSpecifier(specifier);
 }
 
+function tsconfigChain(file: string, into: Set<string>): void {
+  if (into.has(file) || !existsSync(file)) return;
+  into.add(file);
+  const parent = readFileSync(file, "utf8").match(
+    /"extends"\s*:\s*"([^"]+)"/,
+  )?.[1];
+  if (parent?.startsWith(".")) {
+    const resolved = path.join(path.dirname(file), parent);
+    tsconfigChain(
+      resolved.endsWith(".json") ? resolved : `${resolved}.json`,
+      into,
+    );
+  }
+}
+
+/**
+ * Files a bundled package's `build` script reads besides its source: Metro
+ * bundles the built dist, so a compiler config change can change the bundle.
+ */
+export function packageBuildInputs(packageDir: string): string[] {
+  const manifestPath = path.join(packageDir, "package.json");
+  const inputs = new Set<string>([manifestPath]);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  for (const command of (manifest.scripts?.build ?? "").split("&&")) {
+    const [bin, ...args] = command.trim().split(/\s+/);
+    if (bin === "tsc") {
+      const project = args.indexOf("-p");
+      tsconfigChain(
+        path.join(
+          packageDir,
+          project >= 0 ? args[project + 1] : "tsconfig.json",
+        ),
+        inputs,
+      );
+    } else if (bin === "node" && args[0]) {
+      inputs.add(path.join(packageDir, args[0]));
+    }
+  }
+  return [...inputs].sort();
+}
+
 /** Workspace source files the mobile app's Metro bundle can reach. */
 export function mobileBundleInputs(): string[] {
   const seen = new Set<string>();
@@ -203,7 +246,16 @@ function workflowPathFilters(): Record<string, string[]> {
 }
 
 function main(): void {
-  const inputs = mobileBundleInputs();
+  const sources = mobileBundleInputs();
+  const bundledPackages = new Set(
+    sources
+      .filter((file) => !file.startsWith(`${MOBILE_APP}/`))
+      .map((file) => file.split("/").slice(0, 2).join("/")),
+  );
+  const inputs = [
+    ...sources,
+    ...[...bundledPackages].flatMap((dir) => packageBuildInputs(dir)),
+  ];
   const failures: string[] = [];
   const filters = workflowPathFilters();
   if (JSON.stringify(filters.pull_request) !== JSON.stringify(filters.push)) {

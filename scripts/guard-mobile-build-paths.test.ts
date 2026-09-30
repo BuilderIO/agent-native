@@ -5,6 +5,7 @@ import {
   importSpecifiers,
   matchesPathFilter,
   mobileBundleInputs,
+  packageBuildInputs,
 } from "./guard-mobile-build-paths.ts";
 
 describe("mobile build path guard", () => {
@@ -49,6 +50,23 @@ describe("mobile build path guard", () => {
         ].join("\n"),
       ),
       ["./a.js", "./c.js", "./e.css", "./f.js"],
+    );
+  });
+
+  it("counts the compiler configs and build scripts behind each bundled dist", () => {
+    const core = packageBuildInputs("packages/core");
+    for (const file of [
+      "packages/core/package.json",
+      "packages/core/tsconfig.json",
+      "packages/core/tsconfig.cli.json",
+      "packages/core/scripts/finalize-build.mjs",
+    ]) {
+      assert.ok(core.includes(file), file);
+    }
+    assert.ok(
+      packageBuildInputs("packages/agentkit").includes(
+        "packages/agentkit/tsconfig.json",
+      ),
     );
   });
 
