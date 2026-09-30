@@ -27,7 +27,7 @@ vi.mock("@agent-native/core/client/labs/use-lab", () => ({
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlags: () => ({}),
 }));
-vi.mock("../../AgentSidebar.js", () => ({
+vi.mock("../../chat/AgentSidebar.js", () => ({
   AgentToggleButton: () => <button type="button">agent</button>,
 }));
 
