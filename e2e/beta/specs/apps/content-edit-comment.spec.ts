@@ -92,6 +92,7 @@ test("Content beta saves a page edit and comment", async ({ browser }) => {
       )
       .toContain(editedBody);
     await page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 });
+    await expect(editor).toBeEditable({ timeout: 60_000 });
     await expect(editor).toContainText(editedBody, { timeout: 60_000 });
 
     await editor.selectText();
