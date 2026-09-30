@@ -4143,13 +4143,11 @@ export function AgentKitChat({
     anchor,
     afterSequence,
     throughSequence,
-    isCurrentSegment,
   }: {
     runId: RunId;
     anchor: string;
     afterSequence?: number;
     throughSequence?: number;
-    isCurrentSegment: boolean;
   }) => (
     <AgentKitSurfaceBoundary
       key={`run-work:${threadId}:${runId}:${anchor}`}
@@ -4171,7 +4169,7 @@ export function AgentKitChat({
         afterSequence={afterSequence}
         throughSequence={throughSequence}
         excludeAgentActivities
-        isCurrentSegment={isCurrentSegment}
+        isCurrentSegment={throughSequence === undefined}
       />
     </AgentKitSurfaceBoundary>
   );
@@ -4202,7 +4200,6 @@ export function AgentKitChat({
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
           throughSequence: sequence,
-          isCurrentSegment: message.status === "streaming",
         }),
       );
     }
@@ -4280,7 +4277,6 @@ export function AgentKitChat({
         runId,
         anchor: boundary?.id ?? "start",
         afterSequence: boundary?.sequence,
-        isCurrentSegment: true,
       }),
     );
     if (failedRuns.has(runId)) {

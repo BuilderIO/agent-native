@@ -861,8 +861,8 @@ describe("AgentChat lifecycle", () => {
     });
     await flush();
 
-    const runWorkAfter = tree.container.querySelector<HTMLDetailsElement>(
-      ".agentkit-activities",
+    const runWorkAfter = tree.container.querySelector(
+      ".agentkit-activities-static",
     );
     const response = tree.container.querySelector(
       '[data-message-id="assistant-1"]',
@@ -872,12 +872,14 @@ describe("AgentChat lifecycle", () => {
         ?.querySelector(".agentkit-message-actions")
         ?.getAttribute("data-streaming"),
     ).toBe("true");
-    expect(runWorkAfter).toBe(runWorkBefore);
-    expect(runWorkAfter?.open).toBe(false);
+    expect(runWorkAfter).not.toBeNull();
     expect(
-      runWorkAfter?.querySelector(".agentkit-activities-summary")?.textContent,
-    ).toBe("Thinking");
-    expect(runWorkAfter?.hasAttribute("data-running")).toBe(true);
+      runWorkAfter?.querySelector(".agentkit-activities-label")?.textContent,
+    ).toBe("Worked for 4s");
+    expect(runWorkAfter?.textContent).not.toContain("Thinking");
+    expect(
+      runWorkAfter?.querySelector("[data-agentkit-current-activity]"),
+    ).toBeNull();
     expect(runWorkAfter?.querySelector('[data-status="running"]')).toBeNull();
     expect(
       runWorkAfter && response
