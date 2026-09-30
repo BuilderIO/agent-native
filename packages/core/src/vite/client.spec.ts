@@ -3486,6 +3486,11 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const useAuiState = stub;");
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
+
+    const stubs = await import(
+      `data:text/javascript;base64,${Buffer.from(String(code)).toString("base64")}`
+    );
+    expect(() => new stubs.PluginKey("dragHandle")).not.toThrow();
   });
 
   it("stubs optional enterprise auth adapters when build flags are off", () => {

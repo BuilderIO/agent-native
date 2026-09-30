@@ -1585,7 +1585,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
-  it("keeps a queued follow-up queued if its run finishes during provider discovery", async () => {
+  it("preserves queued intent when its run finishes during provider discovery", async () => {
     chatMocks.readiness = {
       canChat: false,
       missing: false,
@@ -1611,11 +1611,26 @@ describe("AgentKitAssistantChat host behavior", () => {
         [],
         [],
         { intent: "queued" },
+        async () => ({}),
       );
     });
 
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
     expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+
+    const stateKey = [...chatMocks.appState.keys()].find((key) =>
+      key.startsWith("agentkit-deferred-provider-submissions:"),
+    );
+    expect(chatMocks.appState.get(stateKey!)).toMatchObject({
+      submissions: [
+        {
+          composerOptions: {
+            intent: "queued",
+            queuedWhileRunActive: true,
+          },
+        },
+      ],
+    });
 
     chatMocks.thread.activeRunIds = [];
     chatMocks.thread.runs["analytics-run"].status = "completed";
@@ -1640,6 +1655,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       }),
     );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
   it("keeps the draft rejected if provider status becomes missing before submit", async () => {

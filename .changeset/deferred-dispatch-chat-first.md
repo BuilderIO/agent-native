@@ -1,6 +1,8 @@
 ---
 "@agent-native/dispatch": patch
 "@agent-native/toolkit": patch
+"@agent-native/core": patch
+"@agent-native/agentkit": patch
 ---
 
-Split ChatFirst copy from its UI entrypoint so Dispatch can defer ChatFirst surface assets.
+Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
