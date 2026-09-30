@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  type SourceScanPage,
   collectDueSources,
   isBrainSourceDue,
   nextBrainSourceSyncAt,
@@ -79,32 +80,70 @@ describe("Brain source sync scheduling", () => {
 describe("collectDueSources", () => {
   const now = Date.parse(FAILED_AT) + POLL_INTERVAL_MS;
   const pageOf = (rows: ReturnType<typeof source>[]) => {
-    const sorted = [...rows].sort((a, b) => a.id.localeCompare(b.id));
-    return async (afterId: string | null) =>
+    const sorted = [...rows].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    return async ({ afterId, upToId }: SourceScanPage) =>
       sorted
-        .filter((row) => afterId === null || row.id > afterId)
+        .filter(
+          (row) =>
+            (afterId === null || row.id > afterId) &&
+            (upToId === null || row.id <= upToId),
+        )
         .slice(0, 100);
   };
-
-  it("finds a due source behind many never-due rows", async () => {
-    const notDue = Array.from({ length: 150 }, (_, index) =>
+  const neverDue = (count: number, prefix: string) =>
+    Array.from({ length: count }, (_, index) =>
       source({
-        id: `a-${String(index).padStart(3, "0")}`,
+        id: prefix + String(index).padStart(4, "0"),
         provider: "slack",
         configJson: JSON.stringify({ autoSync: false }),
       }),
     );
+
+  it("finds a due source behind many never-due rows", async () => {
     const due = source({ id: "z-slack", provider: "slack", configJson: "{}" });
 
-    const result = await collectDueSources(pageOf([...notDue, due]), 5, now);
+    const result = await collectDueSources(
+      pageOf([...neverDue(150, "a-"), due]),
+      5,
+      now,
+      "0",
+    );
 
     expect(result.sources.map((row) => row.id)).toEqual(["z-slack"]);
     expect(result.truncated).toBe(false);
   });
 
+  it("wraps past the end so sources before the pivot are still found", async () => {
+    const rows = [
+      source({ id: "b-due", provider: "slack", configJson: "{}" }),
+      source({ id: "m-pivot", provider: "slack", configJson: "{}" }),
+      ...neverDue(3, "x-"),
+    ];
+
+    const result = await collectDueSources(pageOf(rows), 5, now, "m-pivot");
+
+    expect(result.sources.map((row) => row.id)).toEqual(["b-due", "m-pivot"]);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("reaches a source hidden behind the row cap once the pivot moves", async () => {
+    const rows = [
+      ...neverDue(2500, "a-"),
+      source({ id: "z-slack", provider: "slack", configJson: "{}" }),
+    ];
+
+    const fromStart = await collectDueSources(pageOf(rows), 5, now, "0");
+    const fromLater = await collectDueSources(pageOf(rows), 5, now, "a-1500");
+
+    expect(fromStart).toEqual({ sources: [], truncated: true });
+    expect(fromLater.sources.map((row) => row.id)).toEqual(["z-slack"]);
+  });
+
   it("stops once it has enough due sources", async () => {
     const rows = Array.from({ length: 8 }, (_, index) =>
-      source({ id: `s-${index}`, provider: "slack", configJson: "{}" }),
+      source({ id: "s-" + index, provider: "slack", configJson: "{}" }),
     );
 
     const result = await collectDueSources(pageOf(rows), 5, now);
@@ -116,7 +155,7 @@ describe("collectDueSources", () => {
     const endless = async () =>
       Array.from({ length: 100 }, (_, index) =>
         source({
-          id: `n-${Math.random()}-${index}`,
+          id: "n-" + Math.random() + "-" + index,
           configJson: JSON.stringify({ autoSync: false }),
         }),
       );

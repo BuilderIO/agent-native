@@ -1,6 +1,6 @@
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, gt, inArray } from "drizzle-orm";
+import { and, asc, gt, inArray, lte } from "drizzle-orm";
 
 import type { BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
@@ -91,26 +91,52 @@ export function nextBrainSourceSyncAt(source: SourceRow): string | null {
   return dueAt === null ? null : new Date(dueAt).toISOString();
 }
 
-// Rows are scanned in id order until enough are due: a fixed unordered window
-// lets never-due rows (auto-sync off, dead errors) crowd out every source that
-// should sync, which silently stops hourly sync for whole orgs.
+export interface SourceScanPage {
+  afterId: string | null;
+  upToId: string | null;
+}
+
+const PIVOT_ALPHABET =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+function randomScanPivot(): string {
+  let pivot = "";
+  for (let i = 0; i < 12; i += 1) {
+    pivot += PIVOT_ALPHABET[Math.floor(Math.random() * PIVOT_ALPHABET.length)];
+  }
+  return pivot;
+}
+
+// Scans in id order from a random pivot, wrapping to the start, until enough
+// rows are due. A fixed window or a fixed start lets never-due rows (auto-sync
+// off, dead errors) permanently crowd later sources out of every capped sweep.
 export async function collectDueSources(
-  fetchPage: (afterId: string | null) => Promise<SourceRow[]>,
+  fetchPage: (page: SourceScanPage) => Promise<SourceRow[]>,
   limit: number,
   nowMs = Date.now(),
+  pivot = randomScanPivot(),
 ): Promise<{ sources: SourceRow[]; truncated: boolean }> {
   const due: SourceRow[] = [];
-  let afterId: string | null = null;
-  for (let page = 0; page < SCAN_MAX_PAGES; page += 1) {
-    const rows = await fetchPage(afterId);
-    for (const source of rows) {
-      if (isBrainSourceDue(source, nowMs)) due.push(source);
-      if (due.length >= limit) return { sources: due, truncated: false };
+  const segments: SourceScanPage[] = [
+    { afterId: pivot, upToId: null },
+    { afterId: null, upToId: pivot },
+  ];
+  let pages = 0;
+  for (const segment of segments) {
+    let afterId = segment.afterId;
+    while (true) {
+      if (pages >= SCAN_MAX_PAGES) return { sources: due, truncated: true };
+      pages += 1;
+      const rows = await fetchPage({ afterId, upToId: segment.upToId });
+      for (const source of rows) {
+        if (isBrainSourceDue(source, nowMs)) due.push(source);
+        if (due.length >= limit) return { sources: due, truncated: false };
+      }
+      if (rows.length < SCAN_PAGE_SIZE) break;
+      afterId = rows[rows.length - 1]!.id;
     }
-    if (rows.length < SCAN_PAGE_SIZE) return { sources: due, truncated: false };
-    afterId = rows[rows.length - 1]!.id;
   }
-  return { sources: due, truncated: true };
+  return { sources: due, truncated: false };
 }
 
 export async function listDueBrainSources(
@@ -133,12 +159,16 @@ export async function listDueBrainSources(
         eligible,
       );
   return collectDueSources(
-    (afterId) =>
+    ({ afterId, upToId }) =>
       db
         .select()
         .from(schema.brainSources)
         .where(
-          afterId ? and(where, gt(schema.brainSources.id, afterId)) : where,
+          and(
+            where,
+            afterId ? gt(schema.brainSources.id, afterId) : undefined,
+            upToId ? lte(schema.brainSources.id, upToId) : undefined,
+          ),
         )
         .orderBy(asc(schema.brainSources.id))
         .limit(SCAN_PAGE_SIZE),
@@ -192,7 +222,7 @@ export async function syncDueBrainSourcesOnce(
   }
   if (truncated) {
     console.warn(
-      `[brain-source-sync] Source scan hit its ${SCAN_MAX_PAGES * SCAN_PAGE_SIZE}-row cap; later due sources were not checked this sweep.`,
+      `[brain-source-sync] Source scan hit its ${SCAN_MAX_PAGES * SCAN_PAGE_SIZE}-row cap; some sources were not checked this sweep (the next sweep starts at a different point).`,
     );
   }
   return { checked: due.length, scanTruncated: truncated, results };
