@@ -6367,12 +6367,91 @@ describe("runAgentLoop", () => {
               dependentRequired: { primary: ["secondary"] },
             } as any,
           },
+          mcpTool: true,
           run,
         },
       },
     );
 
     expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("uses MCP's 2020-12 default when the schema omits $schema", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          mcpTool: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("keeps MCP and legacy validators separate in the schema cache", async () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        primary: { type: "string" },
+        secondary: { type: "string" },
+      },
+      dependentRequired: { primary: ["secondary"] },
+    } as any;
+    const legacyRun = vi.fn(async () => "legacy ran");
+
+    await runToolCallSequence(
+      [{ name: "legacy-tool", input: { primary: "value" } }],
+      {
+        "legacy-tool": {
+          tool: { description: "Validate a legacy schema", parameters },
+          run: legacyRun,
+        },
+      },
+    );
+
+    expect(legacyRun).toHaveBeenCalledOnce();
+
+    const mcpRun = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: { description: "Validate an MCP schema", parameters },
+          mcpTool: true,
+          run: mcpRun,
+        },
+      },
+    );
+
+    expect(mcpRun).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
