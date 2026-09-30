@@ -650,9 +650,18 @@ async function enterEdit(
         window.__editFidelity.entryCaretProblem(p, how),
       [point, name] as const,
     );
-    if (entry)
+    // Some engines leave a click-aligned caret instead of selecting a word.
+    const caretFallback =
+      entry && name === "dblclick"
+        ? await page.evaluate(
+            (p: { x: number; y: number }) =>
+              window.__editFidelity.entryCaretProblem(p, "click"),
+            point,
+          )
+        : null;
+    if (entry && caretFallback)
       violations.push(
-        `entering edit put the caret away from the click (${entry})`,
+        `entering edit put the caret away from the click (${caretFallback})`,
       );
     // A double-click enters edit with its word selected, and typing would
     // replace that word; every scenario edits at a caret.
