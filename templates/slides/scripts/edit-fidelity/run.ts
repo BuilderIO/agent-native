@@ -3246,7 +3246,6 @@ async function runAuthoringFuzzQa(
       if (!(await enterEdit(page, slideId, target.point, []))) {
         throw new Error("could not enter in-place text editing");
       }
-      const editor = page.locator(editorSelector);
       const slideHtml = () => page.locator(rootSelector).innerHTML();
       const canonical = (html: string) =>
         page.evaluate(

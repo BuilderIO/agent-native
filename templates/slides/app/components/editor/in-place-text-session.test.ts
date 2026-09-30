@@ -4046,7 +4046,6 @@ describe("in-place text session: Content authoring parity", () => {
 
     type(el, "- ");
 
-    const row = session.element.querySelector('div[style*="display: flex"]');
     expect(session.element.style.color).toBe("red");
     expect(session.element.style.fontSize).toBe("30px");
     expect(session.element.style.lineHeight).toBe("1.4");
@@ -4371,7 +4370,7 @@ describe("in-place text session: Content authoring parity", () => {
   });
 
   it("keeps a standalone heading Backspace merge inside its edit root", () => {
-    const el = mount('<p>outside</p><h2 id="t">Title</h2>');
+    mount('<p>outside</p><h2 id="t">Title</h2>');
     const root = document.getElementById("t")!;
     session = startInPlaceTextSession(root);
     caret(textOf(root, "Title"), 0);
