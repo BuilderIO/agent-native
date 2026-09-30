@@ -240,7 +240,6 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           TARGET: ${{ inputs.target }}
           CALLER: ${{ inputs.caller }}
-          SITE: ${{ inputs.site }}
         with:
           script: |
             const requested = process.env.SOURCE_REF.trim();
@@ -256,15 +255,7 @@ jobs:
                 core.setFailed('Production source_ref must be a full 40-character commit SHA.');
                 return;
               }
-              const brainBranchSource = requested && process.env.SITE === 'brain'
-                && process.env.CALLER === 'fleet'
-                && context.ref === 'refs/heads/make_brain_work'
-                && sourceSha === (await github.rest.git.getRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: 'heads/make_brain_work',
-                })).data.object.sha;
-              if (requested && !brainBranchSource) {
+              if (requested) {
                 const comparison = await github.rest.repos.compareCommits({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
