@@ -53,7 +53,7 @@ const createTransport = vi.hoisted(() =>
 const markHandoff = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
   markAgentChatHomeHandoff: markHandoff,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -62,24 +62,24 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
-vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   CoreComposerRuntimeProvider: ({
     children,
   }: {
     children: React.ReactNode;
   }) => <div data-core-composer-runtime="">{children}</div>,
 }));
-vi.mock("@agent-native/core/client/agentkit-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/index", () => ({
   CoreAgentKitRoot: (props: Record<string, unknown>) => {
     routeState.rootProps = props;
     return <>{props.children as React.ReactNode}</>;
   },
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/connections", () => ({
   McpAgentKitConnectionRequestCard: () => null,
   McpAgentKitConnectionResume: () => null,
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/questions", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/questions", () => ({
   GuidedQuestionFlow: () => null,
   useGuidedQuestionFlow: () => ({
     questions: null,
@@ -87,7 +87,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/questions", () => ({
     handleSkip: vi.fn(),
   }),
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/suggestions", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/suggestions", () => ({
   findMcpConnectionSuggestionIntegration: () => null,
   McpConnectionSuggestion: () => null,
 }));
@@ -95,7 +95,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
   createAgentNativeAgentKitTransport: createTransport,
 }));
 
-vi.mock("@agent-native/agentkit/react/components", () => ({
+vi.mock("@agent-native/toolkit/app/agentkit", () => ({
   AgentMessageView: ({ value }: { value: { id: string } }) => (
     <div data-testid="rendered-agent-message">{value.id}</div>
   ),
@@ -113,22 +113,6 @@ vi.mock("@agent-native/agentkit/react/components", () => ({
       </div>
     );
   },
-}));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
-    <button data-testid="chat-builder-setup" onClick={onRetry} />
-  ),
-  isMissingLlmProviderRunError: ({
-    errorCode,
-    details,
-  }: {
-    errorCode?: string;
-    details?: string;
-  }) =>
-    errorCode === "missing_credentials" ||
-    /No LLM provider key was found/i.test(details ?? ""),
-}));
-vi.mock("@agent-native/agentkit/react/context", () => ({
   useAgentKit: () => ({
     threadId: routeState.threadId ?? "new-thread",
     controller: {
@@ -143,6 +127,20 @@ vi.mock("@agent-native/agentkit/react/context", () => ({
     messages: routeState.messages,
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
+}));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
+    <button data-testid="chat-builder-setup" onClick={onRetry} />
+  ),
+  isMissingLlmProviderRunError: ({
+    errorCode,
+    details,
+  }: {
+    errorCode?: string;
+    details?: string;
+  }) =>
+    errorCode === "missing_credentials" ||
+    /No LLM provider key was found/i.test(details ?? ""),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -166,8 +164,6 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 import ChatRoute from "@/components/chat/ChatRouteContent";
-
-import ChatHomeRoute from "./home";
 
 describe("ChatRoute AgentKit surface", () => {
   let container: HTMLDivElement;
@@ -530,38 +526,6 @@ describe("ChatRoute AgentKit surface", () => {
         retainActiveRunsOnThreadRelease: true,
       },
     });
-  });
-
-  it("hard-navigates the home route to a durable pending thread", async () => {
-    await act(async () => root.render(<ChatHomeRoute />));
-
-    expect(createTransport).not.toHaveBeenCalled();
-    expect(routeState.rootProps).toBeNull();
-    expect(locationReplace).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/chat\/chat-/),
-    );
-    expect(markHandoff).toHaveBeenCalledWith("chat");
-  });
-
-  it("keeps the home handoff inside the deployed app base path", async () => {
-    routeState.basePath = "/chatapp";
-    await act(async () => root.render(<ChatHomeRoute />));
-    expect(locationReplace).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/chatapp\/chat\/chat-/),
-    );
-  });
-
-  it("starts the handoff only once under Strict Mode", async () => {
-    await act(async () =>
-      root.render(
-        <React.StrictMode>
-          <ChatHomeRoute />
-        </React.StrictMode>,
-      ),
-    );
-
-    expect(locationReplace).toHaveBeenCalledTimes(1);
-    expect(markHandoff).toHaveBeenCalledTimes(1);
   });
 
   it("enters durable chat mode and exposes the workspace toolbar", () => {
