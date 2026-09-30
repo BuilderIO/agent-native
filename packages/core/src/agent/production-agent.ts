@@ -4250,7 +4250,10 @@ const rawToolInputAjv2020 = new Ajv2020({
   verbose: true,
 });
 
-const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+const rawToolInputValidatorCache = new WeakMap<
+  object,
+  Map<boolean, ValidateFunction>
+>();
 
 const optionalPlaceholderAjv = new Ajv({
   strict: false,
@@ -4465,18 +4468,28 @@ function coerceStringifiedJsonToolValues(
     : { input, changed: false };
 }
 
-function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
-  const cached = rawToolInputValidatorCache.get(schema);
+function getRawToolInputValidator(
+  schema: RawJsonSchema,
+  useMcpDefaultDialect = false,
+): ValidateFunction {
+  const cached = rawToolInputValidatorCache.get(schema)?.get(
+    useMcpDefaultDialect,
+  );
   if (cached) return cached;
   const declaredDialect = (schema as { $schema?: unknown }).$schema;
+  const normalizedDialect =
+    typeof declaredDialect === "string"
+      ? declaredDialect.replace(/#$/, "")
+      : undefined;
   const ajv =
-    typeof declaredDialect === "string" &&
-    declaredDialect.replace(/#$/, "") ===
-      "https://json-schema.org/draft/2020-12/schema"
+    normalizedDialect === "https://json-schema.org/draft/2020-12/schema" ||
+    (declaredDialect === undefined && useMcpDefaultDialect)
       ? rawToolInputAjv2020
       : rawToolInputAjv;
   const validator = ajv.compile(schema);
-  rawToolInputValidatorCache.set(schema, validator);
+  const validators = rawToolInputValidatorCache.get(schema) ?? new Map();
+  validators.set(useMcpDefaultDialect, validator);
+  rawToolInputValidatorCache.set(schema, validators);
   return validator;
 }
 
@@ -4528,7 +4541,7 @@ function validateRawToolInput(
   if (!parameters) return null;
   let validator: ValidateFunction;
   try {
-    validator = getRawToolInputValidator(parameters);
+    validator = getRawToolInputValidator(parameters, entry.mcpTool === true);
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
