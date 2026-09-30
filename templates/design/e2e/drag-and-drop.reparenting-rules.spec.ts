@@ -305,8 +305,9 @@ test.describe("reparenting rules", () => {
       await expect.poll(chipParent).not.toBe("row");
       // The unmodified control proves this fixture can exercise reparenting.
 
-      id = await newDesign(page);
-      await openEditor(page, id);
+      const retentionId = await newDesign(page);
+      id = retentionId;
+      await openEditor(page, retentionId);
       await selectViaTree(page, "Chip 1");
       chip = (await node(page, "chip-1").boundingBox())!;
       outside = (await node(page, "frame-a").boundingBox())!;
@@ -350,7 +351,7 @@ test.describe("reparenting rules", () => {
       await page.keyboard.up("Space");
       await expect.poll(chipParent).toBe("row");
       await expect
-        .poll(() => persistedNodeParent(page, id, "chip-1"))
+        .poll(() => persistedNodeParent(page, retentionId, "chip-1"))
         .toBe("row");
       await page.reload();
       await expect
