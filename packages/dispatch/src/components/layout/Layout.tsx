@@ -46,7 +46,6 @@ import {
   AgentSidebar,
   focusAgentChat,
 } from "@agent-native/toolkit/app/chat";
-import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first";
 import type {
   ChatFirstAgentActivity,
   ChatFirstAppItem,
@@ -54,6 +53,7 @@ import type {
   ChatFirstEmbedTarget,
   ChatFirstPrimaryTab,
 } from "@agent-native/toolkit/app/chat/chat-first";
+import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
@@ -142,7 +142,7 @@ import {
   ChatFirstSurfacePanel,
   ChatFirstSurfacePanelToggle,
   ChatFirstSurfaceTabs,
-} from "./deferred-chat-first-components.js";
+} from "./deferred-chat-components.js";
 import { Header } from "./Header";
 import {
   HeaderActionsProvider,

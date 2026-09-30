@@ -1,5 +1,6 @@
 ---
 "@agent-native/dispatch": patch
+"@agent-native/toolkit": patch
 ---
 
-Defer ChatFirst surfaces until the chat-first layout is opened.
+Split ChatFirst copy from its UI entrypoint so Dispatch can defer ChatFirst surface assets.
