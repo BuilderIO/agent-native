@@ -1293,6 +1293,23 @@ describe("in-place text session: commands", () => {
     expect(el.children[2].firstElementChild?.textContent).toBe("●");
   });
 
+  it("removes bullets from only the selected semantic list row", () => {
+    const el = mount(
+      '<div id="t"><ul><li>First</li><li>Second</li><li>Third</li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const text = textOf(el.querySelectorAll("li")[1]!, "Second");
+    select(text, 0, text, text.length);
+
+    expect(session.commands.toggleList("bullet")).toBe(true);
+
+    expect(
+      Array.from(el.querySelectorAll("ul > li"), (row) => row.textContent),
+    ).toEqual(["First", "Third"]);
+    expect(el.children[1]?.tagName).toBe("DIV");
+    expect(el.children[1]?.textContent).toBe("Second");
+  });
+
   it("selects the element's text for Mod-A", () => {
     const el = mount('<p id="t">One <b>two</b></p><p>outside</p>');
     session = startInPlaceTextSession(el);

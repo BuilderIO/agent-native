@@ -10,7 +10,11 @@
  * No React exports, so this stays Fast-Refresh friendly and unit-testable.
  */
 
-import { isBulletMarker, isBulletRow } from "./bullet-editing";
+import {
+  isBulletMarker,
+  isBulletRow,
+  stripCopiedIdentity,
+} from "./bullet-editing";
 
 export type SlideListKind = "bullet" | "ordered";
 
@@ -88,6 +92,27 @@ function bulletRows(element: HTMLElement): HTMLElement[] {
   return Array.from(element.children).filter(
     (child): child is HTMLElement =>
       child instanceof HTMLElement && isBulletRow(child),
+  );
+}
+
+export function slideListRows(
+  element: HTMLElement,
+  range: Range | null,
+): HTMLElement[] {
+  const lists = isListTag(element)
+    ? [element]
+    : Array.from(element.children).filter(isListTag);
+  const list = lists.find((candidate) =>
+    Array.from(candidate.children).some((row) =>
+      range?.collapsed
+        ? row.contains(range.startContainer)
+        : !!range && range.intersectsNode(row),
+    ),
+  );
+  if (!list) return bulletRows(element);
+  return Array.from(list.children).filter(
+    (row): row is HTMLElement =>
+      row instanceof HTMLElement && row.tagName === "LI",
   );
 }
 
@@ -218,6 +243,37 @@ export function toggleSlideList(
   selectedBulletRows?: HTMLElement[],
 ): HTMLElement | null {
   const doc = element.ownerDocument;
+  const selectedList = selectedBulletRows?.[0]?.parentElement;
+  if (
+    selectedBulletRows?.length &&
+    selectedList &&
+    isListTag(selectedList) &&
+    selectedBulletRows.every((row) => row.parentElement === selectedList)
+  ) {
+    const listRows = Array.from(selectedList.children).filter(
+      (row): row is HTMLElement =>
+        row instanceof HTMLElement && row.tagName === "LI",
+    );
+    if (
+      selectedBulletRows.length < listRows.length ||
+      (selectedList.tagName === LIST_TAG[kind] && selectedBulletRows.length > 0)
+    ) {
+      return toggleSelectedListRows(
+        element,
+        selectedList,
+        selectedBulletRows,
+        kind,
+      );
+    }
+    if (selectedList.tagName !== LIST_TAG[kind]) {
+      const next = retag(selectedList, LIST_TAG[kind]);
+      next.style.setProperty(
+        "list-style-type",
+        kind === "ordered" ? "decimal" : "disc",
+      );
+      return selectedList === element ? next : element;
+    }
+  }
   const existing = listElement(element);
 
   if (!existing) {
@@ -264,6 +320,59 @@ export function toggleSlideList(
   }
 
   existing.replaceWith(buildLines(doc, lines));
+  return element;
+}
+
+function toggleSelectedListRows(
+  element: HTMLElement,
+  list: HTMLElement,
+  selectedRows: HTMLElement[],
+  kind: SlideListKind,
+): HTMLElement {
+  const currentKind = list.tagName === "OL" ? "ordered" : "bullet";
+  const selected = new Set(selectedRows);
+  const template = list.cloneNode(false) as HTMLElement;
+  const fragment = list.ownerDocument.createDocumentFragment();
+  let activeList: HTMLElement | null = null;
+  let activeKind: SlideListKind | null = null;
+  let firstList = true;
+
+  for (const row of Array.from(list.children)) {
+    if (!(row instanceof HTMLElement)) continue;
+    const selectedKind = selected.has(row)
+      ? currentKind === kind
+        ? null
+        : kind
+      : currentKind;
+    if (selectedKind === null) {
+      activeList = null;
+      activeKind = null;
+      fragment.append(retag(row, "DIV"));
+      continue;
+    }
+    if (!activeList || activeKind !== selectedKind) {
+      activeList = template.cloneNode(false) as HTMLElement;
+      if (!firstList) stripCopiedIdentity(activeList);
+      firstList = false;
+      if (activeList.tagName !== LIST_TAG[selectedKind]) {
+        activeList = retag(activeList, LIST_TAG[selectedKind]);
+      }
+      activeList.style.setProperty(
+        "list-style-type",
+        selectedKind === "ordered" ? "decimal" : "disc",
+      );
+      fragment.append(activeList);
+      activeKind = selectedKind;
+    }
+    activeList.append(row);
+  }
+
+  if (list === element) {
+    const root = retag(list, "DIV");
+    root.replaceChildren(fragment);
+    return root;
+  }
+  list.replaceWith(fragment);
   return element;
 }
 

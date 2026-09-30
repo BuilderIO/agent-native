@@ -24,6 +24,7 @@ import {
   createSlideList,
   headingTextLook,
   keepTextLook,
+  slideListRows,
   type SlideListKind,
   toggleSlideList,
 } from "./list-editing";
@@ -1850,10 +1851,7 @@ export function startInPlaceTextSession(
       command(() =>
         keepingSelection(() => {
           const range = selectionRange();
-          const rows = Array.from(el.children).filter(
-            (child): child is HTMLElement =>
-              child instanceof HTMLElement && isBulletRow(child),
-          );
+          const rows = slideListRows(el, range);
           const selectedRows = range
             ? rows.filter((row) =>
                 range.collapsed
