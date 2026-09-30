@@ -1,5 +1,26 @@
 # @agent-native/dispatch
 
+## 0.40.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- fb3eacd: Show only apps mounted in the active workspace in Dispatch app views.
+- Updated dependencies [20cd76f]
+- Updated dependencies [bbe8cbf]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies
+- Updated dependencies [8853f61]
+- Updated dependencies [afbee14]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [8853f61]
+- Updated dependencies [b6ffae6]
+- Updated dependencies [8853f61]
+  - @agent-native/toolkit@0.198.0
+
 ## 0.40.0
 
 ### Minor Changes
@@ -1052,11 +1073,5 @@
 ### Patch Changes
 
 - 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
-
-## 0.24.4
-
-### Patch Changes
-
-- 47ba57a: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
