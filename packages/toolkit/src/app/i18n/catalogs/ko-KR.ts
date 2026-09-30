@@ -1149,8 +1149,8 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
-  "setup.checkingProvider": "AI 연결을 확인하는 중…",
-  "setup.providerStatusUnavailable": "AI 연결을 확인할 수 없습니다.",
+  "setup.providerStatusUnavailable":
+    "AI를 사용할 수 있는지 확인할 수 없습니다.",
   "agentNativeClips.meetingAsk.placeholder": "무엇이든 물어보세요",
   "agentNativeClips.meetingAsk.ariaLabel": "이 회의에 대해 무엇이든 물어보세요",
   "setup.connected": "연결됨",

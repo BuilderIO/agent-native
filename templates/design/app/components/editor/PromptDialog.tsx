@@ -363,7 +363,6 @@ export default function PromptPopover({
   const skipInFlightRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
-  const [checkingProvider, setCheckingProvider] = useState(false);
   const draftTextRef = useRef<string | undefined>(undefined);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [restoredPrompt, setRestoredPrompt] = useState<{
@@ -603,16 +602,6 @@ export default function PromptPopover({
     ],
   );
 
-  const handleBeforeSubmit = useCallback(async () => {
-    if (!onBeforeSubmit) return true;
-    setCheckingProvider(true);
-    try {
-      return await onBeforeSubmit();
-    } finally {
-      setCheckingProvider(false);
-    }
-  }, [onBeforeSubmit]);
-
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
   const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
   if (open) {
@@ -665,7 +654,7 @@ export default function PromptPopover({
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
       disabled={disabled || loading || submitting}
       submissionDisabled={submissionDisabled}
-      submitting={submitting || checkingProvider}
+      submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
       composerRef={composerRef}
@@ -674,7 +663,7 @@ export default function PromptPopover({
       modelStatusChecksEnabled={modelStatusChecksEnabled}
       placeholder={placeholder ?? t("home.describeBuild")}
       onSubmit={handleSubmit}
-      onBeforeSubmit={handleBeforeSubmit}
+      onBeforeSubmit={onBeforeSubmit}
       onTextChange={(text) => {
         draftTextRef.current = text;
       }}

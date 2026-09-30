@@ -4,8 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      checkingProvider: "Vérification de la connexion à l’IA…",
-      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+      providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
     common: { retry: "Réessayer" },
   },

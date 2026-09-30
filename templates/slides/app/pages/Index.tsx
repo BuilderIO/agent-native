@@ -95,7 +95,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -2179,13 +2178,6 @@ export default function Index({ active = true }: { active?: boolean }) {
             bouncePulse={setupCardBouncePulse}
             onConnected={retryAgentEngineStatus}
           />
-        ) : effectiveAgentEngineState === "unknown" ? (
-          <div className="mb-2 flex justify-center">
-            <Spinner
-              aria-label={t("common.loading")}
-              className="size-4 text-muted-foreground"
-            />
-          </div>
         ) : null
       }
       composer={

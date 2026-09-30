@@ -1068,7 +1068,7 @@ const messages = {
   agentChat: {
     setup: {
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
   },
 };

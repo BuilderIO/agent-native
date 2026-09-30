@@ -640,13 +640,58 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       (candidate) => candidate.textContent?.includes("Soft Cards"),
     );
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
-    expect(container.textContent).toContain("Couldn't check AI connection.");
+    expect(container.textContent).toContain("Couldn't confirm AI is ready.");
 
     await act(async () => {
       softCards?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
+  it("allows question drafts while provider status is unknown but blocks continuation", async () => {
+    const onSubmit = vi.fn();
+    const onSkip = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              required: true,
+              submitOnSelect: true,
+              options: [{ label: "Soft Cards", value: "soft-cards" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={onSkip}
+          isSubmissionBlocked
+          providerStatus="unknown"
+        />,
+      );
+    });
+
+    const softCards = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.includes("Soft Cards"),
+    )!;
+    const continueButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Continue"))!;
+    const skipButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Skip"))!;
+
+    expect(container.querySelector("fieldset")?.disabled).toBe(false);
+    expect(continueButton.disabled).toBe(true);
+    expect(skipButton.disabled).toBe(true);
+    await act(async () => {
+      softCards.click();
+    });
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onSkip).not.toHaveBeenCalled();
   });
