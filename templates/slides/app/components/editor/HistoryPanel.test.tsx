@@ -1,11 +1,18 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   versionsQuery: null as any,
   versionQuery: null as any,
+  versionArgs: [] as Array<[string | null, string | null]>,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -20,7 +27,10 @@ vi.mock("@/context/DeckContext", () => ({
 }));
 vi.mock("@/hooks/use-deck-versions", () => ({
   useDeckVersions: () => mocks.versionsQuery,
-  useDeckVersion: () => mocks.versionQuery,
+  useDeckVersion: (deckId: string | null, versionId: string | null) => {
+    mocks.versionArgs.push([deckId, versionId]);
+    return mocks.versionQuery;
+  },
   useRestoreDeckVersion: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock("@/components/ui/button", () => ({
@@ -62,6 +72,7 @@ beforeEach(() => {
     isFetching: false,
     refetch: vi.fn(),
   };
+  mocks.versionArgs = [];
 });
 
 afterEach(cleanup);
@@ -152,5 +163,40 @@ describe("HistoryPanel", () => {
       (screen.getByText("history.restoreThisVersion") as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  it("clears the selected snapshot when the deck changes", async () => {
+    mocks.versionsQuery = {
+      data: {
+        versions: [
+          {
+            id: "version-1",
+            title: "Version 1",
+            slideCount: 1,
+            createdAt: "2026-09-29T12:00:00.000Z",
+            slidePreviews: [],
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      isSuccess: true,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+
+    const view = render(
+      <HistoryPanel deckId="deck-1" open onOpenChange={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText("Version 1"));
+    expect(mocks.versionArgs.at(-1)).toEqual(["deck-1", "version-1"]);
+
+    view.rerender(<HistoryPanel deckId="deck-2" open onOpenChange={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mocks.versionArgs.at(-1)).toEqual(["deck-2", null]);
+      expect(screen.queryByText("history.backToSavedVersions")).toBeNull();
+      expect(screen.getByText("Version 1")).toBeTruthy();
+    });
   });
 });

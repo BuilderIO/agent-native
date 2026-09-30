@@ -5,7 +5,7 @@ import {
   IconLoader2,
   IconRestore,
 } from "@tabler/icons-react";
-import { useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
@@ -76,9 +76,17 @@ export default function HistoryPanel({
   canRestore = true,
 }: HistoryPanelProps) {
   const t = useT();
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    null,
-  );
+  const [selectedSnapshot, setSelectedSnapshot] = useState<{
+    deckId: string;
+    versionId: string;
+  } | null>(null);
+  const selectedVersionId =
+    selectedSnapshot?.deckId === deckId ? selectedSnapshot.versionId : null;
+  useEffect(() => {
+    setSelectedSnapshot((current) =>
+      current?.deckId === deckId ? current : null,
+    );
+  }, [deckId]);
   const versionsQuery = useDeckVersions(open ? deckId : null);
   const versionQuery = useDeckVersion(open ? deckId : null, selectedVersionId);
   const restoreVersion = useRestoreDeckVersion();
@@ -106,7 +114,7 @@ export default function HistoryPanel({
   );
 
   const handleClose = (nextOpen: boolean) => {
-    if (!nextOpen) setSelectedVersionId(null);
+    if (!nextOpen) setSelectedSnapshot(null);
     onOpenChange(nextOpen);
   };
 
@@ -141,7 +149,7 @@ export default function HistoryPanel({
             {selectedVersionId ? (
               <button
                 type="button"
-                onClick={() => setSelectedVersionId(null)}
+                onClick={() => setSelectedSnapshot(null)}
                 className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <IconArrowLeft size={15} />
@@ -286,7 +294,9 @@ export default function HistoryPanel({
                     <button
                       key={version.id}
                       type="button"
-                      onClick={() => setSelectedVersionId(version.id)}
+                      onClick={() =>
+                        setSelectedSnapshot({ deckId, versionId: version.id })
+                      }
                       className="w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent"
                     >
                       <div className="flex min-w-0 items-start gap-3">
