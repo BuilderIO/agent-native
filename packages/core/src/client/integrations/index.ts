@@ -4,6 +4,7 @@ export {
   type WorkspaceProviderOAuthOptions,
   type WorkspaceProviderOAuthScope,
 } from "./workspace-provider-oauth.js";
+export { getWorkspaceConnectionProvider } from "../../connections/catalog.js";
 export {
   channelConnectionState,
   hasMissingRequiredCredentials,

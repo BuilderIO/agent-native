@@ -1726,15 +1726,29 @@ export function AgentApprovalPrompt({
 export function AgentConnectionRequestCard({
   request,
   runId,
+  providerLabel,
+  retry = false,
+  onConnect,
 }: {
   request: AgentConnectionRequest;
   runId: string;
+  providerLabel?: string;
+  retry?: boolean;
+  onConnect?: (
+    request: AgentConnectionRequest,
+  ) => boolean | void | Promise<boolean | void>;
 }) {
   const { labels, onConnectionRequest, requestComposerFocus, threadId } =
     useAgentKit();
   const control = useAgentKitControl();
   const resolution = useAgentKitMutation(
     async (decision: "connect" | "decline") => {
+      if (decision === "connect" && onConnect) {
+        if ((await onConnect(request)) === false) {
+          throw new Error(labels.connectionFailed);
+        }
+        return;
+      }
       const response =
         decision === "decline"
           ? { status: "declined" as const }
@@ -1762,7 +1776,7 @@ export function AgentConnectionRequestCard({
         ? labels.connectionFailed
         : request.reason === "admin_required"
           ? labels.connectionAdminRequired
-          : `${labels.connectionConnect} ${request.provider}`;
+          : `${labels.connectionConnect} ${providerLabel ?? request.provider}`;
   return (
     <Surface
       as="section"
@@ -1793,16 +1807,20 @@ export function AgentConnectionRequestCard({
             className="agentkit-primary-button"
             intent="primary"
             size="compact"
-            disabled={resolution.pending || !onConnectionRequest}
+            disabled={
+              resolution.pending || (!onConnectionRequest && !onConnect)
+            }
             pending={resolution.pending}
             onPress={() => resolve("connect")}
           >
             {resolution.pending
               ? labels.connectionConnecting
-              : labels.connectionConnect}
+              : retry
+                ? labels.connectionRetry
+                : labels.connectionConnect}
           </ActionButton>
         </div>
-      ) : request.status === "failed" && onConnectionRequest ? (
+      ) : request.status === "failed" && (onConnectionRequest || onConnect) ? (
         <div className="agentkit-connection-request-actions">
           <ActionButton
             emphasis="outline"
@@ -3036,6 +3054,7 @@ export interface AgentKitComposerProps extends Omit<
     | "extraActionButton"
     | "onSubmit"
     | "onBeforeSubmit"
+    | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
     | "planModeDisabled"
@@ -3050,6 +3069,8 @@ export interface AgentKitComposerProps extends Omit<
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
   className?: string;
+  /** The host transcript renders its own accessible submission status. */
+  announcePendingSubmission?: boolean;
   queueWhileRunning?: boolean;
   showModelSelector?: boolean;
   /** Controlled execution mode for agent-native act/plan workflows. */
@@ -3069,6 +3090,7 @@ function hasActiveRuns(thread: AgentThreadState): boolean {
 export function AgentKitComposer({
   threadId: requestedThreadId,
   className,
+  announcePendingSubmission = true,
   queueWhileRunning = true,
   showModelSelector = true,
   slashCommands,
@@ -3117,6 +3139,7 @@ export function AgentKitComposer({
   extraActionButton,
   onSubmit: onSubmitOverride,
   onBeforeSubmit,
+  onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
   planModeDisabled,
@@ -3172,6 +3195,16 @@ export function AgentKitComposer({
     (execute: () => Promise<unknown>) => execute(),
     threadId,
   );
+  const submissionBlocked = Boolean(submissionDisabled) || command.pending;
+  const [submissionPending, setSubmissionPending] = useState(false);
+  const handleSubmissionPendingChange = useCallback(
+    (pending: boolean) => {
+      setSubmissionPending(pending);
+      onSubmissionPendingChange?.(pending);
+    },
+    [onSubmissionPendingChange],
+  );
+  const suggestionSubmitBlocked = submissionBlocked || submissionPending;
   const localComposerRef = useRef<TiptapComposerHandle>(null);
   const composerRef = hostComposerRef ?? localComposerRef;
   const selectedSuggestionRef = useRef<
@@ -3181,7 +3214,11 @@ export function AgentKitComposer({
   suggestionScope.current = {
     ...suggestionScope.current,
     threadId,
-    enabled: !disabled && suggestionsCapability.enabled && !editingMessage,
+    enabled:
+      !disabled &&
+      !submissionDisabled &&
+      suggestionsCapability.enabled &&
+      !editingMessage,
   };
   useEffect(() => {
     suggestionScope.current.mounted = true;
@@ -3490,6 +3527,7 @@ export function AgentKitComposer({
   ) => {
     if (
       disabled ||
+      suggestionSubmitBlocked ||
       !suggestionsCapability.enabled ||
       selectedSuggestionRef.current ||
       !isCurrentAgentSuggestion(controller.getThread(threadId), suggestion)
@@ -3512,6 +3550,15 @@ export function AgentKitComposer({
   const suggestions = selectAgentSuggestions(thread);
   return (
     <div className={`agentkit-composer-stack ${className ?? ""}`}>
+      {announcePendingSubmission && submissionPending ? (
+        <span
+          className="agentkit-visually-hidden"
+          role="status"
+          aria-live="polite"
+        >
+          {labels.activityBuckets?.thinking ?? "Thinking"}
+        </span>
+      ) : null}
       {queueCapability.visible ? (
         Queue ? (
           <Queue
@@ -3587,14 +3634,14 @@ export function AgentKitComposer({
           <Suggestions
             suggestions={suggestions}
             threadId={threadId}
-            pending={command.pending}
+            pending={suggestionSubmitBlocked}
             onSelect={selectSuggestion}
           />
         ) : (
           <AgentSuggestionBar
             suggestions={suggestions.map((suggestion) => ({
               ...suggestion,
-              disabled: command.pending || Boolean(disabled),
+              disabled: suggestionSubmitBlocked || Boolean(disabled),
             }))}
             ariaLabel={labels.suggestions}
             onSelect={selectSuggestion}
@@ -3615,14 +3662,13 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
-        submissionDisabled={submissionDisabled || command.pending}
+        submissionDisabled={submissionBlocked}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
         imageModelMenu={imageModelMenu}
         autoFocus={autoFocus}
         composerRef={composerRef}
-        submitting={command.pending}
         willQueue={active && queueWhileRunning && canQueue}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
@@ -3645,8 +3691,11 @@ export function AgentKitComposer({
         initialTextKey={composerInitialTextKey}
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
+        sendButtonDisabled={submissionPending}
         onBeforeSubmit={onBeforeSubmit}
+        onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
+        clearOnSubmitImmediately
         onAttachmentError={reportAttachmentError}
         interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
         planModeDisabled={planModeDisabled}

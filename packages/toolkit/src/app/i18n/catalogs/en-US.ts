@@ -785,7 +785,7 @@ const messages = {
   "mcpIntegrations.catalog.gong.useCase":
     "Sales calls, transcripts, deal insights, account summaries",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+    "A Gong tech admin must create an MCP integration with personal or shared authorization. For Manual registration, save the generated client ID and secret as workspace secrets `GONG_MCP_CLIENT_ID` and `GONG_MCP_CLIENT_SECRET`; Automatic registration needs no client credentials.",
   "mcpIntegrations.catalog.semgrep.description":
     "Scan code for security findings.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -997,6 +997,7 @@ const messages = {
   "message.revertQuestion":
     "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
+  "message.historyUnavailable": "Could not load change history.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",

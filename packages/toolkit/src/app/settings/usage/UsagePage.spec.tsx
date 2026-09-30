@@ -54,9 +54,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionQuery: () => ({ data: null, isError: false, isLoading: false }),
-}));
+vi.mock("@agent-native/core/client/use-action", async () =>
+  vi.importMock("@agent-native/core/client/hooks"),
+);
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:

@@ -20,6 +20,7 @@ import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connect
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
+  nextCanvasFramePosition,
   nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
@@ -463,6 +464,12 @@ export default defineAction({
         z.array(z.string()).optional(),
       )
       .describe("Shortcut for routes when only paths/URLs are needed."),
+    preserveExistingFramePositions: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set when route x/y values come from an automatic grid so existing screens stay in place.",
+      ),
     defaultWidth: z
       .number()
       .positive()
@@ -473,8 +480,18 @@ export default defineAction({
       .positive()
       .optional()
       .describe("Default iframe viewport height. Defaults to 900."),
-    startX: z.number().optional().default(0),
-    startY: z.number().optional().default(0),
+    startX: z
+      .number()
+      .optional()
+      .describe(
+        "Left edge for new screens. Defaults to the right of existing frames.",
+      ),
+    startY: z
+      .number()
+      .optional()
+      .describe(
+        "Top edge for new screens. Defaults to the topmost existing frame.",
+      ),
     gap: z.number().optional().default(160),
   }),
   mcpApp: {
@@ -494,6 +511,7 @@ export default defineAction({
       connectionId,
       routes,
       paths,
+      preserveExistingFramePositions,
       defaultWidth,
       defaultHeight,
       startX,
@@ -713,9 +731,24 @@ export default defineAction({
     );
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const now = new Date().toISOString();
-    const layoutStartX = startX ?? 0;
-    const layoutStartY = startY ?? 0;
     const layoutGap = gap ?? 160;
+    const responsiveBreakpointWidths = getResponsiveBreakpointWidths(
+      prevData.breakpointSet,
+    );
+    const defaultPosition = nextCanvasFramePosition(
+      existingCanvasFrames,
+      layoutGap,
+      {
+        responsiveLayout: {
+          screenFileIds: getOverviewScreenFileIds(existingFiles),
+          screenMetadataByFileId: existingMetadata,
+          breakpointWidths: responsiveBreakpointWidths,
+        },
+      },
+    );
+    const layoutStartX = startX ?? defaultPosition.x;
+    const layoutStartY = startY ?? defaultPosition.y;
+    let layoutCursorX = layoutStartX;
     const savedScreens: Array<{
       id: string;
       filename: string;
@@ -1146,18 +1179,42 @@ export default defineAction({
         width,
         height,
       });
+      const frameX = preserveExistingFramePositions
+        ? (existingFrame?.x ?? input.x ?? layoutCursorX)
+        : (input.x ?? existingFrame?.x ?? layoutCursorX);
       const fallbackPlacement: CanvasFramePlacement = {
         fileId,
         filename,
-        x:
-          input.x ??
-          existingFrame?.x ??
-          layoutStartX + placementIndex * (width + layoutGap),
-        y: input.y ?? existingFrame?.y ?? layoutStartY,
+        x: frameX,
+        y: preserveExistingFramePositions
+          ? (existingFrame?.y ?? input.y ?? layoutStartY)
+          : (input.y ?? existingFrame?.y ?? layoutStartY),
         width,
         height,
         z: input.z ?? existingFrame?.z ?? placementIndex,
       };
+      const nextFramePosition = nextCanvasFramePosition(
+        {
+          [fileId]: {
+            x: fallbackPlacement.x,
+            y: fallbackPlacement.y,
+            width,
+            height,
+            rotation: existingFrame?.rotation,
+          },
+        },
+        layoutGap,
+        {
+          responsiveLayout: {
+            screenFileIds: [fileId],
+            screenMetadataByFileId: {
+              [fileId]: { ...routeMetadata, width, height },
+            },
+            breakpointWidths: responsiveBreakpointWidths,
+          },
+        },
+      );
+      layoutCursorX = Math.max(layoutCursorX, nextFramePosition.x);
       placementIndex += 1;
       placementIntents.push({
         fileId,
@@ -1165,8 +1222,12 @@ export default defineAction({
         fallback: fallbackPlacement,
         existedAtStart: Boolean(existingFrame),
         owns: {
-          x: input.x !== undefined,
-          y: input.y !== undefined,
+          x:
+            input.x !== undefined &&
+            (!preserveExistingFramePositions || !existingFrame),
+          y:
+            input.y !== undefined &&
+            (!preserveExistingFramePositions || !existingFrame),
           width: input.width !== undefined || defaultWidth !== undefined,
           height: input.height !== undefined || defaultHeight !== undefined,
           z: input.z !== undefined,

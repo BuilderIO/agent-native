@@ -1,3 +1,15 @@
+## 0.164.19
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
 ## 0.164.17
 
 ### Patch Changes

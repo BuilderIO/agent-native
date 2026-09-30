@@ -378,6 +378,44 @@ describe("visual style controls", () => {
     expect(input.getAttribute("data-design-history-hotkeys")).toBe("true");
   });
 
+  it("commits a zero pixel value with leading zeros", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="Border width"
+          value={1}
+          min={0}
+          unit="px"
+          onChange={onChange}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "00px");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenCalledWith(
+      0,
+      expect.objectContaining({ source: "commit", expression: "00px" }),
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe("0px");
+  });
+
   it("releases focus on Enter when the consumer opts in", () => {
     const onChange = vi.fn();
     act(() => {

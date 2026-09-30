@@ -3,15 +3,25 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-30
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+- Page edits and comments save reliably
+
 ## 2026-09-29
 
 ### Improved
 
+- Content search ranks similar titles faster.
 - Content block prompts stay editable while AI setup completes.
 - Related pages can be loaded past the first 25 results
 
 ### Fixed
 
+- Duplicated rows and restored document versions keep collaborators' uploaded icons.
+- Text typed just before leaving a page and coming back is no longer lost or reported as a failed save
 - Inline prompts no longer show temporary status rows.
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.
 

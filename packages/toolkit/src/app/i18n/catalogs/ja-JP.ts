@@ -804,7 +804,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "営業通話、文字起こし、商談のインサイト、アカウントの概要",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong では、技術管理者が MCP 連携を作成し、個人または共有の認証を選択する必要があります。接続する前に、生成されたクライアント ID とシークレットを設定してください。",
+    "Gong の技術管理者が、個人または共有の認証を選んで MCP 連携を作成する必要があります。手動登録では、生成されたクライアント ID とシークレットをワークスペースのシークレット `GONG_MCP_CLIENT_ID` と `GONG_MCP_CLIENT_SECRET` として保存してください。自動登録ではクライアント認証情報は不要です。",
   "mcpIntegrations.catalog.semgrep.description":
     "コードをスキャンしてセキュリティ上の問題を検出します。",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -1013,6 +1013,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "ここまで復元しますか？",
   "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
+  "message.historyUnavailable": "変更履歴を読み込めませんでした。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",

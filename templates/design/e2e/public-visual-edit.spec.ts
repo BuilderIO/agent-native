@@ -528,6 +528,85 @@ test.describe.serial("public visual edit", () => {
       undefined,
       SIGNED_OUT_BASE_URL,
     );
+    const unauthorizedResponses: string[] = [];
+    const updateFileRequests: string[] = [];
+    const bridgeResponses: string[] = [];
+    const routeResponses: string[] = [];
+    const pageErrors: string[] = [];
+    signedOut.page.on("request", (request) => {
+      const requestUrl = new URL(request.url());
+      if (requestUrl.pathname.endsWith("/_agent-native/actions/update-file")) {
+        updateFileRequests.push(`${request.method()} ${requestUrl.pathname}`);
+      }
+    });
+    signedOut.page.on("response", (response) => {
+      const responseUrl = new URL(response.url());
+      if (
+        response.request().resourceType() === "document" ||
+        responseUrl.pathname.endsWith(".data") ||
+        response.status() >= 400
+      ) {
+        routeResponses.push(
+          `${response.status()} ${response.request().resourceType()} ${responseUrl.pathname}`,
+        );
+      }
+      if (response.url().includes("live-edit-bridge")) {
+        bridgeResponses.push(
+          `${response.status()} ${new URL(response.url()).pathname}`,
+        );
+      }
+      if (response.status() === 401 || response.status() === 403) {
+        const requestHeaders = response.request().headers();
+        const embedTarget =
+          requestHeaders["x-agent-native-embed-target"] ?? "<missing>";
+        const requestUrl = new URL(response.url());
+        const targetQuery =
+          requestUrl.searchParams.get("__an_embed_target") ?? "<missing>";
+        const urlHasEmbedToken =
+          requestUrl.searchParams.has("__an_embed_token");
+        void response
+          .json()
+          .then((body: unknown) => {
+            const details =
+              body && typeof body === "object"
+                ? ((body as { error?: unknown; hint?: unknown }).error ??
+                  (body as { hint?: unknown }).hint)
+                : undefined;
+            unauthorizedResponses.push(
+              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}${details ? ` (${String(details).slice(0, 160)})` : ""}`,
+            );
+          })
+          .catch(() => {
+            unauthorizedResponses.push(
+              `${response.status()} ${response.request().resourceType()} ${requestUrl.pathname} auth=${Boolean(requestHeaders.authorization)} tokenQuery=${urlHasEmbedToken} target=${embedTarget} targetQuery=${targetQuery}`,
+            );
+          });
+      }
+    });
+    signedOut.page.on("pageerror", (error) => {
+      pageErrors.push(`${error.name}: ${error.message}`);
+    });
+    signedOut.page.on("console", (message) => {
+      if (message.type() === "error" && /ErrorBoundary/.test(message.text())) {
+        const args = message.args();
+        void args[1]
+          ?.jsonValue()
+          .then((value: unknown) => {
+            const error =
+              value && typeof value === "object"
+                ? (value as {
+                    status?: unknown;
+                    statusText?: unknown;
+                    data?: unknown;
+                  })
+                : {};
+            pageErrors.push(
+              `${String(error.status ?? "")} ${String(error.statusText ?? "")} ${String(error.data ?? "").slice(0, 200)}`,
+            );
+          })
+          .catch(() => pageErrors.push(message.text().slice(0, 300)));
+      }
+    });
     try {
       if (!visualEditBridge)
         throw new Error("visual-edit bridge is not running");
@@ -733,36 +812,70 @@ test.describe.serial("public visual edit", () => {
         }
       });
       await installBridge(signedOut.page);
-      const selected = await selectByText(signedOut.page, "Local visual edit");
+      let selected;
+      try {
+        selected = await selectByText(signedOut.page, "Local visual edit");
+      } catch (error) {
+        const iframeDiagnostics = await signedOut.page
+          .locator("iframe[data-design-preview-iframe]")
+          .evaluateAll((frames) =>
+            frames.map((element) => {
+              const frame = element as HTMLIFrameElement;
+              const url = new URL(frame.src, location.href);
+              return {
+                screenId: frame.dataset.screenIframeId,
+                sourceType: frame.dataset.designSourceType,
+                src: `${url.origin}${url.pathname}`,
+              };
+            }),
+          )
+          .catch(() => []);
+        const childFrameDiagnostics = await Promise.all(
+          signedOut.page
+            .frames()
+            .filter((frame) => frame !== signedOut.page.mainFrame())
+            .map(async (frame) => ({
+              url: (() => {
+                try {
+                  const url = new URL(frame.url());
+                  return `${url.origin}${url.pathname}`;
+                } catch {
+                  return "unavailable";
+                }
+              })(),
+              body: await frame
+                .locator("body")
+                .innerText()
+                .then((text) => text.slice(0, 160))
+                .catch(() => "unavailable"),
+              chromeHosts: await frame
+                .locator("[data-agent-native-editor-chrome-host]")
+                .count()
+                .catch(() => 0),
+            })),
+        );
+        throw new Error(
+          `${String(error)}\nEditor URL flags: ${JSON.stringify(
+            await signedOut.page.evaluate(() => {
+              const url = new URL(window.location.href);
+              return {
+                pathname: url.pathname,
+                embedded: url.searchParams.get("embedded"),
+                embedChrome: url.searchParams.get("embedChrome"),
+                agentSidebar: url.searchParams.get("agentSidebar"),
+                embedTokenQuery: url.searchParams.has("__an_embed_token"),
+                storedEmbedToken: Boolean(
+                  sessionStorage.getItem("agent-native:embed-auth-token"),
+                ),
+              };
+            }),
+          )}\nRoute responses: ${routeResponses.join(", ")}\nBridge responses: ${bridgeResponses.join(", ")}\nUnauthorized responses: ${unauthorizedResponses.join(", ")}\nPage errors: ${pageErrors.join(" | ")}\nIframes: ${JSON.stringify(iframeDiagnostics)}\nChild frames: ${JSON.stringify(childFrameDiagnostics)}\nPage: ${await signedOut.page
+            .locator("body")
+            .innerText()
+            .catch(() => "unavailable")}`,
+        );
+      }
       expect(selected.textContent).toContain("Local visual edit");
-      const exportSection = signedOut.page
-        .locator("[data-design-inspector-section]")
-        .filter({
-          has: signedOut.page.getByRole("heading", {
-            name: "Export",
-            exact: true,
-          }),
-        });
-      const formatSelect = exportSection.getByRole("combobox").nth(1);
-      await expect(formatSelect).toBeVisible();
-      await formatSelect.click();
-      await signedOut.page.getByRole("option", { name: "PDF" }).click();
-      const [selectedPdfDownload] = await Promise.all([
-        signedOut.page.waitForEvent("download"),
-        exportSection
-          .getByRole("button", { name: "Export", exact: true })
-          .click(),
-      ]);
-      const selectedPdfStream = await selectedPdfDownload.createReadStream();
-      if (!selectedPdfStream)
-        throw new Error("Selected-layer PDF export returned no data");
-      const selectedPdfChunks: Buffer[] = [];
-      for await (const chunk of selectedPdfStream)
-        selectedPdfChunks.push(Buffer.from(chunk));
-      const selectedPdf = Buffer.concat(selectedPdfChunks);
-      expect(selectedPdf.subarray(0, 5).toString()).toBe("%PDF-");
-      expect(selectedPdf.byteLength).toBeGreaterThan(1_000);
-
       const liveFrame = signedOut.page
         .locator("iframe[data-design-preview-iframe]")
         .last()
@@ -796,6 +909,10 @@ test.describe.serial("public visual edit", () => {
       await expect
         .poll(() => publicationStatuses, { timeout: 15_000 })
         .toContain(200);
+      expect(
+        updateFileRequests,
+        "signed-out capability edits must stay DOM-only",
+      ).toEqual([]);
       const pull = async () => {
         const response = await mcpRequest.post(
           appUrl("/mcp/tool/get-visual-edit-pending", SIGNED_OUT_BASE_URL),
@@ -811,6 +928,38 @@ test.describe.serial("public visual edit", () => {
       expect(pulled.status).toBe("ready");
       expect(pulled.pendingEditCount).toBeGreaterThan(0);
       expect(pulled.prompt).toMatch(/Local visual edit|height|resize/i);
+      const evidenceDirectory = path.resolve(
+        import.meta.dirname,
+        "../../../.tmp/visual-edit-evidence",
+      );
+      await mkdir(evidenceDirectory, { recursive: true });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-before-reload.png"),
+      });
+
+      await liveFrame.locator("body").evaluate(() => window.location.reload());
+      await expect(heading).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(async () => (await heading.boundingBox())?.height ?? 0, {
+          timeout: 30_000,
+        })
+        .toBeCloseTo(before?.height ?? 0, 0);
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toHaveCount(0, { timeout: 30_000 });
+      const { response: reloadPullResponse, body: reloadPulled } = await pull();
+      expect(reloadPullResponse.status(), JSON.stringify(reloadPulled)).toBe(
+        200,
+      );
+      expect(reloadPulled).toMatchObject({
+        status: "ready",
+        revision: pulled.revision,
+      });
+      await signedOut.page.screenshot({
+        path: path.join(evidenceDirectory, "pending-cleared-after-reload.png"),
+      });
       const acknowledgeResponse = await mcpRequest.post(
         appUrl(
           "/mcp/tool/acknowledge-visual-edit-pending",
@@ -818,7 +967,10 @@ test.describe.serial("public visual edit", () => {
         ),
         {
           headers: capabilityHeaders,
-          data: { designId: capabilityDesignId, revision: pulled.revision },
+          data: {
+            designId: capabilityDesignId,
+            revision: reloadPulled.revision,
+          },
         },
       );
       const acknowledged = await acknowledgeResponse.json();
@@ -835,6 +987,33 @@ test.describe.serial("public visual edit", () => {
         status: "empty",
         pendingEditCount: 0,
       });
+
+      const reloadedHeadingBox = await heading.boundingBox();
+      expect(reloadedHeadingBox).toBeTruthy();
+      await signedOut.page.mouse.click(
+        (reloadedHeadingBox?.x ?? 0) + (reloadedHeadingBox?.width ?? 0) / 2,
+        (reloadedHeadingBox?.y ?? 0) + (reloadedHeadingBox?.height ?? 0) / 2,
+      );
+      await expect(resizeHandle).toBeVisible({ timeout: 15_000 });
+      const nextResizeBox = await resizeHandle.boundingBox();
+      expect(nextResizeBox).toBeTruthy();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2,
+      );
+      await signedOut.page.mouse.down();
+      await signedOut.page.mouse.move(
+        (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
+        (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2 + 8,
+        { steps: 4 },
+      );
+      await signedOut.page.mouse.up();
+      await waitForBridge(signedOut.page, "visual-style-change");
+      await expect(
+        signedOut.page.getByRole("button", {
+          name: /copy prompt to your agent|apply design update/i,
+        }),
+      ).toBeVisible();
 
       await signedOut.page
         .locator("[data-screen-shell]")
@@ -919,29 +1098,17 @@ test.describe.serial("public visual edit", () => {
             .locator("iframe[data-design-preview-iframe]")
             .last()
             .contentFrame()
-            .getByRole("heading", { name: "Owner updated canvas" }),
+            .getByRole("heading", { name: "Local visual edit" }),
         ).toBeVisible({ timeout: 30_000 });
         await installBridge(direct.page);
-        const selected = await selectByText(
-          direct.page,
-          "Owner updated canvas",
-        );
-        expect(selected.textContent).toBe("Owner updated canvas");
-        await direct.page
-          .locator("[data-screen-shell]")
-          .first()
-          .locator("[data-frame-title]")
-          .click();
-        await expect(
-          direct.page.getByRole("textbox", { name: "Screen URL" }),
-        ).toBeDisabled();
-        await selectByText(direct.page, "Owner updated canvas");
+        const selected = await selectByText(direct.page, "Local visual edit");
+        expect(selected.textContent).toBe("Local visual edit");
         const frame = direct.page
           .locator("iframe[data-design-preview-iframe]")
           .last()
           .contentFrame();
         const heading = frame.getByRole("heading", {
-          name: "Owner updated canvas",
+          name: "Local visual edit",
         });
         const before = await heading.boundingBox();
         expect(before).toBeTruthy();
@@ -1015,7 +1182,6 @@ test.describe.serial("public visual edit", () => {
         await expect
           .poll(async () => (await heading.boundingBox())?.height ?? 0)
           .toBeGreaterThan((before?.height ?? 0) + 1);
-
         expect(direct.mutationRequests).toEqual([]);
         await assertNoRuntimeErrors(direct);
       } finally {

@@ -74,8 +74,10 @@ const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "github-copilot",
 ]);
 
-let logOutImpl = (msg: string) => process.stdout.write(`${msg}\n`);
-let logErrImpl = (msg: string) => process.stderr.write(`${msg}\n`);
+let logOutImpl: (msg: string) => void = (msg) =>
+  process.stdout.write(`${msg}\n`);
+let logErrImpl: (msg: string) => void = (msg) =>
+  process.stderr.write(`${msg}\n`);
 
 function logOut(msg: string): void {
   logOutImpl(msg);
@@ -1870,10 +1872,7 @@ async function resolveReconnectTarget(
   const urlList = [...byUrl.keys()];
   if (shouldPrompt(deps)) {
     const clack = await import("@clack/prompts");
-    const result = await clack.select<
-      { value: string; label: string; hint: string }[],
-      string
-    >({
+    const result = await clack.select({
       message:
         "Multiple Agent-Native apps found. Which one do you want to reconnect?",
       options: urlList.map((u) => {
@@ -1889,9 +1888,9 @@ async function resolveReconnectTarget(
       clack.cancel("Cancelled.");
       return null;
     }
-    const bucket = byUrl.get(result as string);
+    const bucket = byUrl.get(result);
     const chosen = bucket
-      ? (preferredReconnectEntry(result as string, bucket) ?? bucket[0])
+      ? (preferredReconnectEntry(result, bucket) ?? bucket[0])
       : undefined;
     if (!chosen || !bucket) return null;
     return {

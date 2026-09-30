@@ -537,7 +537,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "Chamadas de vendas, transcrições, insights de negócios, resumos de contas",
   "mcpIntegrations.catalog.gong.setupNote":
-    "O Gong exige que um administrador técnico crie uma integração MCP e escolha a autorização pessoal ou compartilhada. O ID e o segredo do cliente gerados precisam ser configurados antes de conectar.",
+    "Um administrador técnico do Gong precisa criar uma integração MCP com autorização pessoal ou compartilhada. No registro Manual, salve o ID e o segredo do cliente gerados como segredos do espaço de trabalho `GONG_MCP_CLIENT_ID` e `GONG_MCP_CLIENT_SECRET`; o registro Automático não precisa de credenciais de cliente.",
   "mcpIntegrations.catalog.semgrep.description":
     "Analise o código em busca de problemas de segurança.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -747,6 +747,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "Reverter para este ponto? As alterações feitas depois serão perdidas.",
   "message.restoreRequestFailed": "Falha na solicitação de restauração.",
+  "message.historyUnavailable":
+    "Não foi possível carregar o histórico de alterações.",
   "message.threadNotFound":
     "Esta conversa não está mais disponível. Inicie uma nova conversa ou tente novamente se isso for inesperado.",
   "message.restoring": "Restaurando...",

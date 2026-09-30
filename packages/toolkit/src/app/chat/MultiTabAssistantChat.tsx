@@ -3114,7 +3114,7 @@ export function MultiTabAssistantChat({
       <div
         className={cn(
           "relative flex-1 flex flex-col min-h-0",
-          renderOverlay && "pt-14",
+          renderOverlay && "pt-12",
         )}
         data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
         data-agent-page-chat-scrolled={

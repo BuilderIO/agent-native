@@ -1283,9 +1283,7 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
         <SettingsReturnPathRecorder />
-        {shouldMountPanel ? (
-          <URLSync browserTabId={resolvedBrowserTabId} />
-        ) : null}
+        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}
@@ -1333,6 +1331,8 @@ export function focusAgentChat() {
 
 function focusAgentChatComposer() {
   const focusComposer = (attempt = 0) => {
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
     const panel = document.querySelector(
       ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
         ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
