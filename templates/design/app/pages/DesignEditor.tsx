@@ -957,6 +957,7 @@ import { runPublishAgentSelectionContext } from "./design-editor/effects/publish
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
 import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { isCurrentRuntimeLayerSnapshot } from "./design-editor/export-snapshot-frame";
 import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
   designGenerationDirectives,
@@ -3513,6 +3514,7 @@ function DesignEditor() {
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
     string | null
   >(null);
+  const exportPreviewScreenIdRef = useRef<string | null>(null);
   const [svgExporting, setSvgExporting] = useState(false);
   const [figmaSvgExporting, setFigmaSvgExporting] = useState(false);
   const pngExportingRef = useRef(false);
@@ -5155,6 +5157,9 @@ function DesignEditor() {
       screenId: string;
       readiness: RuntimeLayerSnapshotReadiness;
     } | null>(null);
+  const runtimeLayerSnapshotReadinessByIdRef = useRef<
+    Record<string, RuntimeLayerSnapshotReadiness>
+  >({});
   const [screenRootComputedStylesById, setScreenRootComputedStylesById] =
     useState<Record<string, Record<string, string>>>({});
   const screenRootComputedStylesByIdRef = useRef(screenRootComputedStylesById);
@@ -8366,8 +8371,16 @@ function DesignEditor() {
       const cached = cache.get(screenId);
       if (cached) return cached;
       const callback = (readiness: RuntimeLayerSnapshotReadiness) => {
-        if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) return;
-        setRuntimeLayerSnapshotReadiness({ screenId, readiness });
+        if (
+          activeRuntimeLayerReadinessScreenIdRef.current !== screenId &&
+          exportPreviewScreenIdRef.current !== screenId
+        ) {
+          return;
+        }
+        runtimeLayerSnapshotReadinessByIdRef.current[screenId] = readiness;
+        if (activeRuntimeLayerReadinessScreenIdRef.current === screenId) {
+          setRuntimeLayerSnapshotReadiness({ screenId, readiness });
+        }
       };
       cache.set(screenId, callback);
       return callback;
@@ -19572,7 +19585,16 @@ function DesignEditor() {
                 liveRoutePathsByScreenIdRef.current[screenId],
               ))
             : undefined;
-          if (snapshot?.html && baseUrl) {
+          if (
+            snapshot?.html &&
+            baseUrl &&
+            isCurrentRuntimeLayerSnapshot(
+              snapshot,
+              screenId
+                ? runtimeLayerSnapshotReadinessByIdRef.current[screenId]
+                : undefined,
+            )
+          ) {
             return {
               cropSelection,
               doc: null,
@@ -19786,7 +19808,14 @@ function DesignEditor() {
             screen.url ?? screen.previewUrl,
             liveRoutePathsByScreenIdRef.current[screenId],
           );
-        if (snapshot?.html && baseUrl) {
+        if (
+          snapshot?.html &&
+          baseUrl &&
+          isCurrentRuntimeLayerSnapshot(
+            snapshot,
+            runtimeLayerSnapshotReadinessByIdRef.current[screenId],
+          )
+        ) {
           return { html: snapshot.html, baseUrl };
         }
         await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
@@ -19804,9 +19833,20 @@ function DesignEditor() {
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
         fallbackExportName,
         overviewScreens,
-        prepareScreenForExport: setExportPreviewScreenId,
+        prepareScreenForExport: (screenId) => {
+          if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
+            runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
+              status: "loading",
+            };
+          }
+          exportPreviewScreenIdRef.current = screenId;
+          setExportPreviewScreenId(screenId);
+        },
         resolveSnapshotExportSource,
-        releaseScreenFromExport: () => setExportPreviewScreenId(null),
+        releaseScreenFromExport: () => {
+          exportPreviewScreenIdRef.current = null;
+          setExportPreviewScreenId(null);
+        },
         pngExportingRef,
         setPngExporting,
         showRasterCaptureError,
@@ -19907,7 +19947,15 @@ function DesignEditor() {
     (targetFileId: string | undefined): LiveFigmaSvgSnapshot | null => {
       if (!targetFileId) return null;
       const snapshot = runtimeLayerSnapshotsById[targetFileId];
-      if (!snapshot?.html) return null;
+      if (
+        !snapshot?.html ||
+        !isCurrentRuntimeLayerSnapshot(
+          snapshot,
+          runtimeLayerSnapshotReadinessByIdRef.current[targetFileId],
+        )
+      ) {
+        return null;
+      }
       const screen = overviewScreens.find(
         (candidate) => candidate.id === targetFileId,
       );

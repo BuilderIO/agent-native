@@ -51,7 +51,7 @@ no connector installation.
 
 Prefer the MCP App from `open-visual-edit`: it keeps Design beside
 chat. Use **Copy prompt** to hand the visual edits to the coding agent; the host
-may ask the user to confirm the current conversation. Otherwise,
+may request conversation confirmation. Otherwise,
 `openUrl` is a credential-free, read-only fallback; never claim it is editable.
 
 - Inline-browser hosts should open `https://design.agent-native.com/visual-edit`
@@ -97,15 +97,11 @@ const tools = await an.tools("visual-edit");
 if (!tools.some((tool) => tool.name === "open-visual-edit")) {
   throw new Error("open-visual-edit is not registered yet");
 }
-const result = await an.call(
-  "open-visual-edit",
-  {
-    devServerUrl: "http://localhost:5173",
-    paths: ["/"],
-    navigate: true,
-  },
-  { waitMs: 2_000 },
-);
+const result = await an.call("open-visual-edit", {
+  devServerUrl: "http://localhost:5173",
+  paths: ["/"],
+  navigate: true,
+}, { waitMs: 2_000 });
 if (result.state === "pending") {
   // On the next evaluation, read the still-running call without replaying it.
   an.result(result.id);
@@ -117,12 +113,9 @@ is canonical; `navigator.modelContext` is deprecated:
 
 ```js
 const ctx = document.modelContext;
-const tool = (await ctx.getTools()).find(
-  (candidate) => candidate.name === NAME,
-);
+const tool = (await ctx.getTools()).find((candidate) => candidate.name === NAME);
 if (!tool) throw new Error(`WebMCP tool not found: ${NAME}`);
-const codex =
-  typeof ctx.codexExecuteTool === "function" ||
+const codex = typeof ctx.codexExecuteTool === "function" ||
   typeof ctx.codexGetTools === "function";
 const result = await ctx.executeTool(tool, codex ? ARGS : JSON.stringify(ARGS));
 ```

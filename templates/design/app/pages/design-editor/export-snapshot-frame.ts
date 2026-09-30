@@ -1,8 +1,22 @@
+import type { RuntimeLayerSnapshotReadiness } from "@/components/design/DesignCanvas";
+
+import type { RuntimeLayerSnapshot } from "./command-types";
 import { PngCaptureError } from "./png-export-render";
 
 export interface ExportSnapshotSource {
   html: string;
   baseUrl: string;
+}
+
+export function isCurrentRuntimeLayerSnapshot(
+  snapshot: RuntimeLayerSnapshot | undefined,
+  readiness: RuntimeLayerSnapshotReadiness | undefined,
+): boolean {
+  return Boolean(
+    snapshot?.documentId &&
+    readiness?.status === "ready" &&
+    readiness.documentId === snapshot.documentId,
+  );
 }
 
 export interface ExportSnapshotFrame {

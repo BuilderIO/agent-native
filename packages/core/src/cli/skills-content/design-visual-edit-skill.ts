@@ -51,7 +51,7 @@ no connector installation.
 
 Prefer the MCP App from \`open-visual-edit\`: it keeps Design beside
 chat. Use **Copy prompt** to hand the visual edits to the coding agent; the host
-may ask the user to confirm the current conversation. Otherwise,
+may request conversation confirmation. Otherwise,
 \`openUrl\` is a credential-free, read-only fallback; never claim it is editable.
 
 - Inline-browser hosts should open \`https://design.agent-native.com/visual-edit\`

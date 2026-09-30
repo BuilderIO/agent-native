@@ -1,6 +1,41 @@
 import { describe, expect, it } from "vitest";
 
-import { addExportSnapshotBaseUrl } from "./export-snapshot-frame";
+import {
+  addExportSnapshotBaseUrl,
+  isCurrentRuntimeLayerSnapshot,
+} from "./export-snapshot-frame";
+
+describe("isCurrentRuntimeLayerSnapshot", () => {
+  const snapshot = {
+    html: "<main>Current page</main>",
+    nodeCount: 1,
+    documentId: "document-current",
+  };
+
+  it("accepts only the ready snapshot for the current document", () => {
+    expect(
+      isCurrentRuntimeLayerSnapshot(snapshot, {
+        status: "ready",
+        documentId: "document-current",
+      }),
+    ).toBe(true);
+    expect(
+      isCurrentRuntimeLayerSnapshot(snapshot, {
+        status: "ready",
+        documentId: "document-previous",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not use a snapshot while the current document is loading", () => {
+    expect(
+      isCurrentRuntimeLayerSnapshot(snapshot, {
+        status: "loading",
+        documentId: "document-current",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("addExportSnapshotBaseUrl", () => {
   it("adds a base URL to runtime snapshots without a head element", () => {
