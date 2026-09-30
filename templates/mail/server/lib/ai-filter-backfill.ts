@@ -148,6 +148,7 @@ type BackfillState = {
   processedThreads: number;
   restoredThreads: number;
   perRule: AiFilterBackfillRuleProgress[];
+  failedRuleId?: string;
   error?: string;
 };
 
@@ -458,6 +459,9 @@ function resultStatus(
       ? { undoFailures: state.undoFailedKeys.length }
       : {}),
     perRule: state.perRule,
+    ...(row.status === "failed" && state.failedRuleId
+      ? { failedRuleId: state.failedRuleId }
+      : {}),
     ...(row.status !== "undone" &&
     row.undoToken &&
     (row.undoExpiresAt ?? 0) > Date.now()
@@ -596,6 +600,51 @@ export async function startMailAiFilterBackfill(
       (row) => row.status !== "undoing" && row.ruleSetKey === ruleSetKey,
     );
     if (reusable) return { id: reusable.id, reused: true };
+    const failedRows = await tx
+      .select()
+      .from(schema.aiFilterBackfills)
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.ownerEmail, ownerEmail),
+          eq(schema.aiFilterBackfills.ruleSetKey, ruleSetKey),
+          eq(schema.aiFilterBackfills.status, "failed"),
+          gt(schema.aiFilterBackfills.expiresAt, now),
+        ),
+      );
+    const failedRun = (failedRows as BackfillRow[]).find((row) => {
+      const previous = parseState(row.stateJson);
+      return (
+        Object.keys(previous.snapshots).length > 0 &&
+        previous.undoProcessedIds.length === 0 &&
+        previous.undoFailedKeys.length === 0
+      );
+    });
+    if (failedRun) {
+      const previous = parseState(failedRun.stateJson);
+      previous.retryCount = 0;
+      delete previous.retryAfterAt;
+      if (!previous.incompleteCoverage) delete previous.error;
+      const [resumed] = await tx
+        .update(schema.aiFilterBackfills)
+        .set({
+          status: "queued",
+          stateJson: JSON.stringify(previous),
+          undoToken: failedRun.undoToken ?? undoToken,
+          undoExpiresAt: now + UNDO_LIFETIME_MS,
+          expiresAt: now + RUN_LIFETIME_MS,
+          claimId: null,
+          claimedAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.aiFilterBackfills.id, failedRun.id),
+            eq(schema.aiFilterBackfills.status, "failed"),
+          ),
+        )
+        .returning({ id: schema.aiFilterBackfills.id });
+      if (resumed) return { id: resumed.id, reused: true };
+    }
     const activeOverlaps = (activeRows as BackfillRow[]).filter((row) =>
       ruleIdsOverlap(row, requested),
     );
@@ -1429,6 +1478,7 @@ async function applyGmailActions(
   labelCache: Map<string, string>,
   existing: UndoThreadSnapshot | undefined,
   beforeMutation: (snapshot: UndoThreadSnapshot) => Promise<boolean>,
+  afterMutation: () => Promise<boolean>,
 ): Promise<{ snapshot: UndoThreadSnapshot; preview: AiFilterBackfillPreview }> {
   const effects = backfillActionEffects(actions);
   const addLabelIds: string[] = [];
@@ -1465,6 +1515,9 @@ async function applyGmailActions(
       adds,
       removes,
     )) as { historyId?: string } | undefined;
+    if (!(await afterMutation())) {
+      throw new Error("The backfill run changed after Gmail changed.");
+    }
     await syncInboxLabelDelta(
       ownerEmail,
       candidate.accountEmail!,
@@ -1685,6 +1738,7 @@ async function processRunningBatch(
   claimId: string,
   state: BackfillState,
 ): Promise<void> {
+  delete state.failedRuleId;
   const ownerEmail = row.ownerEmail;
   if (!(await getAiFilterState(ownerEmail)).enabled)
     throw new Error("Mail AI filtering was disabled during this run.");
@@ -1827,6 +1881,13 @@ async function processRunningBatch(
         }
         return saved;
       };
+      const checkpointApplied = async () => {
+        if (!state.appliedThreadKeys.includes(candidate.key)) {
+          state.appliedThreadKeys.push(candidate.key);
+        }
+        return checkpointAppliedBackfillMutation(row.id, claimId, state);
+      };
+      const wasApplied = state.appliedThreadKeys.includes(candidate.key);
       try {
         if (client) {
           const cache =
@@ -1841,6 +1902,7 @@ async function processRunningBatch(
             cache,
             existingSnapshot,
             persistSnapshot,
+            checkpointApplied,
           );
         } else {
           applied = await applyLocalActions(
@@ -1852,6 +1914,11 @@ async function processRunningBatch(
           );
         }
       } catch (error) {
+        if (wasApplied || !state.appliedThreadKeys.includes(candidate.key)) {
+          state.failedRuleId = rule.id;
+        } else {
+          delete state.failedRuleId;
+        }
         if (!state.failedKeys.includes(candidate.key))
           state.failedKeys.push(candidate.key);
         throw error;
@@ -2080,6 +2147,7 @@ async function processUndoBatch(
   claimId: string,
   state: BackfillState,
 ): Promise<void> {
+  delete state.failedRuleId;
   const snapshots = Object.values(state.snapshots);
   const pending = pendingUndoSnapshots(
     snapshots,
