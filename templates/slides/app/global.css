@@ -1144,7 +1144,8 @@ button[title="Open agent sidebar"] {
   line-height: inherit;
 }
 
-.slide-content[data-slide-content-scope] code[data-slide-authoring-format="code"] {
+.slide-content[data-slide-content-scope]
+  code[data-slide-authoring-format="code"] {
   font-size: 0.88em;
   line-height: inherit;
   padding: 0.12em 0.32em;
