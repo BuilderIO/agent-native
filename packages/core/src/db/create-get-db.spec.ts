@@ -17,6 +17,7 @@ describe("createGetDb pooled transaction scoping", () => {
     let rolledBackTransactions = 0;
     let releasedTransactions = 0;
     let delayCancellationResponse = false;
+    const timeoutOperations: string[] = [];
     const execute = vi.fn(async (query: any) => {
       const compiled = query.toQuery();
       if (
@@ -29,10 +30,12 @@ describe("createGetDb pooled transaction scoping", () => {
       if (
         compiled.sql.startsWith("SELECT current_setting('statement_timeout')")
       ) {
+        timeoutOperations.push(`read:${statementTimeout}`);
         return { rows: [{ statement_timeout: statementTimeout }], rowCount: 1 };
       }
       if (compiled.sql.startsWith("SET LOCAL statement_timeout = ")) {
         statementTimeout = `${compiled.sql.match(/= (\d+)/)?.[1]}ms`;
+        timeoutOperations.push(`set:${statementTimeout}`);
         return { rows: [], rowCount: 0 };
       }
       if (
@@ -41,11 +44,20 @@ describe("createGetDb pooled transaction scoping", () => {
         )
       ) {
         statementTimeout = String(compiled.params[0]);
+        timeoutOperations.push(`restore:${statementTimeout}`);
         return { rows: [], rowCount: 0 };
       }
       if (compiled.sql === "ROLLBACK") {
         rolledBackTransactions++;
         return { rows: [], rowCount: 0 };
+      }
+      if (
+        compiled.sql === "SELECT 101" ||
+        compiled.sql === "SELECT 102" ||
+        compiled.sql === "SELECT 103" ||
+        compiled.sql === "SELECT 104"
+      ) {
+        timeoutOperations.push(`query:${compiled.sql}@${statementTimeout}`);
       }
       if (compiled.sql.includes('"transaction_scope_access_docs"')) {
         return {
@@ -143,6 +155,33 @@ describe("createGetDb pooled transaction scoping", () => {
       });
       expect(statementTimeout).toBe("90ms");
       await getDbExec().execute("SELECT 1");
+      expect(statementTimeout).toBe("90ms");
+      timeoutOperations.length = 0;
+      await Promise.all([
+        getDbExec().execute({ sql: "SELECT 101", timeoutMs: 25 }),
+        tx.transaction(() =>
+          getDbExec().execute({ sql: "SELECT 102", timeoutMs: 50 }),
+        ),
+        getDbExec().execute("SELECT 103"),
+      ]);
+      await getDbExec().transaction(() =>
+        getDbExec().execute({ sql: "SELECT 104", timeoutMs: 40 }),
+      );
+      expect(timeoutOperations).toEqual([
+        "read:90ms",
+        "set:23ms",
+        "query:SELECT 101@23ms",
+        "restore:90ms",
+        "query:SELECT 103@90ms",
+        "read:90ms",
+        "set:45ms",
+        "query:SELECT 102@45ms",
+        "restore:90ms",
+        "read:90ms",
+        "set:36ms",
+        "query:SELECT 104@36ms",
+        "restore:90ms",
+      ]);
       expect(statementTimeout).toBe("90ms");
       await expect(
         tx.transaction(async () => {

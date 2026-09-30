@@ -79,109 +79,142 @@ async function withTransactionStatementTimeout<T>(
   return await run();
 }
 
-function drizzleTransactionExec(transaction: any): DbExec {
+type DrizzleTransactionQueryQueue = { pending: Promise<void> };
+
+function createDrizzleTransactionQueryQueue(): DrizzleTransactionQueryQueue {
+  return { pending: Promise.resolve() };
+}
+
+function acquireDrizzleTransactionQuery(
+  queue: DrizzleTransactionQueryQueue,
+): Promise<() => void> {
+  const previous = queue.pending;
+  let release!: () => void;
+  queue.pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return previous.then(() => release);
+}
+
+async function withDrizzleTransactionQuery<T>(
+  queue: DrizzleTransactionQueryQueue,
+  run: () => Promise<T>,
+): Promise<T> {
+  const release = await acquireDrizzleTransactionQuery(queue);
+  try {
+    return await run();
+  } finally {
+    release();
+  }
+}
+
+function drizzleTransactionExec(
+  transaction: any,
+  queryQueue = createDrizzleTransactionQueryQueue(),
+): DbExec {
+  const executeStatement = async (statement: DbExecStatement) => {
+    const query =
+      typeof statement === "string" ? { sql: statement, args: [] } : statement;
+    const postgresSql = toPostgresParams(query.sql);
+    const args = (query.args ?? []).map((arg) => arg ?? null);
+    const prepared = drizzleRawQuery(postgresSql, args);
+
+    const { timeoutMs } = dbExecQueryBudget(statement);
+    const startedAt = Date.now();
+    const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+    let timedOut = false;
+    let inFlight: Promise<unknown> | undefined;
+    let result: any;
+    try {
+      result = await withDbTimeout(
+        "query",
+        async () => {
+          inFlight = (async () => {
+            if (!hasExplicitDbTimeout(statement)) {
+              return transaction.execute(prepared);
+            }
+
+            const currentTimeout = await transaction.execute(
+              drizzleRawQuery(
+                "SELECT current_setting('statement_timeout') AS statement_timeout",
+              ),
+            );
+            const currentRows = Array.isArray(currentTimeout)
+              ? currentTimeout
+              : currentTimeout?.rows;
+            const previousTimeout = currentRows?.[0]?.statement_timeout;
+            if (typeof previousTimeout !== "string") {
+              throw new Error("Could not read the active statement timeout");
+            }
+            if (timedOut) return undefined;
+
+            await transaction.execute(
+              drizzleRawQuery(
+                `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`,
+              ),
+            );
+            const restoreTimeout = () =>
+              transaction.execute(
+                drizzleRawQuery(
+                  "SELECT set_config('statement_timeout', $1, true)",
+                  [previousTimeout],
+                ),
+              );
+            if (timedOut) {
+              // Keep the transaction open until this reset finishes or rollback releases the local setting.
+              await restoreTimeout().catch(() => {});
+              return undefined;
+            }
+
+            let queryResult: any;
+            let queryError: unknown;
+            let queryFailed = false;
+            try {
+              queryResult = await transaction.execute(prepared);
+            } catch (err) {
+              queryFailed = true;
+              queryError = err;
+            }
+            try {
+              await restoreTimeout();
+            } catch (err) {
+              if (!queryFailed) throw err;
+            }
+            if (queryFailed) throw queryError;
+            return queryResult;
+          })();
+          return inFlight;
+        },
+        timeoutMs,
+        () => {
+          timedOut = true;
+        },
+        { sql: query.sql },
+      );
+    } catch (err) {
+      // Drizzle rolls back as soon as this callback rejects. Drain any timed-out
+      // statement and its timeout reset first so it cannot use the released client.
+      if (timedOut && hasExplicitDbTimeout(statement) && inFlight) {
+        await inFlight.catch(() => {});
+      }
+      throw annotateMissingTable(err, statement);
+    }
+
+    const rows = Array.isArray(result) ? result : result?.rows;
+    if (!Array.isArray(rows)) {
+      throw new Error("Drizzle transaction query returned no row array");
+    }
+    return {
+      rows,
+      rowsAffected:
+        result.rowCount ?? result.count ?? result.affectedRows ?? rows.length,
+    };
+  };
   const exec: DbExec = {
-    async execute(statement: DbExecStatement) {
-      const query =
-        typeof statement === "string"
-          ? { sql: statement, args: [] }
-          : statement;
-      const postgresSql = toPostgresParams(query.sql);
-      const args = (query.args ?? []).map((arg) => arg ?? null);
-      const prepared = drizzleRawQuery(postgresSql, args);
-
-      const { timeoutMs } = dbExecQueryBudget(statement);
-      const startedAt = Date.now();
-      const remainingMs = () =>
-        Math.max(1, timeoutMs - (Date.now() - startedAt));
-      let timedOut = false;
-      let inFlight: Promise<unknown> | undefined;
-      let result: any;
-      try {
-        result = await withDbTimeout(
-          "query",
-          async () => {
-            inFlight = (async () => {
-              if (!hasExplicitDbTimeout(statement)) {
-                return transaction.execute(prepared);
-              }
-
-              const currentTimeout = await transaction.execute(
-                drizzleRawQuery(
-                  "SELECT current_setting('statement_timeout') AS statement_timeout",
-                ),
-              );
-              const currentRows = Array.isArray(currentTimeout)
-                ? currentTimeout
-                : currentTimeout?.rows;
-              const previousTimeout = currentRows?.[0]?.statement_timeout;
-              if (typeof previousTimeout !== "string") {
-                throw new Error("Could not read the active statement timeout");
-              }
-              if (timedOut) return undefined;
-
-              await transaction.execute(
-                drizzleRawQuery(
-                  `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`,
-                ),
-              );
-              const restoreTimeout = () =>
-                transaction.execute(
-                  drizzleRawQuery(
-                    "SELECT set_config('statement_timeout', $1, true)",
-                    [previousTimeout],
-                  ),
-                );
-              if (timedOut) {
-                // Keep the transaction open until this reset finishes or rollback releases the local setting.
-                await restoreTimeout().catch(() => {});
-                return undefined;
-              }
-
-              let queryResult: any;
-              let queryError: unknown;
-              let queryFailed = false;
-              try {
-                queryResult = await transaction.execute(prepared);
-              } catch (err) {
-                queryFailed = true;
-                queryError = err;
-              }
-              try {
-                await restoreTimeout();
-              } catch (err) {
-                if (!queryFailed) throw err;
-              }
-              if (queryFailed) throw queryError;
-              return queryResult;
-            })();
-            return inFlight;
-          },
-          timeoutMs,
-          () => {
-            timedOut = true;
-          },
-          { sql: query.sql },
-        );
-      } catch (err) {
-        // Drizzle rolls back as soon as this callback rejects. Drain any timed-out
-        // statement and its timeout reset first so it cannot use the released client.
-        if (timedOut && hasExplicitDbTimeout(statement) && inFlight) {
-          await inFlight.catch(() => {});
-        }
-        throw annotateMissingTable(err, statement);
-      }
-
-      const rows = Array.isArray(result) ? result : result?.rows;
-      if (!Array.isArray(rows)) {
-        throw new Error("Drizzle transaction query returned no row array");
-      }
-      return {
-        rows,
-        rowsAffected:
-          result.rowCount ?? result.count ?? result.affectedRows ?? rows.length,
-      };
-    },
+    execute: (statement) =>
+      withDrizzleTransactionQuery(queryQueue, () =>
+        executeStatement(statement),
+      ),
   };
 
   exec.atomicBatch = async (statements) => {
@@ -192,19 +225,30 @@ function drizzleTransactionExec(transaction: any): DbExec {
   };
 
   if (typeof transaction.transaction === "function") {
-    exec.transaction = (run) =>
-      transaction.transaction((nested: any) => {
-        const nestedExec = drizzleTransactionExec(nested);
-        return withTransactionStatementTimeout(nested, () =>
-          withDbExec(nestedExec, () => run(nestedExec)),
-        );
-      });
+    exec.transaction = async (run) => {
+      const release = await acquireDrizzleTransactionQuery(queryQueue);
+      let released = false;
+      try {
+        return await transaction.transaction(async (nested: any) => {
+          const nestedExec = drizzleTransactionExec(nested, queryQueue);
+          await withTransactionStatementTimeout(nested, () => undefined);
+          release();
+          released = true;
+          return withDbExec(nestedExec, () => run(nestedExec));
+        });
+      } finally {
+        if (!released) release();
+      }
+    };
   }
 
   return exec;
 }
 
-function scopeDbExecToDrizzleTransactions<T extends object>(db: T): T {
+function scopeDbExecToDrizzleTransactions<T extends object>(
+  db: T,
+  queryQueue?: DrizzleTransactionQueryQueue,
+): T {
   return new Proxy(db, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target);
@@ -213,17 +257,57 @@ function scopeDbExecToDrizzleTransactions<T extends object>(db: T): T {
           if (typeof run !== "function") {
             return value.apply(target, [run, ...args]);
           }
-          return value.apply(target, [
-            (transaction: any) =>
-              withTransactionStatementTimeout(transaction, () =>
-                withDbExec(drizzleTransactionExec(transaction), () =>
-                  (run as (transaction: any) => unknown)(
-                    scopeDbExecToDrizzleTransactions(transaction),
+          const transactionQueue =
+            queryQueue ?? createDrizzleTransactionQueryQueue();
+          if (!queryQueue) {
+            return value.apply(target, [
+              (transaction: any) =>
+                withTransactionStatementTimeout(transaction, () =>
+                  withDbExec(
+                    drizzleTransactionExec(transaction, transactionQueue),
+                    () =>
+                      (run as (transaction: any) => unknown)(
+                        scopeDbExecToDrizzleTransactions(
+                          transaction,
+                          transactionQueue,
+                        ),
+                      ),
                   ),
                 ),
-              ),
-            ...args,
-          ]);
+              ...args,
+            ]);
+          }
+
+          return (async () => {
+            const release =
+              await acquireDrizzleTransactionQuery(transactionQueue);
+            let released = false;
+            try {
+              return await value.apply(target, [
+                async (transaction: any) => {
+                  await withTransactionStatementTimeout(
+                    transaction,
+                    () => undefined,
+                  );
+                  release();
+                  released = true;
+                  return withDbExec(
+                    drizzleTransactionExec(transaction, transactionQueue),
+                    () =>
+                      (run as (transaction: any) => unknown)(
+                        scopeDbExecToDrizzleTransactions(
+                          transaction,
+                          transactionQueue,
+                        ),
+                      ),
+                  );
+                },
+                ...args,
+              ]);
+            } finally {
+              if (!released) release();
+            }
+          })();
         };
       }
       return typeof value === "function" ? value.bind(target) : value;
