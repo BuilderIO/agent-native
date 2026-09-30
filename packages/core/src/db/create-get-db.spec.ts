@@ -18,13 +18,32 @@ describe("createGetDb pooled transaction scoping", () => {
     let releasedTransactions = 0;
     let delayCancellationResponse = false;
     const timeoutOperations: string[] = [];
+    const queryDelays = new Map<string, number>();
+    const transactionNestingIndexes: number[] = [];
+    const preparedQueryExecutions: Array<{
+      sql: string;
+      sessionId: number;
+      token?: unknown;
+    }> = [];
+    let nextSessionId = 0;
+    let rootTransactionsStarted = 0;
+    const rawQuery = (query: string) => ({
+      getSQL: () => ({ toQuery: () => ({ sql: query, params: [] }) }),
+    });
     const execute = vi.fn(async (query: any) => {
       const compiled = query.toQuery();
       if (
         compiled.sql.startsWith("SELECT set_config('statement_timeout', CASE")
       ) {
+        const setupDelayMs = queryDelays.get("transaction-timeout-setup");
+        if (setupDelayMs) {
+          timeoutOperations.push("transaction-timeout-config:start");
+          await new Promise((resolve) => setTimeout(resolve, setupDelayMs));
+        }
         statementTimeout =
           compiled.sql.match(/THEN '(\d+ms)'/)?.[1] ?? statementTimeout;
+        if (setupDelayMs)
+          timeoutOperations.push("transaction-timeout-config:complete");
         return { rows: [{ set_config: statementTimeout }], rowCount: 1 };
       }
       if (
@@ -48,6 +67,7 @@ describe("createGetDb pooled transaction scoping", () => {
         return { rows: [], rowCount: 0 };
       }
       if (compiled.sql === "ROLLBACK") {
+        timeoutOperations.push("rollback");
         rolledBackTransactions++;
         return { rows: [], rowCount: 0 };
       }
@@ -55,7 +75,12 @@ describe("createGetDb pooled transaction scoping", () => {
         compiled.sql === "SELECT 101" ||
         compiled.sql === "SELECT 102" ||
         compiled.sql === "SELECT 103" ||
-        compiled.sql === "SELECT 104"
+        compiled.sql === "SELECT 104" ||
+        compiled.sql === "SELECT 105" ||
+        compiled.sql === "SELECT 106" ||
+        compiled.sql === "SELECT 107" ||
+        compiled.sql === "SELECT 108" ||
+        compiled.sql === "SELECT 110"
       ) {
         timeoutOperations.push(`query:${compiled.sql}@${statementTimeout}`);
       }
@@ -67,6 +92,8 @@ describe("createGetDb pooled transaction scoping", () => {
           rowCount: 1,
         };
       }
+      const delayMs = queryDelays.get(compiled.sql);
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
       if (compiled.sql.includes("pg_sleep")) {
         const match = statementTimeout.match(/^(\d+)(ms|s)$/);
         const delayMs = match
@@ -83,10 +110,76 @@ describe("createGetDb pooled transaction scoping", () => {
       }
       return { rows: [{ id: 42 }], rowCount: 1 };
     });
-    const runTransaction = async (run: (transaction: any) => unknown) => {
+    const makeSession = () => {
+      const sessionId = ++nextSessionId;
+      const session: any = {
+        id: sessionId,
+        prepareQuery(query: any) {
+          const compiled =
+            query.toQuery?.() ?? query.getSQL?.().toQuery?.() ?? query;
+          let token: unknown;
+          return {
+            setToken(nextToken: unknown) {
+              token = nextToken;
+              return this;
+            },
+            execute() {
+              preparedQueryExecutions.push({
+                sql: compiled.sql,
+                sessionId,
+                ...(token === undefined ? {} : { token }),
+              });
+              return execute({ toQuery: () => compiled });
+            },
+          };
+        },
+        execute(query: any) {
+          return this.prepareQuery(query.getSQL?.() ?? query).execute();
+        },
+        query(query: string, params: unknown[]) {
+          return execute({ toQuery: () => ({ sql: query, params }) });
+        },
+        queryObjects(query: string, params: unknown[]) {
+          return execute({ toQuery: () => ({ sql: query, params }) });
+        },
+      };
+      return session;
+    };
+    const makeRelationalQueries = (
+      session: any,
+      relations: Record<string, string>,
+    ) =>
+      Object.fromEntries(
+        Object.entries(relations).map(([tableName, query]) => [
+          tableName,
+          {
+            findMany() {
+              return {
+                session,
+                execute() {
+                  return this.session.execute(rawQuery(query));
+                },
+              };
+            },
+            findFirst() {
+              return {
+                session,
+                execute() {
+                  return this.session.execute(rawQuery(query));
+                },
+              };
+            },
+          },
+        ]),
+      );
+    const runTransaction = async (
+      run: (transaction: any) => unknown,
+      session?: any,
+      nestingIndex = 0,
+    ) => {
       const previousTimeout = statementTimeout;
       try {
-        return await run(makeTransaction());
+        return await run(makeTransaction(session, nestingIndex));
       } catch (error) {
         await execute({ toQuery: () => ({ sql: "ROLLBACK", params: [] }) });
         throw error;
@@ -95,14 +188,57 @@ describe("createGetDb pooled transaction scoping", () => {
         releasedTransactions++;
       }
     };
-    const makeTransaction = () => ({
-      execute,
-      transaction: runTransaction,
+    const makeTransaction = (session = makeSession(), nestingIndex = 0) => ({
+      session,
+      query: makeRelationalQueries(session, { docs: "SELECT 110" }),
+      execute(query: any) {
+        return this.session.execute(query);
+      },
+      transaction: (run: (transaction: any) => unknown) =>
+        runTransaction(
+          (nested) => {
+            transactionNestingIndexes.push(nestingIndex + 1);
+            return run(nested);
+          },
+          makeSession(),
+          nestingIndex + 1,
+        ),
     });
-    const db = {
-      transaction: runTransaction,
-    };
-    vi.doMock("drizzle-orm/neon-serverless", () => ({ drizzle: () => db }));
+    const makeDatabase = (session: any, relations: Record<string, string>) => ({
+      session,
+      query: makeRelationalQueries(session, relations),
+      select() {
+        const selectSession = this.session;
+        const query = rawQuery(
+          relations.otherTable
+            ? 'SELECT 114 FROM "other_schema"."other_table"'
+            : "SELECT 114",
+        );
+        return {
+          from() {
+            return {
+              execute: () => selectSession.prepareQuery(query).execute(),
+              prepare: () => selectSession.prepareQuery(query),
+            };
+          },
+        };
+      },
+      execute(query: any) {
+        return this.session.execute(query);
+      },
+      transaction(run: (transaction: any) => unknown) {
+        rootTransactionsStarted++;
+        return runTransaction(run);
+      },
+    });
+    const db = makeDatabase(makeSession(), { docs: "SELECT 111" });
+    const otherDb = makeDatabase(makeSession(), {
+      otherTable: "SELECT 112",
+    });
+    vi.doMock("drizzle-orm/neon-serverless", () => ({
+      drizzle: (_pool: unknown, options: any) =>
+        options.schema.otherStore ? otherDb : db,
+    }));
     vi.doMock("@neondatabase/serverless", () => ({
       Pool: class {
         connect = vi.fn();
@@ -115,6 +251,7 @@ describe("createGetDb pooled transaction scoping", () => {
     const { createGetDb } = await import("./create-get-db.js");
     const { getDbExec, getScopedDbExec } = await import("./client.js");
     const database = await createGetDb({})();
+    const otherDatabase = await createGetDb({ otherStore: true })();
     const { assertAccess } = await import("../sharing/access.js");
     const { registerShareableResource } =
       await import("../sharing/registry.js");
@@ -157,32 +294,143 @@ describe("createGetDb pooled transaction scoping", () => {
       await getDbExec().execute("SELECT 1");
       expect(statementTimeout).toBe("90ms");
       timeoutOperations.length = 0;
+      const outerSessionId = tx.session.id;
+      const capturedOuterQuery = tx.session
+        .prepareQuery({
+          toQuery: () => ({ sql: "SELECT 106", params: [] }),
+        })
+        .setToken("captured-token");
+      const capturedOuterRelationalQuery = tx.query.docs.findMany();
       await Promise.all([
         getDbExec().execute({ sql: "SELECT 101", timeoutMs: 25 }),
-        tx.transaction(() =>
-          getDbExec().execute({ sql: "SELECT 102", timeoutMs: 50 }),
+        tx.transaction(async (nestedTx: any) =>
+          Promise.all([
+            getDbExec().execute({ sql: "SELECT 102", timeoutMs: 50 }),
+            nestedTx.execute(rawQuery("SELECT 105")),
+            capturedOuterQuery.execute(),
+            nestedTx.query.docs.findMany().execute(),
+            capturedOuterRelationalQuery.execute(),
+          ]),
         ),
+        tx.execute(rawQuery("SELECT 108")),
         getDbExec().execute("SELECT 103"),
       ]);
+      const capturedExecution = preparedQueryExecutions.find(
+        ({ sql }) => sql === "SELECT 106",
+      );
+      expect(capturedExecution?.sessionId).not.toBe(outerSessionId);
+      expect(capturedExecution?.token).toBe("captured-token");
+      const relationalExecutions = preparedQueryExecutions.filter(
+        ({ sql }) => sql === "SELECT 110",
+      );
+      expect(relationalExecutions).toHaveLength(2);
+      expect(
+        relationalExecutions.every(
+          ({ sessionId }) => sessionId !== outerSessionId,
+        ),
+      ).toBe(true);
+      transactionNestingIndexes.length = 0;
+      await tx.transaction(async () => {
+        await tx.transaction(async () => undefined);
+        const transactionsBeforeRejectedRootCall = rootTransactionsStarted;
+        await expect(
+          Promise.resolve().then(() =>
+            database.transaction(async () => undefined),
+          ),
+        ).rejects.toThrow(
+          "Cannot start a root transaction while another transaction is active; use the transaction handle to create a savepoint",
+        );
+        expect(rootTransactionsStarted).toBe(
+          transactionsBeforeRejectedRootCall,
+        );
+      });
+      expect(transactionNestingIndexes).toEqual([1, 2]);
+      let escapedRelationalQuery: any;
+      await tx.transaction(async (nestedTx: any) => {
+        escapedRelationalQuery = nestedTx.query.docs.findMany();
+      });
+      await expect(
+        Promise.resolve().then(() => escapedRelationalQuery.execute()),
+      ).rejects.toThrow(
+        "Cannot use a database handle after its transaction has completed",
+      );
       await getDbExec().transaction(() =>
         getDbExec().execute({ sql: "SELECT 104", timeoutMs: 40 }),
       );
-      expect(timeoutOperations).toEqual([
+      expect(timeoutOperations.slice(0, 4)).toEqual([
         "read:90ms",
-        "set:23ms",
-        "query:SELECT 101@23ms",
+        expect.stringMatching(/^set:2[0-3]ms$/),
+        expect.stringMatching(/^query:SELECT 101@2[0-3]ms$/),
         "restore:90ms",
-        "query:SELECT 103@90ms",
+      ]);
+      expect(timeoutOperations.slice(4)).toEqual([
         "read:90ms",
         "set:45ms",
         "query:SELECT 102@45ms",
         "restore:90ms",
+        "query:SELECT 105@90ms",
+        "query:SELECT 106@90ms",
+        "query:SELECT 110@90ms",
+        "query:SELECT 110@90ms",
+        "query:SELECT 108@90ms",
+        "query:SELECT 103@90ms",
         "read:90ms",
         "set:36ms",
         "query:SELECT 104@36ms",
         "restore:90ms",
       ]);
+      const parentContextQuery = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          void tx.execute(rawQuery("SELECT 113")).then(resolve, reject);
+        }, 0);
+      });
+      void parentContextQuery.catch(() => {});
+      await expect(
+        tx.transaction(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          await parentContextQuery;
+        }),
+      ).rejects.toThrow(
+        "Cannot use a transaction handle while its nested transaction is active",
+      );
+      expect(
+        preparedQueryExecutions.some(({ sql }) => sql === "SELECT 113"),
+      ).toBe(false);
       expect(statementTimeout).toBe("90ms");
+      timeoutOperations.length = 0;
+      queryDelays.set("SELECT 106", 35);
+      await tx.transaction(async () => {
+        const inFlight = getDbExec().execute({
+          sql: "SELECT 106",
+          timeoutMs: 80,
+        });
+        await expect(
+          getDbExec().execute({ sql: "SELECT 107", timeoutMs: 20 }),
+        ).rejects.toThrow(
+          "DB query timed out after 20ms (connection terminated)",
+        );
+        await inFlight;
+      });
+      queryDelays.clear();
+      expect(
+        timeoutOperations.some((operation) =>
+          /^query:SELECT 106@7[0-2]ms$/.test(operation),
+        ),
+      ).toBe(true);
+      expect(
+        timeoutOperations.some((operation) => operation.includes("SELECT 107")),
+      ).toBe(false);
+      timeoutOperations.length = 0;
+      queryDelays.set("transaction-timeout-setup", 45);
+      vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+      await expect(tx.transaction(async () => undefined)).rejects.toThrow(
+        "DB query timed out after 25ms (connection terminated)",
+      );
+      vi.stubEnv("DB_OP_TIMEOUT_MS", "100");
+      queryDelays.delete("transaction-timeout-setup");
+      expect(
+        timeoutOperations.indexOf("transaction-timeout-config:complete"),
+      ).toBeLessThan(timeoutOperations.indexOf("rollback"));
       await expect(
         tx.transaction(async () => {
           expect(getScopedDbExec()).not.toBe(parentScope);
@@ -197,6 +445,54 @@ describe("createGetDb pooled transaction scoping", () => {
     expect(result.queryResult).toEqual({ rows: [{ id: 42 }], rowsAffected: 1 });
     expect(result.access.role).toBe("owner");
     expect(statementTimeout).toBe("0");
+    const capturedRelationalQuery = otherDatabase.query.otherTable.findMany();
+    const capturedSelectQuery = otherDatabase.select().from("otherTable");
+    const capturedSelectPrepared = otherDatabase
+      .select()
+      .from("otherTable")
+      .prepare();
+    const rootSessionIds = new Set([
+      database.session.id,
+      otherDatabase.session.id,
+    ]);
+    let activeTransactionSessionId = 0;
+    await database.transaction(async (tx: any) => {
+      activeTransactionSessionId = tx.session.id;
+      await otherDatabase.execute(rawQuery("SELECT 111"));
+      await otherDatabase.query.otherTable.findMany().execute();
+      await capturedRelationalQuery.execute();
+      await capturedSelectQuery.execute();
+      await capturedSelectPrepared.execute();
+    });
+    const crossStoreExecutions = preparedQueryExecutions.filter(
+      ({ sql }) =>
+        sql === "SELECT 111" ||
+        sql === "SELECT 112" ||
+        sql === 'SELECT 114 FROM "other_schema"."other_table"',
+    );
+    expect(crossStoreExecutions.map(({ sql }) => sql)).toEqual([
+      "SELECT 111",
+      "SELECT 112",
+      "SELECT 112",
+      'SELECT 114 FROM "other_schema"."other_table"',
+      'SELECT 114 FROM "other_schema"."other_table"',
+    ]);
+    expect(
+      crossStoreExecutions.every(
+        ({ sessionId }) =>
+          sessionId === activeTransactionSessionId &&
+          !rootSessionIds.has(sessionId),
+      ),
+    ).toBe(true);
+    let escapedRootSelect: any;
+    await database.transaction(async () => {
+      escapedRootSelect = database.select().from("docs");
+    });
+    await expect(
+      Promise.resolve().then(() => escapedRootSelect.execute()),
+    ).rejects.toThrow(
+      "Cannot use a database handle after its transaction has completed",
+    );
     delayCancellationResponse = true;
     let timedOutTransactionSettled = false;
     const timedOutTransaction = database
@@ -219,7 +515,7 @@ describe("createGetDb pooled transaction scoping", () => {
     delayCancellationResponse = false;
     expect(timedOutTransactionSettled).toBe(true);
     expect(statementTimeout).toBe("0");
-    expect(rolledBackTransactions).toBe(2);
+    expect(rolledBackTransactions).toBe(4);
     expect(
       execute.mock.calls.some(([query]) =>
         query.toQuery().sql.startsWith("SET LOCAL statement_timeout = "),
@@ -239,7 +535,7 @@ describe("createGetDb pooled transaction scoping", () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
     expect(defaultTimedOutTransactionSettled).toBe(true);
     await defaultTimeoutAssertion;
-    expect(rolledBackTransactions).toBe(3);
+    expect(rolledBackTransactions).toBe(5);
     expect(releasedTransactions).toBeGreaterThanOrEqual(4);
     expect(statementTimeout).toBe("0");
   });
