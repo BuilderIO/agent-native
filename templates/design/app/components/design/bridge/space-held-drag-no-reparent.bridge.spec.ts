@@ -84,13 +84,15 @@ describe("holding Space mid-drag suppresses reparenting", () => {
         );
         return {
           exists: !!node,
+          parentId:
+            node?.parentElement?.getAttribute("data-agent-native-node-id") ??
+            null,
           insideSection: !!node?.closest("section"),
-          insideMain: !!node?.closest("main"),
         };
       });
       expect(dropped.exists).toBe(true);
+      expect(dropped.parentId).toBe("row");
       expect(dropped.insideSection).toBe(false);
-      expect(dropped.insideMain).toBe(false);
     } finally {
       await browser.close();
     }
