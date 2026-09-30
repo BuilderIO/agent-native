@@ -37,7 +37,7 @@ describe("Analytics layout sidebar route policy", () => {
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
     expect(source).toContain(
-      'className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3"',
+      'className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70"',
     );
     expect(source).not.toContain("bottomItems");
     expect(source).not.toContain('href: "/settings"');

@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-30
 
+### Improved
+
+- Removed excess spacing above the sidebar footer
+
 ### Fixed
 
 - Chat message actions no longer show unavailable request IDs.
