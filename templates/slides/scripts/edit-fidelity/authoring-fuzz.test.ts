@@ -25,33 +25,37 @@ function pageAtScale(scale: number) {
 
 it("requires corpus authoring output to be changed, saved, and reloaded", () => {
   expect(() =>
-    assertAuthoringPersistence("source", {
+    assertAuthoringPersistence({
+      originalHtml: "source",
       liveHtml: "edited",
       savedHtml: "edited",
       reloadedHtml: "edited",
     }),
   ).not.toThrow();
   expect(() =>
-    assertAuthoringPersistence("source", {
+    assertAuthoringPersistence({
+      originalHtml: "source",
       liveHtml: "edited",
       savedHtml: "source",
       reloadedHtml: "source",
     }),
-  ).toThrow("saved target HTML differed from the post-edit live DOM");
+  ).toThrow("saved HTML differed from the post-edit live slide");
   expect(() =>
-    assertAuthoringPersistence("source", {
+    assertAuthoringPersistence({
+      originalHtml: "source",
       liveHtml: "source",
       savedHtml: "source",
       reloadedHtml: "source",
     }),
-  ).toThrow("authoring flow did not change the persisted source HTML");
+  ).toThrow("authoring flow did not change the persisted slide HTML");
   expect(() =>
-    assertAuthoringPersistence("source", {
+    assertAuthoringPersistence({
+      originalHtml: "source",
       liveHtml: "edited",
       savedHtml: "edited",
       reloadedHtml: "source",
     }),
-  ).toThrow("reloaded target HTML differed from the saved HTML");
+  ).toThrow("reloaded slide HTML differed from the saved HTML");
 });
 
 it("requires byte-identical HTML for undo and redo snapshots", () => {
@@ -160,6 +164,7 @@ it("checks the rendered slide scale when the scaled profile is requested", async
       originalHtml: "",
       originalSlideHtml: "",
       finishAndReload: async () => ({
+        originalHtml: "",
         liveHtml: "",
         savedHtml: "",
         reloadedHtml: "",

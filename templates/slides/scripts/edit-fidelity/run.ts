@@ -1005,6 +1005,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
   const problems: string[] = [];
   const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
   const normalizeText = (text: string) =>
     text
       .replace(/\u200b/g, "")
@@ -1027,9 +1028,13 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     }, html);
   const slideOne = "text-surface-slide-one";
   const slideTwo = "text-surface-slide-two";
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: new URL(base).origin,
-  });
+  if (browserName === "chromium") {
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(base).origin,
+      });
+  }
   await page.route("**/_agent-native/agent-engine/status", (route: any) =>
     route.fulfill({
       status: 200,
@@ -1275,10 +1280,37 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       key,
     );
     const start = await surfaceText(locator);
+    await page.evaluate(
+      (text: string) => navigator.clipboard.writeText(text),
+      " paste",
+    );
+    await locator.press(`${modifier}+V`);
+    let expected = `${start} paste`;
+    if (!(await waitForText(locator, expected))) {
+      problems.push(
+        `${label}: native clipboard paste did not land at the caret`,
+      );
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, start))) {
+      problems.push(
+        `${label}: undo produced ${JSON.stringify(await surfaceText(locator))}, expected ${JSON.stringify(start)}`,
+      );
+    }
+    await locator.press(`${modifier}+Shift+Z`);
+    if (!(await waitForText(locator, expected))) {
+      problems.push(`${label}: redo did not restore the paste`);
+    }
+    await locator.press(`${modifier}+Z`);
+    if (!(await waitForText(locator, start))) {
+      problems.push(`${label}: undo did not restore the pre-paste text`);
+    }
+
+    expected = start;
     await locator.pressSequentially(" fast");
     await sleep(600);
     await locator.pressSequentially(" pause");
-    let expected = `${start} fast pause`;
+    expected = `${start} fast pause`;
     if (!(await waitForText(locator, expected))) {
       problems.push(
         `${label}: rapid typing and debounce pause changed the text`,
@@ -1305,31 +1337,10 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       }
     }
 
-    const beforePaste = expected;
-    await page.evaluate(
-      (text: string) => navigator.clipboard.writeText(text),
-      " paste",
-    );
-    await locator.press(`${modifier}+V`);
-    expected += " paste";
-    if (!(await waitForText(locator, expected))) {
-      problems.push(
-        `${label}: native clipboard paste did not land at the caret`,
-      );
-    }
-    await locator.press(`${modifier}+Z`);
-    if (!(await waitForText(locator, beforePaste))) {
-      problems.push(`${label}: undo did not remove the paste`);
-    }
-    await locator.press(`${modifier}+Shift+Z`);
-    if (!(await waitForText(locator, expected))) {
-      problems.push(`${label}: redo did not restore the paste`);
-    }
-
     const cdp = usesChromiumIme
       ? await page.context().newCDPSession(page)
       : null;
-    await locator.press("End");
+    await locator.press(lineEndKey);
     if (cdp) {
       await cdp.send("Input.imeSetComposition", {
         text: "に",
@@ -1389,7 +1400,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     await editor.evaluate((element: HTMLElement) => {
       (window as any).__textSurfaceSlideEditor = element;
     });
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.pressSequentially(" fast");
     await sleep(400);
     await editor.pressSequentially(" pause");
@@ -1548,7 +1559,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     } else {
       problems.push("slide text: could not locate the pointer re-entry target");
     }
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await page.evaluate(
       (text: string) => navigator.clipboard.writeText(text),
       " paste",
@@ -1589,7 +1600,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         `slide text: redo produced ${JSON.stringify(await editor.innerText())}`,
       );
     }
-    await editor.press("End");
+    await editor.press(lineEndKey);
     await editor.press("Enter");
     await editor.pressSequentially("lineX");
     await editor.press("Backspace");
@@ -1608,7 +1619,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     const cdp = usesChromiumIme
       ? await page.context().newCDPSession(page)
       : null;
-    await editor.press("End");
+    await editor.press(lineEndKey);
     if (cdp) {
       await cdp.send("Input.imeSetComposition", {
         text: "に",
@@ -1634,7 +1645,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await editor.pressSequentially("日");
       await emitComposition(editor, "compositionend", "日");
     }
-    expectedSlideText += "日";
+    expectedSlideText += usesChromiumIme ? "日" : "に日";
     if (
       !(await waitFor(
         async () => (await editor.innerText()) === expectedSlideText,
@@ -1963,16 +1974,20 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
     await openSlide(page, base, deckId, index, id);
     const [target] = await listTargets(page, id);
     if (!target) throw new Error(`${id}: no editable text target`);
-    if (!(await enterEdit(page, id, target.point, []))) {
+    const entryProblems: string[] = [];
+    if (!(await enterEdit(page, id, target.point, entryProblems))) {
       throw new Error(`${id}: could not open in-place text editing`);
     }
+    problems.push(...entryProblems.map((problem) => `${id}: ${problem}`));
     return getEditor(id);
   }
 
   async function finish(index: number, assertion: () => Promise<void>) {
     const { id } = cases[index];
     await assertion();
-    await exitEdit(page, id, "escape");
+    if (!(await exitEdit(page, id, "escape"))) {
+      throw new Error(`${id}: Escape did not exit in-place text editing`);
+    }
     const live = await page
       .locator(`${canvasSelector(id)} .slide-content`)
       .innerHTML();
@@ -2780,7 +2795,8 @@ async function runAuthoringCorpusQa(
           const reloaded = await page
             .locator(`${canvasSelector(slideId)} .slide-content`)
             .innerHTML();
-          assertAuthoringPersistence(originalCanonical, {
+          assertAuthoringPersistence({
+            originalHtml: originalCanonical,
             liveHtml: await canonicalMarkup(live),
             savedHtml: await canonicalMarkup(saved),
             reloadedHtml: await canonicalMarkup(reloaded),
@@ -3250,6 +3266,7 @@ async function runAuthoringFuzzQa(
           await openSlide(page, base, deckId!, 0, slideId);
           const reloadedHtml = await slideHtml();
           return {
+            originalHtml: await canonical(originalSlideHtml),
             liveHtml: await canonical(liveHtml),
             savedHtml: await canonical(stored),
             reloadedHtml: await canonical(reloadedHtml),

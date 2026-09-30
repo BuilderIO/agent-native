@@ -53,6 +53,8 @@ export type AuthoringFuzzOperation =
     };
 
 export interface AuthoringFuzzPersistence {
+  /** Canonical inner HTML of the full slide before editing. */
+  originalHtml: string;
   /** Canonical inner HTML of the full live slide after editing ends. */
   liveHtml: string;
   /** Canonical inner HTML of the full slide returned by persistence. */
@@ -101,17 +103,16 @@ export function assertByteIdenticalHtml(
 }
 
 export function assertAuthoringPersistence(
-  originalHtml: string,
   persistence: AuthoringFuzzPersistence,
 ) {
   if (persistence.liveHtml !== persistence.savedHtml) {
-    throw new Error("saved target HTML differed from the post-edit live DOM");
+    throw new Error("saved HTML differed from the post-edit live slide");
   }
-  if (persistence.savedHtml === originalHtml) {
-    throw new Error("authoring flow did not change the persisted source HTML");
+  if (persistence.savedHtml === persistence.originalHtml) {
+    throw new Error("authoring flow did not change the persisted slide HTML");
   }
   if (persistence.reloadedHtml !== persistence.savedHtml) {
-    throw new Error("reloaded target HTML differed from the saved HTML");
+    throw new Error("reloaded slide HTML differed from the saved HTML");
   }
 }
 
@@ -1792,7 +1793,7 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload();
-    assertAuthoringPersistence(originalHtml, persistence);
+    assertAuthoringPersistence(persistence);
     checkPageErrors();
     return {
       seed,
