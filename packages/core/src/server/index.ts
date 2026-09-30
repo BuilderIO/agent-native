@@ -634,6 +634,7 @@ export {
   deleteBuilderCredentials,
   resolveSecret,
   resolveSecretDetailed,
+  prefetchSecrets,
   BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
   type ResolvedSecretDetail,
