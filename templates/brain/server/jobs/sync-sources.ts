@@ -1,6 +1,6 @@
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, inArray, ne } from "drizzle-orm";
+import { and, asc, gt, inArray } from "drizzle-orm";
 
 import type { BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
@@ -9,6 +9,14 @@ import { runConnectorSync } from "../lib/connectors.js";
 
 const DEFAULT_POLL_MINUTES = 60;
 const SYNC_INTERVAL_MS = 60 * 1000;
+const SCAN_PAGE_SIZE = 100;
+const SCAN_MAX_PAGES = 20;
+const AUTO_SYNC_PROVIDERS: BrainSourceProvider[] = [
+  "slack",
+  "granola",
+  "github",
+  "zoom",
+];
 let skippingLogged = false;
 let running = false;
 
@@ -35,12 +43,7 @@ function configuredPollMinutes(source: SourceRow): number {
 function isAutoSyncEnabled(source: SourceRow): boolean {
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
   if (config.autoSync === false) return false;
-  return (
-    source.provider === "slack" ||
-    source.provider === "granola" ||
-    source.provider === "github" ||
-    source.provider === "zoom"
-  );
+  return AUTO_SYNC_PROVIDERS.includes(source.provider as BrainSourceProvider);
 }
 
 function retryAfterAt(source: SourceRow): number | null {
@@ -88,6 +91,28 @@ export function nextBrainSourceSyncAt(source: SourceRow): string | null {
   return dueAt === null ? null : new Date(dueAt).toISOString();
 }
 
+// Rows are scanned in id order until enough are due: a fixed unordered window
+// lets never-due rows (auto-sync off, dead errors) crowd out every source that
+// should sync, which silently stops hourly sync for whole orgs.
+export async function collectDueSources(
+  fetchPage: (afterId: string | null) => Promise<SourceRow[]>,
+  limit: number,
+  nowMs = Date.now(),
+): Promise<{ sources: SourceRow[]; truncated: boolean }> {
+  const due: SourceRow[] = [];
+  let afterId: string | null = null;
+  for (let page = 0; page < SCAN_MAX_PAGES; page += 1) {
+    const rows = await fetchPage(afterId);
+    for (const source of rows) {
+      if (isBrainSourceDue(source, nowMs)) due.push(source);
+      if (due.length >= limit) return { sources: due, truncated: false };
+    }
+    if (rows.length < SCAN_PAGE_SIZE) return { sources: due, truncated: false };
+    afterId = rows[rows.length - 1]!.id;
+  }
+  return { sources: due, truncated: true };
+}
+
 export async function listDueBrainSources(
   options: {
     limit?: number;
@@ -95,26 +120,30 @@ export async function listDueBrainSources(
   } = {},
 ) {
   const db = getDb();
+  const eligible = and(
+    inArray(schema.brainSources.status, RETRYABLE_SOURCE_STATUSES),
+    inArray(schema.brainSources.provider, AUTO_SYNC_PROVIDERS),
+  );
   const where = options.system
     ? // guard:allow-unscoped — system scheduler enumerates retryable sources,
       // then re-enters each row's owner/org context before syncing.
-      and(
-        inArray(schema.brainSources.status, RETRYABLE_SOURCE_STATUSES),
-        ne(schema.brainSources.provider, "manual"),
-      )
+      eligible
     : and(
         accessFilter(schema.brainSources, schema.brainSourceShares),
-        inArray(schema.brainSources.status, RETRYABLE_SOURCE_STATUSES),
-        ne(schema.brainSources.provider, "manual"),
+        eligible,
       );
-  const rows = await db
-    .select()
-    .from(schema.brainSources)
-    .where(where)
-    .limit((options.limit ?? 10) * 4);
-  return rows
-    .filter((source) => isBrainSourceDue(source))
-    .slice(0, options.limit ?? 10);
+  return collectDueSources(
+    (afterId) =>
+      db
+        .select()
+        .from(schema.brainSources)
+        .where(
+          afterId ? and(where, gt(schema.brainSources.id, afterId)) : where,
+        )
+        .orderBy(asc(schema.brainSources.id))
+        .limit(SCAN_PAGE_SIZE),
+    options.limit ?? 10,
+  );
 }
 
 export async function syncDueBrainSourcesOnce(
@@ -123,7 +152,7 @@ export async function syncDueBrainSourcesOnce(
     system?: boolean;
   } = {},
 ) {
-  const due = await listDueBrainSources(options);
+  const { sources: due, truncated } = await listDueBrainSources(options);
   const results: Array<{
     sourceId: string;
     provider: BrainSourceProvider;
@@ -161,7 +190,12 @@ export async function syncDueBrainSourcesOnce(
       await run();
     }
   }
-  return { checked: due.length, results };
+  if (truncated) {
+    console.warn(
+      `[brain-source-sync] Source scan hit its ${SCAN_MAX_PAGES * SCAN_PAGE_SIZE}-row cap; later due sources were not checked this sweep.`,
+    );
+  }
+  return { checked: due.length, scanTruncated: truncated, results };
 }
 
 export default function registerBrainSourceSyncJob(): void {

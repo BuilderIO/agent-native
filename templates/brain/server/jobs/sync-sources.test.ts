@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isBrainSourceDue, nextBrainSourceSyncAt } from "./sync-sources.js";
+import {
+  collectDueSources,
+  isBrainSourceDue,
+  nextBrainSourceSyncAt,
+} from "./sync-sources.js";
 
 const FAILED_AT = "2026-07-29T16:00:00.000Z";
 const POLL_INTERVAL_MS = 60 * 60 * 1000;
@@ -70,5 +74,55 @@ describe("Brain source sync scheduling", () => {
     expect(
       isBrainSourceDue(source({ status: "error", provider: "manual" }), now),
     ).toBe(false);
+  });
+});
+describe("collectDueSources", () => {
+  const now = Date.parse(FAILED_AT) + POLL_INTERVAL_MS;
+  const pageOf = (rows: ReturnType<typeof source>[]) => {
+    const sorted = [...rows].sort((a, b) => a.id.localeCompare(b.id));
+    return async (afterId: string | null) =>
+      sorted
+        .filter((row) => afterId === null || row.id > afterId)
+        .slice(0, 100);
+  };
+
+  it("finds a due source behind many never-due rows", async () => {
+    const notDue = Array.from({ length: 150 }, (_, index) =>
+      source({
+        id: `a-${String(index).padStart(3, "0")}`,
+        provider: "slack",
+        configJson: JSON.stringify({ autoSync: false }),
+      }),
+    );
+    const due = source({ id: "z-slack", provider: "slack", configJson: "{}" });
+
+    const result = await collectDueSources(pageOf([...notDue, due]), 5, now);
+
+    expect(result.sources.map((row) => row.id)).toEqual(["z-slack"]);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("stops once it has enough due sources", async () => {
+    const rows = Array.from({ length: 8 }, (_, index) =>
+      source({ id: `s-${index}`, provider: "slack", configJson: "{}" }),
+    );
+
+    const result = await collectDueSources(pageOf(rows), 5, now);
+
+    expect(result.sources).toHaveLength(5);
+  });
+
+  it("reports a truncated scan instead of claiming completeness", async () => {
+    const endless = async () =>
+      Array.from({ length: 100 }, (_, index) =>
+        source({
+          id: `n-${Math.random()}-${index}`,
+          configJson: JSON.stringify({ autoSync: false }),
+        }),
+      );
+
+    const result = await collectDueSources(endless, 5, now);
+
+    expect(result).toEqual({ sources: [], truncated: true });
   });
 });
