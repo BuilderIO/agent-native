@@ -311,8 +311,8 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain(
       'callAction("import-google-slides-reference"',
     );
-    expect(directImportFlow).toContain('callAction("import-pptx"');
-    expect(directImportFlow).toContain('callAction("import-file"');
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(directImportFlow).toMatch(/callAction\(\s*"import-file"/);
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
     expect(source).toContain(
       "usePromptImport({ onImport: handleDirectImport })",

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,7 +19,7 @@ const trackEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
-vi.mock("@agent-native/core/client/clipboard", () => ({
+vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText,
 }));
 
@@ -26,10 +27,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  buildSignInReturnHref: ({ returnTo }: { returnTo?: string } = {}) =>
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo ?? "/")}`,
-}));
+function expectSignInHref(href: string, returnTo: string, signUp = false) {
+  const url = new URL(href, "http://localhost");
+  expect(url.pathname).toBe("/sign-in");
+  expect(decodeContinuation(url.searchParams.get("c"))).toBe(returnTo);
+  if (signUp) expect(url.searchParams.get("tab")).toBe("signup");
+}
 
 describe("SignedOutShareActions", () => {
   let container: HTMLDivElement;
@@ -62,54 +65,56 @@ describe("SignedOutShareActions", () => {
   }
 
   it("shows sign-in and free-account links that return to the shared clip", () => {
-    expect(buildShareSignInHref("clip/1")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1",
-    );
-    expect(buildShareSignUpHref("clip/1")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1&tab=signup",
-    );
+    expectSignInHref(buildShareSignInHref("clip/1"), "/share/clip/1");
+    expectSignInHref(buildShareSignUpHref("clip/1"), "/share/clip/1", true);
 
     renderActions({ recordingId: "clip/1" });
 
-    const signInLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1"]',
-    );
+    const signInLink = container.querySelector<HTMLAnchorElement>("a");
     expect(signInLink).not.toBeNull();
+    expectSignInHref(signInLink!.href, "/share/clip/1");
     expect(signInLink?.textContent).toContain("sharePage.signIn");
     expect(container.textContent).toContain("sharePage.getClipsFree");
   });
 
   it("preserves only the timestamp in the sign-in return path", () => {
-    expect(buildShareSignInHref("clip/1", "90")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90",
+    expectSignInHref(
+      buildShareSignInHref("clip/1", "90"),
+      "/share/clip/1?at=90",
     );
 
     renderActions({ recordingId: "clip/1", startAt: "1:30" });
 
-    expect(container.querySelector("a")?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30",
+    expectSignInHref(
+      container.querySelector("a")!.href,
+      "/share/clip/1?at=1%3A30",
     );
-    expect(container.querySelectorAll("a")[1]?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30&tab=signup",
+    expectSignInHref(
+      container.querySelectorAll("a")[1]!.href,
+      "/share/clip/1?at=1%3A30",
+      true,
     );
   });
 
   it("preserves ?panel in the visible sign-in and sign-up return paths", () => {
-    expect(buildShareSignInHref("clip/1", "90", "comments")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments",
+    expectSignInHref(
+      buildShareSignInHref("clip/1", "90", "comments"),
+      "/share/clip/1?at=90&panel=comments",
     );
-    expect(buildShareSignUpHref("clip/1", "90", "comments")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments&tab=signup",
+    expectSignInHref(
+      buildShareSignUpHref("clip/1", "90", "comments"),
+      "/share/clip/1?at=90&panel=comments",
+      true,
     );
 
     renderActions({ recordingId: "clip/1", startAt: "90", panel: "comments" });
 
     const links = container.querySelectorAll("a");
-    expect(links[0]?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments",
-    );
-    expect(links[1]?.getAttribute("href")).toBe(
-      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D90%26panel%3Dcomments&tab=signup",
+    expectSignInHref(links[0]!.href, "/share/clip/1?at=90&panel=comments");
+    expectSignInHref(
+      links[1]!.href,
+      "/share/clip/1?at=90&panel=comments",
+      true,
     );
   });
 
