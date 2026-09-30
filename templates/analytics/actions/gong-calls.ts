@@ -487,6 +487,7 @@ function normalizeGongDate(
 
 export default defineAction({
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   maxResultChars: 100_000,
   description:
