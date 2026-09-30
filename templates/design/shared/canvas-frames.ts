@@ -50,6 +50,124 @@ export function getInitialCanvasFrameGeometry(
   };
 }
 
+export function getResponsiveInitialCanvasFrameGeometries(
+  screens: readonly {
+    id: string;
+    metadata?: Record<string, unknown>;
+    breakpointWidths?: readonly number[];
+  }[],
+  primaryGeometryById: Record<
+    string,
+    Partial<CanvasFrameGeometry> | undefined
+  > = {},
+  breakpointWidths?: readonly number[],
+): Record<
+  string,
+  Required<Pick<CanvasFrameGeometry, "x" | "y" | "width" | "height">>
+> {
+  if (screens.length === 0) return {};
+  const screenIds = screens.map(({ id }) => id);
+  const metadataByFileId = Object.fromEntries(
+    screens.map((screen) => [
+      screen.id,
+      {
+        ...screen.metadata,
+        breakpointWidths: screen.breakpointWidths ?? breakpointWidths,
+      },
+    ]),
+  );
+  const responsiveLayout: CanvasResponsiveLayout = {
+    screenFileIds: screenIds,
+    screenMetadataByFileId: metadataByFileId,
+    breakpointWidths,
+  };
+  const initialGeometryById = Object.fromEntries(
+    screens.map((screen, index) => {
+      const fallback = getInitialCanvasFrameGeometry(index, {
+        width: finiteNumber(screen.metadata?.width),
+        height: finiteNumber(screen.metadata?.height),
+      });
+      const geometry = {
+        ...fallback,
+        ...primaryGeometryById[screen.id],
+      };
+      const bounds = canvasFrameBounds(
+        screen.id,
+        {
+          ...geometry,
+          x: 0,
+          y: 0,
+          width: Math.max(1, geometry.width ?? OVERVIEW_FRAME_WIDTH),
+          height: Math.max(
+            1,
+            geometry.height ??
+              getOverviewFrameHeight(OVERVIEW_FRAME_WIDTH, {
+                width: finiteNumber(screen.metadata?.width),
+                height: finiteNumber(screen.metadata?.height),
+              }),
+          ),
+          rotation: undefined,
+        },
+        responsiveLayout,
+        new Set(screenIds),
+      );
+      return [
+        screen.id,
+        { geometry, width: bounds.right, height: bounds.bottom },
+      ];
+    }),
+  );
+  const columnCount = Math.min(3, screens.length);
+  const columnWidths = Array.from({ length: columnCount }, (_, column) =>
+    Math.max(
+      ...screens
+        .map((screen) => initialGeometryById[screen.id])
+        .filter((_, index) => index % columnCount === column)
+        .map((size) => size.width),
+    ),
+  );
+  const rowCount = Math.ceil(screens.length / columnCount);
+  const rowHeights = Array.from({ length: rowCount }, (_, row) =>
+    Math.max(
+      ...screens
+        .slice(row * columnCount, (row + 1) * columnCount)
+        .map((screen) => initialGeometryById[screen.id].height),
+    ),
+  );
+  return Object.fromEntries(
+    screens.map((screen, index) => {
+      const column = index % columnCount;
+      const row = Math.floor(index / columnCount);
+      const geometry = initialGeometryById[screen.id].geometry;
+      return [
+        screen.id,
+        {
+          x: columnWidths
+            .slice(0, column)
+            .reduce((total, width) => total + width + OVERVIEW_FRAME_GAP, 0),
+          y: rowHeights
+            .slice(0, row)
+            .reduce(
+              (total, height) =>
+                total +
+                height +
+                OVERVIEW_FRAME_LABEL_HEIGHT +
+                OVERVIEW_FRAME_GAP,
+              0,
+            ),
+          width: geometry.width ?? OVERVIEW_FRAME_WIDTH,
+          height:
+            geometry.height ??
+            getOverviewFrameHeight(OVERVIEW_FRAME_WIDTH, {
+              width: finiteNumber(screen.metadata?.width),
+              height: finiteNumber(screen.metadata?.height),
+            }),
+        },
+      ];
+    }),
+  );
+}
+
 export interface CanvasResponsiveLayout {
   screenFileIds?: readonly string[];
   screenMetadataByFileId?: unknown;
@@ -74,6 +192,19 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function finiteNumberArray(value: unknown): number[] | undefined {
+  return Array.isArray(value)
+    ? value.filter(
+        (entry): entry is number =>
+          typeof entry === "number" && Number.isFinite(entry),
+      )
+    : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 export function parseCanvasFrameGeometry(
@@ -150,7 +281,8 @@ function canvasFrameBounds(
   const primaryHeight = Math.max(1, height);
   const visibleWidths = responsiveScreen
     ? visibleBreakpointWidths(
-        responsiveLayout?.breakpointWidths,
+        finiteNumberArray(metadata.breakpointWidths) ??
+          responsiveLayout?.breakpointWidths,
         metadataWidth ?? width,
       )
     : [];
@@ -204,38 +336,72 @@ function canvasFrameBounds(
   };
 }
 
+function resolveFrameLayoutForBounds(
+  framesById: CanvasFrameGeometryById,
+  responsiveLayout?: CanvasResponsiveLayout,
+): {
+  frames: Map<string, CanvasFrameGeometry>;
+  responsiveLayout?: CanvasResponsiveLayout;
+} {
+  const frames = new Map(Object.entries(framesById));
+  const screenFileIds = responsiveLayout?.screenFileIds ?? [];
+  if (screenFileIds.length === 0 || !responsiveLayout) {
+    return { frames, responsiveLayout };
+  }
+  const metadataByFileId = isRecord(responsiveLayout.screenMetadataByFileId)
+    ? responsiveLayout.screenMetadataByFileId
+    : {};
+  const screens = screenFileIds.map((id) => {
+    const sourceMetadata = isRecord(metadataByFileId[id])
+      ? metadataByFileId[id]
+      : {};
+    const breakpointWidths =
+      finiteNumberArray(sourceMetadata.breakpointWidths) ??
+      responsiveLayout.breakpointWidths;
+    return {
+      id,
+      metadata: {
+        ...sourceMetadata,
+        width: finiteNumber(sourceMetadata.width),
+        height: finiteNumber(sourceMetadata.height),
+        breakpointWidths,
+      },
+      breakpointWidths,
+    };
+  });
+  const resolvedResponsiveLayout: CanvasResponsiveLayout = {
+    ...responsiveLayout,
+    screenMetadataByFileId: {
+      ...metadataByFileId,
+      ...Object.fromEntries(
+        screens.map((screen) => [screen.id, screen.metadata]),
+      ),
+    },
+  };
+  const initialGeometryById = getResponsiveInitialCanvasFrameGeometries(
+    screens,
+    framesById,
+    responsiveLayout.breakpointWidths,
+  );
+  for (const id of screenFileIds) {
+    frames.set(id, { ...initialGeometryById[id], ...framesById[id] });
+  }
+  return { frames, responsiveLayout: resolvedResponsiveLayout };
+}
+
 export function nextCanvasFramePosition(
   framesById: CanvasFrameGeometryById,
   gap = 160,
   options: { responsiveLayout?: CanvasResponsiveLayout } = {},
 ): { x: number; y: number } {
-  const responsiveLayout = options.responsiveLayout;
-  const metadataByFileId = responsiveLayout?.screenMetadataByFileId;
-  const screenMetadata =
-    metadataByFileId &&
-    typeof metadataByFileId === "object" &&
-    !Array.isArray(metadataByFileId)
-      ? (metadataByFileId as Record<string, unknown>)
-      : {};
-  const frames = new Map(Object.entries(framesById));
-  for (const [index, id] of (responsiveLayout?.screenFileIds ?? []).entries()) {
-    const metadata = screenMetadata[id];
-    frames.set(id, {
-      ...getInitialCanvasFrameGeometry(
-        index,
-        metadata && typeof metadata === "object" && !Array.isArray(metadata)
-          ? (metadata as { width?: number; height?: number })
-          : undefined,
-      ),
-      ...frames.get(id),
-    });
-  }
-  if (frames.size === 0) return { x: 0, y: 0 };
-  const responsiveScreenIds = new Set(
-    options.responsiveLayout?.screenFileIds ?? [],
+  const { frames, responsiveLayout } = resolveFrameLayoutForBounds(
+    framesById,
+    options.responsiveLayout,
   );
+  if (frames.size === 0) return { x: 0, y: 0 };
+  const responsiveScreenIds = new Set(responsiveLayout?.screenFileIds ?? []);
   const bounds = Array.from(frames).map(([id, frame]) =>
-    canvasFrameBounds(id, frame, options.responsiveLayout, responsiveScreenIds),
+    canvasFrameBounds(id, frame, responsiveLayout, responsiveScreenIds),
   );
   const maxRight = Math.max(...bounds.map((frame) => frame.right));
   const minTop = Math.min(...bounds.map((frame) => frame.top));
@@ -390,12 +556,13 @@ export function nextFreeCanvasRowY(
   } = {},
 ): number {
   const ignored = new Set(options.ignoreFileIds ?? []);
-  const frames = Object.entries(parseCanvasFrameGeometryById(existing)).filter(
-    ([id]) => !ignored.has(id),
-  );
-  const responsiveScreenIds = new Set(
-    options.responsiveLayout?.screenFileIds ?? [],
-  );
+  const { frames: resolvedFrames, responsiveLayout } =
+    resolveFrameLayoutForBounds(
+      parseCanvasFrameGeometryById(existing),
+      options.responsiveLayout,
+    );
+  const frames = Array.from(resolvedFrames).filter(([id]) => !ignored.has(id));
+  const responsiveScreenIds = new Set(responsiveLayout?.screenFileIds ?? []);
   let bottom = 0;
   let sawFrame = false;
   for (const [id, frame] of frames) {
@@ -405,12 +572,8 @@ export function nextFreeCanvasRowY(
     sawFrame = true;
     bottom = Math.max(
       bottom,
-      canvasFrameBounds(
-        id,
-        frame,
-        options.responsiveLayout,
-        responsiveScreenIds,
-      ).bottom,
+      canvasFrameBounds(id, frame, responsiveLayout, responsiveScreenIds)
+        .bottom,
     );
   }
   return sawFrame ? bottom + gap : 0;

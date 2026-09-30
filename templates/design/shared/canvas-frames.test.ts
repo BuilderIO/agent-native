@@ -419,6 +419,14 @@ describe("nextFreeCanvasRowY", () => {
     expect(nextFreeCanvasRowY({ a: { x: 0, y: 300 } }, 50)).toBe(350);
   });
 
+  it("uses renderer fallback geometry when finding the next row", () => {
+    expect(
+      nextFreeCanvasRowY({ legacy: { x: 0, y: 100 } }, 160, {
+        responsiveLayout: { screenFileIds: ["legacy"] },
+      }),
+    ).toBe(900);
+  });
+
   it("ignores malformed entries", () => {
     expect(nextFreeCanvasRowY({ a: "nope", b: 5 }, 96)).toBe(0);
   });
@@ -475,5 +483,20 @@ describe("nextCanvasFramePosition", () => {
         responsiveLayout: { screenFileIds: ["first", "second"] },
       }),
     ).toEqual({ x: 856, y: 0 });
+  });
+
+  it("uses responsive group widths for screens without persisted geometry", () => {
+    const position = nextCanvasFramePosition({}, 160, {
+      responsiveLayout: {
+        screenFileIds: ["legacy"],
+        screenMetadataByFileId: {
+          legacy: { width: 390, height: 844 },
+        },
+        breakpointWidths: [390, 768, 1440],
+      },
+    });
+
+    expect(position.x).toBeGreaterThan(480);
+    expect(position.y).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import {
   getInitialCanvasFrameGeometry,
   getOverviewFrameHeight as getSharedOverviewFrameHeight,
+  getResponsiveInitialCanvasFrameGeometries,
   OVERVIEW_FRAME_GAP,
   OVERVIEW_FRAME_LABEL_HEIGHT,
   OVERVIEW_FRAME_WIDTH,
@@ -130,51 +131,22 @@ export function getResponsiveInitialFrameGeometry(
   screens: readonly ResponsiveLayoutScreen[],
   primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined> = {},
 ): FrameGeometry {
-  const columnCount = Math.min(3, Math.max(1, screens.length));
-  const column = index % columnCount;
-  const row = Math.floor(index / columnCount);
-  const primaryGeometryFor = (screen: ResponsiveLayoutScreen) =>
-    screen.id ? primaryGeometryById[screen.id] : undefined;
-  const sizes = screens.map((screen) =>
-    getResponsiveScreenGroupSize(screen, primaryGeometryFor(screen)),
+  const screenIds = screens.map(
+    (screen, screenIndex) => screen.id ?? `__screen_${screenIndex}`,
   );
-  const columnWidths = Array.from({ length: columnCount }, (_, columnIndex) =>
-    Math.max(
-      0,
-      ...sizes
-        .filter((_, screenIndex) => screenIndex % columnCount === columnIndex)
-        .map((size) => size.width),
-    ),
+  const geometryById = getResponsiveInitialCanvasFrameGeometries(
+    screens.map((screen, screenIndex) => ({
+      id: screenIds[screenIndex]!,
+      metadata: screen.metadata
+        ? { width: screen.metadata.width, height: screen.metadata.height }
+        : undefined,
+      breakpointWidths: screen.breakpointWidths,
+    })),
+    primaryGeometryById,
   );
-  const rowCount = Math.ceil(screens.length / columnCount);
-  const rowHeights = Array.from({ length: rowCount }, (_, rowIndex) =>
-    Math.max(
-      0,
-      ...sizes
-        .slice(rowIndex * columnCount, (rowIndex + 1) * columnCount)
-        .map((size) => size.height),
-    ),
+  return (
+    geometryById[screenIds[index] ?? ""] ?? getInitialCanvasFrameGeometry(index)
   );
-  const own = screens[index];
-  const ownGeometry = own ? primaryGeometryFor(own) : undefined;
-  const ownWidth = Math.max(1, ownGeometry?.width ?? SCREEN_WIDTH);
-  const ownHeight = Math.max(
-    1,
-    ownGeometry?.height ?? getOverviewFrameHeight(ownWidth, own?.metadata),
-  );
-  return {
-    x: columnWidths
-      .slice(0, column)
-      .reduce((total, width) => total + width + SCREEN_GAP, 0),
-    y: rowHeights
-      .slice(0, row)
-      .reduce(
-        (total, height) => total + height + FRAME_LABEL_HEIGHT + SCREEN_GAP,
-        0,
-      ),
-    width: ownWidth,
-    height: ownHeight,
-  };
 }
 
 const GENERATED_VARIANT_GAP = 96;
