@@ -173,7 +173,7 @@ function sourcePolicyEnforcement(args: {
 
 export default defineAction({
   description:
-    "Answer a company-knowledge question from published Brain knowledge, plus synced Slack and Zoom captures that the source policy allows as answer evidence (none under the strict policy). Use this for every company-specific factual question instead of answering from general model knowledge. Capture citations include location and capturedAt; use them to judge recency. Returns a cited answer plus deep links into the Brain knowledge/capture records.",
+    "Answer a company-knowledge question from published Brain knowledge, plus synced captures (Slack, Zoom, and other connected sources) that the source policy allows as answer evidence (none under the strict policy). Use this for every company-specific factual question instead of answering from general model knowledge. Capture citations include location and capturedAt; use them to judge recency. Returns a cited answer plus deep links into the Brain knowledge/capture records.",
   schema: z.object({
     question: z.string().min(1),
     mode: z.enum(["cited"]).default("cited"),
@@ -295,10 +295,10 @@ export default defineAction({
         captureSearchLanes.semantic.status === "failed";
       return {
         answer: captureSearchIncomplete
-          ? "Brain search was incomplete (the semantic or keyword lane failed), so matching Slack or Zoom content may be missing. I could not find Brain knowledge for that question."
+          ? "Brain search was incomplete (the semantic or keyword lane failed), so matching synced content may be missing. I could not find Brain knowledge for that question."
           : guidance.retrieval.rawCaptureFallback === "never-answer"
             ? "I could not find enough distilled Brain knowledge for that question yet."
-            : "I could not find Brain knowledge or matching Slack or Zoom content for that question yet.",
+            : "I could not find Brain knowledge or matching synced content for that question yet.",
         answerSource: "none",
         citations: [],
         knowledge: [],

@@ -136,9 +136,9 @@ not just documented:
 
 | `sourcePolicy` | `rawCaptureFallback` | Behavior |
 | --- | --- | --- |
-| `strict` | `never-answer` | Answers cite distilled knowledge only; Slack/Zoom captures stay searchable but are not answer evidence. If knowledge is missing/thin, say so. |
-| `balanced` (default) | `thin-results` | Prefer distilled knowledge; when it is missing or combined summary+body text is under ~260 chars, answer from answer-eligible Slack/Zoom captures, naming source and date. |
-| `exploratory` | `allowed-leads` | Always include answer-eligible Slack/Zoom captures alongside knowledge as citations with source and date. |
+| `strict` | `never-answer` | Answers cite distilled knowledge only; synced captures stay searchable but are not answer evidence. If knowledge is missing/thin, say so. |
+| `balanced` (default) | `thin-results` | Prefer distilled knowledge; when it is missing or combined summary+body text is under ~260 chars, answer from answer-eligible synced captures (Slack, Zoom, or other sources), naming source and date. |
+| `exploratory` | `allowed-leads` | Always include answer-eligible synced captures alongside knowledge as citations with source and date. |
 
 `requireCitations` (default true) additionally blocks `ask-brain` from
 returning an answer with no usable citation — it returns a policy-explanation
@@ -146,9 +146,10 @@ message instead of a bare summary when that happens.
 
 Each source may also carry an `answerPolicy`, configured through the
 `create-source` / `update-source` `policy` argument. `ask-brain` excludes stale
-or answer-ineligible results, prevents review-required raw captures from
-supporting answers, ranks `blessed` before `standard` before `untrusted`, and
-then ranks by `authority`. It returns the evaluated policy alongside citations
+or answer-ineligible results, and all captures from sources whose
+`conflictBehavior` is `require-review` (legacy `reviewRequired` no longer
+excludes anything). It ranks `blessed` before `standard` before `untrusted`,
+then by `authority`. It returns the evaluated policy alongside citations
 so external apps can explain why a result was preferred or excluded. Sources
 without this policy retain the compatible `standard`, eligible, authority-50
 behavior.
