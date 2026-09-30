@@ -64,6 +64,7 @@ export interface ActionRunContext {
   threadId?: string;
   runId?: string;
   turnId?: string;
+  toolCallId?: string;
   approvedToolCallKey?: string;
 }
 

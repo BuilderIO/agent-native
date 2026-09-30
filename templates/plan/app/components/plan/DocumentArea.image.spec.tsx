@@ -17,7 +17,7 @@ vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: vi.fn(),
   useFileUploadStatus: () => fileStorage,
 }));
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
   FileStorageSetupPopover: ({
     open,
     status,

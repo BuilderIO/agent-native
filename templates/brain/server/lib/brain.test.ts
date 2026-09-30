@@ -786,8 +786,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 import { mutateSetting, putSetting } from "@agent-native/core/settings";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import claimDistillationAction from "../../actions/claim-distillation.js";
+import enqueueDistillationAction from "../../actions/enqueue-distillation.js";
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
@@ -954,6 +956,15 @@ describe("Brain knowledge quality gates", () => {
     expect(guidance.distillation.defaultPublishTier).toBe("team");
     expect(guidance.distillation.instructions).toBe(
       "Only extract launch decisions.",
+    );
+    expect(guidance.distillation.rules.join(" ")).toContain(
+      "launch announcements as retainable dated facts",
+    );
+    expect(guidance.distillation.rules.join(" ")).toContain(
+      "Distinguish announced plans from confirmed launches",
+    );
+    expect(guidance.distillation.rules.join(" ")).toContain(
+      "proposalMode=always",
     );
     expect(guidance.captureSanitization).toMatchObject({
       enabled: true,
@@ -2323,6 +2334,81 @@ describe("Brain knowledge quality gates", () => {
     expect(result.knowledge!.publishedAt).toBeNull();
   });
 
+  it("reconsiders an ignored capture only with an editor-authorized opt-in", async () => {
+    const source = seedSource();
+    const capture = seedCapture({
+      sourceId: source.id,
+      status: "ignored",
+      content: "We plan to launch the Atlas workspace app today.",
+    });
+    mocks.rows.ingestQueue.push({
+      id: "queue-completed",
+      sourceId: source.id,
+      captureId: capture.id,
+      operation: "distill",
+      status: "done",
+      priority: 50,
+      attempts: 1,
+      payloadJson: "{}",
+      error: null,
+      runAfter: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      createdAt: "2026-05-15T12:00:00.000Z",
+      updatedAt: "2026-05-15T12:01:00.000Z",
+    });
+
+    await expect(
+      enqueueDistillationAction.run({ captureId: capture.id }),
+    ).rejects.toThrow("already ignored");
+    expect(mocks.rows.ingestQueue).toHaveLength(1);
+
+    vi.mocked(assertAccess).mockRejectedValueOnce(
+      new Error("No editor access"),
+    );
+    await expect(
+      enqueueDistillationAction.run({
+        captureId: capture.id,
+        reconsiderIgnored: true,
+      }),
+    ).rejects.toThrow("No editor access");
+    expect(mocks.rows.ingestQueue).toHaveLength(1);
+
+    const result = await enqueueDistillationAction.run({
+      captureId: capture.id,
+      reconsiderIgnored: true,
+    });
+
+    expect(assertAccess).toHaveBeenCalledWith(
+      "brain-source",
+      source.id,
+      "editor",
+    );
+    expect(result.existing).toBe(false);
+    expect(result.queueItem.id).not.toBe("queue-completed");
+    expect(mocks.rows.ingestQueue).toMatchObject([
+      { id: "queue-completed", status: "done" },
+      { captureId: capture.id, operation: "distill", status: "queued" },
+    ]);
+    expect(capture.status).toBe("distilling");
+
+    const completed = await processBrainIngestQueueOnce({
+      limit: 1,
+      runDistillation: true,
+      distillationRunner: async (context) => {
+        await markCaptureDistilledAction.run({
+          captureId: context.capture.id,
+          queueId: context.queue.id,
+          claimToken: context.claimToken,
+        });
+      },
+    });
+    expect(completed.processed).toEqual([result.queueItem.id]);
+    expect(mocks.rows.ingestQueue[0]?.status).toBe("done");
+    expect(mocks.rows.ingestQueue[1]?.status).toBe("done");
+    expect(capture.status).toBe("distilled");
+  });
+
   it("keeps distillation queue items queued when no distillation worker completed them", async () => {
     const now = "2026-05-15T12:00:00.000Z";
     mocks.rows.ingestQueue.push({
@@ -3648,6 +3734,218 @@ describe("Brain connector smoke coverage", () => {
           pendingLatestTs: "1770919200.000100",
         },
       },
+    });
+  });
+
+  it("captures recent Slack messages while an older history cursor is still paging", async () => {
+    const historyRequests: Array<{
+      cursor: string | null;
+      oldest: string | null;
+      limit: string | null;
+    }> = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_member: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        const cursor = url.searchParams.get("cursor");
+        const oldest = url.searchParams.get("oldest");
+        historyRequests.push({
+          cursor,
+          oldest,
+          limit: url.searchParams.get("limit"),
+        });
+        if (!cursor) {
+          return Response.json({
+            ok: true,
+            messages:
+              oldest === "1770919200.000100"
+                ? [
+                    {
+                      type: "message",
+                      text: "Recent Greptile discussion",
+                      ts: "1770919300.000100",
+                    },
+                  ]
+                : [],
+            has_more: false,
+          });
+        }
+        const finalPage = cursor === "history-page-3";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Older thread in the backlog",
+              ts: finalPage ? "1770919198.000100" : "1770919199.000100",
+            },
+          ],
+          has_more: !finalPage,
+          response_metadata: { next_cursor: finalPage ? "" : "history-page-3" },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        const ts = url.searchParams.get("ts")!;
+        return Response.json({
+          ok: true,
+          messages: [{ type: "message", text: "Captured Slack thread", ts }],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-live-with-backlog-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 30,
+        pagesPerChannel: 1,
+        permalinkLimit: 0,
+      }),
+      cursorJson: JSON.stringify({
+        channels: {
+          C123: {
+            pageCursor: "history-page-2",
+            pendingLatestTs: "1770919200.000100",
+          },
+        },
+      }),
+    });
+
+    const first = await runConnectorSync(source as never);
+    expect(first).toMatchObject({ status: "success", capturesCreated: 2 });
+    expect(first.captures.map((capture) => capture.externalId)).toContain(
+      "slack:C123:1770919300.000100",
+    );
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      channels: {
+        C123: {
+          pageCursor: "history-page-3",
+          pendingLatestTs: "1770919200.000100",
+          recentLatestTs: "1770919300.000100",
+        },
+      },
+    });
+
+    const second = await runConnectorSync(source as never);
+    expect(second).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(historyRequests).toEqual([
+      { cursor: null, oldest: "1770919200.000100", limit: "30" },
+      { cursor: "history-page-2", oldest: null, limit: "30" },
+      { cursor: null, oldest: "1770919300.000100", limit: "30" },
+      { cursor: "history-page-3", oldest: null, limit: "30" },
+    ]);
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      channels: { C123: { latestTs: "1770919300.000100" } },
+    });
+  });
+
+  it("promotes the recent watermark when the older backlog finishes first", async () => {
+    const historyRequests: Array<{
+      cursor: string | null;
+      oldest: string | null;
+    }> = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_member: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        const cursor = url.searchParams.get("cursor");
+        const oldest = url.searchParams.get("oldest");
+        historyRequests.push({ cursor, oldest });
+        if (cursor?.startsWith("backlog-")) {
+          return Response.json({ ok: true, messages: [], has_more: false });
+        }
+        const ts =
+          cursor === "recent-2"
+            ? "1770919202.000100"
+            : oldest === "1770919203.000100"
+              ? "1770919204.000100"
+              : "1770919203.000100";
+        return Response.json({
+          ok: true,
+          messages: [{ type: "message", text: "Recent Slack update", ts }],
+          has_more: cursor !== "recent-2" && oldest !== "1770919203.000100",
+          response_metadata: { next_cursor: "recent-2" },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Recent Slack update",
+              ts: url.searchParams.get("ts"),
+            },
+          ],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-fresh-burst-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 1,
+        permalinkLimit: 0,
+      }),
+      cursorJson: JSON.stringify({
+        channels: {
+          C123: {
+            pageCursor: "backlog-2",
+            pendingLatestTs: "1770919200.000100",
+          },
+        },
+      }),
+    });
+
+    await runConnectorSync(source as never);
+    expect(JSON.parse(String(source.cursorJson)).channels.C123).toMatchObject({
+      latestTs: "1770919200.000100",
+      recentPageCursor: "recent-2",
+      recentPendingLatestTs: "1770919203.000100",
+    });
+    await runConnectorSync(source as never);
+    expect(JSON.parse(String(source.cursorJson)).channels.C123).toMatchObject({
+      latestTs: "1770919203.000100",
+    });
+    expect(
+      JSON.parse(String(source.cursorJson)).channels.C123,
+    ).not.toHaveProperty("recentPageCursor");
+    await runConnectorSync(source as never);
+    expect(historyRequests).toEqual([
+      { cursor: null, oldest: "1770919200.000100" },
+      { cursor: "backlog-2", oldest: null },
+      { cursor: "recent-2", oldest: null },
+      { cursor: null, oldest: "1770919203.000100" },
+    ]);
+    expect(JSON.parse(String(source.cursorJson)).channels.C123).toMatchObject({
+      latestTs: "1770919204.000100",
     });
   });
 

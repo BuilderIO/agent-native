@@ -19,7 +19,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   buildSettingsRoute: (section: string) => `/settings/${section}`,
 }));
 
-vi.mock("@agent-native/core/client/observability", () => ({
+vi.mock("@agent-native/toolkit/app/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
@@ -40,7 +40,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: mocks.useOrg,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   AccountSettingsCard: () => null,
   SettingsTabsPage: ({
     extraTabs = [],

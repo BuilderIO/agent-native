@@ -1125,7 +1125,14 @@ export async function rekeyIdentity(
       if (!available.has("id"))
         throw new Error("workspace_user_groups is missing its id column.");
       const groupRows = await db.unsafe(
-        `SELECT id, member_emails_json FROM workspace_user_groups`,
+        `SELECT id, member_emails_json
+           FROM workspace_user_groups
+          WHERE EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements_text(member_emails_json::jsonb) AS members(member_email)
+             WHERE LOWER(members.member_email) = LOWER($1)
+          )`,
+        [oldEmail],
       );
       const updates: Array<{ id: unknown; members: string[] }> = [];
       for (const row of groupRows) {

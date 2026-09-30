@@ -3,15 +3,67 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-29
+
+### Improved
+
+- Corner-radius handles only appear on shapes with a visible fill or stroke.
+- Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
+- The local editing guide now shows the local network Allow prompt and its Site settings fallback.
+- The browser permission guide points to Allow and the Connection is secure step.
+- The Chrome fallback guide shows the Local network Allow option.
+
+### Fixed
+
+- Corner-radius handles stay in sync with visible shape paint.
+- The home composer stays put as the app opens.
+- Design warnings wait for the current preview to finish loading
+- Live editing now offers a retry when the local bridge does not respond.
+- Mixed padding and margin values across selected layers now open separate side controls
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- The source-location warning no longer appears while an app preview is loading.
+- Source location warnings wait until app previews finish loading
+- Clearing a prompt removes its final character
+- Design tweak controls stay intact when an edit contains invalid definitions
+- Live previews no longer stay stuck when the running app reloads.
+- Live previews stay ready when a delayed connection check completes.
+- Local visual edits use the copy prompt handoff for signed-in editors too.
+- Duplicated screens keep the same spacing as other screens on the board.
+
 ## 2026-09-28
 
 ### Improved
 
+- Connected tools appear in the AgentKit Add menu only when they’re ready to use.
+- Design context sources are available from the same Add menu using either + or @.
+- The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Center the home search field and keep prompt submission responsive while AI readiness is checked.
+- Corner radius handles stay with the drag and appear only on supported shapes
+- Corner radius is now disabled for plain text layers, matching Figma, and stays available when text has a fill, border, shadow, or background blur
+- Layer rows select from anywhere, with consistent blue highlights and tighter nesting
+- Local screen setup is clearer, failed connections stop showing a loading state, and signed-out sharing stays compact.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Design settings pages now share a consistent width and layout, while What's new displays date-grouped updates in batches of ten.
+- The Appearance panel now shows a Blend mode row with the active mode and a remove button whenever a layer uses a blend mode
 - Starter prompts now sit below the chat composer
 - The design list search and import controls stay legible on narrow screens.
 
 ### Fixed
 
+- Signed-in editor chats keep selected references and integrations available for conversational follow-ups, separately from initial home suggestions.
+- Find existing designs in a searchable thumbnail gallery and add them as prompt references from the + and @ menus.
+- Chat suggestions stay hidden and prompt controls remain disabled until AI is connected and ready to use.
+- Sidebar and full-page chats share reference and integration choices, preserving each conversation's selections when switching views.
+- The context menu lists available integrations in a submenu with a clear connection setup link
+- Corner-radius handles appear as soon as a shape is selected under the pointer.
+- Design editor prompts stay visible while the composer loads
+- Existing designs open to Recent, and the home prompt stays interactive while AI readiness is checked.
+- PNG, JPG, WebP, and PDF exports and the export preview now keep layers flipped or rotated with the scale, rotate, and translate properties
+- Selecting a layer now keeps its name visible in the Layers panel.
+- Shader previews now appear on the selected screen in Design overview
+- The home Figma import control no longer clips its label
+- The Layers panel has a cleaner divider, and responsive preview controls share one continuous toolbar border.
 - Canvas navigation and undo keep working when connected apps focus controls automatically
 - The model picker shows available models when AI is configured.
 - Template menus stay available when you hover over a card.

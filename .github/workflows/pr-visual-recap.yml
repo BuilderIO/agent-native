@@ -7,8 +7,18 @@ on:
 permissions:
   contents: read
 
+# Events the gate ignores (see gate.if) get a throwaway group so they never
+# cancel an in-progress recap for the same PR.
 concurrency:
-  group: pr-visual-recap-${{ github.event.pull_request.number }}
+  group: >-
+    ${{ ((github.event.action == 'labeled'
+          && ((vars.VISUAL_RECAP_AUTO_REFRESH == 'false' && github.event.label.name != 'recap')
+            || (vars.VISUAL_RECAP_AUTO_REFRESH != 'false' && vars.VISUAL_RECAP_REQUIRED_LABELS == '')))
+        || (vars.VISUAL_RECAP_AUTO_REFRESH == 'false'
+          && (github.event.action == 'synchronize'
+            || (github.event.action == 'closed' && !github.event.pull_request.merged))))
+        && format('pr-visual-recap-ignored-{0}', github.run_id)
+        || format('pr-visual-recap-{0}', github.event.pull_request.number) }}
   cancel-in-progress: true
 
 env:
@@ -21,7 +31,18 @@ env:
 jobs:
   gate:
     name: Gate
-    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
+    # VISUAL_RECAP_AUTO_REFRESH=false recaps only on open/reopen/ready, on merge
+    # (to stamp merged state), and when the `recap` label is applied, instead of
+    # on every push. Only `recap` passes here: expressions cannot exact-match the
+    # comma-separated required-label list, and a substring match would let an
+    # unrelated label join the cancelling per-PR group.
+    if: >-
+      !((github.event.action == 'labeled'
+         && ((vars.VISUAL_RECAP_AUTO_REFRESH == 'false' && github.event.label.name != 'recap')
+           || (vars.VISUAL_RECAP_AUTO_REFRESH != 'false' && vars.VISUAL_RECAP_REQUIRED_LABELS == '')))
+        || (vars.VISUAL_RECAP_AUTO_REFRESH == 'false'
+         && (github.event.action == 'synchronize'
+           || (github.event.action == 'closed' && !github.event.pull_request.merged))))
     runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) && (vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:

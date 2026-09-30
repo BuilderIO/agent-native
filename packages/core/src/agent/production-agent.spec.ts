@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
+  defineAction,
   fail,
+  type ActionRunContext,
 } from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -22,6 +24,7 @@ import {
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { hashEmail } from "../mcp-client/remote-store.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
@@ -1984,6 +1987,72 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
+    const seenActionNames: string[][] = [];
+    const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
+    const resolveAdditionalActions = vi.fn(async () => ({
+      [mcpToolName]: actionEntry({}),
+    }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        void opts;
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      resolveAdditionalActions,
+      resolveActionSurface: async ({ availableActionNames }) => {
+        seenActionNames.push(availableActionNames);
+        return { mode: "default" };
+      },
+    });
+    const makeEvent = (threadId: string) =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Run", threadId }),
+        }),
+      );
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(makeEvent("authenticated-mcp")),
+    );
+
+    expect(resolveAdditionalActions).toHaveBeenCalledOnce();
+    expect(resolveAdditionalActions.mock.calls[0]?.[0]).toMatchObject({
+      ownerEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    expect(seenActionNames[0]).toContain(mcpToolName);
+
+    await runWithRequestContext(
+      {
+        userEmail: "anon-session@agent-native.com",
+        agentRunAnonymous: true,
+        run: {},
+      },
+      () => handler(makeEvent("anonymous-mcp")),
+    );
+
+    expect(resolveAdditionalActions).toHaveBeenCalledOnce();
+    expect(seenActionNames[1]).not.toContain(mcpToolName);
+  });
+
   it("rejects a non-string request engine before resolving provider credentials", async () => {
     const stream = vi.fn();
     const systemPrompt = vi.fn(async () => "Test");
@@ -2194,12 +2263,16 @@ describe("createProductionAgentHandler", () => {
     }
 
     await vi.waitFor(() => {
-      expect(seenTools).toEqual([["allowed"]]);
+      expect(seenTools).toEqual([
+        ["suggest-follow-ups", "allowed"],
+        ["suggest-follow-ups"],
+      ]);
     });
     expect(seenScopes).toEqual([
       { kind: "content-comment-ai", requestId: "request-1" },
+      { kind: "content-comment-ai", requestId: "request-1" },
     ]);
-    expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
+    expect(lifecycle).toEqual(["prepare", "surface", "stream", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
   });
 
@@ -2256,7 +2329,10 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools).toEqual([["list-calendar-events"]]);
+    expect(seenTools).toEqual([
+      ["suggest-follow-ups", "list-calendar-events"],
+      ["suggest-follow-ups"],
+    ]);
   });
 
   it("passes normalized requested turn and queued message ids to the action-surface resolver", async () => {
@@ -2418,7 +2494,11 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+    expect(seenTools[0]).toEqual([
+      "suggest-follow-ups",
+      "common",
+      "tool-search",
+    ]);
   });
 
   it("filters an unscoped resolved allowlist through initialToolNames", async () => {
@@ -2471,7 +2551,11 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+    expect(seenTools[0]).toEqual([
+      "suggest-follow-ups",
+      "common",
+      "tool-search",
+    ]);
   });
 
   it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
@@ -2547,9 +2631,13 @@ describe("createProductionAgentHandler", () => {
       runThread("thread-beta", "beta@example.com"),
     ]);
 
-    expect(seenTools).toHaveLength(2);
-    expect(seenTools).toContainEqual(["alpha", "tool-search"]);
-    expect(seenTools).toContainEqual([]);
+    expect(seenTools).toHaveLength(4);
+    expect(seenTools).toContainEqual([
+      "suggest-follow-ups",
+      "alpha",
+      "tool-search",
+    ]);
+    expect(seenTools).toContainEqual(["suggest-follow-ups"]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
   });
@@ -2658,7 +2746,12 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    await vi.waitFor(() => expect(seenTools).toEqual([["allowed"]]));
+    await vi.waitFor(() =>
+      expect(seenTools).toEqual([
+        ["suggest-follow-ups", "allowed"],
+        ["suggest-follow-ups"],
+      ]),
+    );
     expect(resolver).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "real-org" }),
     );
@@ -2711,6 +2804,7 @@ describe("createProductionAgentHandler", () => {
       expect.objectContaining({
         message: "Run the queued prompt",
         queuedMessageId: "queued-1",
+        turnId: expect.any(String),
       }),
     );
   });
@@ -9281,6 +9375,91 @@ describe("runAgentLoop", () => {
       }),
     );
   });
+
+  it.each([false, true])(
+    "passes each model tool-call ID to actions (defineAction: %s)",
+    async (wrapped) => {
+      const run = vi.fn(async (_args: unknown, _ctx?: ActionRunContext) => ({
+        ok: true,
+      }));
+      const action = wrapped
+        ? defineAction({
+            description: "Read a record",
+            parameters: {
+              id: { type: "string" },
+              toolCallId: { type: "string" },
+            },
+            readOnly: true,
+            run,
+          })
+        : { ...actionEntry({ readOnly: true }), run };
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: ["first", "second"].map((id) => ({
+                type: "tool-call" as const,
+                id: `model-${id}`,
+                name: "read-record",
+                input: { id, toolCallId: "untrusted-input" },
+              })),
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "text-delta", text: "Read both records." };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Read both records" }],
+          },
+        ],
+        actions: { "read-record": action },
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(2);
+      for (const id of ["first", "second"]) {
+        expect(run).toHaveBeenCalledWith(
+          { id, toolCallId: "untrusted-input" },
+          expect.objectContaining({
+            toolCallId: `model-${id}`,
+            caller: "tool",
+          }),
+        );
+      }
+      if (wrapped) {
+        await action.run(
+          { id: "direct", toolCallId: "untrusted-input" },
+          { caller: "cli" },
+        );
+        expect(run.mock.calls.at(-1)?.[1]).not.toHaveProperty("toolCallId");
+      }
+    },
+  );
 
   it("passes the turn's attachments into each tool action's run context", async () => {
     let receivedAttachments: unknown;

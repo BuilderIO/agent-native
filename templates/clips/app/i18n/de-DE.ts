@@ -2,8 +2,8 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   agentChat: {
     setup: {
-      checkingProvider: "KI-Verbindung wird geprüft…",
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
   },
@@ -75,7 +75,6 @@ const messages = {
     create: "Erstellen",
     save: "Speichern",
     saving: "Speichern…",
-    saveChanges: "Änderungen speichern",
     connected: "Verbunden",
     notConnected: "Nicht verbunden",
     disconnect: "Trennen",
@@ -823,7 +822,6 @@ const messages = {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     agentTitle: "Agent verwalten",
-    title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
     labs: "Labs",
     labsIntro:
@@ -836,13 +834,6 @@ const messages = {
     labWisprFlow: "Sprachdiktat",
     labWisprFlowDescription:
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
-    intro:
-      "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
-    preferencesTitle: "Voreinstellungen",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
-    languageLabel: "Oberflächensprache",
     uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
     uploadWorkspaceDescription:
       "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",
@@ -865,10 +856,6 @@ const messages = {
     viewAllUpdates: "Alle Updates anzeigen",
     expand: "Erweitern",
     collapse: "Einklappen",
-    playback: "Wiedergabe",
-    defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
-    playbackDescription:
-      "Wird automatisch angewendet, wenn du eine Aufnahme öffnest.",
     transcript: "Transkript",
     transcriptCleanup: "Bereinigung im Hintergrund",
     transcriptCleanupDescription:
@@ -876,27 +863,17 @@ const messages = {
     notifications: "Benachrichtigungen",
     monthlyRecap: "Monatliche Zusammenfassung",
     sharing: "Teilen",
-    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
-    defaultVisibilityDescription:
-      "Gilt für jede Aufnahme, die du erstellst. Du kannst die Sichtbarkeit pro Aufnahme weiterhin ändern.",
     visibilityPrivate: "Privat - nur du",
     visibilityOrg: "Organisation - alle in deinem Workspace",
     visibilityPublic: "Öffentlich - alle mit dem Link",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
       "Wähle aus, welche optionalen Clips-E-Mails du erhalten möchtest.",
-    saved: "Einstellungen gespeichert",
     saveFailed: "Speichern fehlgeschlagen",
-    builderConnectedToast: "Builder.io verbunden",
-    videoStorage: "Videospeicher",
     videoStorageDescription:
       "Builder.io ist der primäre Speicherpfad für Clips-Uploads. S3 ist verfügbar, wenn du deinen eigenen Bucket verwenden musst.",
-    checkingBuilder: "Builder.io wird geprüft",
     builderConnected: "Builder.io verbunden",
     connectBuilder: "Builder.io nutzen",
-    builderConnectedFor: "Builder.io wird für {{orgName}} verwendet.",
-    builderConnectedGeneric:
-      "Neue Clips verwenden den verbundenen Builder.io-Anbieter.",
     builderIncludes:
       "Der kostenlose Tarif von Builder.io umfasst Objektspeicher, Uploads und verwaltete Transkription für neue Clips.",
     s3Title: "S3-kompatibler Speicher",
@@ -904,11 +881,8 @@ const messages = {
     active: "Aktiv",
     s3BuilderConnectedDescription:
       "Nur verwenden, wenn dieser Arbeitsbereich in deinen eigenen Bucket statt zu Builder.io hochladen soll.",
-    s3CurrentProvider: "Aktuell wird {{providerName}} verwendet.",
     s3OwnBucketDescription:
       "Nutze deinen eigenen Bucket, wenn du keinen Builder.io-Speicher möchtest.",
-    configureS3: "S3 konfigurieren",
-    hideS3: "S3 ausblenden",
     saveStorage: "Speicher speichern",
     storageSaved: "Speichereinstellungen gespeichert",
     storageRequired:
@@ -925,7 +899,6 @@ const messages = {
       "Bucket-Name muss 3–63 Kleinbuchstaben, Zahlen oder Bindestriche enthalten",
     s3RegionInvalid:
       'Muss eine gültige Region sein (z. B. us-east-1) oder "auto"',
-    apiSetup: "KI-Einrichtung",
     apiSetupDescription: "Wähle, wie Clips eine Verbindung zur KI herstellt.",
     builderEasySetup: "Kostenlose Builder.io-Credits",
     builderAiAvailable:
@@ -936,18 +909,11 @@ const messages = {
     providerKeyDescription:
       "Wähle Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere oder Ollama für anbieterseitig abgerechnete Nutzung.",
     providerKeysSet: "{{count}} gesetzt",
-    providerActionTitle: "KI-Anbieter",
-    providerActionDescription:
-      "Builder.io bietet einen kostenlosen Tarif, oder eigene Schlüssel verwenden.",
-    providerManage: "Verwalten",
-    providerCustomKeys: "Eigene Schlüssel",
-    checkingProviderKeys: "Anbieter-Schlüssel werden geprüft…",
     keySet: "Gesetzt",
     keyCleared: "Speicher-Anmeldedaten gelöscht",
     clearAllS3: "Anmeldedaten löschen",
     replaceKey: "Schlüssel ersetzen…",
     pasteProviderKey: "Füge zuerst einen Anbieter-Schlüssel ein.",
-    apiKeySaved: "API-Schlüssel gespeichert",
     apiKeyFailed: "Schlüssel konnte nicht gespeichert werden",
     slackTitle: "Agent-Native Clips für Slack",
     slackDescription:
@@ -1065,9 +1031,6 @@ const messages = {
     noOrganization:
       "Noch keine Organisation. Erstelle eine über den Organisationswechsler, um zu beginnen.",
     description: "Organisationsverwaltung: Branding, Mitglieder, Einladungen.",
-    adminsOnlyBranding: "Nur Administratoren können das Branding bearbeiten.",
-    brandingLoadFailed:
-      "Das Branding der Organisation konnte nicht geladen werden.",
     members: "Mitglieder",
     pendingInvites: "Ausstehende Einladungen",
     noPendingInvites: "Keine ausstehenden Einladungen.",

@@ -1,16 +1,17 @@
 import {
-  AgentSidebar,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
+import { immersiveReaderSegmentPattern } from "@shared/plan-routes";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
@@ -35,8 +36,15 @@ function routeOwnsToolbar(pathname: string): boolean {
   return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
+// A kind missing from this pattern never owns its toolbar, never goes
+// immersive, and its full-screen toggle does nothing — so the pattern is
+// derived from `immersiveReaderSegmentPattern` rather than hand-listed here.
+const PLAN_DETAIL_ROUTE_PATTERN = new RegExp(
+  `^\\/(${immersiveReaderSegmentPattern()}|local-plans)\\/[^/]+`,
+);
+
 function isPlanDetailRoute(pathname: string): boolean {
-  return /^\/(plans|recaps|local-plans)\/[^/]+/.test(pathname);
+  return PLAN_DETAIL_ROUTE_PATTERN.test(pathname);
 }
 
 export function Layout({ children }: LayoutProps) {

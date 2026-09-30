@@ -5,7 +5,7 @@ import type {
 } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
 import {
   useSortable,

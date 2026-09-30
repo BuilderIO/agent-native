@@ -247,14 +247,14 @@ import * as root from "@agent-native/agentkit";
 import * as protocol from "@agent-native/agentkit/protocol";
 import * as http from "@agent-native/agentkit/http";
 import * as conformance from "@agent-native/agentkit/conformance";
-import * as react from "@agent-native/agentkit/react";
-import * as headless from "@agent-native/agentkit/react/headless";
-import * as reactRoot from "@agent-native/agentkit/react/root";
-import * as chat from "@agent-native/agentkit/react/chat";
-import * as components from "@agent-native/agentkit/react/components";
-import * as context from "@agent-native/agentkit/react/context";
-import * as streamingText from "@agent-native/agentkit/react/streaming-text";
-import "@agent-native/agentkit/react/styles.css";
+import * as react from "@agent-native/toolkit/app/agentkit/react";
+import * as headless from "@agent-native/toolkit/app/agentkit/react/headless";
+import * as reactRoot from "@agent-native/toolkit/app/agentkit/react/root";
+import * as chat from "@agent-native/toolkit/app/agentkit/react/chat";
+import * as components from "@agent-native/toolkit/app/agentkit/react/components";
+import * as context from "@agent-native/toolkit/app/agentkit/react/context";
+import * as streamingText from "@agent-native/toolkit/app/agentkit/react/streaming-text";
+import "@agent-native/toolkit/app/agentkit/react/styles.css";
 
 const exportsLoaded = [
   root,
@@ -281,13 +281,13 @@ createRoot(document.getElementById("root")!).render(
   import("@agent-native/agentkit/protocol"),
   import("@agent-native/agentkit/http"),
   import("@agent-native/agentkit/conformance"),
-  import("@agent-native/agentkit/react"),
-  import("@agent-native/agentkit/react/headless"),
-  import("@agent-native/agentkit/react/root"),
-  import("@agent-native/agentkit/react/chat"),
-  import("@agent-native/agentkit/react/components"),
-  import("@agent-native/agentkit/react/context"),
-  import("@agent-native/agentkit/react/streaming-text"),
+  import("@agent-native/toolkit/app/agentkit/react"),
+  import("@agent-native/toolkit/app/agentkit/react/headless"),
+  import("@agent-native/toolkit/app/agentkit/react/root"),
+  import("@agent-native/toolkit/app/agentkit/react/chat"),
+  import("@agent-native/toolkit/app/agentkit/react/components"),
+  import("@agent-native/toolkit/app/agentkit/react/context"),
+  import("@agent-native/toolkit/app/agentkit/react/streaming-text"),
 ]);
 if (modules.some((value) => Object.keys(value).length === 0)) {
   throw new Error("a supported packed JavaScript export was empty");

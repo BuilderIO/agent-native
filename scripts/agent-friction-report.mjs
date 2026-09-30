@@ -58,6 +58,20 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const UNAUTHORIZED_PR_PUSH_RE =
+  /\b(?:never|stop|don['’]?t|do not|must not|should not|shouldn['’]?t)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b|\b(?:never|stop|don['’]?t|do not|must not|should not|shouldn['’]?t)\b(?!\s+(?:\w+\s+){0,3}forget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b))[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,60}\b(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b|\bpush(?:ed|ing)\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|(?:(?:I|we)(?:['’]ve| have)?\s+(?:(?:don['’]?t|do not|must not)\s+)?(?:own|opened|created|authored)|you\s+(?:don['’]?t|do not|must not)\s+own|(?:(?:is|are)(?:n['’]?t|\s+not)|not)\s+yours?|unless\s+you\s+(?:(?:don['’]?t|do not|must not)\s+)?own|(?:that\s+)?(?:don['’]?t|do not|doesn['’]?t|does not)\s+belong\s+to\s+you))\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b/i;
+
+const AFFIRMATIVE_PR_PUSH_REMINDER_RE =
+  /\b(?:never|must not|don['’]?t|do not)\b[^.!?\n]{0,100}\bforget\b(?![^.!?\n]{0,100}\b(?:not|never|avoid|refrain|stop|prohibit|prevent|do not|don['’]?t|must not|mustn['’]?t|should not|shouldn['’]?t|cannot|can['’]?t)\b)[^.!?\n]{0,100}\bpush(?:ed|ing)?\b/i;
+const matchesUnauthorizedPrPush = (text) =>
+  String(text)
+    .split(/[.!?\n]+/)
+    .some(
+      (sentence) =>
+        UNAUTHORIZED_PR_PUSH_RE.test(sentence) &&
+        !AFFIRMATIVE_PR_PUSH_REMINDER_RE.test(sentence),
+    );
+
 const BETA_PUBLISHER_OPERATION = String.raw`cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?`;
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   [
@@ -1464,6 +1478,76 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
+  [true, "Never push to someone else's PR unless explicitly told to."],
+  [true, "Don't push to another person's pull request without authorization."],
+  [false, "Don't forget to push to the external PR."],
+  [false, "Do not forget to push to the third-party pull request."],
+  [false, "Don't ever forget to push to the external PR."],
+  [false, "Do not ever forget to push to the third-party pull request."],
+  [
+    false,
+    "Don't forget to push to the external PR without explicit authorization.",
+  ],
+  [
+    false,
+    "Do not ever forget to push to the third-party pull request without permission.",
+  ],
+  [true, "Don't forget not to push to someone else's PR."],
+  [true, "Do not ever forget not to push to a third-party pull request."],
+  [
+    false,
+    "Do not forget, please, to push to the third-party PR without permission.",
+  ],
+  [
+    false,
+    "Never forget about pushing to an external PR without authorization.",
+  ],
+  [true, "Don't forget, please, not to push to the external PR."],
+  [true, "Do not ever forget to not push to a third-party PR."],
+  [true, "Don't forget that you must not push to the external PR."],
+  [true, "Don't forget to avoid pushing to the external PR."],
+  [true, "Don't forget to never push to the external PR."],
+  [true, "Do not forget, please, not to push to the third-party PR."],
+  [true, "Don't ever push to an external PR without explicit authorization."],
+  [true, "Pushed to a PR from someone else without explicit permission."],
+  [true, "Never push to an external PR unless explicitly authorized."],
+  [true, "Do not push to a third-party pull request without permission."],
+  [true, "Pushed to an external PR without explicit authorization."],
+  [true, "Don't push to my PR without explicit authorization."],
+  [true, "Pushed to my PR without asking."],
+  [true, "Don't push to a PR I own."],
+  [true, "Pushed to a PR I own without asking."],
+  [true, "Don't push to our PRs without permission."],
+  [true, "Pushed a PR I authored without permission."],
+  [true, "Pushed a PR we authored without authorization."],
+  [true, "Don't push a PR you don't own."],
+  [true, "Don't push PRs that aren't yours."],
+  [true, "Do not push a PR that is not yours."],
+  [true, "Don't push to a PR unless you own it."],
+  [true, "Stop pushing to PRs that don't belong to you."],
+  [true, "Do not push to a PR I do not own."],
+  [true, "Stop pushing to a PR you don't own."],
+  [true, "Stop pushing PRs that aren't yours."],
+  [true, "You shouldn't push to PRs you don't own."],
+  [true, "Stop pushing a PR I don't own."],
+  [false, "You should push to PRs you don't own."],
+  [false, "Please push fixes to a PR you don't own."],
+  [true, "Don't push to a PR I’ve opened without permission."],
+  [true, "Pushed a PR we've authored without permission."],
+  [false, "Please push these fixes to the PR I opened."],
+  [false, "Please push these fixes to my PR."],
+  [false, "Please push these fixes to our PRs."],
+  [false, "Please push these fixes to a PR I authored."],
+  [false, "Please push these fixes to a PR I’ve authored."],
+  [false, "I explicitly authorized pushing to Alice's PR."],
+  [false, "I explicitly authorized pushing to my PR."],
+  [false, "I explicitly authorized pushing to an external PR."],
+  [false, "Please push these fixes to the third-party PR."],
+  [false, "Please push to a PR unless you own it."],
+  [false, "Please push to a PR that you don't own."],
+];
+
 const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
   [
     true,
@@ -1883,6 +1967,11 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...UNAUTHORIZED_PR_PUSH_REGEX_CASES.filter(
+      ([expected, message]) => matchesUnauthorizedPrPush(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.filter(
       ([expected, message]) =>
         BETA_PUBLISHER_RUN_INTERFERENCE_RE.test(message) !== expected,
@@ -1958,7 +2047,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1977,6 +2066,13 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "unauthorized-pr-push",
+    label: "Had to prohibit pushes to someone else's PR",
+    fixedBy:
+      "AGENTS.md + ship + babysit-pr + review-latest-feedback (exact-PR authorization, 2026-09-28)",
+    re: { test: matchesUnauthorizedPrPush },
   },
   {
     key: "babysit-lease-blocks-work",
@@ -2040,6 +2136,13 @@ const PATTERNS = [
     fixedBy:
       "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
     re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
+  },
+  {
+    key: "unnecessary-realtime-sync",
+    label: "Had to stop broad or unnecessary background sync",
+    fixedBy:
+      "guard:realtime-opt-in + .agents/skills/real-time-sync (2026-09-28)",
+    re: /\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b[^.!?]{0,100}\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b|\b(?:real[- ]?time|realtime|poll(?:ing|s)?|SSE|background sync|sync transport)\b[^.!?]{0,100}\b(?:too many|too much|every page|all pages|all tabs|unnecessary|unneeded|don't need|do not need|shouldn't|should not|default on|by default)\b/i,
   },
   {
     key: "stopped-early",
@@ -2204,6 +2307,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/configuration + packages/core/src/app-config (2026-08-13)",
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
+  },
+  {
+    key: "ci-overspend",
+    label: "Told CI runs work a change cannot affect",
+    fixedBy:
+      ".agents/skills/adding-tests-and-ci + scripts/ci-change-scope.ts per-app outputs (2026-09-29)",
+    re: /\b(?:runs?|running|triggers?|fires?) on every (?:ci|pr|push|merge|commit|template|change)\b|\brunning so (?:often|frequently)\b|\bunnecessarily (?:running|runs?|triggered)\b|\b(?:ci|tests?|jobs?|lanes?|workflows?)\b[^.!?]{0,40}\b(?:absur\w*ly|way too|so|super) expensive\b|\bshould(?:n'?t| not) it (?:only )?(?:listen|run|trigger) (?:to|on|for)\b|\beats? up (?:our|the) (?:entire )?(?:quota|capacity|runners?)\b|\bwaiting for (?:a )?(?:runner|resources)\b/i,
   },
   {
     key: "admin-grant-hack",

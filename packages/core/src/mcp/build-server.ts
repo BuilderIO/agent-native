@@ -1273,6 +1273,7 @@ function renderMcpAppHtml(
 
 function openAiToolDescriptorMeta(
   resource: ResolvedMcpAppResource,
+  entrypoints?: Array<{ type: "global" | "thread" }>,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
@@ -1281,6 +1282,7 @@ function openAiToolDescriptorMeta(
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
     "openai/widgetAccessible": true,
+    ...(entrypoints?.length ? { "openai/ui": { entrypoints } } : {}),
     ...(Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
@@ -1796,11 +1798,21 @@ export async function createMCPServerForRequest(
               !Array.isArray((entry.tool as any)._meta)
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
+            const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
+            const hasOpenAppEntrypoint =
+              name === "open_app" &&
+              !inputSchema.required?.length &&
+              Boolean(inputSchema.properties?.app);
             const toolMeta = {
               ...rawToolMeta,
               ...(mcpAppResource && requestMeta?.inlineMcpApps
                 ? {
-                    ...openAiToolDescriptorMeta(mcpAppResource),
+                    ...openAiToolDescriptorMeta(
+                      mcpAppResource,
+                      hasOpenAppEntrypoint
+                        ? [{ type: "global" }, { type: "thread" }]
+                        : undefined,
+                    ),
                     [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
                     ui: mcpAppToolUiMeta(
                       mcpAppResource,
@@ -1826,7 +1838,7 @@ export async function createMCPServerForRequest(
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
-              inputSchema: mcpToolInputSchema(name, entry.tool.parameters),
+              inputSchema,
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertFullCoverage, partitionWeighted } from "./ci-test-lanes.ts";
+import {
+  assertFullCoverage,
+  partitionTargetedWeighted,
+  partitionWeighted,
+  requiresFullCoreFastTests,
+} from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
   entries.map(([name, files]) => ({ name, files }));
@@ -50,6 +55,46 @@ test("balances packages without core and never solos them", () => {
   assertFullCoverage(lanes, rest);
 });
 
+test("uses one core shard for a one-file changed selection", () => {
+  const rest = pkgs(["design", 8]);
+  const lanes = partitionTargetedWeighted(rest, 5, 1, "changed", [
+    "src/example.test.ts",
+  ]);
+
+  assert.equal(lanes.length, 1);
+  assert.equal(lanes[0]?.coreShard, "1/1");
+  assert.equal(lanes[0]?.coreMode, "changed");
+  assertFullCoverage(lanes, rest, true);
+  assert.throws(() => partitionTargetedWeighted(rest, 5, 1, "changed", []));
+});
+
+test("does not create a core lane for an empty changed selection", () => {
+  const lanes = partitionTargetedWeighted([], 5, 0, "changed");
+  assert.deepEqual(lanes, []);
+  assertFullCoverage(lanes, []);
+});
+
+test("falls back to all core tests for fixture, config, and instruction changes", () => {
+  assert.equal(
+    requiresFullCoreFastTests([
+      "packages/core/src/templates/default/app/config.json",
+    ]),
+    true,
+  );
+  assert.equal(
+    requiresFullCoreFastTests(["packages/core/src/vitest-config.ts"]),
+    true,
+  );
+  assert.equal(requiresFullCoreFastTests(["vitest.shared.ts"]), true);
+  assert.equal(requiresFullCoreFastTests([".agents/skills/qa/SKILL.md"]), true);
+  assert.equal(requiresFullCoreFastTests(["AGENTS.md"]), true);
+  assert.equal(requiresFullCoreFastTests(["README.md"]), false);
+  assert.equal(
+    requiresFullCoreFastTests(["packages/core/docs/content/deployment.mdx"]),
+    false,
+  );
+});
+
 test("refuses lanes that skip or repeat a core shard", () => {
   const lane = (coreShard: string, packages: string[] = []) => ({
     lane: "lane",
@@ -57,6 +102,7 @@ test("refuses lanes that skip or repeat a core shard", () => {
     packages,
     files: 1,
     coreShard,
+    coreMode: coreShard ? "full" : "",
   });
   assert.throws(
     () => assertFullCoverage([lane("1/2"), lane("1/2")], [], true),

@@ -2,8 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   agentChat: {
     setup: {
-      checkingProvider: "Checking AI connection…",
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
   },
@@ -12,7 +11,6 @@ const messages = {
     create: "Create",
     save: "Save",
     saving: "Saving…",
-    saveChanges: "Save changes",
     connected: "Connected",
     notConnected: "Not connected",
     disconnect: "Disconnect",
@@ -732,7 +730,6 @@ const messages = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     agentTitle: "Manage agent",
-    title: "Settings",
     pageTitle: "Settings · Clips",
     labs: "Labs",
     labsIntro:
@@ -743,12 +740,6 @@ const messages = {
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
     labWisprFlow: "Voice dictation",
     labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
-    intro: "Preferences and connected services for this Clips workspace.",
-    preferencesTitle: "Preferences",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language for this account. Clips remembers it across devices.",
-    languageLabel: "Interface language",
     uploadWorkspaceTitle: "Active workspace",
     uploadWorkspaceDescription:
       "Choose the workspace Clips uses for new recordings, including desktop uploads.",
@@ -770,9 +761,6 @@ const messages = {
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
-    playback: "Playback",
-    defaultPlaybackSpeed: "Default playback speed",
-    playbackDescription: "Applied automatically when you open a recording.",
     transcript: "Transcript",
     transcriptCleanup: "Background cleanup",
     transcriptCleanupDescription:
@@ -780,26 +768,17 @@ const messages = {
     notifications: "Notifications",
     monthlyRecap: "Monthly recap",
     sharing: "Sharing",
-    defaultVisibility: "Default visibility for new recordings",
-    defaultVisibilityDescription:
-      "Applied to every recording you create. You can still change visibility per recording.",
     visibilityPrivate: "Private - only you",
     visibilityOrg: "Organization - anyone in your workspace",
     visibilityPublic: "Public - anyone with the link",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
       "Choose which optional Clips emails you receive.",
-    saved: "Settings saved",
     saveFailed: "Failed to save",
-    builderConnectedToast: "Builder.io connected",
-    videoStorage: "Video storage",
     videoStorageDescription:
       "Builder.io is the primary storage path for Clips uploads. S3 is available when you need to bring your own bucket.",
-    checkingBuilder: "Checking Builder.io",
     builderConnected: "Builder.io connected",
     connectBuilder: "Use Builder.io",
-    builderConnectedFor: "Using Builder.io for {{orgName}}.",
-    builderConnectedGeneric: "New clips use the connected Builder.io provider.",
     builderIncludes:
       "Builder.io's free tier includes object storage, uploads, and managed transcription for new clips.",
     s3Title: "S3-compatible storage",
@@ -807,11 +786,8 @@ const messages = {
     active: "Active",
     s3BuilderConnectedDescription:
       "Use this only if this workspace should upload to your own bucket instead of Builder.io.",
-    s3CurrentProvider: "Currently using {{providerName}}.",
     s3OwnBucketDescription:
       "Use your own bucket if you do not want Builder.io storage.",
-    configureS3: "Configure S3",
-    hideS3: "Hide S3",
     saveStorage: "Save storage",
     storageSaved: "Storage settings saved",
     storageRequired: "Endpoint, bucket, access key, and secret are required.",
@@ -826,7 +802,6 @@ const messages = {
     s3BucketInvalid:
       "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
     s3RegionInvalid: 'Must be a valid region (e.g. us-east-1) or "auto"',
-    apiSetup: "AI setup",
     apiSetupDescription: "Choose how Clips connects to AI.",
     builderEasySetup: "Builder.io free credits",
     builderAiAvailable:
@@ -837,18 +812,11 @@ const messages = {
     providerKeyDescription:
       "Choose Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama for provider-billed usage.",
     providerKeysSet: "{{count}} set",
-    providerActionTitle: "AI provider",
-    providerActionDescription:
-      "Builder.io includes a free tier, or use custom keys.",
-    providerManage: "Manage",
-    providerCustomKeys: "Custom keys",
-    checkingProviderKeys: "Checking provider keys…",
     keySet: "Set",
     keyCleared: "Storage credentials cleared",
     clearAllS3: "Clear credentials",
     replaceKey: "Replace key…",
     pasteProviderKey: "Paste a provider key first.",
-    apiKeySaved: "API key saved",
     apiKeyFailed: "Failed to save key",
     slackTitle: "Agent-Native Clips for Slack",
     slackDescription: "Preview public Clips links inline in Slack.",
@@ -963,8 +931,6 @@ const messages = {
     noOrganization:
       "No organization yet. Create one from the organization switcher to get started.",
     description: "Organization admin: branding, members, invites.",
-    adminsOnlyBranding: "Only admins can edit branding.",
-    brandingLoadFailed: "Couldn't load organization branding.",
     members: "Members",
     pendingInvites: "Pending invites",
     noPendingInvites: "No pending invites.",

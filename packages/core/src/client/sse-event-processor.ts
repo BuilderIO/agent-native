@@ -1,5 +1,4 @@
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
-import type { ChatModelRunResult } from "@assistant-ui/react";
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
@@ -15,7 +14,7 @@ import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
-import { emitChatFirstOpenApp } from "./chat-first.js";
+import { emitChatFirstOpenApp } from "./chat-first-state.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
@@ -81,6 +80,16 @@ export type ContentPart =
        */
       structuredMeta?: Record<string, unknown>;
     };
+
+type AgentChatStreamResult = {
+  readonly content?: readonly ContentPart[];
+  readonly status?:
+    | { readonly type: "complete"; readonly reason: "stop" }
+    | { readonly type: "incomplete"; readonly reason: "error" };
+  readonly metadata?: {
+    readonly custom?: Record<string, unknown>;
+  };
+};
 
 export interface SSEEvent {
   type: string;
@@ -1600,7 +1609,7 @@ export function processEvent(
     | "error"
     | "missing_api_key"
     | "auto_continue";
-  result?: ChatModelRunResult;
+  result?: AgentChatStreamResult;
   autoContinue?: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
@@ -1615,7 +1624,7 @@ export function processEvent(
     dispatchActivityClear(tabId);
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1640,7 +1649,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1658,7 +1667,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1719,7 +1728,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1781,7 +1790,7 @@ export function processEvent(
 
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1853,7 +1862,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1888,7 +1897,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1904,7 +1913,14 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
-          detail: { tool: doneTool, result: ev.result },
+          detail: {
+            tool: doneTool,
+            result: ev.result,
+            isError: ev.isError === true,
+            completedSideEffect: ev.completedSideEffect === true,
+            tabId,
+            eventId: ev.eventId ?? ev.id,
+          },
         }),
       );
     }
@@ -1944,7 +1960,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -1992,7 +2008,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -2013,7 +2029,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -2049,7 +2065,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -2076,7 +2092,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -2125,7 +2141,7 @@ export function processEvent(
         content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
-      } as ChatModelRunResult,
+      },
     };
   }
 
@@ -2249,7 +2265,7 @@ export function processEvent(
         content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
-      } as ChatModelRunResult,
+      },
     };
   }
 
@@ -2276,7 +2292,7 @@ export function processEvent(
             content: contentSnapshot(content),
             status: { type: "complete" as const, reason: "stop" as const },
             metadata: { custom: { userStopped: true } },
-          } as ChatModelRunResult,
+          },
         };
       }
       const message = interruptedToolMessage(interruptedTools);
@@ -2308,7 +2324,7 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
-        } as ChatModelRunResult,
+        },
       };
     }
     if (userStoppedRun) {
@@ -2318,7 +2334,7 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: { custom: { userStopped: true } },
-        } as ChatModelRunResult,
+        },
       };
     }
     if (ev.reason === "loop_breaker") {
@@ -2340,7 +2356,7 @@ export function processEvent(
               },
             },
           },
-        } as ChatModelRunResult,
+        },
       };
     }
     const runWarning = appendMissingFinalResponseWarning(
@@ -2358,12 +2374,12 @@ export function processEvent(
               runWarning,
             },
           },
-        } as ChatModelRunResult,
+        },
       };
     }
     return {
       action: "done",
-      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) },
     };
   }
 
@@ -2409,7 +2425,7 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
 
 /**
  * Read and process SSE events from a ReadableStream response body.
- * Yields ChatModelRunResult for each meaningful event.
+ * Yields Core-owned stream results for each meaningful event.
  *
  * When `runId` is provided, every yielded result carries
  * `metadata.custom.runId` so the UI can expose the trace ID via
@@ -2424,7 +2440,7 @@ export async function* readSSEStream(
   onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
-): AsyncGenerator<ChatModelRunResult> {
+): AsyncGenerator<AgentChatStreamResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -2467,7 +2483,9 @@ export async function* readSSEStream(
     }
   };
 
-  const withStreamMetadata = (r: ChatModelRunResult): ChatModelRunResult => {
+  const withStreamMetadata = (
+    r: AgentChatStreamResult,
+  ): AgentChatStreamResult => {
     if (!runId && activityTrail.length === 0) return r;
     const metadata = (r.metadata ?? {}) as Record<string, unknown>;
     const custom =
@@ -2692,7 +2710,7 @@ export async function* readSSEStream(
 
 /**
  * Read raw SSE events from a ReadableStream and process them into ContentPart[].
- * Unlike readSSEStream, this doesn't yield ChatModelRunResult — it updates the
+ * Unlike readSSEStream, this doesn.t yield Core-owned stream results — it updates the
  * content array in-place and calls onUpdate for each meaningful change.
  * Designed for reconnection scenarios where we render outside assistant-ui's runtime.
  */

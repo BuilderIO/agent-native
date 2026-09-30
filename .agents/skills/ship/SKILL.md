@@ -23,12 +23,26 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 
 - Ship all nonignored changes belonging to the requested work on the current
   branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
+- A ship request authorizes publishing a new PR. Pushing to someone else's PR
+  needs explicit current authorization for that exact PR; links and inherited
+  ship authority don't count. It permits a normal fast-forward push, not a
+  merge. Merge with separate current authorization; otherwise use
+  `ship_mode=ready-only` and leave the PR open. Before every push, resolve the
+  active GitHub login with `gh api user --jq .login`, include `author` in the
+  live PR query, and compare `author.login` with that login. Verify the head
+  repository, branch, head OID, and base; recheck the head.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
-- `/ship` starts in `ship_mode=merge-authorized`: merge once the gates below
-  pass unless the user explicitly says to leave the PR open. If they opt out,
-  switch to `ship_mode=ready-only`; keep fixing CI and review feedback until the
-  PR is ready, then leave it open and do not rotate the branch.
+- `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored
+  by the current user. For an existing PR authored by someone else, an exact
+  current-request authorization to push is push-only: use
+  `ship_mode=ready-only` and leave the PR open. Use `merge-authorized` for
+  that PR only when the same request separately authorizes merging that exact
+  PR. A general ship request or earlier merge authorization does not change
+  this. Otherwise, merge once the gates below pass unless the user explicitly
+  says to leave the PR open. If they opt out, switch to `ship_mode=ready-only`;
+  keep fixing CI and review feedback until the PR is ready, then leave it open
+  and do not rotate the branch.
 - Before the guarded merge, persist its exact verified PR head OID as
   `ship_merge_head_oid` in the active goal or task transcript. Continue in the
   foreground through post-merge disposition. Carry the immutable value through

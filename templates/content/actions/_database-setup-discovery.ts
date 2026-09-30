@@ -5,7 +5,7 @@ import type {
   ContentDatabaseMutationContract,
   ContentDatabaseSetupContract,
 } from "../shared/api.js";
-import { ordinaryPropertyTypes } from "./_database-property-setup.js";
+import { setupPropertyTypes } from "./_database-property-setup.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 export async function getDatabaseSetupContract(
@@ -30,14 +30,14 @@ export async function getDatabaseSetupContract(
       viewId: view.id,
       url: `${databaseUrl}?viewId=${encodeURIComponent(view.id)}`,
     })),
-    supportedPropertyTypes: [...ordinaryPropertyTypes],
+    supportedPropertyTypes: [...setupPropertyTypes],
     canEditSchema: canEdit,
     canEditViews: canEdit,
     canManageLifecycle:
       (role === "admin" || role === "owner") && !database.ownerDocumentId,
     sourceComposition: "unsupported",
     properties: mutationContract.properties.map((property) => {
-      const ordinary = ordinaryPropertyTypes.some(
+      const ordinary = setupPropertyTypes.some(
         (type) => type === property.type,
       );
       const reason = !canEdit
@@ -45,7 +45,7 @@ export async function getDatabaseSetupContract(
         : property.sourceManaged
           ? "Source-managed definition"
           : !ordinary
-            ? "Blocks, computed and relationship definitions use their own actions"
+            ? "Blocks and computed definitions use their own actions"
             : null;
       return { propertyId: property.id, editable: reason === null, reason };
     }),

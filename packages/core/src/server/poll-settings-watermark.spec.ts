@@ -41,6 +41,30 @@ function makeState(opts: { settingsMax: number; filteredMax: number }) {
 }
 
 describe("settings watermark", () => {
+  it("uses the tools watermark without reading every tool on its first poll", async () => {
+    const queries: string[] = [];
+    const state = new AppSyncState({
+      getDb: () =>
+        ({
+          execute: vi.fn(async (query: string | { sql: string }) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            queries.push(sql);
+            return {
+              rows: [{ max_ts: /FROM tools/i.test(sql) ? 100 : 0 }],
+              rowsAffected: 0,
+            };
+          }),
+        }) as never,
+    });
+
+    await state.checkExternalDbChanges({ durableEvents: false });
+
+    expect(queries.filter((sql) => /FROM tools/i.test(sql))).toHaveLength(1);
+    expect(queries.some((sql) => /SELECT id, owner_email/i.test(sql))).toBe(
+      false,
+    );
+  });
+
   it("does not fan out a global invalidation for the registration write", async () => {
     const { state, settingsQueries } = makeState({
       settingsMax: 5_000,

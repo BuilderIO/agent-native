@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "連携" } },
   templatesPage: {
     actions: "{{title}} のテンプレート操作",
     previewAction: "プレビュー",
@@ -48,14 +49,10 @@ const messages = {
   settings: {
     agentObservability: "エージェントの可観測性",
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
     labLayoutOverflowWarningDescription:
       "エディターでレイアウトのはみ出し警告を表示します。",
-    emailNotifications: "メール通知",
-    emailNotificationsDescription:
-      "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
     notificationsEmail: "メール",
     commentsAndReplies: "コメントと返信",
@@ -64,10 +61,6 @@ const messages = {
     retry: "再試行",
     mcpAbout:
       "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -179,6 +172,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
+    slideConflictReview: "確認",
+    slideConflictTitle: "このスライドは別の場所で変更されました",
+    slideConflictDescription:
+      "別の編集者が新しいバージョンを保存しました。下書きを保持すると保存済みのスライド内容が置き換わります。最新バージョンを使用することもできます。",
+    slideConflictUseLatest: "最新バージョンを使用",
+    slideConflictKeepDraft: "下書きを保持",
+    slideConflictKeepEditing: "編集を続ける",
+    slideConflictResolutionFailed:
+      "競合を解決できませんでした。下書きは保持されています。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
@@ -866,7 +868,7 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
-      websiteReference: "ウェブサイトを添付",
+      websiteReference: "ウェブサイトを追加",
       websiteUrlLabel: "ウェブサイトのURL",
       websiteUrl: "ウェブサイトのURLを貼り付け",
       figmaUrlLabel: "Figmaリンク",
@@ -881,7 +883,7 @@ const messages = {
       searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
-        figma: "Figmaを添付",
+        figma: "Figmaを追加",
         design: "デザインを参照",
         deck: "プレゼンテーションを参照",
         searchDesign: "デザインを検索…",
@@ -1062,7 +1064,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
   },
 };

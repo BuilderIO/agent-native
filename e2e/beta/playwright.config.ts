@@ -78,7 +78,7 @@ export default defineConfig({
     },
     {
       name: "chat",
-      testMatch: /specs\/(chat|a2a)\.spec\.ts$/,
+      testMatch: /specs\/(chat|a2a|chat-realtime)\.spec\.ts$/,
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },

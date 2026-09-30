@@ -4,11 +4,11 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   TemplateLibraryGrid,
   TemplatePreviewDialog,
 } from "@agent-native/toolkit/app-shell";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";

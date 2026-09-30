@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
+vi.mock("./alerts-store.js", () => ({
+  enqueueUsageAlertEvaluation: vi.fn(async () => undefined),
+}));
+
 const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
   vi.fn<() => Promise<Record<string, unknown> | null>>(),
 );
@@ -75,8 +79,10 @@ const ORG_MEMBERS_SQL = `CREATE TABLE IF NOT EXISTS org_members (
 
 const CHAT_THREADS_SQL = `CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
+  title TEXT,
   preview TEXT,
-  thread_data TEXT
+  thread_data TEXT,
+  owner_email TEXT NOT NULL DEFAULT 'a@example.com'
 )`;
 
 const SETTINGS_SQL = `CREATE TABLE IF NOT EXISTS settings (
@@ -351,7 +357,7 @@ describe("listAppUsageMetrics organization scoping", () => {
     if (!threadQuery || typeof threadQuery === "string") {
       throw new Error("Expected a chat thread prompt lookup");
     }
-    expect(threadQuery.args).toHaveLength(12);
+    expect(threadQuery.args).toHaveLength(24);
   });
 
   it("uses the sole legacy prompt when persisted messages have no timestamps", async () => {

@@ -1,4 +1,3 @@
-import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import {
   getClientSurface,
   isInBuilderFrame,
@@ -8,6 +7,7 @@ import {
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/toolkit/app/chat/chat-first";
 
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
@@ -42,6 +42,18 @@ export interface WorkspaceAppSummary {
   agentSkillsCount?: number | null;
   archived?: boolean;
   workspaceSso?: boolean;
+  source?: WorkspaceAppSource;
+}
+
+export type WorkspaceAppSource = "workspace" | "builtin" | "connected";
+
+/** Maps list-connected-agents' `source` onto the sidebar grouping. */
+export function workspaceAppSourceFromConnected(
+  source: string | undefined,
+): WorkspaceAppSource {
+  if (source === "builtin") return "builtin";
+  if (source === "custom") return "connected";
+  return "workspace";
 }
 
 interface WorkspaceAppHrefSource {
@@ -447,17 +459,30 @@ export function navigateToWorkspaceApp(href: string): boolean {
   }
 }
 
+/**
+ * Mounted workspace apps plus the chat-first default built-ins that are part
+ * of this workspace. `enabledBuiltinAppIds` must come from the server
+ * (list-connected-agents entries with source "builtin"), which already applies
+ * the builder's `agent-native.builtinAgents` config. While it is unknown, no
+ * default is added. `extraApps` are appended only when no entry has that id.
+ */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
-  grantedApps: readonly {
+  enabledBuiltinAppIds: readonly string[] | undefined,
+  extraApps: readonly {
     id: string;
     name: string;
     description?: string | null;
     url?: string | null;
+    source?: WorkspaceAppSource;
   }[] = [],
 ): WorkspaceAppSummary[] {
+  const enabledBuiltins = new Set(
+    (enabledBuiltinAppIds ?? []).map((id) => id.trim().toLowerCase()),
+  );
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    if (!enabledBuiltins.has(id)) continue;
     const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
@@ -467,20 +492,22 @@ export function mergeChatFirstWorkspaceApps(
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
+      source: "builtin",
     });
   }
   for (const app of apps ?? []) {
     const id = app.id.trim().toLowerCase();
-    const fallback = merged.get(id);
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       ...app,
       id,
-      description: app.description ?? fallback?.description,
+      source: app.source ?? "workspace",
+      description: app.description ?? fallback?.text,
       defaultDescriptionKey:
         app.description === undefined ||
         app.description === null ||
-        app.description === fallback?.description
-          ? fallback?.defaultDescriptionKey
+        app.description === fallback?.text
+          ? fallback?.key
           : undefined,
     });
   }
@@ -488,7 +515,7 @@ export function mergeChatFirstWorkspaceApps(
   const existingIds = new Set(
     [...merged.values()].map((app) => app.id.trim().toLowerCase()),
   );
-  for (const app of grantedApps) {
+  for (const app of extraApps) {
     const id = app.id.trim().toLowerCase();
     if (!id || existingIds.has(id)) continue;
     existingIds.add(id);
@@ -499,6 +526,7 @@ export function mergeChatFirstWorkspaceApps(
       path: "",
       url: app.url?.trim() || null,
       status: "ready",
+      source: app.source ?? "connected",
     });
   }
 

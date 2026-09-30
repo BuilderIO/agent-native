@@ -1,13 +1,13 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { RunsTray } from "@agent-native/core/client/progress";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   CreativeContextShareTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
@@ -22,6 +22,8 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconLoader2,
   IconAdjustments,
   IconPencilPlus,
@@ -67,8 +69,10 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
+  getStaleContentConflictSlideId,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  useDecks,
   useSaveState,
   type Deck,
   type Slide,
@@ -155,6 +159,10 @@ interface EditorToolbarProps {
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
   onAddEmptySlide?: () => void;
   addSlideGenerating?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -214,10 +222,15 @@ export default function EditorToolbar({
   onImportDeckBackup,
   onAddEmptySlide,
   addSlideGenerating,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   canEdit = true,
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const { resolveContentConflict } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
@@ -247,6 +260,7 @@ export default function EditorToolbar({
   const { saving } = useSaveState();
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
+  const contentConflictSlideId = getStaleContentConflictSlideId(deckId);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -283,6 +297,14 @@ export default function EditorToolbar({
     !currentSlide?.transition || currentSlide.transition === "none"
       ? "instant"
       : currentSlide.transition;
+  const undoModifier =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "⌘"
+      : "Ctrl";
+  const undoShortcut = `${undoModifier} Z`;
+  const redoShortcut =
+    undoModifier === "⌘" ? `${undoModifier} ⇧ Z` : `${undoModifier} Shift Z`;
 
   const openFileImport = useCallback(() => {
     if (storageQuery.isLoading) {
@@ -780,6 +802,17 @@ export default function EditorToolbar({
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
+          contentConflict={contentConflictSlideId !== undefined}
+          onResolveContentConflict={
+            contentConflictSlideId === undefined
+              ? undefined
+              : (resolution) =>
+                  resolveContentConflict(
+                    deckId,
+                    contentConflictSlideId,
+                    resolution,
+                  )
+          }
           offline={offline}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
@@ -932,6 +965,29 @@ export default function EditorToolbar({
             )}
 
             <DropdownMenuSeparator />
+            {(onUndo || onRedo) && (
+              <>
+                <DropdownMenuGroup>
+                  {onUndo && (
+                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                      <IconArrowBackUp className="size-4" />
+                      {t("editorToolbar.undoWithShortcut", {
+                        shortcut: undoShortcut,
+                      })}
+                    </DropdownMenuItem>
+                  )}
+                  {onRedo && (
+                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                      <IconArrowForwardUp className="size-4" />
+                      {t("editorToolbar.redoWithShortcut", {
+                        shortcut: redoShortcut,
+                      })}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onShowHistory}>
                 <IconHistory className="size-4" />

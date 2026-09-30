@@ -2,8 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   agentChat: {
     setup: {
-      checkingProvider: "AI 연결을 확인하는 중…",
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
   },
@@ -72,7 +71,6 @@ const messages = {
     create: "만들기",
     save: "저장",
     saving: "저장 중…",
-    saveChanges: "변경 사항 저장",
     connected: "연결됨",
     notConnected: "연결되지 않음",
     disconnect: "연결 해제",
@@ -797,7 +795,6 @@ const messages = {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     agentTitle: "에이전트 관리",
-    title: "설정",
     pageTitle: "설정 · Clips",
     labs: "Labs",
     labsIntro:
@@ -809,12 +806,6 @@ const messages = {
     labWisprFlow: "음성 받아쓰기",
     labWisprFlowDescription:
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
-    intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
-    preferencesTitle: "환경설정",
-    languageTitle: "언어",
-    languageDescription:
-      "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",
-    languageLabel: "인터페이스 언어",
     uploadWorkspaceTitle: "활성 워크스페이스",
     uploadWorkspaceDescription:
       "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",
@@ -836,9 +827,6 @@ const messages = {
     viewAllUpdates: "모든 업데이트 보기",
     expand: "펼치기",
     collapse: "접기",
-    playback: "재생",
-    defaultPlaybackSpeed: "기본 재생 속도",
-    playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
     transcript: "대본",
     transcriptCleanup: "백그라운드 정리",
     transcriptCleanupDescription:
@@ -846,25 +834,16 @@ const messages = {
     notifications: "알림",
     monthlyRecap: "월간 요약",
     sharing: "공유",
-    defaultVisibility: "새 녹화의 기본 공개 범위",
-    defaultVisibilityDescription:
-      "생성하는 모든 녹화에 적용됩니다. 녹화별로 공개 범위를 변경할 수 있습니다.",
     visibilityPrivate: "비공개 - 나만",
     visibilityOrg: "조직 - 워크스페이스의 모든 사람",
     visibilityPublic: "공개 - 링크가 있는 모든 사람",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription: "받을 Clips 선택적 이메일 알림을 정합니다.",
-    saved: "설정이 저장됨",
     saveFailed: "저장 실패",
-    builderConnectedToast: "Builder.io 연결됨",
-    videoStorage: "동영상 저장소",
     videoStorageDescription:
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
-    checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
     connectBuilder: "Builder.io 사용",
-    builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
-    builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
       "Builder.io 무료 요금제에는 새 클립을 위한 객체 저장소, 업로드, 관리형 전사가 포함됩니다.",
     s3Title: "S3 호환 저장소",
@@ -872,11 +851,8 @@ const messages = {
     active: "활성",
     s3BuilderConnectedDescription:
       "이 워크스페이스가 Builder.io 대신 자체 버킷에 업로드해야 할 때만 사용하세요.",
-    s3CurrentProvider: "현재 {{providerName}}을(를) 사용 중입니다.",
     s3OwnBucketDescription:
       "Builder.io 저장소를 원하지 않는 경우 자체 버킷을 사용하세요.",
-    configureS3: "S3 구성",
-    hideS3: "S3 숨기기",
     saveStorage: "저장소 저장",
     storageSaved: "저장소 설정이 저장됨",
     storageRequired: "Endpoint, bucket, access key, secret은 필수입니다.",
@@ -891,7 +867,6 @@ const messages = {
     s3BucketInvalid:
       "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
     s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
-    apiSetup: "AI 설정",
     apiSetupDescription: "Clips의 AI 연결 방식을 선택하세요.",
     builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
@@ -902,18 +877,11 @@ const messages = {
     providerKeyDescription:
       "제공자 과금 사용을 위해 Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere 또는 Ollama를 선택하세요.",
     providerKeysSet: "{{count}}개 설정됨",
-    providerActionTitle: "AI 제공업체",
-    providerActionDescription:
-      "Builder.io에는 무료 요금제가 있으며, 사용자 지정 키도 사용할 수 있습니다.",
-    providerManage: "관리",
-    providerCustomKeys: "사용자 지정 키",
-    checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
     keyCleared: "스토리지 자격 증명이 삭제되었습니다",
     clearAllS3: "자격 증명 삭제",
     replaceKey: "키 바꾸기…",
     pasteProviderKey: "먼저 제공자 키를 붙여넣으세요.",
-    apiKeySaved: "API 키가 저장됨",
     apiKeyFailed: "키 저장 실패",
     slackTitle: "Slack용 Agent-Native Clips",
     slackDescription:
@@ -1027,8 +995,6 @@ const messages = {
     noOrganization:
       "아직 조직이 없습니다. 시작하려면 조직 전환기에서 하나를 만드세요.",
     description: "조직 관리: 브랜딩, 멤버, 초대.",
-    adminsOnlyBranding: "관리자만 브랜딩을 편집할 수 있습니다.",
-    brandingLoadFailed: "조직 브랜딩을 불러오지 못했습니다.",
     members: "멤버",
     pendingInvites: "대기 중인 초대",
     noPendingInvites: "대기 중인 초대가 없습니다.",

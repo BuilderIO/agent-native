@@ -3,7 +3,7 @@ export interface AudioCue {
   cleanup(): void;
 }
 
-const CUE_PLAY_TIMEOUT_MS = 450;
+const CUE_PLAY_TIMEOUT_MS = 1000;
 const CUE_SETTLE_MS = 80;
 const CUE_IDLE_CLEANUP_MS = 5 * 60_000;
 
@@ -21,14 +21,22 @@ async function playBeforeCapture(
   cleanup: () => void,
 ): Promise<void> {
   let timedOut = false;
-  await Promise.race([
-    play(),
-    wait(CUE_PLAY_TIMEOUT_MS).then(() => {
-      timedOut = true;
-    }),
-  ]).catch((err) => {
+  let timer: ReturnType<typeof window.setTimeout> | null = null;
+  try {
+    await Promise.race([
+      play(),
+      new Promise<void>((resolve) => {
+        timer = window.setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, CUE_PLAY_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err) {
     console.warn("[clips-recorder] start cue unavailable:", err);
-  });
+  } finally {
+    if (!timedOut && timer !== null) window.clearTimeout(timer);
+  }
   if (timedOut) {
     cleanup();
     return;

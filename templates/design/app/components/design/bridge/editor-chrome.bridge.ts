@@ -2080,6 +2080,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var runtimeLayerSnapshotReservationRequestId = 0;
   var runtimeLayerSnapshotReservationInFlight = false;
   var runtimeLayerSnapshotReservationDirty = false;
+  var runtimeLayerSnapshotReservationReadinessRequestId: number | null = null;
+  var runtimeLayerSnapshotPendingReadinessRequestId: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
   var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
@@ -2409,6 +2411,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function postRuntimeLayerSnapshot(
     reservationToken?: string,
     requestId?: number,
+    readinessRequestId?: number,
   ): void {
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
@@ -2427,6 +2430,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ...snapshot,
             requestId,
             documentId: runtimeDocumentId,
+            ...(Number.isSafeInteger(readinessRequestId)
+              ? { readinessRequestId }
+              : {}),
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
@@ -2437,7 +2443,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var snapshotReservationToken = reservationToken || "";
     if (
       snapshot.html === lastRuntimeLayerSnapshotHtml &&
-      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken
+      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken &&
+      !Number.isSafeInteger(readinessRequestId)
     ) {
       (window.parent as Window).postMessage(
         {
@@ -2445,6 +2452,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           payload: {
             requestId,
             documentId: snapshot.documentId,
+            ...(Number.isSafeInteger(readinessRequestId)
+              ? { readinessRequestId }
+              : {}),
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
@@ -2455,6 +2465,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     lastRuntimeLayerSnapshotHtml = snapshot.html;
     lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
     if (requestId !== undefined) snapshot.requestId = requestId;
+    if (Number.isSafeInteger(readinessRequestId)) {
+      snapshot.readinessRequestId = readinessRequestId;
+    }
     if (reservationToken) snapshot.reservationToken = reservationToken;
     (window.parent as Window).postMessage(
       {
@@ -2465,7 +2478,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function requestRuntimeLayerSnapshot(): void {
+  function requestRuntimeLayerSnapshot(readinessRequestId?: number): void {
+    if (Number.isSafeInteger(readinessRequestId)) {
+      runtimeLayerSnapshotPendingReadinessRequestId =
+        readinessRequestId as number;
+    }
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
       runtimeLayerSnapshotTimer = null;
@@ -2476,10 +2493,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (runtimeLayerSnapshotReservationInFlight) {
       runtimeLayerSnapshotReservationDirty = true;
+      runtimeLayerSnapshotPendingReadinessRequestId ??=
+        runtimeLayerSnapshotReservationReadinessRequestId;
       return;
     }
     runtimeLayerSnapshotReservationInFlight = true;
     runtimeLayerSnapshotReservationRequestId += 1;
+    runtimeLayerSnapshotReservationReadinessRequestId =
+      runtimeLayerSnapshotPendingReadinessRequestId;
+    runtimeLayerSnapshotPendingReadinessRequestId = null;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:runtime-layer-snapshot-reservation-request",
@@ -9209,6 +9231,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var lastHandleGeometryTargetEl: Element | null = null;
   var hoveredRadiusHandleKey = "";
   var activeRadiusHandleKey = "";
+  var activeRadiusPointerId: number | null = null;
 
   function radiusPathData(el) {
     if (!el || el.nodeType !== 1 || el.tagName.toLowerCase() !== "svg") {
@@ -9264,8 +9287,381 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function cornerRadiusColorIsVisible(value) {
+    var color = String(value || "")
+      .trim()
+      .toLowerCase();
+    if (!color || color === "none" || color === "transparent") return false;
+    var parsed = parseCssRgb(color);
+    if (parsed) return parsed.a > 0;
+    if (/^#[\da-f]{4}$/.test(color)) {
+      return parseInt(color.slice(-1).repeat(2), 16) > 0;
+    }
+    if (/^#[\da-f]{8}$/.test(color)) {
+      return parseInt(color.slice(-2), 16) > 0;
+    }
+    var legacyHsl = /^hsla?\(([^)]+)\)$/.exec(color);
+    if (legacyHsl && legacyHsl[1].includes(",")) {
+      var components = legacyHsl[1].split(",");
+      if (components.length >= 4) return parseFloat(components[3]) > 0;
+    }
+    var alpha = /\/\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))%?\s*\)$/.exec(color);
+    return !alpha || Number(alpha[1]) > 0;
+  }
+
+  function cornerRadiusColorPrefix(value) {
+    var color = String(value || "").trim();
+    var functionName = /^[a-z][\w-]*\(/i.exec(color);
+    if (functionName) {
+      var depth = 0;
+      for (
+        var index = functionName[0].length - 1;
+        index < color.length;
+        index += 1
+      ) {
+        if (color[index] === "(") depth += 1;
+        else if (color[index] === ")") {
+          depth -= 1;
+          if (depth === 0) return color.slice(0, index + 1);
+        }
+      }
+      return null;
+    }
+    var keyword = /^(?:transparent|[a-z]+)\b/i.exec(color);
+    if (keyword) return keyword[0];
+    var hex = /^#[\da-f]{3,8}\b/i.exec(color);
+    return hex ? hex[0] : null;
+  }
+
+  function cornerRadiusSplitCssList(value) {
+    var parts = [];
+    var depth = 0;
+    var start = 0;
+    for (var index = 0; index < value.length; index += 1) {
+      if (value[index] === "(") depth += 1;
+      else if (value[index] === ")") depth -= 1;
+      else if (value[index] === "," && depth === 0) {
+        parts.push(value.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    parts.push(value.slice(start).trim());
+    return parts;
+  }
+
+  function cornerRadiusGradientHasVisiblePaint(value) {
+    var gradient =
+      /^(?:repeating-)?(linear|radial|conic)-gradient\((.*)\)$/i.exec(value);
+    if (!gradient) return true;
+    var stops = cornerRadiusSplitCssList(gradient[2]);
+    for (var index = 0; index < stops.length; index += 1) {
+      var stop = stops[index];
+      if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(stop)) continue;
+      if (
+        index === 0 &&
+        gradient[1].toLowerCase() === "radial" &&
+        (/\bat\b/i.test(stop) ||
+          /^(?:[+-]?(?:\d+\.?\d*|\.\d+)(?:px|em|rem|vw|vh|vmin|vmax|cm|mm|in|pt|pc|q)\s*){1,2}$/i.test(
+            stop,
+          ))
+      ) {
+        continue;
+      }
+      if (
+        index === 0 &&
+        /^(?:to\b|from\b|in\b|at\b|[-+]?(?:\d+\.?\d*|\.\d+)(?:deg|grad|rad|turn)\b|(?:circle|ellipse|closest|farthest)\b)/i.test(
+          stop,
+        )
+      ) {
+        continue;
+      }
+      var color = cornerRadiusColorPrefix(stop);
+      if (!color || cornerRadiusColorIsVisible(color)) return true;
+    }
+    return false;
+  }
+
+  function cornerRadiusBackgroundImageHasVisiblePaint(value) {
+    if (!value || value === "none") return false;
+    var layers = cornerRadiusSplitCssList(value);
+    for (var index = 0; index < layers.length; index += 1) {
+      if (cornerRadiusGradientHasVisiblePaint(layers[index])) return true;
+    }
+    return false;
+  }
+
+  function cornerRadiusVisibilityIsVisible(node) {
+    var visibility = window.getComputedStyle(node).visibility;
+    return visibility !== "hidden" && visibility !== "collapse";
+  }
+
+  function cornerRadiusNodeAndAncestorsAllowPaint(node, stopAt) {
+    var cursor = node;
+    while (cursor) {
+      var style = window.getComputedStyle(cursor);
+      var filterOpacities = style.filter.matchAll(
+        /(?:^|\s)opacity\(\s*([^\s)]+)/g,
+      );
+      for (var filterOpacity of filterOpacities) {
+        if (parseFloat(filterOpacity[1]) === 0) return false;
+      }
+      if (style.display === "none" || Number(style.opacity) === 0) return false;
+      if (cursor === stopAt) return true;
+      cursor = cursor.parentElement;
+    }
+    return !stopAt;
+  }
+
+  function cornerRadiusSvgGradientHasVisibleStops(gradient, visited) {
+    if (visited.indexOf(gradient) >= 0) return false;
+    visited.push(gradient);
+    var stops = Array.from(gradient.children).filter(function (child) {
+      return child.tagName.toLowerCase() === "stop";
+    });
+    for (var index = 0; index < stops.length; index += 1) {
+      var style = window.getComputedStyle(stops[index]);
+      if (
+        Number(style.getPropertyValue("stop-opacity")) > 0 &&
+        cornerRadiusColorIsVisible(style.getPropertyValue("stop-color"))
+      ) {
+        return true;
+      }
+    }
+    if (stops.length) return false;
+    var reference =
+      gradient.getAttribute("href") ||
+      gradient.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+      "";
+    if (reference.charAt(0) !== "#") return false;
+    var inherited = gradient.ownerDocument.getElementById(reference.slice(1));
+    if (
+      !inherited ||
+      !/^(?:linear|radial)gradient$/i.test(inherited.localName || "")
+    ) {
+      return false;
+    }
+    return cornerRadiusSvgGradientHasVisibleStops(inherited, visited);
+  }
+
+  function cornerRadiusSvgPatternHasVisibleContent(pattern, visited) {
+    if (visited.indexOf(pattern) >= 0) return false;
+    var seen = visited.concat([pattern]);
+    var svgPattern = pattern as SVGPatternElement;
+    function patternDimensionIsPositive(name: "width" | "height") {
+      var current = svgPattern;
+      var visitedDimensions: SVGPatternElement[] = [];
+      while (current && visitedDimensions.indexOf(current) < 0) {
+        visitedDimensions.push(current);
+        if (current.hasAttribute(name)) {
+          var dimension = name === "width" ? current.width : current.height;
+          return Boolean(dimension && dimension.baseVal.value > 0);
+        }
+        var reference =
+          current.getAttribute("href") ||
+          current.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+          "";
+        if (reference.charAt(0) !== "#") return false;
+        var inherited = current.ownerDocument.getElementById(
+          reference.slice(1),
+        );
+        current =
+          inherited && /^pattern$/i.test(inherited.localName || "")
+            ? (inherited as SVGPatternElement)
+            : null;
+      }
+      return false;
+    }
+    if (
+      !patternDimensionIsPositive("width") ||
+      !patternDimensionIsPositive("height")
+    )
+      return false;
+    if (!cornerRadiusNodeAndAncestorsAllowPaint(pattern, null)) return false;
+    var graphics = pattern.querySelectorAll(
+      "circle, ellipse, image, line, path, polygon, polyline, rect, text, use",
+    );
+    for (var index = 0; index < graphics.length; index += 1) {
+      var graphic = graphics[index];
+      if (
+        !cornerRadiusNodeAndAncestorsAllowPaint(graphic, pattern) ||
+        !cornerRadiusVisibilityIsVisible(graphic)
+      ) {
+        continue;
+      }
+      var bounds: DOMRect;
+      try {
+        bounds = graphic.getBBox();
+      } catch (_error) {
+        continue;
+      }
+      var style = window.getComputedStyle(graphic);
+      if (
+        bounds.width > 0 &&
+        bounds.height > 0 &&
+        style.fill !== "none" &&
+        Number(style.fillOpacity) > 0 &&
+        cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)
+      ) {
+        return true;
+      }
+      if (
+        (bounds.width > 0 ||
+          bounds.height > 0 ||
+          cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style)) &&
+        style.stroke !== "none" &&
+        parseFloat(style.strokeWidth) > 0 &&
+        Number(style.strokeOpacity) > 0 &&
+        cornerRadiusSvgPaintIsVisible(style.stroke, graphic, seen)
+      ) {
+        return true;
+      }
+    }
+    if (graphics.length) return false;
+    var reference =
+      pattern.getAttribute("href") ||
+      pattern.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+      "";
+    if (reference.charAt(0) !== "#") return false;
+    var inherited = pattern.ownerDocument.getElementById(reference.slice(1));
+    return inherited && /^pattern$/i.test(inherited.localName || "")
+      ? cornerRadiusSvgPatternHasVisibleContent(inherited, seen)
+      : false;
+  }
+
+  function cornerRadiusSvgPaintIsVisible(value, target, visited) {
+    var paint = String(value || "").trim();
+    if (!paint || paint === "none") return false;
+    var reference = /^url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)(?:\s+(.+))?$/i.exec(
+      paint,
+    );
+    if (!reference) {
+      return /^url\(/i.test(paint) ? false : cornerRadiusColorIsVisible(paint);
+    }
+    var paintServer = target.ownerDocument.getElementById(reference[2]);
+    if (!paintServer) {
+      return reference[3] ? cornerRadiusColorIsVisible(reference[3]) : false;
+    }
+    var seen = visited || [];
+    if (seen.indexOf(paintServer) >= 0) return false;
+    if (/^(?:linear|radial)gradient$/i.test(paintServer.localName || "")) {
+      return cornerRadiusSvgGradientHasVisibleStops(paintServer, []);
+    }
+    if (/^pattern$/i.test(paintServer.localName || "")) {
+      return cornerRadiusSvgPatternHasVisibleContent(paintServer, seen);
+    }
+    return false;
+  }
+
+  function cornerRadiusReferencedPaintElements(el) {
+    if (!el || el.tagName.toLowerCase() !== "svg") return [];
+    var paintTarget = vectorPaintTarget(el);
+    if (!paintTarget) return [];
+    var pending = [paintTarget];
+    var visited: Element[] = [];
+    var referenced: Element[] = [];
+    function enqueueReference(owner, value) {
+      var match = /url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)/gi;
+      var reference: RegExpExecArray | null;
+      while ((reference = match.exec(String(value || "")))) {
+        var target = owner.ownerDocument.getElementById(reference[2]);
+        if (target && visited.indexOf(target) < 0) pending.push(target);
+      }
+      if (
+        !/^(?:pattern|lineargradient|radialgradient|use)$/i.test(
+          owner.localName || "",
+        )
+      ) {
+        return;
+      }
+      var href =
+        owner.getAttribute("href") ||
+        owner.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+        "";
+      var id = /^#(.+)$/.exec(href.trim());
+      var target = id && owner.ownerDocument.getElementById(id[1]);
+      if (target && visited.indexOf(target) < 0) pending.push(target);
+    }
+    while (pending.length) {
+      var current = pending.pop();
+      if (!current || visited.indexOf(current) >= 0) continue;
+      visited.push(current);
+      referenced.push(current);
+      var nodes = [current].concat(Array.from(current.querySelectorAll("*")));
+      nodes.forEach(function (node) {
+        var style = window.getComputedStyle(node);
+        enqueueReference(node, style.fill);
+        enqueueReference(node, style.stroke);
+        enqueueReference(
+          node,
+          node.getAttribute("href") ||
+            node.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+        );
+      });
+    }
+    return referenced;
+  }
+
+  function cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style) {
+    if (!/^(?:line|path|polyline)$/i.test(graphic.localName || "")) {
+      return false;
+    }
+    var geometry = graphic as SVGGeometryElement;
+    if (typeof geometry.getTotalLength !== "function") return false;
+    return (
+      geometry.getTotalLength() === 0 &&
+      (style.strokeLinecap === "round" || style.strokeLinecap === "square")
+    );
+  }
+
+  function cornerRadiusHasVisiblePaint(el) {
+    if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
+    var style = window.getComputedStyle(el);
+    if (
+      cornerRadiusVisibilityIsVisible(el) &&
+      (cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) ||
+        cornerRadiusColorIsVisible(style.backgroundColor))
+    ) {
+      return true;
+    }
+    var borderSides = ["top", "right", "bottom", "left"];
+    for (var index = 0; index < borderSides.length; index += 1) {
+      var side = borderSides[index];
+      if (
+        cornerRadiusVisibilityIsVisible(el) &&
+        parseFloat(style.getPropertyValue("border-" + side + "-width")) > 0 &&
+        style.getPropertyValue("border-" + side + "-style") !== "none" &&
+        style.getPropertyValue("border-" + side + "-style") !== "hidden" &&
+        cornerRadiusColorIsVisible(
+          style.getPropertyValue("border-" + side + "-color"),
+        )
+      ) {
+        return true;
+      }
+    }
+    if (el.tagName.toLowerCase() !== "svg") return false;
+    var paintTarget = vectorPaintTarget(el);
+    if (
+      !paintTarget ||
+      !cornerRadiusNodeAndAncestorsAllowPaint(paintTarget, el) ||
+      !cornerRadiusVisibilityIsVisible(paintTarget)
+    ) {
+      return false;
+    }
+    var paintStyle = window.getComputedStyle(paintTarget);
+    return (
+      (paintStyle.fill !== "none" &&
+        Number(paintStyle.fillOpacity) > 0 &&
+        cornerRadiusSvgPaintIsVisible(paintStyle.fill, paintTarget)) ||
+      (paintStyle.stroke !== "none" &&
+        parseFloat(paintStyle.strokeWidth) > 0 &&
+        Number(paintStyle.strokeOpacity) > 0 &&
+        cornerRadiusSvgPaintIsVisible(paintStyle.stroke, paintTarget))
+    );
+  }
+
   function cornerRadiusHandleKeys(el) {
     if (!el || el.nodeType !== 1) return [];
+    if (!cornerRadiusHasVisiblePaint(el)) return [];
     var kind = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
@@ -9583,13 +9979,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             handle.style.display = "none";
             return;
           }
-          var pathWidth = readPx(selectionOverlay.style.width) || elWidth;
-          var pathHeight = readPx(selectionOverlay.style.height) || elHeight;
-          var viewBox = pathData.viewBox;
-          var vertexX = ((vertex.x - viewBox.x) / viewBox.width) * pathWidth;
-          var vertexY = ((vertex.y - viewBox.y) / viewBox.height) * pathHeight;
-          handle.style.left = vertexX - size / 2 + "px";
-          handle.style.top = vertexY - size / 2 + "px";
+          var screenMatrix =
+            typeof (el as SVGSVGElement).getScreenCTM === "function"
+              ? (el as SVGSVGElement).getScreenCTM()
+              : null;
+          if (!screenMatrix) {
+            handle.style.display = "none";
+            return;
+          }
+          if (!radiusTransformInverse(screenMatrix)) {
+            handle.style.display = "none";
+            return;
+          }
+          var overlayBox = borderBoxDimensions(
+            window.getComputedStyle(selectionOverlay),
+          );
+          var overlayGeometry = radiusViewportBoxGeometry(
+            selectionOverlay,
+            overlayBox.width,
+            overlayBox.height,
+          );
+          var overlayPoint = radiusViewportPointToLocalBox(
+            overlayGeometry,
+            screenMatrix.a * vertex.x +
+              screenMatrix.c * vertex.y +
+              screenMatrix.e,
+            screenMatrix.b * vertex.x +
+              screenMatrix.d * vertex.y +
+              screenMatrix.f,
+          );
+          if (!overlayPoint) {
+            handle.style.display = "none";
+            return;
+          }
+          handle.style.left = overlayPoint.x - size / 2 + "px";
+          handle.style.top = overlayPoint.y - size / 2 + "px";
           return;
         }
         var cs = window.getComputedStyle(el);
@@ -9598,23 +10022,54 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           x: 0,
           y: 0,
         };
-        var overlayWidth = readPx(selectionOverlay.style.width) || elWidth;
-        var overlayHeight = readPx(selectionOverlay.style.height) || elHeight;
-        var scaleX = box.width > 0 ? overlayWidth / box.width : 1;
-        var scaleY = box.height > 0 ? overlayHeight / box.height : 1;
-        var inwardFraction = 1 - Math.SQRT1_2;
-        var centerX = 4 * line + radii.x * scaleX * inwardFraction;
-        var centerY = 4 * line + radii.y * scaleY * inwardFraction;
-        var offsetX = centerX - size / 2 + "px";
-        var offsetY = centerY - size / 2 + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = offsetY;
-        if (pos.indexOf("s") !== -1) {
-          handle.style.bottom = centerY - size / 2 + "px";
+        var west = pos.indexOf("w") !== -1;
+        var north = pos.indexOf("n") !== -1;
+        var targetGeometry = radiusViewportBoxGeometry(
+          el,
+          box.width,
+          box.height,
+        );
+        if (!targetGeometry || !radiusTransformInverse(targetGeometry.matrix)) {
+          handle.style.display = "none";
+          return;
         }
-        if (pos.indexOf("w") !== -1) handle.style.left = offsetX;
-        if (pos.indexOf("e") !== -1) {
-          handle.style.right = centerX - size / 2 + "px";
+        var targetPoint = radiusLocalBoxPointToViewport(
+          targetGeometry,
+          west ? radii.x : box.width - radii.x,
+          north ? radii.y : box.height - radii.y,
+        );
+        var matrix = targetGeometry.matrix;
+        var xLength = Math.hypot(matrix.a, matrix.b) || 1;
+        var yLength = Math.hypot(matrix.c, matrix.d) || 1;
+        var signX = west ? 1 : -1;
+        var signY = north ? 1 : -1;
+        targetPoint.x +=
+          4 *
+          line *
+          ((signX * matrix.a) / xLength + (signY * matrix.c) / yLength);
+        targetPoint.y +=
+          4 *
+          line *
+          ((signX * matrix.b) / xLength + (signY * matrix.d) / yLength);
+        var overlayBox = borderBoxDimensions(
+          window.getComputedStyle(selectionOverlay),
+        );
+        var overlayGeometry = radiusViewportBoxGeometry(
+          selectionOverlay,
+          overlayBox.width,
+          overlayBox.height,
+        );
+        var overlayPoint = radiusViewportPointToLocalBox(
+          overlayGeometry,
+          targetPoint.x,
+          targetPoint.y,
+        );
+        if (!overlayPoint) {
+          handle.style.display = "none";
+          return;
         }
+        handle.style.left = overlayPoint.x - size / 2 + "px";
+        handle.style.top = overlayPoint.y - size / 2 + "px";
       });
 
     if (isNewSelectionTarget) {
@@ -9622,6 +10077,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectionOverlay.removeAttribute(
         "data-agent-native-suppress-handle-transition",
       );
+    }
+    if (lastHoverClientPoint) {
+      updateRadiusHandleHover({
+        clientX: lastHoverClientPoint.x,
+        clientY: lastHoverClientPoint.y,
+      });
     }
   }
 
@@ -9654,6 +10115,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (nextHoveredKey === hoveredRadiusHandleKey) return;
     hoveredRadiusHandleKey = nextHoveredKey;
+    applySelectionHandleHitGeometry(selectedEl);
+  }
+
+  function clearRadiusHandleHover() {
+    lastHoverClientPoint = null;
+    hoveredRadiusHandleKey = "";
     applySelectionHandleHitGeometry(selectedEl);
   }
 
@@ -9871,6 +10338,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       }
+      syncOverlayObservers();
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -10744,6 +11212,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var overlayMutationObserver: MutationObserver | null = null;
   var observedResizeEls: Element[] = [];
   var observedMutationRoot: Element | null = null;
+  var observedMutationTarget: Element | null = null;
+  var observedMutationPaintServers: Element[] = [];
+  var observedMutationPaintParents: Element[] = [];
 
   function ensureOverlayObservers(): void {
     if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
@@ -10792,7 +11263,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectedEl && document.documentElement.contains(selectedEl)
           ? selectedEl.parentElement || selectedEl
           : null;
-      if (nextRoot !== observedMutationRoot) {
+      var nextTarget =
+        selectedEl && document.documentElement.contains(selectedEl)
+          ? selectedEl
+          : null;
+      var nextPaintServers = nextTarget
+        ? cornerRadiusReferencedPaintElements(nextTarget)
+        : [];
+      var nextPaintParents: Element[] = [];
+      nextPaintServers.forEach(function (server) {
+        var parent = server.parentElement;
+        if (
+          parent &&
+          parent !== nextRoot &&
+          parent !== nextTarget &&
+          nextPaintParents.indexOf(parent) < 0
+        ) {
+          nextPaintParents.push(parent);
+        }
+      });
+      var paintServersChanged =
+        nextPaintServers.length !== observedMutationPaintServers.length ||
+        nextPaintServers.some(function (server, index) {
+          return observedMutationPaintServers[index] !== server;
+        });
+      var paintParentsChanged =
+        nextPaintParents.length !== observedMutationPaintParents.length ||
+        nextPaintParents.some(function (parent, index) {
+          return observedMutationPaintParents[index] !== parent;
+        });
+      if (
+        nextRoot !== observedMutationRoot ||
+        nextTarget !== observedMutationTarget ||
+        paintServersChanged ||
+        paintParentsChanged
+      ) {
         overlayMutationObserver.disconnect();
         if (nextRoot) {
           overlayMutationObserver.observe(nextRoot, {
@@ -10804,11 +11309,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             overlayMutationObserver.observe(selectedEl, {
               attributes: true,
               childList: true,
-              subtree: false,
+              subtree: selectedEl.tagName.toLowerCase() === "svg",
             });
           }
         }
+        nextPaintServers.forEach(function (server) {
+          if (server !== nextRoot && server !== nextTarget) {
+            overlayMutationObserver!.observe(server, {
+              attributes: true,
+              childList: true,
+              subtree: true,
+            });
+          }
+        });
+        nextPaintParents.forEach(function (parent) {
+          overlayMutationObserver!.observe(parent, {
+            attributes: true,
+            childList: true,
+            subtree: false,
+          });
+        });
         observedMutationRoot = nextRoot;
+        observedMutationTarget = nextTarget;
+        observedMutationPaintServers = nextPaintServers;
+        observedMutationPaintParents = nextPaintParents;
       }
     }
   }
@@ -11459,6 +11983,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (!(node instanceof HTMLElement)) return;
         node.style.display = visible ? "" : "none";
       });
+    if (visible && selectedEl) applySelectionHandleHitGeometry(selectedEl);
   }
 
   var textCaretOverlay: HTMLElement | null = null;
@@ -12094,33 +12619,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       label: string;
       info: unknown;
     }> = [];
-    pointTargets.forEach(function (pointTarget) {
-      if (!pointTarget || pointTarget.nodeType !== 1) return;
-      if (isOverlayElement(pointTarget)) return;
-      var candidate = selectionTargetForHit(pointTarget);
-      if (
-        !candidate ||
-        isDocumentRootElement(candidate) ||
-        isOverlayElement(candidate) ||
-        isLayerInteractionBlocked(candidate) ||
-        isTemplateCloneElement(candidate) ||
-        elements.indexOf(candidate) !== -1
-      ) {
-        return;
-      }
-      elements.push(candidate);
-      var candidateInfo = getElementInfo(candidate);
-      var label = layerCandidateLabelFor(candidate, candidateInfo);
-      var identity =
-        candidateInfo.sourceId ||
-        candidateInfo.selector ||
-        String(layerCandidates.length);
-      layerCandidates.push({
-        key: String(identity) + ":" + String(layerCandidates.length),
-        label: String(label).slice(0, 80),
-        info: candidateInfo,
+    // The hit stack is nested, so each candidate's subtree snapshot contains
+    // the next one's; a shared cache reads each element's styles once.
+    portableStyleProbeDocument();
+    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    try {
+      pointTargets.forEach(function (pointTarget) {
+        if (!pointTarget || pointTarget.nodeType !== 1) return;
+        if (isOverlayElement(pointTarget)) return;
+        var candidate = selectionTargetForHit(pointTarget);
+        if (
+          !candidate ||
+          isDocumentRootElement(candidate) ||
+          isOverlayElement(candidate) ||
+          isLayerInteractionBlocked(candidate) ||
+          isTemplateCloneElement(candidate) ||
+          elements.indexOf(candidate) !== -1
+        ) {
+          return;
+        }
+        elements.push(candidate);
+        var candidateInfo = getElementInfo(
+          candidate,
+          portableComputedStylesCache,
+        );
+        var label = layerCandidateLabelFor(candidate, candidateInfo);
+        var identity =
+          candidateInfo.sourceId ||
+          candidateInfo.selector ||
+          String(layerCandidates.length);
+        layerCandidates.push({
+          key: String(identity) + ":" + String(layerCandidates.length),
+          label: String(label).slice(0, 80),
+          info: candidateInfo,
+        });
       });
-    });
+    } finally {
+      if (portableComputedStylesCache) {
+        portableComputedStylesCache.mutationObserver.disconnect();
+        portableComputedStylesCache.restoreCssomHooks();
+      }
+    }
     return { elements: elements, layerCandidates: layerCandidates };
   }
 
@@ -12645,6 +13184,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function resolveCornerRadiusXY(value, width, height) {
     var trimmed = typeof value === "string" ? value.trim() : "";
+    var axes = trimmed.split("/");
+    if (axes.length === 2) {
+      return {
+        x: resolveCornerRadiusComponent(axes[0].trim().split(/\s+/)[0], width),
+        y: resolveCornerRadiusComponent(axes[1].trim().split(/\s+/)[0], height),
+      };
+    }
     var parts = trimmed.split(/\s+/);
     return {
       x: resolveCornerRadiusComponent(parts[0], width),
@@ -12687,14 +13233,147 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return { width: width, height: height };
   }
 
+  function radiusMatrix4FromDomMatrix(matrix) {
+    return [
+      matrix.m11,
+      matrix.m21,
+      matrix.m31,
+      matrix.m41,
+      matrix.m12,
+      matrix.m22,
+      matrix.m32,
+      matrix.m42,
+      matrix.m13,
+      matrix.m23,
+      matrix.m33,
+      matrix.m43,
+      matrix.m14,
+      matrix.m24,
+      matrix.m34,
+      matrix.m44,
+    ];
+  }
+
+  function identityRadiusMatrix4() {
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  }
+
+  function radiusTranslationMatrix(x, y, z) {
+    var matrix = identityRadiusMatrix4();
+    matrix[3] = x;
+    matrix[7] = y;
+    matrix[11] = z;
+    return matrix;
+  }
+
+  function radiusComputedLength(value, referenceSize, allowPercent) {
+    var match = String(value || "")
+      .trim()
+      .match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(px|%)?$/i);
+    if (!match) return null;
+    var amount = Number(match[1]);
+    if (!Number.isFinite(amount)) return null;
+    if (match[2] === "%") {
+      return allowPercent && Number.isFinite(referenceSize)
+        ? (amount / 100) * referenceSize
+        : null;
+    }
+    return amount;
+  }
+
+  function radiusTransformOriginForStyle(cs) {
+    var dimensions = borderBoxDimensions(cs);
+    var parts = String(cs.transformOrigin || "0px 0px")
+      .trim()
+      .split(/\s+/);
+    var x = radiusComputedLength(parts[0], dimensions.width, true);
+    var y = radiusComputedLength(parts[1], dimensions.height, true);
+    var z = radiusComputedLength(parts[2] || "0px", 0, false);
+    if (x === null || y === null || z === null) return null;
+    return { x: x, y: y, z: z };
+  }
+
+  function radiusTranslateMatrixForStyle(cs) {
+    var value = String(
+      cs.translate || cs.getPropertyValue("translate") || "none",
+    ).trim();
+    if (!value || value === "none") return identityRadiusMatrix4();
+    var parts = value.split(/\s+/);
+    if (parts.length < 1 || parts.length > 3) return null;
+    var dimensions = borderBoxDimensions(cs);
+    var x = radiusComputedLength(parts[0], dimensions.width, true);
+    var y =
+      parts.length > 1
+        ? radiusComputedLength(parts[1], dimensions.height, true)
+        : 0;
+    var z = parts.length > 2 ? radiusComputedLength(parts[2], 0, false) : 0;
+    if (x === null || y === null || z === null) return null;
+    return radiusTranslationMatrix(x, y, z);
+  }
+
+  function radiusLayoutOrigin(el) {
+    var x = 0;
+    var y = 0;
+    for (var current = el; current; current = current.offsetParent) {
+      var parent = current.offsetParent;
+      x += current.offsetLeft + (parent ? parent.clientLeft : 0);
+      y += current.offsetTop + (parent ? parent.clientTop : 0);
+    }
+    for (
+      var scroller = el.parentElement;
+      scroller;
+      scroller = scroller.parentElement
+    ) {
+      x -= scroller.scrollLeft;
+      y -= scroller.scrollTop;
+    }
+    return { x: x, y: y };
+  }
+
+  function radiusLayoutTranslationForElement(el) {
+    if (!el.parentElement) return radiusTranslationMatrix(0, 0, 0);
+    if (window.getComputedStyle(el).position === "fixed" && !el.offsetParent) {
+      return radiusTranslationMatrix(0, 0, 0);
+    }
+    var origin = radiusLayoutOrigin(el);
+    var parentOrigin = radiusLayoutOrigin(el.parentElement);
+    return radiusTranslationMatrix(
+      origin.x - parentOrigin.x,
+      origin.y - parentOrigin.y,
+      0,
+    );
+  }
+
+  function composeRadiusTransformMatrices(parent, child) {
+    var result = new Array(16);
+    for (var row = 0; row < 4; row++) {
+      for (var column = 0; column < 4; column++) {
+        var value = 0;
+        for (var index = 0; index < 4; index++) {
+          value += parent[row * 4 + index] * child[index * 4 + column];
+        }
+        result[row * 4 + column] = value;
+      }
+    }
+    return result;
+  }
+
   function radiusLinearTransformForStyle(cs) {
-    var transform = { a: 1, b: 0, c: 0, d: 1 };
-    if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+    if (!window.DOMMatrixReadOnly) return null;
+    var offsetPath = cs.offsetPath || cs.getPropertyValue("offset-path");
+    if (offsetPath && offsetPath !== "none") return null;
+    var origin = radiusTransformOriginForStyle(cs);
+    var translate = radiusTranslateMatrixForStyle(cs);
+    if (!origin || !translate) return null;
+    var transform = identityRadiusMatrix4();
+    if (cs.transform && cs.transform !== "none") {
       try {
-        var matrix = new DOMMatrixReadOnly(cs.transform);
-        transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+        transform = radiusMatrix4FromDomMatrix(
+          new DOMMatrixReadOnly(cs.transform),
+        );
       } catch (err) {
         void err;
+        return null;
       }
     }
     var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none")
@@ -12705,76 +13384,287 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
     var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
-    var angle = independentRotation(cs.rotate || "");
-    var radians = (angle * Math.PI) / 180;
-    var result = composeRadiusLinearTransform(
-      transform,
-      scaleX,
-      scaleY,
-      radians,
-    );
+    var scaleZ = Number.isFinite(scaleParts[2]) ? scaleParts[2] : 1;
     var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
-    if (Number.isFinite(zoom) && zoom > 0) {
-      result.a *= zoom;
-      result.b *= zoom;
-      result.c *= zoom;
-      result.d *= zoom;
+    if (Number.isFinite(zoom)) {
+      scaleX *= zoom;
+      scaleY *= zoom;
+      scaleZ *= zoom;
     }
-    return result;
+    var rotation = radiusRotationMatrix(cs.rotate || "");
+    if (!rotation) {
+      return null;
+    }
+    var scale = [scaleX, 0, 0, 0, 0, scaleY, 0, 0, 0, 0, scaleZ, 0, 0, 0, 0, 1];
+    return composeRadiusTransformMatrices(
+      radiusTranslationMatrix(origin.x, origin.y, origin.z),
+      composeRadiusTransformMatrices(
+        translate,
+        composeRadiusTransformMatrices(
+          rotation,
+          composeRadiusTransformMatrices(
+            scale,
+            composeRadiusTransformMatrices(
+              transform,
+              radiusTranslationMatrix(-origin.x, -origin.y, -origin.z),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
-  function radiusLinearTransform(el) {
-    return radiusLinearTransformForStyle(window.getComputedStyle(el));
+  function radiusRotationMatrix(rotate) {
+    var value = String(rotate || "").trim();
+    if (!value || value === "none") {
+      return identityRadiusMatrix4();
+    }
+    var parts = value.split(/\s+/);
+    var angle = parts.pop();
+    var axis = parts;
+    if (axis.length === 0) {
+      axis = ["0", "0", "1"];
+    } else if (axis.length === 1) {
+      var namedAxis = axis[0].toLowerCase();
+      axis =
+        namedAxis === "x"
+          ? ["1", "0", "0"]
+          : namedAxis === "y"
+            ? ["0", "1", "0"]
+            : namedAxis === "z"
+              ? ["0", "0", "1"]
+              : [];
+    }
+    if (axis.length !== 3 || !window.DOMMatrixReadOnly) {
+      return null;
+    }
+    try {
+      return radiusMatrix4FromDomMatrix(
+        new DOMMatrixReadOnly("rotate3d(" + axis.join(",") + "," + angle + ")"),
+      );
+    } catch (err) {
+      void err;
+      return null;
+    }
   }
 
-  function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
-    var cos = Math.cos(radians);
-    var sin = Math.sin(radians);
-    var independent = {
-      a: cos * scaleX,
-      b: sin * scaleY,
-      c: -sin * scaleX,
-      d: cos * scaleY,
-    };
-    return {
-      a: independent.a * transform.a + independent.c * transform.b,
-      b: independent.b * transform.a + independent.d * transform.b,
-      c: independent.a * transform.c + independent.c * transform.d,
-      d: independent.b * transform.c + independent.d * transform.d,
-    };
+  function radiusPerspectiveMatrixForStyle(cs) {
+    if (!cs.perspective || cs.perspective === "none") {
+      return identityRadiusMatrix4();
+    }
+    var distance = parseFloat(cs.perspective);
+    if (!Number.isFinite(distance) || distance <= 0) return null;
+    var matrix = identityRadiusMatrix4();
+    matrix[14] = -1 / distance;
+    var dimensions = borderBoxDimensions(cs);
+    var originParts = String(cs.perspectiveOrigin || "50% 50%")
+      .trim()
+      .split(/\s+/);
+    var originX = radiusComputedLength(originParts[0], dimensions.width, true);
+    var originY = radiusComputedLength(originParts[1], dimensions.height, true);
+    if (originX === null || originY === null) return null;
+    return composeRadiusTransformMatrices(
+      radiusTranslationMatrix(originX, originY, 0),
+      composeRadiusTransformMatrices(
+        matrix,
+        radiusTranslationMatrix(-originX, -originY, 0),
+      ),
+    );
   }
 
-  function multiplyRadiusLinear(parent, child) {
-    return {
-      a: parent.a * child.a + parent.c * child.b,
-      b: parent.b * child.a + parent.d * child.b,
-      c: parent.a * child.c + parent.c * child.d,
-      d: parent.b * child.c + parent.d * child.d,
-    };
+  function radiusTransformStylePreserves3d(cs) {
+    if (cs.transformStyle !== "preserve-3d") return false;
+    var overflowX = cs.overflowX || cs.getPropertyValue("overflow-x");
+    var overflowY = cs.overflowY || cs.getPropertyValue("overflow-y");
+    var opacity = parseFloat(cs.opacity);
+    var contain = String(cs.contain || "").split(/\s+/);
+    return !(
+      (overflowX && overflowX !== "visible" && overflowX !== "clip") ||
+      (overflowY && overflowY !== "visible" && overflowY !== "clip") ||
+      (Number.isFinite(opacity) && opacity < 1) ||
+      (cs.filter && cs.filter !== "none") ||
+      (cs.clip && cs.clip !== "auto") ||
+      (cs.clipPath && cs.clipPath !== "none") ||
+      (cs.isolation && cs.isolation === "isolate") ||
+      (cs.maskImage && cs.maskImage !== "none") ||
+      (cs.maskBorderSource && cs.maskBorderSource !== "none") ||
+      (cs.mixBlendMode && cs.mixBlendMode !== "normal") ||
+      contain.some(function (value) {
+        return value === "paint" || value === "content" || value === "strict";
+      }) ||
+      (cs.contentVisibility && cs.contentVisibility !== "visible")
+    );
   }
 
   function radiusViewportLinearTransform(el) {
-    var total = { a: 1, b: 0, c: 0, d: 1 };
+    var total = identityRadiusMatrix4();
     for (
       var current = el;
       current && current.nodeType === 1;
       current = current.parentElement
     ) {
-      total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+      var cs = window.getComputedStyle(current);
+      var local = radiusLinearTransformForStyle(cs);
+      if (!local) return null;
+      var layout = radiusLayoutTranslationForElement(current);
+      if (!layout) return null;
+      var perspective =
+        current === el
+          ? identityRadiusMatrix4()
+          : radiusPerspectiveMatrixForStyle(cs);
+      if (!perspective) return null;
+      var composedChild = composeRadiusTransformMatrices(perspective, total);
+      if (current !== el && !radiusTransformStylePreserves3d(cs)) {
+        var flatten = identityRadiusMatrix4();
+        flatten[10] = 0;
+        composedChild = composeRadiusTransformMatrices(flatten, composedChild);
+      }
+      total = composeRadiusTransformMatrices(
+        layout,
+        composeRadiusTransformMatrices(local, composedChild),
+      );
     }
-    return total;
+    var perspectiveX = total[12];
+    var perspectiveY = total[13];
+    var homogeneousScale = total[15];
+    var dimensions = borderBoxDimensions(window.getComputedStyle(el));
+    var cornerW = [
+      homogeneousScale,
+      homogeneousScale + perspectiveX * dimensions.width,
+      homogeneousScale + perspectiveY * dimensions.height,
+      homogeneousScale +
+        perspectiveX * dimensions.width +
+        perspectiveY * dimensions.height,
+    ];
+    var wScale = Math.max.apply(
+      Math,
+      cornerW.map(function (value) {
+        return Math.abs(value);
+      }),
+    );
+    var wTolerance = Math.max(1e-10, wScale * 1e-8);
+    if (
+      !total.every(Number.isFinite) ||
+      !Number.isFinite(wScale) ||
+      cornerW.some(function (value) {
+        return !Number.isFinite(value) || value <= wTolerance;
+      }) ||
+      cornerW.some(function (value) {
+        return Math.abs(value - homogeneousScale) > wTolerance;
+      })
+    ) {
+      return null;
+    }
+    return {
+      a: total[0] / homogeneousScale,
+      b: total[4] / homogeneousScale,
+      c: total[1] / homogeneousScale,
+      d: total[5] / homogeneousScale,
+    };
+  }
+  function radiusViewportBoxGeometry(el, width, height) {
+    var matrix = radiusViewportLinearTransform(el);
+    if (!matrix) return null;
+    var x = matrix.a * width;
+    var y = matrix.b * width;
+    var z = matrix.c * height;
+    var w = matrix.d * height;
+    var bounds = el.getBoundingClientRect();
+    return {
+      matrix: matrix,
+      originX: bounds.left - Math.min(0, x, z, x + z),
+      originY: bounds.top - Math.min(0, y, w, y + w),
+    };
+  }
+
+  function radiusTransformInverse(matrix) {
+    if (!matrix) return null;
+    var scale = Math.max(
+      Math.abs(matrix.a),
+      Math.abs(matrix.b),
+      Math.abs(matrix.c),
+      Math.abs(matrix.d),
+    );
+    if (!Number.isFinite(scale) || scale === 0) return null;
+    var normalized = {
+      a: matrix.a / scale,
+      b: matrix.b / scale,
+      c: matrix.c / scale,
+      d: matrix.d / scale,
+    };
+    var determinant = normalized.a * normalized.d - normalized.b * normalized.c;
+    var trace =
+      normalized.a * normalized.a +
+      normalized.b * normalized.b +
+      normalized.c * normalized.c +
+      normalized.d * normalized.d;
+    var discriminant = Math.sqrt(
+      Math.max(0, trace * trace - 4 * determinant * determinant),
+    );
+    var largestSingularValueSquared = (trace + discriminant) / 2;
+    var singularValueRatio =
+      largestSingularValueSquared > 0
+        ? Math.abs(determinant) / largestSingularValueSquared
+        : 0;
+    if (
+      !Number.isFinite(determinant) ||
+      !Number.isFinite(singularValueRatio) ||
+      singularValueRatio < 0.0001
+    ) {
+      return null;
+    }
+    return {
+      ...normalized,
+      determinant: determinant,
+      scale: scale,
+    };
+  }
+
+  function radiusLocalBoxPointToViewport(geometry, x, y) {
+    var matrix = geometry.matrix;
+    return {
+      x: geometry.originX + matrix.a * x + matrix.c * y,
+      y: geometry.originY + matrix.b * x + matrix.d * y,
+    };
+  }
+
+  function radiusViewportPointToLocalBox(geometry, x, y) {
+    if (!geometry) return null;
+    var matrix = geometry.matrix;
+    var inverse = radiusTransformInverse(matrix);
+    var dx = x - geometry.originX;
+    var dy = y - geometry.originY;
+    if (!inverse) return null;
+    dx /= inverse.scale;
+    dy /= inverse.scale;
+    return {
+      x: (inverse.d * dx - inverse.c * dy) / inverse.determinant,
+      y: (-inverse.b * dx + inverse.a * dy) / inverse.determinant,
+    };
+  }
+
+  function radiusInverseLinearDelta(matrix, screenDx, screenDy) {
+    var inverse = radiusTransformInverse(matrix);
+    if (!inverse) return null;
+    screenDx /= inverse.scale;
+    screenDy /= inverse.scale;
+    return {
+      x: (inverse.d * screenDx - inverse.c * screenDy) / inverse.determinant,
+      y: (-inverse.b * screenDx + inverse.a * screenDy) / inverse.determinant,
+    };
   }
 
   function radiusLocalDelta(el, screenDx, screenDy) {
-    var matrix = radiusViewportLinearTransform(el);
-    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.0001) {
-      return { x: screenDx, y: screenDy };
-    }
-    return {
-      x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
-      y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
-    };
+    return radiusInverseLinearDelta(
+      radiusViewportLinearTransform(el),
+      screenDx,
+      screenDy,
+    );
+  }
+
+  function radiusSvgLocalDelta(el, screenDx, screenDy) {
+    var matrix = el.getScreenCTM();
+    return matrix ? radiusInverseLinearDelta(matrix, screenDx, screenDy) : null;
   }
 
   function cornerRadiusMap(cs, width, height) {
@@ -22691,18 +23581,51 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelRotateDrag);
   }
 
+  function listenForRadiusDragCancellation(
+    pointerId: number | null,
+    cancel: () => void,
+  ) {
+    if (pointerId === null) return function () {};
+    var pointerEndedNormally = false;
+    function onPointerUp(ev) {
+      if (ev.pointerId === pointerId) pointerEndedNormally = true;
+    }
+    function onPointerCancel(ev) {
+      if (ev.pointerId === pointerId && !pointerEndedNormally) cancel();
+    }
+    function onLostPointerCapture(ev) {
+      if (ev.pointerId === pointerId && !pointerEndedNormally) cancel();
+    }
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("lostpointercapture", onLostPointerCapture, true);
+    return function () {
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener(
+        "lostpointercapture",
+        onLostPointerCapture,
+        true,
+      );
+    };
+  }
+
   function startRadiusDrag(corner, e) {
     if (readOnly) return;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
+    var radiusEl = selectedEl;
     if (String(corner).indexOf("vertex-") === 0) {
       startVectorRadiusDrag(corner, e);
+      return;
+    }
+    if (!radiusTransformInverse(radiusViewportLinearTransform(radiusEl))) {
       return;
     }
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
-    var radiusEl = selectedEl;
+    var radiusPointerId = activeRadiusPointerId;
     var cs = window.getComputedStyle(radiusEl);
     var cornerProperty =
       CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
@@ -22746,6 +23669,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startX = e.clientX;
     var startY = e.clientY;
     var radiusMoved = false;
+    var removePointerCancelListeners = function () {};
     activeRadiusHandleKey = String(corner);
     applySelectionHandleHitGeometry(radiusEl);
     var signX = corner.indexOf("w") !== -1 ? 1 : -1;
@@ -22764,11 +23688,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     }
     function applyRadius(nextX, nextY) {
-      var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX)));
-      var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
+      var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX * 100) / 100));
+      var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY * 100) / 100));
       var value = x === y ? x + "px" : x + "px " + y + "px";
       if (wholeShape) {
-        radiusEl.style.borderRadius = value;
+        radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";
       } else {
         radiusEl.style[cornerProperty] = value;
       }
@@ -22778,8 +23702,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
       if (screenDx === 0 && screenDy === 0) return;
-      radiusMoved = true;
       var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      if (!local) return;
+      radiusMoved = true;
       applyRadius(
         originRadius.x + local.x * signX,
         originRadius.y + local.y * signY,
@@ -22791,6 +23716,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onRadiusKeyDown, true);
+      removePointerCancelListeners();
+      if (activeRadiusPointerId === radiusPointerId) {
+        activeRadiusPointerId = null;
+      }
       clearActiveDragCancel(cancelRadiusDrag);
       hoveredRadiusHandleKey = activeRadiusHandleKey;
       activeRadiusHandleKey = "";
@@ -22812,8 +23741,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       stopNativeInteraction(ev);
       cancelRadiusDrag();
     }
-    function onUp() {
+    function onUp(ev) {
       cleanupRadiusDrag();
+      lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+      updateRadiusHandleHover(ev);
       if (!radiusEl) return;
       if (!radiusMoved) {
         releaseLiveVisualEditOriginalStyles(radiusEl);
@@ -22858,6 +23789,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onRadiusKeyDown, true);
+    removePointerCancelListeners = listenForRadiusDragCancellation(
+      radiusPointerId,
+      cancelRadiusDrag,
+    );
     setActiveDragCancel(cancelRadiusDrag);
   }
 
@@ -22877,6 +23812,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
+    var radiusPointerId = activeRadiusPointerId;
     var originalD = originalPath.getAttribute("d") || "";
     var originalRadiusAttribute = radiusEl.getAttribute(
       "data-an-corner-radius",
@@ -22891,6 +23827,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startX = e.clientX;
     var startY = e.clientY;
     var radiusMoved = false;
+    var removePointerCancelListeners = function () {};
     activeRadiusHandleKey = String(handle);
     applySelectionHandleHitGeometry(radiusEl);
     refreshLiveVisualEditOriginalStyles(radiusEl);
@@ -22905,6 +23842,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onRadiusKeyDown, true);
+      removePointerCancelListeners();
+      if (activeRadiusPointerId === radiusPointerId) {
+        activeRadiusPointerId = null;
+      }
       clearActiveDragCancel(cancelVectorRadiusDrag);
       hoveredRadiusHandleKey = activeRadiusHandleKey;
       activeRadiusHandleKey = "";
@@ -22936,17 +23877,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
       if (screenDx === 0 && screenDy === 0) return;
+      var local = radiusSvgLocalDelta(radiusEl, screenDx, screenDy);
+      if (!local) return;
       radiusMoved = true;
-      var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
-      var localX = local.x * (pathData.viewBox.width / cssBox.width);
-      var localY = local.y * (pathData.viewBox.height / cssBox.height);
-      var projected = localX * vertex.bisector.x + localY * vertex.bisector.y;
+      var projected = local.x * vertex.bisector.x + local.y * vertex.bisector.y;
       applyRadius(originRadius + projected * vertex.sinHalfAngle);
       applySelectionHandleHitGeometry(radiusEl);
       refreshOverlays();
     }
-    function onUp() {
+    function onUp(ev) {
       cleanupVectorRadiusDrag();
+      lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+      updateRadiusHandleHover(ev);
       if (!radiusMoved) {
         releaseLiveVisualEditOriginalStyles(radiusEl);
         return;
@@ -22979,6 +23921,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onRadiusKeyDown, true);
+    removePointerCancelListeners = listenForRadiusDragCancellation(
+      radiusPointerId,
+      cancelVectorRadiusDrag,
+    );
     setActiveDragCancel(cancelVectorRadiusDrag);
   }
 
@@ -23373,6 +24319,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function (e) {
       if (readOnly || e.button !== 0) return;
       if (rerouteStaleSelectionHandleHitToMove(e)) return;
+      if (
+        e.pointerId !== undefined &&
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-radius-handle")
+      ) {
+        activeRadiusPointerId = e.pointerId;
+      }
       if (e.pointerId !== undefined && selectionOverlay.setPointerCapture) {
         selectionOverlay.setPointerCapture(e.pointerId);
       }
@@ -24710,7 +25664,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function handleShieldPointerMove(e) {
     if (readOnly || interactionMode) return;
     stopNativeInteraction(e);
-    lastHoverClientPoint = { x: e.clientX, y: e.clientY };
     hoveredEl = resolveHoverTarget(
       e.clientX,
       e.clientY,
@@ -24775,6 +25728,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "pointermove",
     function (e) {
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       updateRadiusHandleHover(e);
       if (isOverlayElement(e.target)) return;
       if (pendingShieldDrag || activeDragCancel) {
@@ -24789,6 +25743,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "mousemove",
     function (e) {
+      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       updateRadiusHandleHover(e);
       if (isOverlayElement(e.target)) return;
       if (pendingShieldDrag || activeDragCancel) {
@@ -24811,6 +25766,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "pointerleave",
     function (e) {
       stopNativeInteraction(e);
+      if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
         updateSpacingOverlay(selectedEl);
         return;
@@ -24826,6 +25782,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "pointerleave",
     function (e) {
       stopNativeInteraction(e);
+      if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
         updateSpacingOverlay(selectedEl);
         return;
@@ -26294,7 +27251,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "request-runtime-layer-snapshot") {
-      requestRuntimeLayerSnapshot();
+      requestRuntimeLayerSnapshot(
+        Number.isSafeInteger(e.data.readinessRequestId)
+          ? e.data.readinessRequestId
+          : undefined,
+      );
       return;
     }
     if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
@@ -26307,14 +27268,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       runtimeLayerSnapshotReservationInFlight = false;
       if (runtimeLayerSnapshotReservationDirty) {
         runtimeLayerSnapshotReservationDirty = false;
-        requestRuntimeLayerSnapshot();
+        var queuedReadinessRequestId =
+          runtimeLayerSnapshotPendingReadinessRequestId ??
+          runtimeLayerSnapshotReservationReadinessRequestId;
+        runtimeLayerSnapshotReservationReadinessRequestId = null;
+        requestRuntimeLayerSnapshot(queuedReadinessRequestId ?? undefined);
         return;
       }
+      var reservationReadinessRequestId =
+        runtimeLayerSnapshotReservationReadinessRequestId;
+      runtimeLayerSnapshotReservationReadinessRequestId = null;
       postRuntimeLayerSnapshot(
         typeof e.data.reservationToken === "string"
           ? e.data.reservationToken
           : undefined,
         Number.isSafeInteger(e.data.requestId) ? e.data.requestId : undefined,
+        reservationReadinessRequestId ?? undefined,
       );
       return;
     }

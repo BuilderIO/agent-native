@@ -1,12 +1,12 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   AgentDestinationActions,
@@ -92,7 +92,7 @@ function IconSuggestEdits(props: SVGProps<SVGSVGElement>) {
 }
 
 const ShareButton = lazy(() =>
-  import("@agent-native/core/client/sharing").then((m) => ({
+  import("@agent-native/toolkit/app/sharing").then((m) => ({
     default: m.ShareButton,
   })),
 );

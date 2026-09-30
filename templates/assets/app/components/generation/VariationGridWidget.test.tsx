@@ -29,8 +29,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-
-import { resolveToolRenderer } from "@agent-native/core/client/chat";
+import { resolveToolRenderer } from "@agent-native/toolkit/app/chat";
 
 import "@/lib/register-chat-renderers";
 import { ASSETS_VARIATION_GRID_RENDERER } from "@shared/action-ui";

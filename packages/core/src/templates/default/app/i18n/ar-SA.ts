@@ -18,11 +18,12 @@ const messages = {
     disconnecting: "جارٍ قطع الاتصال…",
   },
   settings: {
+    backHome: "العودة إلى الصفحة الرئيسية",
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
+    description: "إدارة إعدادات التطبيق واللغة.",
+    languageTitle: "لغة الواجهة",
+    languageDescription: "اختر اللغة المستخدمة في هذا التطبيق.",
+    languageLabel: "اللغة",
     agentTitle: "إعدادات الوكيل",
     agentDescription:
       "افتح إعدادات الوكيل في الشريط الجانبي للنموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -31,7 +32,6 @@ const messages = {
     workspaceDescription: "إدارة وصول الفريق وموارد مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    backHome: "العودة إلى الرئيسية",
     emailChange: "تغيير البريد الإلكتروني",
     emailChangeSent: "تحقق من بريدك الإلكتروني لتأكيد هذا التغيير.",
     emailChangeError: "تعذر إرسال التأكيد.",
@@ -676,8 +676,9 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "العودة إلى القائمة",
     promoteMustContain: "يجب أن يتضمن الرد…",
-    promoteMustContainOptional: "يجب أن يتضمن الرد (اختياري)",
-    promoteMustContainLabel: "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
+    promoteMustContainOptional: "نص اختياري للتحقق من وجوده في الرد…",
+    promoteMustContainLabel:
+      "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
     promoteNeedsContains:
       "لا يتضمن هذا التشغيل أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل ترقيته إلى تقييم.",
     spans: "Spans",

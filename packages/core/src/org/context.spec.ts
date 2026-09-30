@@ -40,6 +40,7 @@ import {
   getOrgA2ASecret,
   getA2ASecretByDomain,
   isSoleOrgDomain,
+  listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
   resolveOrgByDomain,
 } from "./context.js";
@@ -770,6 +771,23 @@ describe("getOrgContext", () => {
       delete process.env.ORG_CREATION;
     });
 
+    it("does not resolve or auto-create an org for anonymous waitlist identities", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "anon-visitor@agent-native.com",
+        emailVerified: true,
+      });
+
+      await expect(getOrgContext(EVENT)).resolves.toEqual({
+        email: "anon-visitor@agent-native.com",
+        orgId: null,
+        orgName: null,
+        role: null,
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+      expect(mockPutUserSetting).not.toHaveBeenCalled();
+      expect(mockAppStatePut).not.toHaveBeenCalled();
+    });
+
     it("provisions a default org for a zero-membership user by default", async () => {
       mockGetSession.mockResolvedValue({
         email: "jane@startup.dev",
@@ -801,6 +819,37 @@ describe("getOrgContext", () => {
         { orgId: ctx.orgId, at: expect.any(String) },
         { requestSource: "org-auto-create" },
       );
+    });
+
+    it("lists the auto-created org to later readers of the same request", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "jane@startup.dev",
+        name: "Jane Doe",
+        emailVerified: true,
+      });
+      queueSelect(
+        [], // memberships
+        [], // domain auto-join lookup
+        [], // acquireClaim INSERT settings (resolves -> claim acquired)
+        [], // hasPendingInvitation
+        [], // hasDomainMatch
+        [], // INSERT organizations
+        [], // INSERT org_members
+      );
+      const event = makeEvent();
+      const ctx = await getOrgContext(event);
+      const executeCalls = mockExecute.mock.calls.length;
+
+      expect(
+        await listOrgMembershipsForEvent(event, "jane@startup.dev", null),
+      ).toEqual([
+        expect.objectContaining({
+          orgId: ctx.orgId,
+          orgName: "Jane Doe's workspace",
+          role: "owner",
+        }),
+      ]);
+      expect(mockExecute.mock.calls.length).toBe(executeCalls);
     });
 
     it("derives the workspace name from the email local-part when session has no name", async () => {

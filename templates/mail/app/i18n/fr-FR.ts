@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Note à moi-même",
     },
     inbox: {
+      atLeastCount: "Au moins {{count}}",
       syncing: "Synchronisation de la boîte...",
     },
     sort: {
@@ -586,9 +587,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -685,6 +683,10 @@ const messages = {
         "Aucun message récent ne correspond à cette règle.",
       ruleBackfillFailed:
         "Impossible d’appliquer cette règle aux messages récents.",
+      ruleBackfillRunFailed:
+        "Impossible de terminer l’application des règles aux e-mails récents.",
+      backfillStatusLoadFailed:
+        "Impossible de charger l’état récent des règles.",
       ruleBackfillPartialFailure:
         "{{count}} messages n’ont pas pu être mis à jour.",
       ruleBackfillUndoing: "Restauration des messages récents…",
@@ -820,8 +822,6 @@ const messages = {
     peoplePlural: "{{count}} personnes",
     deleteAliasDescription:
       "Supprimer l’alias « {{name}} » ? Cette action est irréversible.",
-    aliasesDescription:
-      "Groupes d’adresses utilisables lors de la rédaction des e-mails.",
     newAlias: "Nouvel alias",
     noAliases: "Aucun alias pour le moment. Créez-en un pour commencer.",
     applyLabel: "Appliquer un libellé",
@@ -840,16 +840,6 @@ const messages = {
     actions: "Actions",
     editRule: "Modifier la règle",
     deleteRule: "Supprimer la règle",
-    noEventAutomations:
-      "Aucune automatisation déclenchée par événement mail pour le moment.",
-    eventAutomationsPrompt:
-      "Demandez à l’agent de créer une automatisation comme « quand je reçois un e-mail de mon responsable, ajoute une étoile et préviens-moi ».",
-    disabled: "désactivé",
-    on: "sur",
-    when: "quand",
-    lastRun: "Dernière exécution :",
-    automationsDescription:
-      "Règles qui traitent automatiquement les nouveaux e-mails de la boîte de réception avec l’IA.",
     allowAutomationSends:
       "Autoriser les automatisations à envoyer des e-mails automatiquement",
     allowAutomationSendsDescription:
@@ -861,17 +851,12 @@ const messages = {
     noAutomationRules: "Aucune règle d’automatisation pour le moment.",
     noAutomationRulesDescription:
       "Créez des règles pour libeller les e-mails, archiver les newsletters, mettre en favori les messages importants, etc. Vous pouvez aussi demander à l’agent IA de les configurer.",
-    eventTriggers: "Déclencheurs d’événements",
-    eventTriggersDescription:
-      "Automatisations lancées lors d’événements mail (p. ex. nouvel e-mail reçu). Gérées par l’agent.",
     importedSignature: "Signature importée depuis {{account}}.",
     noGmailSignature: "Aucune signature Gmail trouvée pour {{account}}.",
     importSignatureFailed: "Échec de l’import de la signature Gmail.",
     draftingSettingsSaved: "Paramètres de rédaction enregistrés.",
     draftingSettingsSaveFailed:
       "Échec de l’enregistrement des paramètres de rédaction.",
-    draftingDescription:
-      "Préférences utilisées lors de la rédaction et de la génération de brouillons.",
     signature: "Signature",
     importFromGmail: "Importer depuis Gmail",
     signatureHelp:
@@ -887,42 +872,14 @@ const messages = {
       "Court, précis, chaleureux. Évitez le remplissage formel.",
     saveDraftingSettings: "Enregistrer les paramètres de rédaction",
     reset: "Réinitialiser",
-    trackingDescription:
-      "Sachez quand les destinataires ouvrent vos e-mails envoyés et cliquent sur les liens. Les statistiques apparaissent sous chaque message envoyé.",
     trackEmailOpens: "Suivre les ouvertures",
     trackEmailOpensDescription:
       "Injecte un pixel 1×1 dans les e-mails sortants pour voir quand ils sont ouverts.",
     trackLinkClicks: "Suivre les clics",
     trackLinkClicksDescription:
       "Réécrit les liens externes dans les e-mails sortants pour compter les clics.",
-    slackLoadFailed: "Échec du chargement du statut Slack",
-    slackUpdateFailed: "Échec de la mise à jour de l’entrée Slack",
-    slackConfigured: "Les identifiants Slack sont configurés.",
-    slackNeedsCredentials:
-      "L’entrée personnalisée héritée nécessite SLACK_BOT_TOKEN et SLACK_SIGNING_SECRET. Pour les nouvelles automatisations de messagerie Slack, connectez un espace de travail dans Paramètres > Messagerie.",
-    slackIntake: "Entrée Slack (héritée)",
-    slackDescription:
-      "Intégration personnalisée héritée permettant de mettre en file des brouillons depuis Slack.",
-    enabled: "Activé",
-    disable: "Désactiver",
-    enable: "Activer",
-    slackPostEndpoint: "Point de terminaison POST Slack",
-    slackPostEndpointHelp:
-      "À utiliser dans Slack Event Subscriptions. Un GET navigateur peut afficher Not Found.",
-    title: "Parametres",
-    general: "Général",
-    generalDescription: "Langue et preferences de compte pour Mail.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l'interface pour ce compte. Mail la memorise sur tous les appareils.",
-    languageLabel: "Langue de l'interface",
-    whatsNew: "Nouveautes",
-    whatsNewDescription:
-      "Changements recents visibles par les utilisateurs dans Agent-Native Mail.",
     drafting: "Redaction",
     snippets: "Extraits",
-    snippetsDescription:
-      "Reponses enregistrees a inserer dans un brouillon en tapant / suivi du nom de l'extrait.",
     newSnippet: "Nouvel extrait",
     noSnippets: "Aucun extrait pour le moment. Creez-en un pour commencer.",
     snippetName: "Nom de l'extrait",
@@ -934,7 +891,6 @@ const messages = {
     deleteSnippet: "Supprimer l'extrait",
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
-    automations: "Automatisations",
     rules: "Règles",
     rulesModel: "Modèle des règles",
     rulesModelDescription: "Compare les e-mails entrants à vos règles.",
@@ -947,7 +903,6 @@ const messages = {
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
-    slack: "Slack",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },

@@ -1,6 +1,6 @@
-@import "@agent-native/agentkit/react/styles.css";
-@import "@agent-native/core/styles/agent-conversation.css";
-@import "@agent-native/core/styles/chat-history-list.css";
+@import "@agent-native/toolkit/app/agentkit/react/styles.css";
+@import "@agent-native/toolkit/app/styles/agent-conversation.css";
+@import "@agent-native/toolkit/app/styles/chat-history-list.css";
 
 .code-agents-surface {
   --background: 0 0% 98%;

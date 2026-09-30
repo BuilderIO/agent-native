@@ -157,6 +157,43 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(id)).bodyRevision).toBe(2);
   });
 
+  it("writes a stale browser save that already holds a peer tab's change", async () => {
+    const base = "Seed one\nSeed two\nLine one";
+    const id = await createDocument({ content: base });
+    const revision = documentRevisionToken(0, base);
+    const browserSave = (session: string, content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id,
+            content,
+            baseRevision: revision,
+            authoredBaseRevision: revision,
+            authoredBaseContent: base,
+            authoredCandidateContent: content,
+            editorSessionId: session,
+            editorEditGeneration: 1,
+            browserSaveAttemptId: nextId("stale-attempt"),
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    await browserSave(
+      nextId("peer-session"),
+      "Seed one\nSeed two peer\nLine one",
+    );
+    const typing = "Seed one\nSeed two peer\nLine one\nLine two";
+    const saved = await browserSave(nextId("typing-session"), typing);
+    expect(saved).toMatchObject({
+      content: typing,
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await documentRow(id)).toMatchObject({
+      content: typing,
+      bodyRevision: 2,
+    });
+  });
+
   it("replays a preserved attempt without duplicating its History checkpoint", async () => {
     const base = "First passage\nSecond passage";
     const id = await createDocument({ content: base });
@@ -1482,6 +1519,44 @@ describe("update-document compare-and-swap", () => {
       "racing writer body",
       "requested body",
     ]);
+  });
+
+  it("does not revert a concurrent title when an unguarded body save repeats its original title", async () => {
+    const documentId = await createDocument({
+      title: "Initial title",
+      content: "initial body",
+    });
+    const initial = await documentRow(documentId);
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const racingUpdatedAt = new Date(
+      new Date(initial.updatedAt).getTime() + 1_000,
+    ).toISOString();
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (callback: any, config?: any) => {
+        await db
+          .update(schema.documents)
+          .set({ title: "Concurrent title", updatedAt: racingUpdatedAt })
+          .where(eq(schema.documents.id, documentId));
+        return originalTransaction(callback, config);
+      });
+    try {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          title: "Initial title",
+          content: "requested body",
+        }),
+      );
+    } finally {
+      transaction.mockRestore();
+    }
+
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "requested body",
+    });
   });
 
   it("CAS-rejects a body that only becomes stale before the row lock", async () => {

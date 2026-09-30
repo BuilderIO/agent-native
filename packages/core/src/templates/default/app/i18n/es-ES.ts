@@ -18,12 +18,12 @@ const messages = {
     disconnecting: "Desconectando…",
   },
   settings: {
+    backHome: "Volver al inicio",
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo de esta app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
+    description: "Administra los ajustes de la aplicación y del idioma.",
+    languageTitle: "Idioma de la interfaz",
+    languageDescription: "Elige el idioma que se usa en esta aplicación.",
+    languageLabel: "Idioma",
     agentTitle: "Ajustes del agente",
     agentDescription:
       "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
@@ -33,7 +33,6 @@ const messages = {
       "Administre el acceso del equipo y los recursos del espacio de trabajo compartido.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    backHome: "Volver al inicio",
     emailChange: "Cambiar correo electrónico",
     emailChangeSent: "Revisa tu correo para confirmar este cambio.",
     emailChangeError: "No se pudo enviar la confirmación.",
@@ -674,9 +673,10 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "volver a la lista",
     promoteMustContain: "La respuesta debe incluir…",
-    promoteMustContainOptional: "La respuesta debe incluir (opcional)",
+    promoteMustContainOptional:
+      "Texto opcional que se comprobará en la respuesta…",
     promoteMustContainLabel:
-      "Texto que debe incluir la respuesta de evaluación promovida",
+      "Texto que se comprobará en la respuesta de la evaluación promovida",
     promoteNeedsContains:
       "Esta ejecución no tiene ninguna llamada de herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla a evaluación.",
     spans: "Spans",

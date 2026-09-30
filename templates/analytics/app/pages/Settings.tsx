@@ -1,12 +1,16 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrg } from "@agent-native/core/client/org";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
+import {
+  createCreativeContextAgentTab,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -15,12 +19,7 @@ import {
   useAgentSettingsTabs,
   type SettingsAppArea,
   type SettingsTabItem,
-} from "@agent-native/core/client/settings";
-import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import {
-  createCreativeContextAgentTab,
-  useCreativeContextLab,
-} from "@agent-native/creative-context/client";
+} from "@agent-native/toolkit/app/settings";
 import { IconActivity, IconBell, IconDatabase } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -239,12 +238,6 @@ export default function Settings() {
     [t],
   );
 
-  const whatsNew = (
-    <div className="w-full">
-      <ChangelogSettingsCard markdown={changelog} />
-    </div>
-  );
-
   // Language is on Account › Preferences, and replay storage is the
   // workspace's file storage on Organization › Infrastructure.
   return (
@@ -265,7 +258,7 @@ export default function Settings() {
       }
       notificationsSearchEntries={notificationsSearchEntries}
       labs={labs}
-      whatsNew={whatsNew}
+      whatsNewMarkdown={changelog}
     />
   );
 }

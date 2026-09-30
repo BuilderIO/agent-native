@@ -26,6 +26,10 @@ describe("cross-app script entries", () => {
     expect(entries["framework-search"]?.tool.description).toContain(
       "Core, Toolkit",
     );
+    expect(entries["source-search"]?.readOnly).toBe(true);
+    expect(entries["source-search"]?.tool.description).toContain(
+      "opt-in corpus",
+    );
     const docsSearch = entries["docs-search"]?.tool;
     expect(docsSearch?.description).toContain(
       "Read bundled framework/app instructions, framework docs, and codebase skills",

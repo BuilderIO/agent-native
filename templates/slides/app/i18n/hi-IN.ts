@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   templatesPage: {
     actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
     previewAction: "पूर्वावलोकन",
@@ -47,13 +48,9 @@ const messages = {
   settings: {
     agentObservability: "एजेंट अवलोकन",
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
     labLayoutOverflowWarningDescription: "एडिटर में लेआउट ओवरफ्लो चेतावनी दिखाएँ।",
-    emailNotifications: "ईमेल सूचनाएँ",
-    emailNotificationsDescription:
-      "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
     notificationsEmail: "ईमेल",
     commentsAndReplies: "टिप्पणियाँ और जवाब",
@@ -61,9 +58,6 @@ const messages = {
     retry: "फिर कोशिश करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -175,6 +169,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
+    slideConflictReview: "समीक्षा करें",
+    slideConflictTitle: "यह स्लाइड कहीं और बदली गई है",
+    slideConflictDescription:
+      "किसी अन्य संपादक ने नया संस्करण सहेजा है। अपना ड्राफ़्ट रखने से सहेजी गई स्लाइड की सामग्री बदल जाएगी, या नवीनतम संस्करण का उपयोग करें।",
+    slideConflictUseLatest: "नवीनतम संस्करण उपयोग करें",
+    slideConflictKeepDraft: "मेरा ड्राफ़्ट रखें",
+    slideConflictKeepEditing: "संपादन जारी रखें",
+    slideConflictResolutionFailed:
+      "संघर्ष हल नहीं हो सका। आपका ड्राफ़्ट अभी भी यहाँ है।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -864,7 +867,7 @@ const messages = {
       searchPresentations: "प्रस्तुतियाँ खोजें…",
       menu: {
         system: "डिज़ाइन सिस्टम का उपयोग करें",
-        figma: "Figma संलग्न करें",
+        figma: "Figma जोड़ें",
         design: "डिज़ाइन का संदर्भ लें",
         deck: "प्रस्तुति का संदर्भ लें",
         searchDesign: "डिज़ाइन खोजें…",
@@ -1043,7 +1046,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
   },
 };

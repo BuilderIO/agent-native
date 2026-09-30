@@ -54,7 +54,6 @@ import {
   findInstalledResvgPackages,
   findServerlessBrowserRuntimeConsumer,
   isServerlessNativePlatformPackage,
-  generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   patchCloudflareModuleServerOutput,
   generateProvidedPluginsNitroPluginSource,
@@ -525,6 +524,16 @@ describe("resolveNitroBuildReplacements", () => {
     ).toBe(JSON.stringify("deploy-id"));
   });
 
+  // Bare Node/Docker has no platform marker, so the hosted-database refusal
+  // recognizes the deployed server by this marker plus a booted server.
+  it("marks every production server bundle for the hosted-database refusal", () => {
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_PRODUCTION_SERVER"
+      ],
+    ).toBe(JSON.stringify("true"));
+  });
+
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
@@ -730,6 +739,13 @@ describe("assertCloudflarePagesPresetRemoved", () => {
 });
 
 describe("Cloudflare module Worker entry", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+    );
+  });
+
   it("defers Nitro's handler and lifecycle initialization", () => {
     const source =
       'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
@@ -746,6 +762,7 @@ describe("Cloudflare module Worker entry", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
     expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
@@ -817,15 +834,15 @@ export default {
     );
 
     configureCloudflareModuleWorkerOutput(serverDir);
+    const outputConfig = JSON.parse(
+      fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+    );
 
-    expect(
-      JSON.parse(
-        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
-      ),
-    ).toMatchObject({
+    expect(outputConfig).toMatchObject({
       main: "worker.mjs",
       assets: { binding: "ASSETS" },
     });
+    expect(outputConfig.compatibility_flags).toContain("nodejs_als");
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
     ).toContain('await import("./index.mjs")');
@@ -1229,7 +1246,7 @@ export function createRequestHandler() {
     .default;
 }
 
-describe("generateWorkerEntry", { timeout: 15_000 }, () => {
+describe("generateWorkerEntry", () => {
   beforeEach(() => {
     resetAppConfigForTests();
     defineAppConfig({ app: { homePath: "/home" } });
@@ -1260,6 +1277,10 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   describe("Cloudflare Pages worker entry", () => {
     afterEach(() => {
       Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      );
     });
 
     it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {
@@ -1270,13 +1291,22 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       expect(source).toContain("initializeBindings(env);");
     });
 
-    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+    it("sets the production marker from bindings when process.env starts empty", async () => {
+      vi.stubEnv("NODE_ENV", "");
       const worker = await importGeneratedWorker(generateWorkerEntry([], []));
-      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+      const bindings = {
+        DATABASE_URL: "postgres://example.test/db",
+        NODE_ENV: "production",
+      };
 
       await worker.fetch(new Request("https://app.test/"), bindings, {});
 
       expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+      expect(
+        (globalThis as Record<string, unknown>)[
+          "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__"
+        ],
+      ).toBe(true);
     });
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
@@ -2038,75 +2068,6 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
     expect(missingApi.status).toBe(404);
-  });
-
-  it("generates a manifest-based Cloudflare Pages static shell fallback", () => {
-    const html = generateCloudflarePagesStaticShellFromManifest(
-      {
-        entry: {
-          module: "/assets/entry.client-abc.js",
-          imports: ["/assets/vendor-def.js"],
-          css: ["/assets/entry.css"],
-        },
-        routes: {
-          root: {
-            id: "root",
-            module: "/assets/root-ghi.js",
-            imports: ["/assets/root-vendor-jkl.js"],
-            css: ["/assets/root.css"],
-            clientLoaderModule: "/assets/root-client-loader-mno.js",
-          },
-        },
-        url: "/assets/manifest-123.js",
-      },
-      "/docs",
-    );
-
-    expect(html).toContain("window.__reactRouterContext");
-    expect(html).toContain('"basename":"/docs"');
-    expect(html).toContain('"isSpaMode":true');
-    expect(html).toContain('import "/assets/manifest-123.js"');
-    expect(html).toContain('import * as route0 from "/assets/root-ghi.js"');
-    expect(html).toContain(
-      'import * as route0_clientLoader from "/assets/root-client-loader-mno.js"',
-    );
-    expect(html).toContain('import("/assets/entry.client-abc.js")');
-    expect(html).toContain('href="/assets/root.css"');
-    expect(html).toContain("interactive-widget=resizes-content");
-    expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain('data-agent-native-app-skeleton="true"');
-    expect(html).not.toContain("data-agent-native-session-bootstrap");
-    expect(html).not.toContain("data-agent-native-cube-loader");
-    expect(html).not.toContain("an-cube-pulse");
-    expect(html).not.toContain("an-spin");
-    expect(html).not.toContain('rel="manifest"');
-    expect(html).toContain("streamController.enqueue");
-    expect(html).not.toContain("dev server");
-    expect(html).not.toContain("browser console");
-    expect(html).toContain("loaderData");
-    expect(html).not.toContain("en-US");
-  });
-
-  it("hydrates default root loader data in the manifest fallback", () => {
-    const html = generateCloudflarePagesStaticShellFromManifest({
-      entry: {
-        module: "/assets/entry.client-abc.js",
-      },
-      routes: {
-        root: {
-          id: "root",
-          module: "/assets/root-ghi.js",
-          hasLoader: true,
-        },
-      },
-      url: "/assets/manifest-123.js",
-    });
-
-    expect(html).toContain("loaderData");
-    expect(html).toContain("root");
-    expect(html).toContain("en-US");
-    expect(html).toContain("system");
-    expect(html).toContain("messages");
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {

@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "연동" } },
   templatesPage: {
     actions: "{{title}} 템플릿 작업",
     previewAction: "미리보기",
@@ -47,14 +48,10 @@ const messages = {
   settings: {
     agentObservability: "에이전트 관찰성",
     title: "설정",
-    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
     labs: "Labs",
     labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
     labLayoutOverflowWarningDescription:
       "편집기에서 레이아웃 오버플로 경고를 표시합니다.",
-    emailNotifications: "이메일 알림",
-    emailNotificationsDescription:
-      "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
     saveFailed: "저장 실패",
     notificationsEmail: "이메일",
     commentsAndReplies: "댓글 및 답글",
@@ -63,10 +60,6 @@ const messages = {
     retry: "다시 시도",
     mcpAbout:
       "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     workspaceTitle: "워크스페이스",
     workspaceDescription:
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
@@ -178,6 +171,15 @@ const messages = {
     saveReconnect: "再接続時に変更が保存されます",
     saveFailedDescription:
       "최신 변경 사항이 이 기기에만 있습니다. 나가기 전에 백업을 다운로드하세요.",
+    slideConflictReview: "검토",
+    slideConflictTitle: "이 슬라이드는 다른 곳에서 변경되었습니다",
+    slideConflictDescription:
+      "다른 편집자가 최신 버전을 저장했습니다. 초안을 유지하면 저장된 슬라이드 내용이 대체됩니다. 최신 버전을 사용할 수도 있습니다.",
+    slideConflictUseLatest: "최신 버전 사용",
+    slideConflictKeepDraft: "내 초안 유지",
+    slideConflictKeepEditing: "계속 편집",
+    slideConflictResolutionFailed:
+      "충돌을 해결하지 못했습니다. 초안은 그대로 유지됩니다.",
     offline: "오프라인",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",
@@ -855,7 +857,7 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
-      websiteReference: "웹사이트 첨부",
+      websiteReference: "웹사이트 추가",
       websiteUrlLabel: "웹사이트 URL",
       websiteUrl: "웹사이트 URL 붙여넣기",
       figmaUrlLabel: "Figma 링크",
@@ -869,7 +871,7 @@ const messages = {
       searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
-        figma: "Figma 첨부",
+        figma: "Figma 추가",
         design: "디자인 참조",
         deck: "프레젠테이션 참조",
         searchDesign: "디자인 검색…",
@@ -1049,7 +1051,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
   },
 };

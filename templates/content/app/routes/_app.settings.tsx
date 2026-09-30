@@ -1,16 +1,15 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AccountSettingsCard,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-  type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
 import {
   createCreativeContextAgentTab,
   type CreativeContextAgentTabFactory,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import {
+  AccountSettingsCard,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  type SettingsSearchEntry,
+} from "@agent-native/toolkit/app/settings";
 import {
   CONTENT_CREATIVE_CONTEXT,
   CONTENT_LABS,
@@ -118,11 +117,7 @@ export default function SettingsRoute() {
         labsIntro={t("settings.labsIntro")}
         labsLabel={t("settings.labs")}
         mcpAbout={t("settings.mcpAbout")}
-        whatsNew={
-          <div className="mx-auto w-full max-w-2xl">
-            <ChangelogSettingsCard markdown={changelog} />
-          </div>
-        }
+        whatsNewMarkdown={changelog}
       />
     </div>
   );

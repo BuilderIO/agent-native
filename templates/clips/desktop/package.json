@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^19.2.14",

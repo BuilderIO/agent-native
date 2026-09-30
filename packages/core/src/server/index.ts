@@ -3,6 +3,14 @@ export {
   type ComposerWebsiteExtraction,
 } from "./composer-website-source.js";
 export {
+  isAgentKitFigmaSourceAvailable,
+  listAgentKitCapabilities,
+  readAgentKitIntegrationIntent,
+  type AgentKitCapabilityAppId,
+  type AgentKitCapabilityCatalog,
+  type AgentKitIntegrationCapability,
+} from "../agentkit/capabilities.js";
+export {
   defineAppConfig,
   getAppConfig,
   resolveAppHomePath,
@@ -271,9 +279,9 @@ export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
 export {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,

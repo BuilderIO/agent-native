@@ -69,19 +69,27 @@ export function LocalNetworkAccessPrompt({
     "designCanvas.localBridge.permissionPromptSettingsInstructions",
     {
       defaultValue:
-        "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+        "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
     },
   );
   const permissionHelp = showPermissionHelp ? (
     <details className="text-xs text-muted-foreground">
       <summary className="cursor-pointer">{noPromptLabel}</summary>
+      <img
+        src="/local-network-access-prompt.png"
+        alt={permissionSettingsInstructions}
+        className="mt-3 block w-full rounded-md border border-border"
+        width={1300}
+        height={780}
+        loading="lazy"
+      />
       <p className="mt-2 leading-relaxed">{permissionSettingsInstructions}</p>
       <img
         src="/local-network-access-settings.png"
         alt={permissionSettingsInstructions}
         className="mt-3 block w-full rounded-md border border-border"
-        width={1000}
-        height={620}
+        width={1660}
+        height={948}
         loading="lazy"
       />
     </details>
@@ -120,8 +128,8 @@ export function LocalNetworkAccessPrompt({
               src="/local-network-access-permission.png"
               alt={description}
               className="block w-full rounded-md border border-border"
-              width={1050}
-              height={664}
+              width={1460}
+              height={850}
             />
             {permissionHelp}
           </DialogContent>

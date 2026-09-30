@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
 
 const state = vi.hoisted(() => ({
+  redesign: false,
   registered: [] as Array<{
     id: string;
     component: ComponentType;
@@ -16,7 +17,6 @@ const state = vi.hoisted(() => ({
   membersAppRoles: undefined as unknown,
   pageProps: null as null | {
     general?: ReactNode;
-    account?: ReactNode;
     generalGroups?: ReactNode;
     generalSearchEntries?: Array<{ id: string; hash?: string }>;
     extraTabs?: Array<{ id: string; href?: string }>;
@@ -30,7 +30,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   writeChatFirstMode: () => ({ ok: true }),
 }));
 
-vi.mock("@agent-native/core/client/changelog", () => ({
+vi.mock("@agent-native/toolkit/app/changelog", () => ({
   ChangelogSettingsCard: ({ markdown }: { markdown: string }) => (
     <div data-changelog>{markdown}</div>
   ),
@@ -38,10 +38,12 @@ vi.mock("@agent-native/core/client/changelog", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
+  useFeatureFlagState: () => ({ status: "ready", enabled: state.redesign }),
 }));
 
 vi.mock("@agent-native/core/feature-flags/registry", () => ({
   CONNECT_APPS_FLAG: { key: "connect-apps" },
+  SETTINGS_REDESIGN_FLAG: { key: "settings-redesign" },
   defineFeatureFlag: (flag: { key: string }) => flag,
 }));
 
@@ -49,7 +51,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/shared", () => ({
+  LanguagePicker: () => null,
+}));
+
+vi.mock("@agent-native/toolkit/app/org", () => ({
   TeamPage: () => null,
   OrgMembersPage: ({ appRoles }: { appRoles?: unknown }) => {
     state.membersAppRoles = appRoles;
@@ -57,7 +63,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
+  AccountSettingsCard: () => null,
   CORE_SETTINGS_PAGES: [
     { id: "profile", component: () => null },
     {
@@ -88,7 +95,7 @@ vi.mock("@agent-native/core/client/settings", () => ({
   ),
   SettingsTabsPage: (props: NonNullable<typeof state.pageProps>) => {
     state.pageProps = props;
-    return <main>{props.generalGroups}</main>;
+    return <main>{state.redesign ? props.generalGroups : props.general}</main>;
   },
   useAgentSettingsTabs: () => [{ id: "organization", label: "Organization" }],
 }));
@@ -111,6 +118,7 @@ describe("Dispatch settings route", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    state.redesign = false;
     state.pageProps = null;
     state.membersAppRoles = undefined;
     container = document.createElement("div");
@@ -137,11 +145,25 @@ describe("Dispatch settings route", () => {
     expect(state.membersAppRoles).toBe(dispatchAccessDescriptor);
   });
 
-  it("renders Dispatch rows in the app's General groups", () => {
+  it("keeps the language row and Admin link on today's General tab", () => {
     render();
 
-    expect(state.pageProps?.general).toBeUndefined();
-    expect(state.pageProps?.account).toBeUndefined();
+    expect(container.querySelector('[data-row="language"]')).not.toBeNull();
+    expect(container.textContent).toContain(
+      "settings.chatFirstSessionWatchDescription",
+    );
+    expect(
+      state.pageProps?.generalSearchEntries?.map((entry) => entry.id),
+    ).toContain("dispatch-language");
+    expect(
+      state.pageProps?.extraTabs?.find((tab) => tab.id === "admin")?.href,
+    ).toBe("/admin");
+  });
+
+  it("drops the language row in the redesigned Settings", () => {
+    state.redesign = true;
+    render();
+
     expect(container.querySelector('[data-row="language"]')).toBeNull();
     expect(container.querySelector('[data-row="chat-first"]')).not.toBeNull();
     expect(

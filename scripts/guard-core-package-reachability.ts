@@ -6,11 +6,8 @@ import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 
 const CORE_ROOT = "packages/core";
-// The 64th entry is `tw-animate-css`, required by the public CSS export at
-// packages/core/src/styles/agent-native.css. Keep the dependency ratchet at
-// the actual 64-package baseline; any further runtime dependency must be
-// removed or explicitly budgeted.
-const MAX_RUNTIME_DEPENDENCIES = 64;
+// Project generation uses esbuild and the create wizard uses Ink at runtime.
+const MAX_RUNTIME_DEPENDENCIES = 65;
 const CODE_EXTENSIONS = [
   ".ts",
   ".tsx",

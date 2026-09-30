@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrações" } },
   templatesPage: {
     actions: "Ações do modelo {{title}}",
     previewAction: "Prévia",
@@ -47,14 +48,10 @@ const messages = {
   settings: {
     agentObservability: "Observabilidade do agente",
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
     labs: "Labs",
     labsIntro: "Confira recursos experimentais antes do lançamento.",
     labLayoutOverflowWarningDescription:
       "Mostrar o aviso de estouro do layout no editor.",
-    emailNotifications: "Notificações por e-mail",
-    emailNotificationsDescription:
-      "Receba um e-mail quando alguém comentar ou responder na sua apresentação.",
     saveFailed: "Falha ao salvar",
     notificationsEmail: "E-mail",
     commentsAndReplies: "Comentários e respostas",
@@ -63,10 +60,6 @@ const messages = {
     retry: "Tentar novamente",
     mcpAbout:
       "Conecte o Slides ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Slides por você: criar apresentações, adicionar slides e exportar para o PowerPoint. Ele só vê o que você pode ver.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -178,6 +171,15 @@ const messages = {
     saveReconnect: "As alterações serão salvas ao reconectar",
     saveFailedDescription:
       "Suas alterações mais recentes estão apenas neste dispositivo. Baixe um backup antes de sair.",
+    slideConflictReview: "Revisar",
+    slideConflictTitle: "Este slide foi alterado em outro lugar",
+    slideConflictDescription:
+      "Outra pessoa salvou uma versão mais recente. Manter seu rascunho substituirá o conteúdo salvo deste slide, ou use a versão mais recente.",
+    slideConflictUseLatest: "Usar a versão mais recente",
+    slideConflictKeepDraft: "Manter meu rascunho",
+    slideConflictKeepEditing: "Continuar editando",
+    slideConflictResolutionFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua aqui.",
     offline: "Offline",
     selected: "selecionado",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -877,7 +879,7 @@ const messages = {
     },
     importDeck: "Importar apresentação",
     context: {
-      websiteReference: "Anexar site",
+      websiteReference: "Adicionar site",
       websiteUrlLabel: "URL do site",
       websiteUrl: "Cole a URL de um site",
       figmaUrlLabel: "Link do Figma",
@@ -892,7 +894,7 @@ const messages = {
       searchPresentations: "Buscar apresentações…",
       menu: {
         system: "Usar um sistema de design",
-        figma: "Anexar Figma",
+        figma: "Adicionar Figma",
         design: "Usar um design como referência",
         deck: "Usar uma apresentação como referência",
         searchDesign: "Pesquisar design…",
@@ -1075,7 +1077,7 @@ const messages = {
   agentChat: {
     setup: {
       providerStatusUnavailable:
-        "Não foi possível verificar a conexão com a IA.",
+        "Não foi possível confirmar se a IA está pronta.",
     },
   },
 };

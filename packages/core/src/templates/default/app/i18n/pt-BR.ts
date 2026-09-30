@@ -18,12 +18,12 @@ const messages = {
     disconnecting: "Desconectando…",
   },
   settings: {
+    backHome: "Voltar para o início",
     title: "Configurações",
-    description: "Preferências de idioma e workspace para este app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
+    description: "Gerencie as configurações do app e do idioma.",
+    languageTitle: "Idioma da interface",
+    languageDescription: "Escolha o idioma usado neste app.",
+    languageLabel: "Idioma",
     agentTitle: "Configurações do agente",
     agentDescription:
       "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
@@ -33,7 +33,6 @@ const messages = {
       "Gerencie o acesso da equipe e os recursos do espaço de trabalho compartilhado.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    backHome: "Voltar ao início",
     emailChange: "Alterar e-mail",
     emailChangeSent: "Verifique seu e-mail para confirmar esta alteração.",
     emailChangeError: "Não foi possível enviar a confirmação.",
@@ -667,9 +666,9 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "Voltar à lista",
     promoteMustContain: "A resposta deve conter…",
-    promoteMustContainOptional: "A resposta deve conter (opcional)",
+    promoteMustContainOptional: "Texto opcional a verificar na resposta…",
     promoteMustContainLabel:
-      "Texto que a resposta da avaliação promovida deve conter",
+      "Texto a verificar na resposta da avaliação promovida",
     promoteNeedsContains:
       "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",

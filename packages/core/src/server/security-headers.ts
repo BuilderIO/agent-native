@@ -70,6 +70,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
+import { isHttpsRequest } from "./https-request.js";
 
 export function computeInlineScriptHash(scriptContent: string): string {
   const hash = createHash("sha256").update(scriptContent).digest("base64");
@@ -79,19 +80,6 @@ export function computeInlineScriptHash(scriptContent: string): string {
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
   "camera=*, microphone=(self), geolocation=(), screen-wake-lock=()";
-
-function isHttpsRequest(event: any): boolean {
-  const xfp =
-    event?.node?.req?.headers?.["x-forwarded-proto"] ??
-    event?.headers?.get?.("x-forwarded-proto");
-  if (typeof xfp === "string" && xfp.split(",")[0].trim() === "https")
-    return true;
-  if (Array.isArray(xfp) && xfp[0] === "https") return true;
-  const proto = event?.url?.protocol;
-  if (proto === "https:") return true;
-  if (event?.node?.req?.connection?.encrypted) return true;
-  return false;
-}
 
 function isMcpEndpointRequest(event: any): boolean {
   const pathname =

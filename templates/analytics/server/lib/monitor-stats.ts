@@ -213,6 +213,7 @@ function ownerScope(table: { ownerEmail: any; orgId: any }, ctx: AccessCtx) {
 
 export async function listOwnedMonitorIds(ctx: AccessCtx): Promise<string[]> {
   const db = getDb() as any;
+  // guard:allow-unscoped — ownerScope adds the caller's owner_email and org_id predicates
   const rows = await db
     .select({ id: schema.monitors.id })
     .from(schema.monitors)
