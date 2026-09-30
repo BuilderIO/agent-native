@@ -809,6 +809,16 @@ function isLoopbackOrigin(parsed: URL): boolean {
   );
 }
 
+function sameDevServerOrigin(a: URL, b: URL): boolean {
+  return (
+    a.origin === b.origin ||
+    (a.protocol === b.protocol &&
+      a.port === b.port &&
+      isLoopbackOrigin(a) &&
+      isLoopbackOrigin(b))
+  );
+}
+
 function isApprovedDesignOrigin(
   rawOrigin: string,
   configuredOrigins: ReadonlySet<string>,
@@ -1207,16 +1217,17 @@ function resolvePreviewSnapshotUrl(
   rawUrl: string | null,
 ): string {
   const base = normalizeHttpUrl(devServerUrl);
+  const baseUrl = new URL(base);
   const parsed = new URL(rawUrl?.trim() || "/", `${base}/`);
   parsed.hash = "";
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Snapshot URL must use http(s).");
   }
-  if (!sameOrigin(parsed.toString(), base)) {
+  if (!sameDevServerOrigin(parsed, baseUrl)) {
     throw new Error("Snapshot URL must stay on the connected dev server.");
   }
   const search = stripQueryPair(parsed.search, FRAME_BRIDGE_KEY_PARAM);
-  return `${parsed.origin}${parsed.pathname}${search}`;
+  return `${baseUrl.origin}${parsed.pathname}${search}`;
 }
 
 function stripPreviewTokenQueryParam(search: string): string {

@@ -1096,6 +1096,7 @@ import {
   shouldSuppressReloadedVisualEditHandoff,
   shouldPublishVisualEditHandoff,
   shouldShowPendingVisualStyleApply,
+  updateReloadedVisualEditHandoff,
   updateVisualEditHandoffPublication,
   type VisualEditHandoffPublicationState,
 } from "./design-editor/pending-edits";
@@ -19132,26 +19133,11 @@ function DesignEditor() {
               pendingVisualEditDurableHandoffPublishedRef.current,
               event,
             );
-          const reloadedHandoff = pendingVisualEditReloadedHandoffRef.current;
-          if (
-            !reloadedHandoff ||
-            reloadedHandoff.designId !== id ||
-            reloadedHandoff.publicationRevision > publicationRevision
-          ) {
-            return;
-          }
-          if (status === "ready") {
-            pendingVisualEditReloadedHandoffRef.current = {
-              ...reloadedHandoff,
-              serverRevision:
-                typeof serverRevision === "number" ? serverRevision : null,
-            };
-          } else if (
-            status === "empty" ||
-            reloadedHandoff.publicationRevision === publicationRevision
-          ) {
-            pendingVisualEditReloadedHandoffRef.current = null;
-          }
+          pendingVisualEditReloadedHandoffRef.current =
+            updateReloadedVisualEditHandoff(
+              pendingVisualEditReloadedHandoffRef.current,
+              event,
+            );
         },
         setPendingVisualEditPublicationFailed,
         showHandoffErrorToast: (error) => {

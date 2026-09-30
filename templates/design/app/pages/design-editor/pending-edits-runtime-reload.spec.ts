@@ -7,6 +7,7 @@ import {
   shouldClearPendingLiveEditsAfterReload,
   shouldPublishVisualEditHandoff,
   shouldSuppressReloadedVisualEditHandoff,
+  updateReloadedVisualEditHandoff,
   updateVisualEditHandoffPublication,
   type PendingLiveStructureEdit,
   type PendingVisualStyleEdit,
@@ -152,6 +153,38 @@ describe("pending live edits after runtime reload", () => {
         revision: 5,
       }),
     ).toBe(true);
+  });
+
+  it("releases a queued reload marker when its durable publication fails", () => {
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    expect(queued).not.toBeNull();
+    expect(
+      shouldSuppressReloadedVisualEditHandoff({
+        marker: queued,
+        designId: "design-1",
+        status: "ready",
+        revision: 3,
+      }),
+    ).toBe(true);
+
+    const afterFailure = updateReloadedVisualEditHandoff(queued, {
+      status: "failed",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    expect(afterFailure).toBeNull();
+    expect(
+      shouldSuppressReloadedVisualEditHandoff({
+        marker: afterFailure,
+        designId: "design-1",
+        status: "ready",
+        revision: 5,
+      }),
+    ).toBe(false);
   });
 
   it("does not queue an empty handoff after a retained reload", () => {

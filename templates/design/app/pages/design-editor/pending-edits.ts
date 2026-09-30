@@ -941,6 +941,26 @@ export function updateVisualEditHandoffPublication(
   return null;
 }
 
+export function updateReloadedVisualEditHandoff(
+  current: VisualEditHandoffPublicationState | null,
+  event: Exclude<VisualEditHandoffPublicationEvent, { status: "queued" }>,
+): VisualEditHandoffPublicationState | null {
+  if (
+    !current ||
+    current.designId !== event.designId ||
+    current.publicationRevision > event.publicationRevision
+  ) {
+    return current;
+  }
+  if (event.status === "ready") {
+    return { ...current, serverRevision: event.serverRevision };
+  }
+  return event.status === "empty" ||
+    current.publicationRevision === event.publicationRevision
+    ? null
+    : current;
+}
+
 export function shouldSuppressReloadedVisualEditHandoff(args: {
   marker: VisualEditHandoffPublicationState | null;
   designId: string | null | undefined;
