@@ -18,6 +18,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Design warnings wait for the current preview to finish loading
 - Live editing now offers a retry when the local bridge does not respond.
 - Mixed padding and margin values across selected layers now open separate side controls
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - The source-location warning no longer appears while an app preview is loading.
 - Source location warnings wait until app previews finish loading
 - Clearing a prompt removes its final character

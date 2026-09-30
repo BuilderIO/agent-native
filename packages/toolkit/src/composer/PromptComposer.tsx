@@ -106,6 +106,8 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  /** Scope where a failed submission should be recovered after the host forks. */
+  getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
   onAttachmentError?: (message: string) => void;
   /** Delegate app-scaffolding prompts to the enclosing Builder chat. */
@@ -135,6 +137,8 @@ export interface PromptComposerProps {
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
   preserveDraftOnSubmit?: boolean;
+  /** Clear the submitted text before the host request finishes. */
+  clearOnSubmitImmediately?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
   /** Controlled open state for hosts that resize around the model picker. */
@@ -616,6 +620,7 @@ function PromptComposerInner({
   rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
+  clearOnSubmitImmediately,
   showModelSelector = true,
   modelSelectorOpen,
   showAutoModelOption = true,
@@ -675,6 +680,7 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
+  getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
 }: PromptComposerProps) {
@@ -893,9 +899,11 @@ function PromptComposerInner({
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
           onBeforeSubmit={onBeforeSubmit}
+          getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
+          clearOnSubmitImmediately={clearOnSubmitImmediately}
           plusMenuMode={
             plusMenuMode ??
             (attachmentsEnabled || onAttachmentRequest

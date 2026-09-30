@@ -12,6 +12,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Events longer than 24 hours appear as compact bars at the top of Calendar.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 
 ## 2026-09-28
 

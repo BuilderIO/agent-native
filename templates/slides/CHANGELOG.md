@@ -19,6 +19,7 @@ time from the command menu (Cmd+K → "What's new").
 - Position controls are available before you manually move an object
 - Pressing Escape after editing text closes the selection outline.
 - Slides opens reference selection after sign-in when no design or reference context is selected.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Slide undo preserves concurrent edits from other people
 - Editing a bullet no longer changes neighboring lines, and Markdown bullets work after a line break.
 - Slides no longer overwrites a newer edit to the same slide, and Undo and Redo stay with the deck you are editing.

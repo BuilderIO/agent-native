@@ -3140,6 +3140,12 @@ export function AgentKitComposer({
   const editContext = useContext(AgentMessageEditContext);
   const editingMessage = editContext?.message ?? null;
   const threadId = requestedThreadId ?? contextThreadId;
+  const submitFailureDraftScopeRef = useRef<string | null>(null);
+  const getSubmitFailureDraftScope = useCallback(() => {
+    const scope = submitFailureDraftScopeRef.current;
+    submitFailureDraftScopeRef.current = null;
+    return scope;
+  }, []);
   const queueCapability = useAgentCapability("messageQueue");
   const suggestionsCapability = useAgentCapability("suggestions");
   const uploadsCapability = useAgentCapability("uploads");
@@ -3268,6 +3274,7 @@ export function AgentKitComposer({
     options: Parameters<PromptComposerProps["onSubmit"]>[3],
     suggestion?: AgentKitSuggestionsRenderProps["suggestions"][number],
   ) => {
+    submitFailureDraftScopeRef.current = null;
     const assertSuggestionCurrent = () => {
       if (
         suggestion &&
@@ -3279,8 +3286,14 @@ export function AgentKitComposer({
         throw new Error(labels.error);
     };
     assertSuggestionCurrent();
+    const onLocalSubmit = () => {
+      options.onLocalSubmit?.();
+    };
     if (!editingMessage && onSubmitOverride) {
-      const submitOptions = suggestion ? { ...options, suggestion } : options;
+      const submitOptions = {
+        ...(suggestion ? { ...options, suggestion } : options),
+        onLocalSubmit,
+      };
       await onSubmitOverride(text, files, references, submitOptions);
       return;
     }
@@ -3339,6 +3352,7 @@ export function AgentKitComposer({
         threadId,
         previousMessage?.id,
       );
+      submitFailureDraftScopeRef.current = `agentkit:${forkedThread.id}`;
       onThreadForked(forkedThread);
       const uploadedAttachments = uploadFiles.length
         ? await controller.uploadFiles(forkedThread.id, uploadFiles)
@@ -3379,8 +3393,9 @@ export function AgentKitComposer({
         attachments: [...payload.attachments],
         options: payload.options,
         metadata: sendMetadata,
-        onLocalSubmit: options.onLocalSubmit,
+        onLocalSubmit,
       });
+      submitFailureDraftScopeRef.current = null;
       editContext?.setMessage(null);
       return;
     }
@@ -3420,7 +3435,7 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
-      onLocalSubmit: options.onLocalSubmit,
+      onLocalSubmit,
     };
     if (payload.intent === "queued") {
       await control.queueMessage(message);
@@ -3602,7 +3617,7 @@ export function AgentKitComposer({
         imageModelMenu={imageModelMenu}
         autoFocus={autoFocus}
         composerRef={composerRef}
-        submitting={command.pending}
+        submissionDisabled={command.pending}
         willQueue={active && queueWhileRunning && canQueue}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
@@ -3626,6 +3641,7 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         onBeforeSubmit={onBeforeSubmit}
+        getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         onAttachmentError={reportAttachmentError}
         interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
         planModeDisabled={planModeDisabled}

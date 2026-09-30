@@ -12,6 +12,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Fixed library and signup loading flashes and made desktop recording startup cues and countdowns reliable.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Stopping during setup cancels cleanly, while active clips still finish and save.
 - The comment sign-in prompt stays visible while a clip is fullscreen.
 

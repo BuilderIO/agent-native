@@ -472,6 +472,8 @@ describe("AgentKitChat", () => {
     );
     expect(source).toContain("await control.removeQueued(item.id)");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
+    expect(source).toContain("submissionDisabled={command.pending}");
+    expect(source).not.toContain("submitting={command.pending");
     expect(source).toContain("if (disabled)");
     expect(source).toContain(
       "willQueue={active && queueWhileRunning && canQueue}",
