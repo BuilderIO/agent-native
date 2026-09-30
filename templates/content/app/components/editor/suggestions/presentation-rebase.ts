@@ -10,8 +10,7 @@ type Change = Range & { beforeText: string; afterText: string };
 type PendingSuggestion = Pick<
   ResourceSuggestion,
   "id" | "status" | "operations"
-> &
-  Partial<Pick<ResourceSuggestion, "revision">>;
+> & { revision?: ResourceSuggestion["revision"] };
 
 export type SuggestionPresentationTransition = {
   before: string;
@@ -341,8 +340,9 @@ export function hydrateSuggestionPresentationTransitions(
   current: SuggestionPresentationTransitions,
   suggestions: PendingSuggestion[],
   committed: Array<
-    Pick<ResourceSuggestion, "status" | "operations"> &
-      Partial<Pick<ResourceSuggestion, "proposalId">>
+    Pick<ResourceSuggestion, "status" | "operations"> & {
+      proposalId?: ResourceSuggestion["proposalId"];
+    }
   >,
   currentContent: string,
 ): SuggestionPresentationTransitions {
