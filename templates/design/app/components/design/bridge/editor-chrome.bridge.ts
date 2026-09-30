@@ -9399,6 +9399,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cursor = node;
     while (cursor) {
       var style = window.getComputedStyle(cursor);
+      var filterOpacities = style.filter.matchAll(
+        /(?:^|\s)opacity\(\s*([^\s)]+)/g,
+      );
+      for (var filterOpacity of filterOpacities) {
+        if (parseFloat(filterOpacity[1]) === 0) return false;
+      }
       if (style.display === "none" || Number(style.opacity) === 0) return false;
       if (cursor === stopAt) return true;
       cursor = cursor.parentElement;
@@ -9440,6 +9446,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function cornerRadiusSvgPatternHasVisibleContent(pattern, visited) {
     if (visited.indexOf(pattern) >= 0) return false;
     var seen = visited.concat([pattern]);
+    var svgPattern = pattern as SVGPatternElement;
+    function patternDimensionIsPositive(name: "width" | "height") {
+      var current = svgPattern;
+      var visitedDimensions: SVGPatternElement[] = [];
+      while (current && visitedDimensions.indexOf(current) < 0) {
+        visitedDimensions.push(current);
+        if (current.hasAttribute(name)) {
+          var dimension = name === "width" ? current.width : current.height;
+          return Boolean(dimension && dimension.baseVal.value > 0);
+        }
+        var reference =
+          current.getAttribute("href") ||
+          current.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+          "";
+        if (reference.charAt(0) !== "#") return false;
+        var inherited = current.ownerDocument.getElementById(
+          reference.slice(1),
+        );
+        current =
+          inherited && /^pattern$/i.test(inherited.localName || "")
+            ? (inherited as SVGPatternElement)
+            : null;
+      }
+      return false;
+    }
+    if (
+      !patternDimensionIsPositive("width") ||
+      !patternDimensionIsPositive("height")
+    )
+      return false;
     if (!cornerRadiusNodeAndAncestorsAllowPaint(pattern, null)) return false;
     var graphics = pattern.querySelectorAll(
       "circle, ellipse, image, line, path, polygon, polyline, rect, text, use",
@@ -9452,8 +9488,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         continue;
       }
+      var bounds: DOMRect;
+      try {
+        bounds = graphic.getBBox();
+      } catch (_error) {
+        continue;
+      }
       var style = window.getComputedStyle(graphic);
       if (
+        bounds.width > 0 &&
+        bounds.height > 0 &&
         style.fill !== "none" &&
         Number(style.fillOpacity) > 0 &&
         cornerRadiusSvgPaintIsVisible(style.fill, graphic, seen)
@@ -9461,6 +9505,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return true;
       }
       if (
+        (bounds.width > 0 ||
+          bounds.height > 0 ||
+          cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style)) &&
         style.stroke !== "none" &&
         parseFloat(style.strokeWidth) > 0 &&
         Number(style.strokeOpacity) > 0 &&
@@ -9503,6 +9550,67 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return cornerRadiusSvgPatternHasVisibleContent(paintServer, seen);
     }
     return false;
+  }
+
+  function cornerRadiusReferencedPaintElements(el) {
+    if (!el || el.tagName.toLowerCase() !== "svg") return [];
+    var paintTarget = vectorPaintTarget(el);
+    if (!paintTarget) return [];
+    var pending = [paintTarget];
+    var visited: Element[] = [];
+    var referenced: Element[] = [];
+    function enqueueReference(owner, value) {
+      var match = /url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)/gi;
+      var reference: RegExpExecArray | null;
+      while ((reference = match.exec(String(value || "")))) {
+        var target = owner.ownerDocument.getElementById(reference[2]);
+        if (target && visited.indexOf(target) < 0) pending.push(target);
+      }
+      if (
+        !/^(?:pattern|lineargradient|radialgradient|use)$/i.test(
+          owner.localName || "",
+        )
+      ) {
+        return;
+      }
+      var href =
+        owner.getAttribute("href") ||
+        owner.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+        "";
+      var id = /^#(.+)$/.exec(href.trim());
+      var target = id && owner.ownerDocument.getElementById(id[1]);
+      if (target && visited.indexOf(target) < 0) pending.push(target);
+    }
+    while (pending.length) {
+      var current = pending.pop();
+      if (!current || visited.indexOf(current) >= 0) continue;
+      visited.push(current);
+      referenced.push(current);
+      var nodes = [current].concat(Array.from(current.querySelectorAll("*")));
+      nodes.forEach(function (node) {
+        var style = window.getComputedStyle(node);
+        enqueueReference(node, style.fill);
+        enqueueReference(node, style.stroke);
+        enqueueReference(
+          node,
+          node.getAttribute("href") ||
+            node.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+        );
+      });
+    }
+    return referenced;
+  }
+
+  function cornerRadiusSvgZeroLengthStrokeHasVisibleCap(graphic, style) {
+    if (!/^(?:line|path|polyline)$/i.test(graphic.localName || "")) {
+      return false;
+    }
+    var geometry = graphic as SVGGeometryElement;
+    if (typeof geometry.getTotalLength !== "function") return false;
+    return (
+      geometry.getTotalLength() === 0 &&
+      (style.strokeLinecap === "round" || style.strokeLinecap === "square")
+    );
   }
 
   function cornerRadiusHasVisiblePaint(el) {
@@ -10230,6 +10338,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       }
+      syncOverlayObservers();
     } else {
       applyElementOverlayChrome(overlay, el);
     }
@@ -11103,6 +11212,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var overlayMutationObserver: MutationObserver | null = null;
   var observedResizeEls: Element[] = [];
   var observedMutationRoot: Element | null = null;
+  var observedMutationTarget: Element | null = null;
+  var observedMutationPaintServers: Element[] = [];
+  var observedMutationPaintParents: Element[] = [];
 
   function ensureOverlayObservers(): void {
     if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
@@ -11151,7 +11263,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectedEl && document.documentElement.contains(selectedEl)
           ? selectedEl.parentElement || selectedEl
           : null;
-      if (nextRoot !== observedMutationRoot) {
+      var nextTarget =
+        selectedEl && document.documentElement.contains(selectedEl)
+          ? selectedEl
+          : null;
+      var nextPaintServers = nextTarget
+        ? cornerRadiusReferencedPaintElements(nextTarget)
+        : [];
+      var nextPaintParents: Element[] = [];
+      nextPaintServers.forEach(function (server) {
+        var parent = server.parentElement;
+        if (
+          parent &&
+          parent !== nextRoot &&
+          parent !== nextTarget &&
+          nextPaintParents.indexOf(parent) < 0
+        ) {
+          nextPaintParents.push(parent);
+        }
+      });
+      var paintServersChanged =
+        nextPaintServers.length !== observedMutationPaintServers.length ||
+        nextPaintServers.some(function (server, index) {
+          return observedMutationPaintServers[index] !== server;
+        });
+      var paintParentsChanged =
+        nextPaintParents.length !== observedMutationPaintParents.length ||
+        nextPaintParents.some(function (parent, index) {
+          return observedMutationPaintParents[index] !== parent;
+        });
+      if (
+        nextRoot !== observedMutationRoot ||
+        nextTarget !== observedMutationTarget ||
+        paintServersChanged ||
+        paintParentsChanged
+      ) {
         overlayMutationObserver.disconnect();
         if (nextRoot) {
           overlayMutationObserver.observe(nextRoot, {
@@ -11163,11 +11309,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             overlayMutationObserver.observe(selectedEl, {
               attributes: true,
               childList: true,
-              subtree: false,
+              subtree: selectedEl.tagName.toLowerCase() === "svg",
             });
           }
         }
+        nextPaintServers.forEach(function (server) {
+          if (server !== nextRoot && server !== nextTarget) {
+            overlayMutationObserver!.observe(server, {
+              attributes: true,
+              childList: true,
+              subtree: true,
+            });
+          }
+        });
+        nextPaintParents.forEach(function (parent) {
+          overlayMutationObserver!.observe(parent, {
+            attributes: true,
+            childList: true,
+            subtree: false,
+          });
+        });
         observedMutationRoot = nextRoot;
+        observedMutationTarget = nextTarget;
+        observedMutationPaintServers = nextPaintServers;
+        observedMutationPaintParents = nextPaintParents;
       }
     }
   }
