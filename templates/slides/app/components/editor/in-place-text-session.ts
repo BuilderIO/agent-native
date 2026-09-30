@@ -1056,6 +1056,7 @@ export function startInPlaceTextSession(
   let focusSelection: TextOffsets | null = null;
   let pointerFocusPending = false;
   let edited = false;
+  const enterCreatedListItems = new WeakSet<HTMLElement>();
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
   /** The text a drag-move deleted from, reshaped once the drop has landed. */
@@ -2299,6 +2300,7 @@ export function startInPlaceTextSession(
     const current = selectionRange()?.startContainer;
     const currentItem = current ? listItemAt(current) : null;
     if (currentItem) {
+      if (currentItem !== item) enterCreatedListItems.add(currentItem);
       for (const child of Array.from(currentItem.children)) {
         if (
           isBlock(child) &&
@@ -2499,12 +2501,15 @@ export function startInPlaceTextSession(
     const content = Array.from(item.childNodes).filter(
       (child) => !nested.includes(child as HTMLElement),
     );
+    const containsParagraph = content.some(
+      (child) => child instanceof HTMLElement && child.tagName === "P",
+    );
     let paragraph =
       content.length === 1 &&
       content[0] instanceof HTMLElement &&
       content[0].tagName === "P"
         ? content[0]
-        : document.createElement("p");
+        : document.createElement(containsParagraph ? "div" : "p");
     if (paragraph !== content[0]) {
       for (const child of content) {
         if (
@@ -2541,8 +2546,11 @@ export function startInPlaceTextSession(
     const index = allItems.indexOf(item);
     const before = allItems.slice(0, index);
     const after = allItems.slice(index + 1);
+    const numberedItems = enterCreatedListItems.has(item)
+      ? allItems.filter((candidate) => candidate !== item)
+      : allItems;
+    const trailingIndex = numberedItems.indexOf(after[0]!);
     const wasRoot = list === el;
-    const remainingItems = allItems.filter((candidate) => candidate !== item);
     const makeSlice = (
       items: HTMLElement[],
       firstIndex: number,
@@ -2551,9 +2559,7 @@ export function startInPlaceTextSession(
     const leading = wasRoot ? makeSlice(before, 0) : null;
     const trailing =
       after.length && (wasRoot || before.length)
-        ? empty
-          ? makeSlice(after, index, remainingItems)
-          : makeSlice(after, index + 1)
+        ? makeSlice(after, trailingIndex, numberedItems)
         : null;
 
     if (wasRoot) {
@@ -2573,7 +2579,10 @@ export function startInPlaceTextSession(
     } else if (before.length && after.length) {
       list.replaceChildren(...before);
       if (list.tagName === "OL") {
-        list.setAttribute("start", String(orderedOrdinalAt(list, allItems, 0)));
+        list.setAttribute(
+          "start",
+          String(orderedOrdinalAt(list, numberedItems, 0)),
+        );
       }
       list.after(paragraph, ...nested, trailing!);
     } else if (before.length) {
@@ -2587,13 +2596,7 @@ export function startInPlaceTextSession(
       if (list.tagName === "OL") {
         list.setAttribute(
           "start",
-          String(
-            orderedOrdinalAt(
-              list,
-              empty ? remainingItems : allItems,
-              empty ? index : index + 1,
-            ),
-          ),
+          String(orderedOrdinalAt(list, numberedItems, trailingIndex)),
         );
       }
       list.before(paragraph, ...nested);
@@ -3207,15 +3210,15 @@ export function startInPlaceTextSession(
       return;
     }
     if (block.tagName === "LI") {
-      const list = Array.from(block.children).find(
+      const lists = Array.from(block.children).filter(
         (child) => child.tagName === "OL" || child.tagName === "UL",
       );
       const content = document.createElement(tagName);
       const moved = Array.from(block.childNodes).filter(
-        (child) => child !== list,
+        (child) => !lists.includes(child as HTMLElement),
       );
       content.append(...moved);
-      block.insertBefore(content, list ?? null);
+      block.insertBefore(content, lists[0] ?? null);
       return;
     }
     if (block.tagName !== tagName) retag(block, tagName);

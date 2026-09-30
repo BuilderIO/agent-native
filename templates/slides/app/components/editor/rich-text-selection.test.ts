@@ -135,6 +135,30 @@ describe("rich text selection", () => {
     },
   );
 
+  it("wraps cross-block code selections without nesting blocks inside code", () => {
+    const block = editable("<p>one two</p><p>three four</p>");
+    const [first, second] = Array.from(
+      block.querySelectorAll("p"),
+      (p) => p.firstChild as Text,
+    );
+    rangeFor(first!, 1, second!, 4);
+    const selectedText = window.getSelection()?.toString();
+
+    toggleInlineTextFormat(block, "code");
+
+    const code = Array.from(block.querySelectorAll("code"));
+    expect(code.map((run) => run.textContent)).toEqual(["ne two", "thre"]);
+    expect(code.every((run) => run.parentElement?.tagName === "P")).toBe(true);
+    expect(block.querySelector("code p, p code p")).toBeNull();
+    expect(
+      Array.from(
+        block.querySelectorAll("p"),
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["one two", "three four"]);
+    expect(window.getSelection()?.toString()).toBe(selectedText);
+  });
+
   it("styles each selected run inside its own markup without splitting it", () => {
     const block = editable("one <strong>two</strong> three");
     const [one, two] = [

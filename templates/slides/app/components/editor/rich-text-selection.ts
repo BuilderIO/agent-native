@@ -445,7 +445,7 @@ export function toggleInlineTextFormat(
   });
 }
 
-function wrapSelectedCode(editable: HTMLElement, texts: Text[]) {
+function wrapSelectedCodeInBlock(editable: HTMLElement, texts: Text[]) {
   const range = document.createRange();
   range.setStart(texts[0]!, 0);
   range.setEnd(texts.at(-1)!, texts.at(-1)!.length);
@@ -517,6 +517,27 @@ function wrapSelectedCode(editable: HTMLElement, texts: Text[]) {
     selected.push(node as Text);
   }
   return selected;
+}
+
+function wrapSelectedCode(editable: HTMLElement, texts: Text[]) {
+  const groups = new Map<HTMLElement, Text[]>();
+  for (const text of texts) {
+    let block = text.parentElement;
+    while (
+      block &&
+      block !== editable &&
+      !SLIDE_CLIPBOARD_BLOCK_TAGS.has(block.tagName)
+    ) {
+      block = block.parentElement;
+    }
+    const scope = block ?? editable;
+    const group = groups.get(scope) ?? [];
+    group.push(text);
+    groups.set(scope, group);
+  }
+  return Array.from(groups.values()).flatMap((group) =>
+    wrapSelectedCodeInBlock(editable, group),
+  );
 }
 
 function removeCodeFromText(code: HTMLElement, text: Text) {

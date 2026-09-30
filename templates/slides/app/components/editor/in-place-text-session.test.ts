@@ -824,6 +824,24 @@ describe("in-place text session: Enter", () => {
     ).toBe("42");
   });
 
+  it("keeps numbering when exiting a pre-existing empty middle item", () => {
+    const el = mount(
+      '<ol id="t" start="40"><li><p>Forty</p></li><li><p></p></li><li><p>Forty two</p></li></ol>',
+    );
+    session = startInPlaceTextSession(el);
+    const empty = el.querySelectorAll("li")[1]!;
+    caret(empty, 0);
+    beforeInput(el, "insertParagraph");
+
+    expect(session.element.querySelector(":scope > ol + p")?.textContent).toBe(
+      ZWSP,
+    );
+    expect(
+      session.element.querySelector(":scope > p + ol")?.getAttribute("start"),
+    ).toBe("42");
+    expect(session.element.textContent).toContain("Forty two");
+  });
+
   it("splits a child block of a container into a same-attribute sibling", () => {
     const el = mount(
       '<div id="t"><p class="lead" style="color: blue">First para</p><p>Second</p></div>',
@@ -3726,6 +3744,47 @@ describe("in-place text session: Content authoring parity", () => {
         (paragraph) => paragraph.textContent,
       ),
     ).toEqual(["One", "Three"]);
+  });
+
+  it("converts a multi-paragraph list item without nesting paragraphs", () => {
+    const el = mount(
+      '<div id="t"><ul><li><p>First</p><p>Second</p></li><li><p>After</p></li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Second"), 0);
+
+    expect(session.commands.applyAuthoringCommand("paragraph")).toBe(true);
+
+    expect(session.element.querySelector("p p")).toBeNull();
+    expect(
+      Array.from(
+        session.element.querySelectorAll(":scope > div > p"),
+        (paragraph) => paragraph.textContent,
+      ),
+    ).toEqual(["First", "Second"]);
+    expect(session.element.querySelector(":scope > ul li p")?.textContent).toBe(
+      "After",
+    );
+    expect(session.element.textContent).toBe("FirstSecondAfter");
+  });
+
+  it("keeps every direct nested list outside a retagged list item", () => {
+    const el = mount(
+      '<div id="t"><ul><li>Parent<ul><li>Bullet</li></ul><ol><li>Number</li></ol></li></ul></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Parent"), 0);
+
+    expect(session.commands.applyAuthoringCommand("heading2")).toBe(true);
+
+    const item = session.element.querySelector(":scope > ul > li")!;
+    expect(Array.from(item.children, (child) => child.tagName)).toEqual([
+      "H2",
+      "UL",
+      "OL",
+    ]);
+    expect(item.querySelector("h2 ul, h2 ol")).toBeNull();
+    expect(item.textContent).toBe("ParentBulletNumber");
   });
 
   it("continues a numbered list when adjacent paragraphs are converted", () => {
