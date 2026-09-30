@@ -1,8 +1,8 @@
 ---
 name: slide-design
 description: >-
-  Visual craft for beautiful slides: direction, typography, composition,
-  color, imagery, rhythm, and a critique pass. Use when generating slides or
+  Visual craft for beautiful slides: typography, composition, color,
+  imagery, rhythm, and a critique pass. Use when generating slides or
   when asked to make a deck or slide beautiful, polished, prettier, more
   designed, or less generic. Defers to the linked design system and reference
   deck.
@@ -16,8 +16,11 @@ deck reads as the work of a studio with a point of view, not a template.
 
 ## Precedence
 
-This skill supplies craft. It never overrides a choice already made. Resolve
-these first, in order (the `design-systems` Precedence list is the authority):
+This skill supplies craft, not a visual direction. The direction (mood,
+style, palette, type personality) comes from the user's prompt and the deck
+brief `create-deck` builds from it; never swap in a preset style. Nor does
+the skill override a choice already made. Resolve these first, in order (the
+`design-systems` Precedence list is the authority):
 
 1. Explicit constraints in the current request.
 2. The linked design system owns tokens: colors, fonts and weights, type sizes,
@@ -34,9 +37,10 @@ these first, in order (the `design-systems` Precedence list is the authority):
 
 What that means per case:
 
-- **Nothing linked:** apply the whole skill, including Direction.
-- **Design system linked:** skip Direction and the font and palette picks. The
-  system is the direction. Beauty comes from how you use it: scale contrast
+- **Nothing linked:** realize the direction the prompt implies and apply the
+  whole skill to execute it well.
+- **Design system linked:** the system is the direction; use no fonts or
+  colors outside it. Beauty comes from how you use it: scale contrast
   within its type sizes, composition, negative space, alignment, rhythm, and
   scarcity of its accent. Use fewer of its elements, more deliberately.
 - **Reference deck:** keep its layouts and chrome; tighten spacing, hierarchy,
@@ -44,45 +48,20 @@ What that means per case:
   same type scale, spacing, color, and markup conventions.
 - **Existing deck with an established look** (including one copied from a
   starter template): its own slides are the reference. "Make it beautiful"
-  refines that look; it does not replace it. Pick a new direction only when the
-  user asks to change the style or the deck has no coherent one.
+  refines that look; it does not replace it. Change the style only when the
+  user asks for a different one.
 - **Both:** system tokens, reference layouts, craft rules on top.
 
 If a selected system or reference comes back unavailable, do not fall back to
 this skill's defaults silently; tell the user the deck was styled without it.
 
-## Direction
-
-*Only when no design system, reference deck, or style reference applies.*
-
-Generic is the opposite of beautiful. Pick one direction, name it in the
-deck brief, and hold it on every slide. For a new open-ended deck, the
-`create-deck` direction checkpoint still applies: offer these as the bounded
-choice. On an unlinked deck with no coherent look, a "make it beautiful"
-request is itself the go-ahead; pick the direction that best fits the subject
-and existing content.
-
-- **Swiss:** strict grid, one heavy grotesque (Archivo, Schibsted Grotesk),
-  ink on warm paper, one signal red or orange, hairline rules, huge flush-left
-  headlines.
-- **Editorial:** high-contrast serif display (Playfair Display, Bodoni Moda,
-  EB Garamond) over a quiet sans (Inter, Work Sans), generous margins, pull
-  quotes, small-caps labels.
-- **Dark technical:** near-black canvas, crisp sans (Geist, Space Grotesk),
-  mono labels (Geist Mono, JetBrains Mono), one luminous accent, thin precise
-  lines, screenshots lit as hero shots.
-- **Soft minimal:** tinted off-white, one refined sans (Manrope, DM Sans,
-  Figtree) in two weights, lots of air, one muted accent.
-- **Poster:** condensed display (Anton, Bebas Neue, Barlow Condensed) at
-  maximum scale, few words, one saturated accent.
-
-Only named families that `SlideRenderer` maps to Google Fonts load; anything
-else falls back silently. Quote the family in `font-family`. Static-weight
-families ship only 400 and 700.
-
 ## Typography
 
 Type does most of the work.
+
+- **Only fonts the renderer maps load.** `SlideRenderer` loads named Google
+  families it knows; anything else falls back silently. Quote the family in
+  `font-family`. Static-weight families ship only 400 and 700.
 
 - **Extreme scale contrast.** Pair something very large with something very
   small, and let one element dominate. On the 960x540 canvas: statement or big
@@ -168,7 +147,8 @@ After rendering, before `get-layout-overflows` and `audit-contrast` (see
 Bounded visual QA in `create-deck`), check each changed slide:
 
 1. **Squint:** one clear focal point, balanced light and dark masses.
-2. **Direction:** the aesthetic is nameable and matches the other slides; with
+2. **Direction:** the slide delivers the look the prompt asked for and
+   matches the other slides; with
    a system linked, every color, font, radius, and logo comes from it.
 3. **Scale:** real contrast between the largest and smallest type.
 4. **Grid:** edges align within and across slides; chrome never moves.
