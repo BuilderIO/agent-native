@@ -24,6 +24,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: null }),
   useOrgRole: () => mocks.role,
 }));
 

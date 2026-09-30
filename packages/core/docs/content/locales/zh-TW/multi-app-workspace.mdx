@@ -232,6 +232,29 @@ pnpm dev
 
 活動組織自動流動：`session.orgId` → `AGENT_ORG_ID` → SQL 行範圍，因此用 `org_id` 標記的資料對於其他組織甚至代理來說都是不可見的。完整模型請參見 [Security & Data Scoping](/docs/security)。
 
+## 內建應用程式 {#builtin-apps}
+
+預設情況下，每個工作區都能將託管的第一方應用程式（Mail、Calendar、Content、Design、Clips 等）當作內建代理使用。請在根目錄 `package.json` 中透過 `agent-native.builtinAgents` 選擇工作區提供哪些應用程式：
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`：`"all"`（預設，所有公開的第一方應用程式）、`"none"`（不提供內建應用程式）或 `"selected"`（僅 `include` 中的應用程式）。
+- `include`：當 `mode` 為 `"selected"` 時此工作區提供的內建應用程式。其他應用程式對該工作區不可見。
+
+未知的 ID 會記錄警告並被忽略。獨立應用程式可以在自己的 `package.json` 中使用相同的鍵。`agent-native dev` 與工作區部署會將此值以 `AGENT_NATIVE_BUILTIN_AGENTS_JSON` 傳給每個應用程式。
+
+此設定控制應用程式清單、代理探索與代理間呼叫。已掛載的工作區應用程式與已連線的遠端代理不受影響，MCP 應用程式存取仍是獨立的路由權限。
+
 ## 共用 MCP 伺服器 {#shared-mcp}
 
 跨工作區應用共用 MCP 伺服器的推薦選項（按優先順序排列）：

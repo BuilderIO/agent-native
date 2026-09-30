@@ -1,6 +1,6 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { resolveDefaultMailHref } from "@/lib/inbox-tabs";

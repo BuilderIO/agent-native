@@ -6577,8 +6577,9 @@ it(
         width: 360px;
         height: 360px;
         transform-origin: 0 0;
-        transform: rotate(90deg);
+        rotate: 90deg;
         scale: 2 3;
+        transform: rotate(90deg);
       }
       #target {
         position: absolute;
@@ -6588,6 +6589,8 @@ it(
         height: 60px;
         border-top-left-radius: 20px;
         background: transparent;
+        border: 1px solid #111;
+        box-sizing: border-box;
       }
     </style>
   </head>
@@ -6611,17 +6614,47 @@ it(
       });
       const handleBox = await handle.boundingBox();
       if (!handleBox) throw new Error("nw radius handle not visible");
-
+      const targetBox = await page.locator("#target").boundingBox();
+      if (!targetBox) throw new Error("target is not visible");
+      expect(
+        Math.abs(
+          handleBox.x +
+            handleBox.width / 2 -
+            (targetBox.x + targetBox.width - 64),
+        ),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(
+          handleBox.y +
+            handleBox.height / 2 -
+            (targetBox.y + targetBox.height - 44),
+        ),
+      ).toBeLessThan(1.5);
       await page.mouse.move(
         handleBox.x + handleBox.width / 2,
         handleBox.y + handleBox.height / 2,
       );
       await page.mouse.down();
-      await page.mouse.move(
-        handleBox.x + handleBox.width / 2 + 12,
-        handleBox.y + handleBox.height / 2,
-        { steps: 4 },
-      );
+      const handleCenterX = handleBox.x + handleBox.width / 2;
+      const handleCenterY = handleBox.y + handleBox.height / 2;
+      for (const distance of [3, 6, 9, 12]) {
+        await page.mouse.move(handleCenterX + distance, handleCenterY);
+        const movedHandleBox = await handle.boundingBox();
+        if (!movedHandleBox) throw new Error("nw radius handle disappeared");
+        expect(
+          Math.abs(
+            movedHandleBox.x +
+              movedHandleBox.width / 2 -
+              handleCenterX -
+              distance,
+          ),
+        ).toBeLessThan(1.5);
+        expect(
+          Math.abs(
+            movedHandleBox.y + movedHandleBox.height / 2 - handleCenterY,
+          ),
+        ).toBeLessThan(1.5);
+      }
       const preview = await page.evaluate(() => {
         const target = document.querySelector<HTMLElement>("#target")!;
         return {
@@ -6636,15 +6669,15 @@ it(
         };
       });
       expect(preview.background).toBe("rgba(0, 0, 0, 0)");
-      expect(preview.radius).toBe("20px 14px");
-      expect(preview.corners).toEqual(["20px", "14px", "20px", "14px"]);
+      expect(preview.radius).toBe("16px / 20px");
+      expect(preview.corners).toEqual(Array(4).fill("16px 20px"));
       await page.mouse.up();
       const messages = await readBridgeMessages(page);
       const styleChange = messages.find(
         (message) => message.type === "visual-style-change",
       );
       expect(styleChange).toMatchObject({
-        styles: { borderRadius: "20px 14px" },
+        styles: { borderRadius: "16px / 20px" },
       });
       expect(pageErrors).toEqual([]);
     } finally {
@@ -6663,7 +6696,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6710,7 +6743,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6788,7 +6821,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0">
-  <div id="first" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="first" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -6854,7 +6887,7 @@ it.each(["rectangle", "polygon"] as const)(
         ...polygonPoints.map(([x, y]) => [x, y, null, null, null, null, null]),
       ]);
       const shapeMarkup = isRectangle
-        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;border:1px solid #111;box-sizing:border-box"></div>'
         : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
@@ -6927,7 +6960,7 @@ it.each(["rectangle", "polygon"] as const)(
         ].map(([x, y]) => [x, y, null, null, null, null, null]),
       ]);
       const shapeMarkup = isRectangle
-        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;border:1px solid #111;box-sizing:border-box"></div>'
         : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
@@ -7033,7 +7066,114 @@ it.each(["rectangle", "polygon"] as const)(
 );
 
 it(
-  "shows radius handles only on supported shapes and does not require a fill",
+  "refreshes radius handles when a referenced sibling-SVG pattern changes",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <svg style="position:absolute;left:-1000px;top:-1000px;width:100px;height:100px"><defs><pattern id="shared-radius-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="transparent"></rect></pattern></defs></svg>
+  <svg id="shape" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:40px;top:40px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#shared-radius-pattern)"></path></svg>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#shape");
+      const handle = page.locator(
+        '[data-agent-native-radius-handle="vertex-0"]',
+      );
+      expect(await handle.count()).toBe(0);
+
+      await page.evaluate(() => {
+        document
+          .querySelector("#shared-radius-pattern rect")!
+          .setAttribute("fill", "#222");
+      });
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="vertex-0"]',
+          );
+          return handle && getComputedStyle(handle).display === "block";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const handlePoint = await handle.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      });
+      await page.mouse.move(handlePoint.x, handlePoint.y);
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="vertex-0"]',
+            )!,
+          ).visibility === "visible",
+      );
+
+      await page.evaluate(() => {
+        document
+          .querySelector("#shared-radius-pattern rect")!
+          .setAttribute("fill", "transparent");
+      });
+      await page.waitForFunction(
+        () =>
+          !document.querySelector(
+            '[data-agent-native-radius-handle="vertex-0"]',
+          ),
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "shows radius handles for visible zero-length round and square pattern strokes",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <svg id="round-cap" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:40px;top:40px;width:100px;height:100px"><defs><pattern id="round-cap-pattern" patternUnits="userSpaceOnUse" width="20" height="20"><line x1="10" y1="10" x2="10" y2="10" stroke="#222" stroke-width="6" stroke-linecap="round"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#round-cap-pattern)"></path></svg>
+  <svg id="square-cap" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:200px;top:40px;width:100px;height:100px"><defs><pattern id="square-cap-pattern" patternUnits="userSpaceOnUse" width="20" height="20"><line x1="10" y1="10" x2="10" y2="10" stroke="#222" stroke-width="6" stroke-linecap="square"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#square-cap-pattern)"></path></svg>
+  <svg id="butt-cap" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:40px;width:100px;height:100px"><defs><pattern id="butt-cap-pattern" patternUnits="userSpaceOnUse" width="20" height="20"><line x1="10" y1="10" x2="10" y2="10" stroke="#222" stroke-width="6" stroke-linecap="butt"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#butt-cap-pattern)"></path></svg>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      for (const [id, shouldShow] of [
+        ["round-cap", true],
+        ["square-cap", true],
+        ["butt-cap", false],
+      ] as const) {
+        await selectElementDirect(page, `#${id}`);
+        const handles = await page
+          .locator("[data-agent-native-radius-handle]")
+          .count();
+        expect(handles > 0, id).toBe(shouldShow);
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "shows radius handles on supported shapes only when they have visible paint",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -7043,7 +7183,38 @@ it(
       });
       await page.setContent(`<!doctype html>
 <html><body>
-  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#ddd"></div>
+  <div id="no-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:40px;width:120px;height:80px"></div>
+  <div id="transparent-fill-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:140px;width:120px;height:80px;background:rgba(20,40,60,0)"></div>
+  <div id="transparent-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:300px;width:120px;height:80px;background-image:linear-gradient(transparent, rgba(20,40,60,0))"></div>
+  <div id="transparent-oklch-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:400px;width:120px;height:80px;background-image:linear-gradient(oklch(60% 0.2 20 / 0), oklch(70% 0.1 40 / 0))"></div>
+  <div id="transparent-hwb-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:500px;width:120px;height:80px;background-image:linear-gradient(hwb(0 0% 0% / 0%), hwb(120 0% 0% / 0%))"></div>
+  <div id="transparent-radial-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:400px;width:120px;height:80px;background-image:radial-gradient(10px 20px at center, transparent, transparent)"></div>
+  <div id="visible-gradient-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:300px;width:120px;height:80px;background-image:linear-gradient(transparent, rgba(20,40,60,0)), linear-gradient(#f00, #00f)"></div>
+  <div id="stroke-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:240px;width:120px;height:80px;background:transparent;border:2px solid #222;box-sizing:border-box"></div>
+  <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
+  <div id="filter-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:580px;width:80px;height:80px;background:#ddd;filter:opacity(0)"></div>
+  <div style="position:absolute;left:780px;top:580px;filter:blur(0) opacity(0)"><div id="filter-opacity-ancestor-rectangle" data-agent-native-primitive="rectangle" style="width:80px;height:80px;background:#ddd"></div></div>
+  <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
+  <svg id="zero-opacity-stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:760px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4" stroke-opacity="0"></path></svg>
+  <svg id="stroke-only-path" data-an-primitive="path" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:520px;top:300px;width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
+  <svg id="opacity-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:40px;width:80px;height:80px"><g opacity="0"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
+  <svg id="visibility-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:140px;width:80px;height:80px"><g visibility="hidden"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
+  <svg id="display-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:240px;width:80px;height:80px"><g display="none"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
+  <svg id="transparent-paint-server-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:300px;width:80px;height:80px"><defs><linearGradient id="radius-transparent-gradient"><stop offset="0%" stop-color="#222" stop-opacity="0"></stop><stop offset="100%" stop-color="#eee" stop-opacity="0"></stop></linearGradient></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-gradient)"></path></svg>
+  <svg id="visible-paint-server-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:300px;width:80px;height:80px"><defs><linearGradient id="radius-visible-gradient"><stop offset="0%" stop-color="#222"></stop><stop offset="100%" stop-color="#eee"></stop></linearGradient></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-gradient)"></path></svg>
+  <svg id="visible-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:400px;width:80px;height:80px"><defs><pattern id="radius-visible-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-visible-pattern)"></path></svg>
+  <svg id="inherited-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:400px;width:80px;height:80px"><defs><pattern id="radius-base-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern><pattern id="radius-inherited-pattern" href="#radius-base-pattern"></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-inherited-pattern)"></path></svg>
+  <svg id="transparent-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:400px;width:80px;height:80px"><defs><pattern id="radius-transparent-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="transparent"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-transparent-pattern)"></path></svg>
+  <svg id="zero-width-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-width-pattern" patternUnits="userSpaceOnUse" width="0" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-width-pattern)"></path></svg>
+  <svg id="zero-height-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-height-pattern" patternUnits="userSpaceOnUse" width="10" height="0"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-height-pattern)"></path></svg>
+  <svg id="missing-size-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:500px;width:80px;height:80px"><defs><pattern id="radius-missing-size-pattern" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-missing-size-pattern)"></path></svg>
+  <svg id="css-sized-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:500px;width:80px;height:80px"><defs><pattern id="radius-css-sized-pattern" patternUnits="userSpaceOnUse" style="width:10px;height:10px"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-css-sized-pattern)"></path></svg>
+  <svg id="zero-geometry-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:500px;width:80px;height:80px"><defs><pattern id="radius-zero-geometry-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="0" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-zero-geometry-pattern)"></path></svg>
+  <svg id="dynamic-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:360px;top:600px;width:80px;height:80px"><defs><pattern id="radius-dynamic-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="#222"></rect></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-dynamic-pattern)"></path></svg>
+  <svg id="stroke-pattern-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:480px;top:600px;width:80px;height:80px"><defs><pattern id="radius-stroke-pattern" patternUnits="userSpaceOnUse" width="10" height="10"><line x1="5" y1="0" x2="5" y2="10" stroke="#222" stroke-width="1"></line></pattern></defs><path d="M 50 0 L 100 100 L 0 100 Z" fill="url(#radius-stroke-pattern)"></path></svg>
+  <div style="position:absolute;left:640px;top:560px;width:80px;height:80px;visibility:hidden"><svg id="visibility-override-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222" visibility="visible"></path></svg></div>
+  <div id="collapsed-paint-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:200px;top:500px;width:120px;height:80px;background:#ddd;visibility:collapse"></div>
   <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
   <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
   <div id="unknown" style="position:absolute;left:520px;top:40px;width:60px;height:30px"></div>
@@ -7058,6 +7229,18 @@ it(
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await collectBridgeMessages(page);
 
+      const paintedShapeHandleCounts = new Map([
+        ["rectangle", 4],
+        ["visible-gradient-rectangle", 4],
+        ["stroke-rectangle", 4],
+        ["stroke-polygon", 3],
+        ["visible-paint-server-polygon", 3],
+        ["visible-pattern-polygon", 3],
+        ["inherited-pattern-polygon", 3],
+        ["dynamic-pattern-polygon", 3],
+        ["stroke-pattern-polygon", 3],
+        ["visibility-override-polygon", 3],
+      ]);
       for (const id of [
         "rectangle",
         "frame",
@@ -7067,8 +7250,43 @@ it(
         "line",
         "arrow",
         "malformed-vector",
+        "no-paint-rectangle",
+        "transparent-fill-rectangle",
+        "transparent-gradient-rectangle",
+        "transparent-oklch-gradient-rectangle",
+        "transparent-hwb-gradient-rectangle",
+        "transparent-radial-gradient-rectangle",
+        "visible-gradient-rectangle",
+        "stroke-rectangle",
+        "zero-opacity-rectangle",
+        "filter-opacity-rectangle",
+        "filter-opacity-ancestor-rectangle",
+        "stroke-polygon",
+        "zero-opacity-stroke-polygon",
+        "stroke-only-path",
+        "opacity-group-polygon",
+        "visibility-group-polygon",
+        "display-group-polygon",
+        "transparent-paint-server-polygon",
+        "visible-paint-server-polygon",
+        "visible-pattern-polygon",
+        "inherited-pattern-polygon",
+        "transparent-pattern-polygon",
+        "zero-width-pattern-polygon",
+        "zero-height-pattern-polygon",
+        "missing-size-pattern-polygon",
+        "css-sized-pattern-polygon",
+        "zero-geometry-pattern-polygon",
+        "dynamic-pattern-polygon",
+        "stroke-pattern-polygon",
+        "visibility-override-polygon",
+        "collapsed-paint-rectangle",
       ]) {
         await selectElementDirect(page, `#${id}`);
+        expect(
+          await page.locator("[data-agent-native-radius-handle]").count(),
+          id,
+        ).toBe(paintedShapeHandleCounts.get(id) ?? 0);
         const visible = await page.evaluate(() =>
           Array.from(
             document.querySelectorAll<HTMLElement>(
@@ -7083,13 +7301,51 @@ it(
             ),
         );
         expect(visible, id).toEqual([]);
+        if (id === "css-sized-pattern-polygon") {
+          const patternGeometry = await page
+            .locator("#radius-css-sized-pattern")
+            .evaluate((element) => {
+              const pattern = element as SVGPatternElement;
+              return {
+                widthAttribute: pattern.hasAttribute("width"),
+                width: pattern.width.baseVal.value,
+                computedWidth: getComputedStyle(pattern).width,
+                heightAttribute: pattern.hasAttribute("height"),
+                height: pattern.height.baseVal.value,
+                computedHeight: getComputedStyle(pattern).height,
+              };
+            });
+          expect(patternGeometry).toEqual({
+            widthAttribute: false,
+            width: 0,
+            computedWidth: "10px",
+            heightAttribute: false,
+            height: 0,
+            computedHeight: "10px",
+          });
+          const renderedPixel = await page
+            .locator("#css-sized-pattern-polygon")
+            .evaluate(async (element) => {
+              const image = new Image();
+              const svg = new XMLSerializer().serializeToString(element);
+              image.src = `data:image/svg+xml;base64,${btoa(svg)}`;
+              await image.decode();
+              const canvas = document.createElement("canvas");
+              canvas.width = canvas.height = 80;
+              const context = canvas.getContext("2d");
+              if (!context) throw new Error("2d canvas context is unavailable");
+              context.drawImage(image, 0, 0);
+              return Array.from(context.getImageData(40, 40, 1, 1).data);
+            });
+          expect(renderedPixel).toEqual([0, 0, 0, 0]);
+        }
         if (id === "rectangle") {
           const hasAuthoredFill = await page
             .locator("#rectangle")
             .evaluate((element) =>
               Boolean((element as HTMLElement).style.background),
             );
-          expect(hasAuthoredFill).toBe(false);
+          expect(hasAuthoredFill).toBe(true);
           await page.mouse.move(44, 44);
           const visibleAtCorner = await page.evaluate(() =>
             Array.from(
@@ -7185,8 +7441,305 @@ it(
           );
           expect(visibleAfterLeaving).toBe(false);
         }
+        if (id === "visible-gradient-rectangle") {
+          await page.mouse.move(204, 304);
+          const visibleAtCorner = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtCorner).toEqual(["nw"]);
+        }
+        if (id === "visible-paint-server-polygon") {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error("visible gradient polygon is not visible");
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex).toEqual(["vertex-0"]);
+        }
+        if (
+          id === "visible-pattern-polygon" ||
+          id === "inherited-pattern-polygon" ||
+          id === "visibility-override-polygon" ||
+          id === "stroke-pattern-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex, id).toEqual(["vertex-0"]);
+        }
+        if (
+          id === "zero-width-pattern-polygon" ||
+          id === "zero-height-pattern-polygon" ||
+          id === "missing-size-pattern-polygon" ||
+          id === "zero-geometry-pattern-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAtVertex = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtVertex, id).toEqual([]);
+        }
+        if (
+          id === "dynamic-pattern-polygon" ||
+          id === "stroke-pattern-polygon" ||
+          id === "stroke-polygon"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const waitForRadiusHandleVisibility = (expected: boolean) =>
+            page.waitForFunction(
+              (shouldBeVisible) => {
+                const handle = document.querySelector<HTMLElement>(
+                  '[data-agent-native-radius-handle="vertex-0"]',
+                );
+                const isVisible =
+                  !!handle && getComputedStyle(handle).visibility === "visible";
+                return isVisible === shouldBeVisible;
+              },
+              expected,
+              { timeout: 2_000 },
+            );
+          await waitForRadiusHandleVisibility(true);
+          if (id === "stroke-polygon") {
+            await page
+              .locator('[data-agent-native-radius-handle="vertex-0"]')
+              .waitFor({ state: "visible" });
+          }
+          if (id === "dynamic-pattern-polygon") {
+            await page
+              .locator("#radius-dynamic-pattern rect")
+              .evaluate((node) => {
+                node.setAttribute("fill", "transparent");
+              });
+            await waitForRadiusHandleVisibility(false);
+            await page
+              .locator("#radius-dynamic-pattern rect")
+              .evaluate((node) => {
+                node.setAttribute("fill", "#222");
+              });
+            await waitForRadiusHandleVisibility(true);
+          }
+        }
+        if (id === "stroke-rectangle") {
+          await page.mouse.move(644, 244);
+          const visibleAtCorner = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtCorner).toEqual(["nw"]);
+        }
+        if (
+          id === "no-paint-rectangle" ||
+          id === "transparent-fill-rectangle" ||
+          id === "transparent-gradient-rectangle" ||
+          id === "transparent-oklch-gradient-rectangle" ||
+          id === "transparent-hwb-gradient-rectangle" ||
+          id === "transparent-radial-gradient-rectangle" ||
+          id === "filter-opacity-rectangle" ||
+          id === "filter-opacity-ancestor-rectangle" ||
+          id === "transparent-paint-server-polygon" ||
+          id === "transparent-pattern-polygon" ||
+          id === "zero-width-pattern-polygon" ||
+          id === "zero-height-pattern-polygon" ||
+          id === "missing-size-pattern-polygon" ||
+          id === "zero-geometry-pattern-polygon" ||
+          id === "zero-opacity-rectangle" ||
+          id === "collapsed-paint-rectangle"
+        ) {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + 4, box.y + 4);
+          const visibleAtCorner = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          const style = await page.locator(`#${id}`).evaluate((element) => {
+            const computed = getComputedStyle(element);
+            return {
+              backgroundColor: computed.backgroundColor,
+              backgroundImage: computed.backgroundImage,
+              opacity: computed.opacity,
+              border: [
+                computed.borderTopWidth,
+                computed.borderTopStyle,
+                computed.borderTopColor,
+              ],
+            };
+          });
+          expect(visibleAtCorner, `${id} ${JSON.stringify(style)}`).toEqual([]);
+        }
       }
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "maps a polygon radius handle through a letterboxed SVG viewport during drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const points = [
+        [100, 0],
+        [186.6, 75],
+        [13.4, 75],
+      ];
+      const serializedNodes = JSON.stringify([
+        1,
+        ...points.map(([x, y]) => [x, y, null, null, null, null, null]),
+      ]);
+      const path = `M ${points.map(([x, y]) => `${x} ${y}`).join(" L ")} L ${points[0]![0]} ${points[0]![1]} Z`;
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <svg id="shape" data-agent-native-node-id="shape" data-an-primitive="polygon" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 200 100" style="position:absolute;left:80px;top:80px;width:120px;height:100px"><path d="${path}" fill="#d9d9d9" stroke="none"></path></svg>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#shape");
+      const handle = page.locator(
+        '[data-agent-native-radius-handle="vertex-0"]',
+      );
+      const hiddenBox = await handle.boundingBox();
+      if (!hiddenBox) throw new Error("polygon radius handle is unavailable");
+      await page.mouse.move(
+        hiddenBox.x + hiddenBox.width / 2,
+        hiddenBox.y + hiddenBox.height / 2,
+      );
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="vertex-0"]',
+            )!,
+          ).visibility === "visible",
+      );
+      const initialBox = await handle.boundingBox();
+      if (!initialBox) throw new Error("polygon radius handle is not visible");
+      const start = {
+        x: initialBox.x + initialBox.width / 2,
+        y: initialBox.y + initialBox.height / 2,
+      };
+      const delta = await page.evaluate(() => {
+        const svg = document.querySelector<SVGSVGElement>("#shape")!;
+        const nodes = JSON.parse(svg.getAttribute("data-an-pen-nodes")!);
+        const point = { x: nodes[1][0], y: nodes[1][1] };
+        const previous = {
+          x: nodes[nodes.length - 1][0],
+          y: nodes[nodes.length - 1][1],
+        };
+        const next = { x: nodes[2][0], y: nodes[2][1] };
+        const unit = (candidate: { x: number; y: number }) => {
+          const dx = candidate.x - point.x;
+          const dy = candidate.y - point.y;
+          const length = Math.hypot(dx, dy);
+          return { x: dx / length, y: dy / length };
+        };
+        const incoming = unit(previous);
+        const outgoing = unit(next);
+        const bisector = {
+          x: incoming.x + outgoing.x,
+          y: incoming.y + outgoing.y,
+        };
+        const length = Math.hypot(bisector.x, bisector.y);
+        const local = {
+          x: (bisector.x / length) * 12,
+          y: (bisector.y / length) * 12,
+        };
+        const matrix = svg.getScreenCTM()!;
+        return {
+          x: matrix.a * local.x + matrix.c * local.y,
+          y: matrix.b * local.x + matrix.d * local.y,
+        };
+      });
+      expect(delta.y).not.toBe(0);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + delta.x, start.y + delta.y, {
+        steps: 4,
+      });
+      const radius = await page
+        .locator("#shape")
+        .getAttribute("data-an-corner-radius");
+      const movedBox = await handle.boundingBox();
+      if (!movedBox) throw new Error("polygon radius handle disappeared");
+      expect(Number(radius)).toBeGreaterThan(0);
+      expect(movedBox.x + movedBox.width / 2 - start.x).toBeCloseTo(delta.x, 0);
+      expect(movedBox.y + movedBox.height / 2 - start.y).toBeCloseTo(
+        delta.y,
+        0,
+      );
+      await page.mouse.up();
     } finally {
       await browser.close();
     }
@@ -7202,9 +7755,10 @@ it.each(["polygon", "star"] as const)(
       const points =
         kind === "polygon"
           ? [
-              [50, 0],
-              [93.3, 75],
-              [6.7, 75],
+              [20, 10],
+              [90, 30],
+              [60, 90],
+              [10, 80],
             ]
           : Array.from({ length: 10 }, (_, index) => {
               const angle = -Math.PI / 2 + (index * Math.PI) / 5;
@@ -7219,13 +7773,17 @@ it.each(["polygon", "star"] as const)(
         ...points.map(([x, y]) => [x, y, null, null, null, null, null]),
       ]);
       const originalD = `M ${points.map(([x, y]) => `${x} ${y}`).join(" L ")} L ${points[0]![0]} ${points[0]![1]} Z`;
+      const handleIndex = kind === "polygon" ? 1 : 0;
+      const svgWidth = kind === "polygon" ? 180 : 100;
+      const svgHeight = kind === "polygon" ? 100 : 180;
+      const handleSelector = `[data-agent-native-radius-handle="vertex-${handleIndex}"]`;
       const browserPage = await browser.newPage({
         viewport: { width: 900, height: 700 },
       });
       const pageErrors: string[] = [];
       browserPage.on("pageerror", (error) => pageErrors.push(error.message));
       await browserPage.setContent(`<!doctype html><html><body>
-  <svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg>
+  <div style="position:absolute;left:150px;top:120px;transform:rotate(23deg) scale(1.35,.72);transform-origin:30px 40px"><svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" style="position:absolute;left:80px;top:45px;width:${svgWidth}px;height:${svgHeight}px;transform:rotate(-11deg) scale(.83,1.4);transform-origin:50px 50px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg></div>
 </body></html>`);
       await browserPage.addScriptTag({
         content: hydratedEditorChromeBridgeScript(),
@@ -7234,51 +7792,79 @@ it.each(["polygon", "star"] as const)(
         '[data-agent-native-edit-overlay="shield"]',
       );
       await collectBridgeMessages(browserPage);
-      await selectElementDirect(browserPage, "#shape");
-
-      const hiddenHandle = await browserPage.evaluate(() => {
-        const handle = document.querySelector<HTMLElement>(
-          '[data-agent-native-radius-handle="vertex-0"]',
+      // The shared selector helper assumes an untransformed AABB overlay.
+      await browserPage.evaluate(() => {
+        window.postMessage({ type: "select-element", selector: "#shape" }, "*");
+      });
+      await browserPage.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
         );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+
+      const expectedStart = await browserPage.evaluate((vertexIndex) => {
+        const svg = document.querySelector<SVGSVGElement>("#shape")!;
+        const matrix = svg.getScreenCTM()!;
+        const points = JSON.parse(svg.getAttribute("data-an-pen-nodes")!).slice(
+          1,
+        );
+        const tuple = points[vertexIndex] as number[];
+        return {
+          x: matrix.a * tuple[0]! + matrix.c * tuple[1]! + matrix.e,
+          y: matrix.b * tuple[0]! + matrix.d * tuple[1]! + matrix.f,
+        };
+      }, handleIndex);
+      const hiddenHandle = await browserPage.evaluate((selector) => {
+        const handle = document.querySelector<HTMLElement>(selector);
         return {
           found: !!handle,
           visibility: handle ? getComputedStyle(handle).visibility : null,
-          rect: handle?.getBoundingClientRect().toJSON(),
+          center: handle
+            ? {
+                x:
+                  handle.getBoundingClientRect().left +
+                  handle.getBoundingClientRect().width / 2,
+                y:
+                  handle.getBoundingClientRect().top +
+                  handle.getBoundingClientRect().height / 2,
+              }
+            : null,
         };
-      });
+      }, handleSelector);
       expect(hiddenHandle).toMatchObject({
         found: true,
         visibility: "hidden",
       });
-      await browserPage.mouse.move(
-        hiddenHandle.rect.x + hiddenHandle.rect.width / 2,
-        hiddenHandle.rect.y + hiddenHandle.rect.height / 2,
-      );
-      const handle = browserPage.locator(
-        '[data-agent-native-radius-handle="vertex-0"]',
-      );
+      await browserPage.mouse.move(expectedStart.x, expectedStart.y);
+      const handle = browserPage.locator(handleSelector);
       const initialHandleVisibility = await browserPage.evaluate(
-        () =>
-          getComputedStyle(
-            document.querySelector<HTMLElement>(
-              '[data-agent-native-radius-handle="vertex-0"]',
-            )!,
-          ).visibility,
+        (selector) =>
+          getComputedStyle(document.querySelector<HTMLElement>(selector)!)
+            .visibility,
+        handleSelector,
       );
       expect(initialHandleVisibility).toBe("visible");
+      expect(Math.abs(hiddenHandle.center!.x - expectedStart.x)).toBeLessThan(
+        1.5,
+      );
+      expect(Math.abs(hiddenHandle.center!.y - expectedStart.y)).toBeLessThan(
+        1.5,
+      );
       expect(pageErrors).toEqual([]);
       const handleBox = await handle.boundingBox();
       if (!handleBox) throw new Error("vector radius handle is not visible");
-      const move = await browserPage.evaluate(() => {
+      const move = await browserPage.evaluate((vertexIndex) => {
         const svg = document.querySelector<SVGSVGElement>("#shape")!;
         const parsed = JSON.parse(svg.getAttribute("data-an-pen-nodes")!);
         const points = parsed.slice(1).map((tuple: number[]) => ({
           x: tuple[0]!,
           y: tuple[1]!,
         }));
-        const point = points[0]!;
-        const previous = points[points.length - 1]!;
-        const next = points[1]!;
+        const point = points[vertexIndex]!;
+        const previous =
+          points[(vertexIndex + points.length - 1) % points.length]!;
+        const next = points[(vertexIndex + 1) % points.length]!;
         const unit = (candidate: { x: number; y: number }) => {
           const dx = candidate.x - point.x;
           const dy = candidate.y - point.y;
@@ -7292,24 +7878,43 @@ it.each(["polygon", "star"] as const)(
           y: incoming.y + outgoing.y,
         };
         const bisectorLength = Math.hypot(bisector.x, bisector.y);
+        const matrix = svg.getScreenCTM()!;
+        const unitX = bisector.x / bisectorLength;
+        const unitY = bisector.y / bisectorLength;
         return {
-          dx: (bisector.x / bisectorLength) * 16,
-          dy: (bisector.y / bisectorLength) * 16,
+          dx: (matrix.a * unitX + matrix.c * unitY) * 16,
+          dy: (matrix.b * unitX + matrix.d * unitY) * 16,
           sinHalfAngle: Math.sin(
             Math.acos(incoming.x * outgoing.x + incoming.y * outgoing.y) / 2,
           ),
         };
-      });
+      }, handleIndex);
       await browserPage.mouse.move(
         handleBox.x + handleBox.width / 2,
         handleBox.y + handleBox.height / 2,
       );
       await browserPage.mouse.down();
-      await browserPage.mouse.move(
-        handleBox.x + handleBox.width / 2 + move.dx,
-        handleBox.y + handleBox.height / 2 + move.dy,
-        { steps: 4 },
-      );
+      for (let step = 1; step <= 4; step += 1) {
+        const pointerX =
+          handleBox.x + handleBox.width / 2 + (move.dx * step) / 4;
+        const pointerY =
+          handleBox.y + handleBox.height / 2 + (move.dy * step) / 4;
+        await browserPage.mouse.move(pointerX, pointerY);
+        const previewRadius = await browserPage
+          .locator("#shape")
+          .getAttribute("data-an-corner-radius");
+        expect(
+          Math.abs(Number(previewRadius) - 4 * step * move.sinHalfAngle),
+        ).toBeLessThan(0.5);
+        const movedHandleBox = await handle.boundingBox();
+        expect(movedHandleBox).not.toBeNull();
+        expect(
+          Math.abs(movedHandleBox!.x + movedHandleBox!.width / 2 - pointerX),
+        ).toBeLessThan(1.5);
+        expect(
+          Math.abs(movedHandleBox!.y + movedHandleBox!.height / 2 - pointerY),
+        ).toBeLessThan(1.5);
+      }
       const preview = await browserPage.evaluate(() => ({
         radius: document
           .querySelector("#shape")!
@@ -7320,13 +7925,6 @@ it.each(["polygon", "star"] as const)(
       expect(Number(preview.radius)).toBeGreaterThan(0);
       expect(preview.d).toContain(" A ");
       expect(movedHandleBox).not.toBeNull();
-      expect(
-        Math.hypot(
-          movedHandleBox!.x - handleBox.x,
-          movedHandleBox!.y - handleBox.y,
-        ),
-      ).toBeGreaterThan(1);
-      expect(movedHandleBox!.y).toBeGreaterThan(handleBox.y);
       await browserPage.mouse.up();
       const messages = await readBridgeMessages(browserPage);
       expect(
@@ -9351,6 +9949,18 @@ it(
       );
       expect(staleReservationSnapshots).toHaveLength(0);
 
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "request-runtime-layer-snapshot",
+            readinessRequestId: 71,
+          },
+          "*",
+        );
+      });
+      await page.locator("h1").evaluate((element) => {
+        element.textContent = "Latest canvas";
+      });
       await page.evaluate((request) => {
         window.postMessage(
           {
@@ -9361,21 +9971,6 @@ it(
           "*",
         );
       }, firstRequest);
-      await page.waitForFunction(
-        (requestId) =>
-          ((window as any).__bridgeMessages ?? []).some(
-            (message: any) =>
-              message.type === "agent-native:runtime-layer-snapshot" &&
-              message.payload?.requestId === requestId &&
-              !message.payload?.reservationToken,
-          ),
-        firstRequest.requestId,
-        { timeout: 5_000 },
-      );
-      await page.locator("h1").evaluate((element) => {
-        element.textContent = "Latest canvas";
-      });
-      await page.waitForTimeout(350);
       await page.waitForFunction(
         () =>
           ((window as any).__bridgeMessages ?? []).filter(
@@ -9399,6 +9994,17 @@ it(
         firstRequest.requestId,
         firstRequest.requestId + 1,
       ]);
+      expect(
+        await page.evaluate(
+          (requestId) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "agent-native:runtime-layer-snapshot" &&
+                message.payload?.requestId === requestId,
+            ),
+          firstRequest.requestId,
+        ),
+      ).toBe(false);
 
       await page.evaluate(
         ({ requestId, documentId }) => {
@@ -9419,6 +10025,7 @@ it(
             (message: any) =>
               message.type === "agent-native:runtime-layer-snapshot" &&
               message.payload?.requestId === requestId &&
+              message.payload?.readinessRequestId === 71 &&
               !message.payload?.reservationToken &&
               message.payload?.html?.includes("Latest canvas"),
           ),
@@ -9484,6 +10091,7 @@ it(
           )
           .map((message: any) => ({
             requestId: message.payload.requestId,
+            readinessRequestId: message.payload.readinessRequestId,
             reservationToken: message.payload.reservationToken,
             html: message.payload.html,
           })),
@@ -9491,6 +10099,7 @@ it(
       expect(reservedSnapshots).toEqual([
         {
           requestId: requestIds[1],
+          readinessRequestId: undefined,
           reservationToken: "capture-two",
           html: expect.stringContaining("Latest canvas"),
         },
@@ -9501,9 +10110,74 @@ it(
             message.type === "agent-native:runtime-layer-snapshot",
         ),
       );
-      expect(snapshots).toHaveLength(3);
-      expect(snapshots.at(-1)?.payload).toMatchObject({
-        requestId: requestIds[1],
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0].payload.readinessRequestId).toBe(71);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "request-runtime-layer-snapshot",
+            readinessRequestId: 72,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          ).length === 3,
+        undefined,
+        { timeout: 5_000 },
+      );
+      const thirdRequest = await page.evaluate(
+        () =>
+          ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          )[2],
+      );
+      await page.evaluate(
+        ({ requestId, documentId }) => {
+          window.postMessage(
+            {
+              type: "grant-runtime-layer-snapshot-reservation",
+              requestId,
+              documentId,
+              reservationToken: "capture-two",
+            },
+            "*",
+          );
+        },
+        {
+          requestId: thirdRequest.requestId,
+          documentId: firstRequest.documentId,
+        },
+      );
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot" &&
+              message.payload?.readinessRequestId === 72 &&
+              message.payload?.reservationToken === "capture-two",
+          ),
+        undefined,
+        { timeout: 5_000 },
+      );
+      const readinessSnapshot = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot" &&
+            message.payload?.readinessRequestId === 72,
+        ),
+      );
+      expect(readinessSnapshot.payload).toMatchObject({
+        requestId: thirdRequest.requestId,
+        readinessRequestId: 72,
         reservationToken: "capture-two",
         html: expect.stringContaining("Latest canvas"),
       });
@@ -16881,6 +17555,838 @@ it(
             message.svgFileError === "unreadable",
         ),
       );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    axis: "x",
+    rotate: "x 25deg",
+    matrixAxis: "1,0,0",
+    dx: 0,
+    dy: 12,
+  },
+  {
+    axis: "y",
+    rotate: "y 25deg",
+    matrixAxis: "0,1,0",
+    dx: 12,
+    dy: 0,
+  },
+  {
+    axis: "arbitrary",
+    rotate: "1 2 3 25deg",
+    matrixAxis: "1,2,3",
+    dx: 12,
+    dy: 9,
+  },
+])(
+  "editor chrome bridge tracks radius drags through independent $axis-axis rotation",
+  { timeout: 30_000 },
+  async ({ rotate, matrixAxis, dx, dy }) => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      .rotated-parent {
+        position: absolute;
+        left: 360px;
+        top: 100px;
+        width: 240px;
+        height: 240px;
+        transform-origin: 0 0;
+        rotate: ${rotate};
+        scale: 2 3;
+      }
+      #target {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 100px;
+        height: 60px;
+        border-top-left-radius: 20px;
+        background: transparent;
+        border: 1px solid #111;
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotated-parent" data-agent-native-node-id="parent">
+      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle"></div>
+    </div>
+  </body>
+</html>`);
+      await page.evaluate(() => {
+        (window as any).__radiusPointerMoves = [];
+        (window as any).__radiusPointerStart = null;
+        document.addEventListener(
+          "mousedown",
+          (event) => {
+            (window as any).__radiusPointerStart = {
+              x: event.clientX,
+              y: event.clientY,
+            };
+          },
+          true,
+        );
+        document.addEventListener(
+          "mousemove",
+          (event) => {
+            (window as any).__radiusPointerMoves.push({
+              x: event.clientX,
+              y: event.clientY,
+            });
+          },
+          true,
+        );
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return handle && window.getComputedStyle(handle).display === "block";
+      });
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle not visible");
+      const computedRotate = await page
+        .locator(".rotated-parent")
+        .evaluate((el) => getComputedStyle(el).rotate);
+      expect(computedRotate).not.toBe("none");
+      const expectedHandle = await page.evaluate((axis) => {
+        const rotation = new DOMMatrixReadOnly("rotate3d(" + axis + ",25deg)");
+        const matrix = {
+          a: rotation.a * 2,
+          b: rotation.b * 2,
+          c: rotation.c * 3,
+          d: rotation.d * 3,
+        };
+        const xLength = Math.hypot(matrix.a, matrix.b) || 1;
+        const yLength = Math.hypot(matrix.c, matrix.d) || 1;
+        return {
+          x:
+            360 +
+            matrix.a * 40 +
+            matrix.c * 40 +
+            4 * (matrix.a / xLength + matrix.c / yLength),
+          y:
+            100 +
+            matrix.b * 40 +
+            matrix.d * 40 +
+            4 * (matrix.b / xLength + matrix.d / yLength),
+        };
+      }, matrixAxis);
+      expect(handleBox.x + handleBox.width / 2).toBeCloseTo(
+        expectedHandle.x,
+        0,
+      );
+      expect(handleBox.y + handleBox.height / 2).toBeCloseTo(
+        expectedHandle.y,
+        0,
+      );
+      const startX = handleBox.x + handleBox.width / 2;
+      const startY = handleBox.y + handleBox.height / 2;
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      for (const distance of [3, 6, 9, 12]) {
+        const pointerX = startX + (dx * distance) / 12;
+        const pointerY = startY + (dy * distance) / 12;
+        await page.mouse.move(pointerX, pointerY);
+        const pointerState = await page.evaluate(() => ({
+          start: (window as any).__radiusPointerStart,
+          current: (window as any).__radiusPointerMoves.at(-1),
+        }));
+        const movedHandleBox = await handle.boundingBox();
+        if (!movedHandleBox) throw new Error("radius handle disappeared");
+        expect(
+          await handle.evaluate(
+            (element) => getComputedStyle(element).visibility,
+          ),
+        ).toBe("visible");
+        expect(
+          Math.abs(
+            movedHandleBox.x +
+              movedHandleBox.width / 2 -
+              pointerState.current.x,
+          ),
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(
+            movedHandleBox.y +
+              movedHandleBox.height / 2 -
+              pointerState.current.y,
+          ),
+        ).toBeLessThanOrEqual(1);
+        const expectedRadius = await page.evaluate(
+          ({ axis, start, current }) => {
+            const rotation = new DOMMatrixReadOnly(
+              "rotate3d(" + axis + ",25deg)",
+            );
+            const matrix = {
+              a: rotation.a * 2,
+              b: rotation.b * 2,
+              c: rotation.c * 3,
+              d: rotation.d * 3,
+            };
+            const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+            const dx = current.x - start.x;
+            const dy = current.y - start.y;
+            return {
+              x: 20 + (matrix.d * dx - matrix.c * dy) / determinant,
+              y: 20 + (-matrix.b * dx + matrix.a * dy) / determinant,
+            };
+          },
+          { axis: matrixAxis, ...pointerState },
+        );
+        const actualRadius = await page.locator("#target").evaluate((el) =>
+          getComputedStyle(el)
+            .borderTopLeftRadius.split(/\s+/)
+            .map((part) => parseFloat(part)),
+        );
+        if (
+          Math.abs(actualRadius[0] - expectedRadius.x) >= 0.05 ||
+          Math.abs(actualRadius[1] - expectedRadius.y) >= 0.05
+        ) {
+          throw new Error(
+            JSON.stringify({ pointerState, expectedRadius, actualRadius }),
+          );
+        }
+      }
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "maps radius handles through a complete nested 3D transform chain",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body>
+  <div id="root" style="position:absolute;left:320px;top:100px;width:300px;height:300px;transform:rotateY(35deg);transform-style:preserve-3d;transform-origin:0 0">
+    <div id="parent" style="position:absolute;left:20px;top:15px;width:200px;height:180px;transform:rotateX(25deg);transform-style:preserve-3d;transform-origin:0 0">
+      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-top-left-radius:20px;background:transparent;border:1px solid #111;box-sizing:border-box"></div>
+    </div>
+  </div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "#target" },
+          "*",
+        );
+      });
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const entry = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return entry && getComputedStyle(entry).display === "block";
+      });
+      const handleCenter = await handle.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      });
+      const expected = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        const elements = ["#target", "#parent", "#root"].map(
+          (selector) => document.querySelector<HTMLElement>(selector)!,
+        );
+        const transform = elements.reduce((combined, element) => {
+          const value = getComputedStyle(element).transform;
+          const local =
+            value === "none"
+              ? new DOMMatrixReadOnly()
+              : new DOMMatrixReadOnly(value);
+          return local.multiply(combined);
+        }, new DOMMatrixReadOnly());
+        const scale = transform.m44;
+        const matrix = {
+          a: transform.m11 / scale,
+          b: transform.m12 / scale,
+          c: transform.m21 / scale,
+          d: transform.m22 / scale,
+        };
+        const width = target.offsetWidth;
+        const height = target.offsetHeight;
+        const rect = target.getBoundingClientRect();
+        const horizontal = matrix.a * width;
+        const vertical = matrix.b * width;
+        const horizontalFromY = matrix.c * height;
+        const verticalFromY = matrix.d * height;
+        const originX =
+          rect.left -
+          Math.min(
+            0,
+            horizontal,
+            horizontalFromY,
+            horizontal + horizontalFromY,
+          );
+        const originY =
+          rect.top -
+          Math.min(0, vertical, verticalFromY, vertical + verticalFromY);
+        const xLength = Math.hypot(matrix.a, matrix.b);
+        const yLength = Math.hypot(matrix.c, matrix.d);
+        const line =
+          parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue(
+              "--agent-native-editor-chrome-line-scale",
+            ),
+          ) || 1;
+        return {
+          x:
+            originX +
+            matrix.a * 20 +
+            matrix.c * 20 +
+            4 * line * (matrix.a / xLength + matrix.c / yLength),
+          y:
+            originY +
+            matrix.b * 20 +
+            matrix.d * 20 +
+            4 * line * (matrix.b / xLength + matrix.d / yLength),
+          matrix,
+        };
+      });
+      const startX = handleCenter.x;
+      const startY = handleCenter.y;
+      expect(Math.abs(startX - expected.x)).toBeLessThan(1.5);
+      expect(Math.abs(startY - expected.y)).toBeLessThan(1.5);
+
+      await page.mouse.move(startX, startY);
+      await page.waitForFunction(() => {
+        const entry = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return entry && getComputedStyle(entry).visibility === "visible";
+      });
+      await page.mouse.down();
+      await page.mouse.move(startX + 9, startY + 6);
+      const movedHandleBox = await handle.boundingBox();
+      if (!movedHandleBox) throw new Error("nw radius handle disappeared");
+      expect(
+        Math.abs(movedHandleBox.x + movedHandleBox.width / 2 - startX - 9),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(movedHandleBox.y + movedHandleBox.height / 2 - startY - 6),
+      ).toBeLessThanOrEqual(1);
+      const actualRadius = await page.locator("#target").evaluate((element) =>
+        getComputedStyle(element)
+          .borderTopLeftRadius.split(/\s+/)
+          .map((part) => parseFloat(part)),
+      );
+      const { a, b, c, d } = expected.matrix;
+      const determinant = a * d - b * c;
+      const expectedRadius = [
+        20 + (d * 9 - c * 6) / determinant,
+        20 + (-b * 9 + a * 6) / determinant,
+      ];
+      expect(actualRadius[0]).toBeCloseTo(expectedRadius[0], 1);
+      expect(actualRadius[1]).toBeCloseTo(expectedRadius[1], 1);
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    name: "an individual translateZ",
+    sceneStyle:
+      "perspective:600px;perspective-origin:25% 75%;transform-style:preserve-3d",
+    parentStyle: "transform-style:preserve-3d",
+    targetStyle: "translate:0px 0px 100px;",
+    expectedScale: 1.2,
+  },
+  {
+    name: "a 3D transform origin",
+    sceneStyle:
+      "perspective:600px;perspective-origin:25% 75%;transform-style:preserve-3d",
+    parentStyle:
+      "transform:rotateX(-30deg);transform-style:preserve-3d;transform-origin:0 0 0",
+    targetStyle:
+      "transform:rotateX(30deg);transform-style:preserve-3d;transform-origin:0 0 100px",
+    expectedScale: 600 / (600 + 100 * (1 - Math.cos(Math.PI / 6))),
+  },
+])(
+  "maps corner radius handles through perspective with $name",
+  { timeout: 30_000 },
+  async ({ sceneStyle, parentStyle, targetStyle, expectedScale }) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <div style="${sceneStyle};position:absolute;left:150px;top:100px;width:320px;height:220px"><div style="${parentStyle};position:absolute;left:0;top:0;width:200px;height:150px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetStyle}position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+        timeout: 5_000,
+      });
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const entry = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return entry && getComputedStyle(entry).display === "block";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const initial = await handle.boundingBox();
+      if (!initial) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: initial.x + initial.width / 2,
+        y: initial.y + initial.height / 2,
+      };
+      const expected = await page.evaluate(
+        ({ expectedScale }) => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const rect = target.getBoundingClientRect();
+          const matrix = { a: expectedScale, b: 0, c: 0, d: expectedScale };
+          const x = matrix.a * target.offsetWidth;
+          const y = matrix.d * target.offsetHeight;
+          const originX = rect.left - Math.min(0, x);
+          const originY = rect.top - Math.min(0, y);
+          const line =
+            parseFloat(
+              getComputedStyle(document.documentElement).getPropertyValue(
+                "--agent-native-editor-chrome-line-scale",
+              ),
+            ) || 1;
+          return {
+            x: originX + matrix.a * 16 + 4 * line,
+            y: originY + matrix.d * 16 + 4 * line,
+            localDelta: 12 / expectedScale,
+          };
+        },
+        { expectedScale },
+      );
+      expect(start.x).toBeCloseTo(expected.x, 0);
+      expect(start.y).toBeCloseTo(expected.y, 0);
+
+      await page.mouse.move(start.x, start.y);
+      await page.waitForFunction(() => {
+        const entry = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return entry && getComputedStyle(entry).visibility === "visible";
+      });
+      await page.mouse.down();
+      await page.mouse.move(start.x + 12, start.y);
+      const actualRadius = await page
+        .locator("#target")
+        .evaluate((element) =>
+          parseFloat(getComputedStyle(element).borderTopLeftRadius),
+        );
+      expect(actualRadius).toBeCloseTo(16 + expected.localDelta, 0);
+      const moved = await handle.boundingBox();
+      if (!moved) throw new Error("nw radius handle disappeared during drag");
+      expect(moved.x + moved.width / 2).toBeCloseTo(start.x + 12, 0);
+      await page.mouse.up();
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    name: "default flat ancestors",
+    rootStyle: "transform:rotateY(35deg);transform-origin:0 0",
+    parentStyle: "transform:rotateX(25deg);transform-origin:0 0",
+    rootFlattens: true,
+    parentFlattens: true,
+  },
+  {
+    name: "a grouping property that forces preserve-3d flat",
+    rootStyle:
+      "transform:rotateY(35deg);transform-style:preserve-3d;transform-origin:0 0",
+    parentStyle:
+      "transform:rotateX(25deg);transform-style:preserve-3d;overflow:hidden;transform-origin:0 0",
+    rootFlattens: false,
+    parentFlattens: true,
+  },
+  {
+    name: "paint containment",
+    rootStyle:
+      "transform:rotateY(35deg);transform-style:preserve-3d;transform-origin:0 0",
+    parentStyle:
+      "transform:rotateX(25deg);transform-style:preserve-3d;contain:content;transform-origin:0 0",
+    rootFlattens: false,
+    parentFlattens: true,
+  },
+  {
+    name: "content-visibility auto",
+    rootStyle:
+      "transform:rotateY(35deg);transform-style:preserve-3d;transform-origin:0 0",
+    parentStyle:
+      "transform:rotateX(25deg);transform-style:preserve-3d;content-visibility:auto;transform-origin:0 0",
+    rootFlattens: false,
+    parentFlattens: true,
+  },
+])(
+  "maps corner radius handles through $name",
+  { timeout: 30_000 },
+  async ({ rootStyle, parentStyle, rootFlattens, parentFlattens }) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <div id="root" style="${rootStyle};position:absolute;left:320px;top:100px;width:300px;height:300px"><div id="parent" style="${parentStyle};position:absolute;left:20px;top:15px;width:200px;height:180px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "#target" },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+      const expected = await page.evaluate(
+        ({ rootFlattens, parentFlattens }) => {
+          const matrixFor = (selector: string) => {
+            const value = getComputedStyle(
+              document.querySelector<HTMLElement>(selector)!,
+            ).transform;
+            return value === "none"
+              ? new DOMMatrixReadOnly()
+              : new DOMMatrixReadOnly(value);
+          };
+          const flatten = new DOMMatrixReadOnly([
+            1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+          ]);
+          let combined = matrixFor("#target");
+          if (parentFlattens) combined = flatten.multiply(combined);
+          combined = matrixFor("#parent").multiply(combined);
+          if (rootFlattens) combined = flatten.multiply(combined);
+          combined = matrixFor("#root").multiply(combined);
+          const homogeneousScale = combined.m44;
+          const matrix = {
+            a: combined.m11 / homogeneousScale,
+            b: combined.m12 / homogeneousScale,
+            c: combined.m21 / homogeneousScale,
+            d: combined.m22 / homogeneousScale,
+          };
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const rect = target.getBoundingClientRect();
+          const x = matrix.a * target.offsetWidth;
+          const y = matrix.b * target.offsetWidth;
+          const z = matrix.c * target.offsetHeight;
+          const w = matrix.d * target.offsetHeight;
+          const originX = rect.left - Math.min(0, x, z, x + z);
+          const originY = rect.top - Math.min(0, y, w, y + w);
+          const xLength = Math.hypot(matrix.a, matrix.b);
+          const yLength = Math.hypot(matrix.c, matrix.d);
+          const line =
+            parseFloat(
+              getComputedStyle(document.documentElement).getPropertyValue(
+                "--agent-native-editor-chrome-line-scale",
+              ),
+            ) || 1;
+          return {
+            matrix,
+            x:
+              originX +
+              matrix.a * 16 +
+              matrix.c * 16 +
+              4 * line * (matrix.a / xLength + matrix.c / yLength),
+            y:
+              originY +
+              matrix.b * 16 +
+              matrix.d * 16 +
+              4 * line * (matrix.b / xLength + matrix.d / yLength),
+          };
+        },
+        { rootFlattens, parentFlattens },
+      );
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      const initial = await handle.boundingBox();
+      if (!initial) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: initial.x + initial.width / 2,
+        y: initial.y + initial.height / 2,
+      };
+      expect(start.x).toBeCloseTo(expected.x, 0);
+      expect(start.y).toBeCloseTo(expected.y, 0);
+
+      await page.mouse.move(start.x, start.y);
+      await page.waitForFunction(() => {
+        const entry = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return entry && getComputedStyle(entry).visibility === "visible";
+      });
+      await page.mouse.down();
+      const screenDelta = {
+        x: expected.matrix.a * 6 + expected.matrix.c * 4,
+        y: expected.matrix.b * 6 + expected.matrix.d * 4,
+      };
+      await page.mouse.move(start.x + screenDelta.x, start.y + screenDelta.y);
+      const radius = await page.locator("#target").evaluate((element) =>
+        getComputedStyle(element)
+          .borderTopLeftRadius.split(/\s+/)
+          .map((part) => parseFloat(part)),
+      );
+      expect(radius[0]).toBeCloseTo(22, 0);
+      expect(radius[1]).toBeCloseTo(20, 0);
+      await page.mouse.up();
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    name: "the perspective property",
+    parentStyle:
+      "perspective:600px;transform-style:preserve-3d;transform-origin:0 0",
+    targetTransform: "transform:rotateX(30deg);",
+  },
+  {
+    name: "a perspective transform",
+    parentStyle:
+      "transform:perspective(600px) rotateX(30deg);transform-style:preserve-3d;transform-origin:0 0",
+    targetTransform: "",
+  },
+])(
+  "hides radius handles when %s makes the viewport mapping projective",
+  { timeout: 30_000 },
+  async ({ parentStyle, targetTransform }) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body>
+  <div style="${parentStyle};position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="${targetTransform}position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+      const before = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        const handles = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "[data-agent-native-radius-handle]",
+          ),
+        );
+        return {
+          radius: target.style.borderRadius,
+          displays: handles.map((handle) => getComputedStyle(handle).display),
+        };
+      });
+      await page.evaluate(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        )!;
+        handle.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 240,
+            clientY: 140,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 250,
+            clientY: 150,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mouseup", { bubbles: true, button: 0 }),
+        );
+      });
+      const messages = await readBridgeMessages(page);
+      const afterRadius = await page
+        .locator("#target")
+        .evaluate((element) => (element as HTMLElement).style.borderRadius);
+      expect(before.displays).toEqual(Array(4).fill("none"));
+      expect(afterRadius).toBe(before.radius);
+      expect(
+        messages.filter((message) => message.type === "visual-style-change"),
+      ).toEqual([]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps radius handles when an ancestor perspective does not project the selected plane",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <div style="perspective:600px;position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent;border:1px solid #111;box-sizing:border-box"></div></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+      const visibleRadiusHandles = await page.evaluate(
+        () =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display === "block")
+            .length,
+      );
+      expect(visibleRadiusHandles).toBe(4);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hides radius handles and ignores radius drags through a singular transform",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+  <div style="position:absolute;left:160px;top:120px;transform:rotate(45deg);rotate:x 90deg;scale:2 3;transform-origin:0 0"><div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:120px;height:80px;border-radius:16px;border:1px solid #111;box-sizing:border-box"></div></div>
+</body></html>`);
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "#target" },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+
+      const before = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        const handles = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "[data-agent-native-radius-handle]",
+          ),
+        );
+        return {
+          radius: target.style.borderRadius,
+          handleCount: handles.length,
+          displays: handles.map((entry) => getComputedStyle(entry).display),
+        };
+      });
+      await page.evaluate(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        )!;
+        handle.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 200,
+            clientY: 160,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 220,
+            clientY: 180,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mouseup", { bubbles: true, button: 0 }),
+        );
+      });
+      const after = await page.evaluate(() => ({
+        radius:
+          document.querySelector<HTMLElement>("#target")!.style.borderRadius,
+      }));
+      const messages = await readBridgeMessages(page);
+
+      expect(before.radius).toBe("16px");
+      expect(before.handleCount).toBe(4);
+      expect(before.displays, JSON.stringify(before)).toEqual(
+        Array(4).fill("none"),
+      );
+      expect(after.radius).toBe("16px");
+      expect(
+        messages.filter((message) => message.type === "visual-style-change"),
+      ).toEqual([]);
+      expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
     }

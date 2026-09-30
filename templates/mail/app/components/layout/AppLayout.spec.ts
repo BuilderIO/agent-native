@@ -48,7 +48,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { NotificationsBell } from "@agent-native/core/client/notifications"',
+      'import { NotificationsBell } from "@agent-native/toolkit/app/notifications"',
     );
     expect(
       source.match(/<NotificationsBell browserNotifications \/>/g),
@@ -185,29 +185,47 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
   });
 
-  it("keeps Mail navigation in a hamburger-controlled drawer", () => {
+  it("keeps Mail navigation in a mobile drawer and supports desktop pinning", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
       "const [sidebarOpen, setSidebarOpen] = useState(false)",
     );
     expect(source).toContain(
-      "<Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>",
+      "const [sidebarPinned, setSidebarPinned] = useState(false)",
     );
+    expect(source).toContain(
+      'window.localStorage.getItem("mail-sidebar-pinned") === "true"',
+    );
+    expect(source).toContain("if (!sidebarPinPreferenceLoaded) return;");
+    expect(source).toContain(
+      'localStorage.setItem("mail-sidebar-pinned", "true")',
+    );
+    expect(source).toContain("open={sidebarOpen || isPinnedSidebarVisible}");
+    expect(source).toContain("modal={!isPinnedSidebarVisible}");
     expect(source).toContain("<DialogTrigger asChild>");
+    expect(source).toContain(
+      "if (isPinnedSidebarVisible) event.preventDefault();",
+    );
+    expect(source).toContain(
+      'overlayClassName={isPinnedSidebarVisible ? "hidden" : undefined}',
+    );
     expect(source).toContain("<DialogContent");
-    expect(source).toContain('aria-modal="true"');
+    expect(source).toContain("aria-modal={!isPinnedSidebarVisible}");
     expect(source).toContain('<DialogTitle className="sr-only">');
     expect(source).toContain("start-0 left-0 right-auto flex h-dvh w-[260px]");
-    expect(source).not.toContain("mail-sidebar-pinned");
+    expect(source).toContain('t("mail.toolbar.pinSidebar")');
+    expect(source).toContain('t("mail.toolbar.unpinSidebar")');
     expect(source).not.toContain("railNavItems");
     expect(source).not.toContain("showCollapsedSidebar");
   });
 
-  it("reserves desktop content space while the drawer is open", () => {
+  it("reserves desktop content space while the drawer is open or pinned", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain('!isMobile && sidebarOpen && "ps-[260px]"');
+    expect(source).toContain(
+      '!isMobile && (sidebarOpen || sidebarPinned) && "ps-[260px]"',
+    );
   });
 
   it("resolves every tab from the server response and links through inboxTabHref", () => {
@@ -542,14 +560,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("data: labelsData");
   });
 
-  it("shows a compact inline indicator only while the inbox is syncing", () => {
+  it("shows an accessible spinner only while the inbox is syncing", () => {
     const source = appLayoutSource();
 
+    expect(source).toContain("const inboxSyncing =");
+    expect(source).toContain("inboxMetadata?.syncing === true");
     expect(source).toContain(
-      "const inboxSyncing = inboxMetadata?.syncing === true;",
+      'account.state === "ready" && account.backfillPending === true',
     );
     expect(source).toContain("{inboxSyncing && (");
-    expect(source).toContain('{t("mail.inbox.syncing")}');
+    expect(source).toContain('aria-label={t("mail.inbox.syncing")}');
+    expect(source).toContain('title={t("mail.inbox.syncing")}');
+    expect(source).toMatch(/<IconRefresh\s+aria-hidden="true"/);
+    expect(source).not.toContain('>{t("mail.inbox.syncing")}</span>');
   });
 
   it("reuses the existing Google reconnect UI for a needs_reauth account", () => {

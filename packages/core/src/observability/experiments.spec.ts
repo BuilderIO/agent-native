@@ -5,7 +5,7 @@ import type { Experiment, ExperimentVariant } from "./types.js";
 const store = vi.hoisted(() => ({
   insertExperiment: vi.fn(),
   updateExperiment: vi.fn(),
-  listExperiments: vi.fn(),
+  listExperimentsPage: vi.fn(),
   getExperiment: vi.fn(),
   upsertAssignment: vi.fn(),
   getAssignment: vi.fn(),
@@ -18,7 +18,7 @@ const dbExecute = vi.hoisted(() => vi.fn());
 vi.mock("./store.js", () => ({
   insertExperiment: (...a: unknown[]) => store.insertExperiment(...a),
   updateExperiment: (...a: unknown[]) => store.updateExperiment(...a),
-  listExperiments: (...a: unknown[]) => store.listExperiments(...a),
+  listExperimentsPage: (...a: unknown[]) => store.listExperimentsPage(...a),
   getExperiment: (...a: unknown[]) => store.getExperiment(...a),
   upsertAssignment: (...a: unknown[]) => store.upsertAssignment(...a),
   getAssignment: (...a: unknown[]) => store.getAssignment(...a),
@@ -208,11 +208,15 @@ describe("resolveVariant bucketing", () => {
 
 describe("resolveActiveExperimentConfig", () => {
   it("returns null when no experiments are running", async () => {
-    store.listExperiments.mockResolvedValue([
+    store.listExperimentsPage.mockResolvedValue([
       makeExperiment({ status: "draft" }),
     ]);
     const out = await resolveActiveExperimentConfig("user-1");
     expect(out).toBeNull();
+    expect(store.listExperimentsPage).toHaveBeenCalledWith({
+      status: "running",
+      limit: 100,
+    });
   });
 
   it("merges configs from all running experiments for the user", async () => {
@@ -225,7 +229,7 @@ describe("resolveActiveExperimentConfig", () => {
       id: "expB",
       variants: [{ id: "b", weight: 1, config: { layout: "grid" } }],
     });
-    store.listExperiments.mockResolvedValue([expA, expB]);
+    store.listExperimentsPage.mockResolvedValue([expA, expB]);
     store.getExperiment.mockImplementation(async (id: string) =>
       id === "expA" ? expA : expB,
     );
@@ -237,6 +241,47 @@ describe("resolveActiveExperimentConfig", () => {
       { experimentId: "expA", variantId: "a" },
       { experimentId: "expB", variantId: "b" },
     ]);
+  });
+
+  it("loads every active experiment across bounded pages", async () => {
+    await startExperiment("invalidate-active-cache");
+    const all = Array.from({ length: 205 }, (_, index) =>
+      makeExperiment({
+        id: `exp-${String(index).padStart(3, "0")}`,
+        createdAt: 205 - index,
+        variants: [
+          {
+            id: "only",
+            weight: 1,
+            config: { [`experiment-${index}`]: true },
+          },
+        ],
+      }),
+    );
+    store.listExperimentsPage.mockImplementation(async (options: any) =>
+      all
+        .filter(
+          (experiment) =>
+            !options.before ||
+            experiment.createdAt < options.before.createdAt ||
+            (experiment.createdAt === options.before.createdAt &&
+              experiment.id < options.before.id),
+        )
+        .slice(0, options.limit),
+    );
+    store.getExperiment.mockImplementation(
+      async (id: string) => all.find((experiment) => experiment.id === id)!,
+    );
+
+    const out = await resolveActiveExperimentConfig("user-1");
+
+    expect(out?.assignments).toHaveLength(205);
+    expect(Object.keys(out?.configs ?? {})).toHaveLength(205);
+    expect(store.listExperimentsPage).toHaveBeenCalledTimes(3);
+    expect(store.listExperimentsPage.mock.calls[0]?.[0]).toEqual({
+      status: "running",
+      limit: 100,
+    });
   });
 });
 

@@ -1,9 +1,9 @@
+import { useDemoModeStatus } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedExtension,
   ExtensionSlot,
-} from "@agent-native/core/client/extensions";
-import { useDemoModeStatus } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/extensions";
 import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   IconArrowsSort,

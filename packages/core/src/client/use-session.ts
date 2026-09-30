@@ -283,7 +283,10 @@ function fetchSharedSession(): Promise<SessionRead> {
       }
       if (result.state === "unavailable") return { state: "unreadable" };
       const data = result.value as AuthSession & { error?: unknown };
-      const session = data.error ? null : (data as AuthSession);
+      if (data.error !== undefined && data.error !== "Not authenticated") {
+        return { state: "unreadable" };
+      }
+      const session = data.error === "Not authenticated" ? null : data;
       cachedSession = session;
       cachedSessionAt = Date.now();
       publishSessionIdentity(session);

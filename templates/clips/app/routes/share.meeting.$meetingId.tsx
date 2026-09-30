@@ -1,13 +1,16 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
   AGENT_ACCESS_PARAM,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
 import { buildResourceSocialMeta } from "@agent-native/core/shared";
+import {
+  DefaultSpinner,
+  PoweredByBadge,
+} from "@agent-native/toolkit/app/shared";
 import {
   IconCalendar,
   IconCheck,

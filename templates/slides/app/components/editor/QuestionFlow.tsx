@@ -1,8 +1,8 @@
+import { type AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
 import {
   GuidedQuestionFlow,
   type GuidedQuestion,
-  type AgentEngineConfiguredState,
-} from "@agent-native/core/client/agent-chat";
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
 import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
 import { useMemo } from "react";
 

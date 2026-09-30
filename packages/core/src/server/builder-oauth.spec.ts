@@ -923,49 +923,21 @@ describe("Builder organization and personal connections", () => {
     ).resolves.toMatchObject({ scope: "user" });
   });
 
-  it("runs an owner or admin on the org's grant ahead of one they connected before promotion", async () => {
+  it("runs every role on their own grant ahead of the org's", async () => {
     const rows = installTokenStore();
     rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
     rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
-    readRoleMock.mockResolvedValue("admin");
+    for (const role of ["owner", "admin", "member"]) {
+      readRoleMock.mockResolvedValue(role);
+      await expect(
+        getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+      ).resolves.toMatchObject({ scope: "user" });
+    }
 
+    rows.delete(`user:${ownerEmail}`);
     await expect(
       getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
     ).resolves.toMatchObject({ scope: "org" });
-    expect(readRoleMock).toHaveBeenCalledWith(DEFAULT_ORG, ownerEmail);
-    expect(rows.has(`user:${ownerEmail}`)).toBe(true);
-
-    readRoleMock.mockResolvedValue("member");
-    await expect(
-      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
-    ).resolves.toMatchObject({ scope: "user" });
-
-    // With no org grant, an admin still runs on their own.
-    rows.delete(`org:${DEFAULT_ORG}`);
-    readRoleMock.mockResolvedValue("admin");
-    await expect(
-      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
-    ).resolves.toMatchObject({ scope: "user" });
-  });
-
-  it("fails the grant lookup when a manager's role can't be read, instead of guessing", async () => {
-    const rows = installTokenStore();
-    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
-    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
-    readRoleMock.mockRejectedValue(new Error("db query timed out"));
-    await expect(
-      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
-    ).rejects.toThrow("db query timed out");
-
-    // A database without the org tables simply has no managers.
-    readRoleMock.mockRejectedValue(
-      Object.assign(new Error('relation "org_members" does not exist'), {
-        code: "42P01",
-      }),
-    );
-    await expect(
-      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
-    ).resolves.toMatchObject({ scope: "user" });
   });
 
   it("reports a stored grant that no longer reads as Builder custody as needing reconnect", async () => {

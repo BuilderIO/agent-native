@@ -16,13 +16,13 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   useDroppable,
@@ -168,7 +168,7 @@ import {
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
-import { interpolate } from "./interpolate";
+import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
@@ -309,9 +309,7 @@ const PanelCell = memo(function PanelCell({
   );
   const resolvedSql = useMemo(
     () =>
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
+      interpolateDashboardPanelSql(serializePanelSql(panel.sql), vars, panel),
     [panel.sql, vars],
   );
   const handleSelectForChat = useCallback(

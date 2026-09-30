@@ -1321,6 +1321,8 @@ const suggestionPrompt =
 const incompleteRetryPrompt =
   "Fail this stream once, then recover cleanly when I retry.";
 const helloToolCallId = "call_agentkit_hello";
+const followUpCompletionPromptPrefix =
+  "The final reply above has already been delivered.";
 const approvalToolCallId = "call_agentkit_approval";
 const widgetToolCalls: Array<{
   id: string;
@@ -1602,6 +1604,24 @@ async function handleLoopbackCompletion(
     connection: "keep-alive",
     "content-type": "text/event-stream; charset=utf-8",
   });
+
+  if (prompt.startsWith(followUpCompletionPromptPrefix)) {
+    assert.deepEqual(
+      toolNames,
+      ["suggest-follow-ups"],
+      "the follow-up metadata pass must expose only suggest-follow-ups",
+    );
+    await streamToolCallResponse(response, requestNumber, {
+      id: `call_follow_ups_${requestNumber}`,
+      name: "suggest-follow-ups",
+      arguments: {
+        suggestions: [
+          { label: "Summarize this release", prompt: suggestionPrompt },
+        ],
+      },
+    });
+    return;
+  }
 
   if (prompt === helloPrompt) {
     assert.ok(toolNames.includes("hello"), "generated app must expose hello");
@@ -2936,7 +2956,10 @@ async function assertAgentKitChatAcceptance(
   });
   provider.releaseIncompleteStream?.();
   provider.releaseIncompleteStream = null;
-  await page.locator(".agentkit-run-failure").waitFor({ state: "visible" });
+  await page
+    .locator(".agentkit-run-failure")
+    .last()
+    .waitFor({ state: "visible" });
   network.allowExpectedIncompleteStreamFailure = false;
   await approval.waitFor({ state: "detached" });
   await queue

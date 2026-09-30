@@ -418,6 +418,7 @@ describe("mountDevDbQueryForwardRoute", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-db-query-route-"));
+    vi.stubEnv("DATABASE_URL", undefined);
     mockIsLoopbackRequest.mockReset();
     mockIsLoopbackRequest.mockReturnValue(true);
     mockResolveDeployEnvironment.mockReset();
@@ -428,6 +429,7 @@ describe("mountDevDbQueryForwardRoute", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     removeDevActionDiscoveryFile(tmpDir);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

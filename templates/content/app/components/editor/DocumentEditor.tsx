@@ -1,7 +1,5 @@
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -30,6 +28,8 @@ import type {
   SuggestionDecision,
 } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type {
   ContentNavigationPathEntry,
   Document,

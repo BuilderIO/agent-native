@@ -9,7 +9,15 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  isDateRangePresetFilter,
+  resolveDefault,
+} from "../app/pages/adhoc/sql-dashboard/filter-vars";
+import {
+  interpolate,
+  interpolateDashboardPanelSql,
+} from "../app/pages/adhoc/sql-dashboard/interpolate";
+import type { DashboardFilter } from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { serializeProgramDescriptorInput } from "../server/lib/dashboard-panel-query";
@@ -72,6 +80,14 @@ function buildDryRunVars(
       vars[`${key}End`] = todayUtc();
     } else if (f.type === "date" || f.type === "toggle-date") {
       if (def) vars[key] = resolveDateDefault(def);
+    } else if (
+      f.type === "select" &&
+      isDateRangePresetFilter(f as unknown as DashboardFilter)
+    ) {
+      const range = /^\d+d$/.test(def) ? def : "30d";
+      vars[key] = def || range;
+      vars[`${key}Start`] = resolveDefault(range, "date");
+      vars[`${key}End`] = todayUtc();
     } else {
       if (def) vars[key] = def;
     }
@@ -445,7 +461,7 @@ export async function validatePanelSql(
           );
           if (timeScopeError) return timeScopeError;
           await validateFirstPartyAnalyticsSqlForScope(
-            interpolate(raw, vars),
+            interpolateDashboardPanelSql(raw, vars, p),
             firstPartyScope(),
           );
         } catch (e: any) {
@@ -477,7 +493,7 @@ export async function validatePanelSql(
     if (p.source !== "bigquery") continue;
     const raw = typeof p.sql === "string" ? p.sql : "";
     if (!raw.trim()) continue;
-    const sql = interpolate(raw, vars);
+    const sql = interpolateDashboardPanelSql(raw, vars, p);
     if (!sql.trim()) continue;
     bigQueryPanels.push({ index: i, panel: p, sql });
   }

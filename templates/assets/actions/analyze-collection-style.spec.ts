@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const assertAccessMock = vi.hoisted(() => vi.fn());
+const accessFilterMock = vi.hoisted(() => vi.fn(() => ({ op: "access" })));
 const getDbMock = vi.hoisted(() => vi.fn());
 const getObjectMock = vi.hoisted(() => vi.fn());
 const extractDominantColorsMock = vi.hoisted(() => vi.fn());
@@ -13,6 +14,7 @@ const schemaMock = vi.hoisted(() => ({
     id: "assetLibraries.id",
     settings: "assetLibraries.settings",
   },
+  assetLibraryShares: "assetLibraryShares",
   assetCollections: {
     id: "assetCollections.id",
   },
@@ -29,6 +31,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: accessFilterMock,
   assertAccess: assertAccessMock,
 }));
 const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
@@ -59,6 +62,7 @@ vi.mock("../server/lib/library-access.js", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
 }));
 
@@ -187,6 +191,12 @@ describe("analyze-collection-style", () => {
     const savedSettings = JSON.parse(String(saved.settings));
 
     expect(result.mode).toBe("vision");
+    expect(accessFilterMock).toHaveBeenCalledWith(
+      schemaMock.assetLibraries,
+      schemaMock.assetLibraryShares,
+      undefined,
+      "editor",
+    );
     expect(savedBrief).toEqual(
       expect.objectContaining({
         description: "Dimensional product scenes with calm contrast.",

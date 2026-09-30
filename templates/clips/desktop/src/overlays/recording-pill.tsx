@@ -1,9 +1,9 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentKitAssistantChat,
-  generateTabId,
   type AssistantChatHandle,
-} from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat";
 import {
   IconCheck,
   IconChevronDown,
@@ -1349,24 +1349,26 @@ export function MeetingPill() {
                   composerAreaClassName="pill-agentkit-composer"
                   composerLayoutVariant="compact"
                   composerPlaceholder={
-                    !pillDemoMode && providerStatus !== "eligible"
+                    !pillDemoMode &&
+                    providerStatus !== "eligible" &&
+                    providerStatus !== "unknown"
                       ? t("agentChat.setup.connectToChat")
                       : t("agentNativeClips.meetingAsk.placeholder")
                   }
                   composerSlot={
                     <>
-                      {!pillDemoMode && providerStatus !== "eligible" ? (
+                      {!pillDemoMode &&
+                      providerStatus !== "eligible" &&
+                      providerStatus !== "unknown" ? (
                         <div
                           className="pill-ask-provider-status"
                           data-no-drag
                           role="status"
                         >
                           <span>
-                            {providerStatus === "unknown"
-                              ? t("agentChat.setup.checkingProvider")
-                              : providerStatus === "unavailable"
-                                ? t("agentChat.setup.providerStatusUnavailable")
-                                : t("agentChat.setup.connectToStart")}
+                            {providerStatus === "unavailable"
+                              ? t("agentChat.setup.providerStatusUnavailable")
+                              : t("agentChat.setup.connectToStart")}
                           </span>
                           {providerStatus === "missing" ? (
                             <div className="pill-ask-provider-actions">
@@ -1437,7 +1439,12 @@ export function MeetingPill() {
                   isActiveComposer
                   composerDisabled={
                     !ctx.meetingId ||
-                    (!pillDemoMode && providerStatus !== "eligible")
+                    (!pillDemoMode &&
+                      providerStatus !== "eligible" &&
+                      providerStatus !== "unknown")
+                  }
+                  composerSubmissionDisabled={
+                    !pillDemoMode && providerStatus !== "eligible"
                   }
                   onMessageCountChange={handleAskMessageCountChange}
                   plusMenuMode="hidden"

@@ -1,17 +1,15 @@
-import type {
-  AssistantChatHistoryConfig,
-  AssistantChatHistoryVersion,
-} from "@agent-native/core/client/agent-chat";
-import { AgentSidebar } from "@agent-native/core/client/AgentSidebar";
+import type { AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import {
   HeaderActionsProvider,
   usePersistentSidebarCollapsed,
 } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat/AgentSidebar";
+import type { AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { Document } from "@shared/api";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";

@@ -22,18 +22,6 @@ function requestSettingsCache(): Map<string, string | null> | null {
   return cache;
 }
 
-const _requestAllSettingsCache = new WeakMap<
-  object,
-  Promise<Map<string, string>>
->();
-
-const SETTINGS_KEY_SEGMENT = "substring(key from '[^:]+$')";
-
-function invalidateRequestAllSettings(): void {
-  const ctx = getRequestContext();
-  if (ctx && typeof ctx === "object") _requestAllSettingsCache.delete(ctx);
-}
-
 let _emitter: EventEmitter | undefined;
 
 function settingsEmitter(): EventEmitter {
@@ -66,10 +54,6 @@ export async function ensureTable(): Promise<void> {
       await ensureIndexExists(
         "settings_updated_at_idx",
         `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-      );
-      await ensureIndexExists(
-        "settings_key_segment_idx",
-        `CREATE INDEX IF NOT EXISTS settings_key_segment_idx ON ${table} ((${SETTINGS_KEY_SEGMENT}))`,
       );
     })().catch((err) => {
       _initPromise = undefined;
@@ -205,7 +189,6 @@ export async function mutateSetting(
           });
     if (result.rowsAffected === 0) continue;
     requestSettingsCache()?.set(key, nextRaw);
-    invalidateRequestAllSettings();
     settingsEmitter().emit("settings", {
       source: "settings",
       type: "change",
@@ -230,7 +213,6 @@ export async function putSetting(
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",
@@ -251,7 +233,6 @@ export async function deleteSetting(
     args: [key],
   });
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -279,7 +260,6 @@ export async function deleteSettingIfValue(
   if (result.rowsAffected === 0) return false;
 
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "delete",
@@ -302,7 +282,6 @@ export async function deleteSettingsByPrefix(
     args: [`${escaped}%`],
   });
   requestSettingsCache()?.clear();
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -337,78 +316,4 @@ export async function listSettingsByPrefix(
     key: String(row.key),
     value: JSON.parse(String(row.value)) as Record<string, unknown>,
   }));
-}
-
-export async function listSettingsByKeySegments(
-  segments: readonly string[],
-): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
-  const uniqueSegments = [...new Set(segments)];
-  if (uniqueSegments.length === 0) return [];
-  if (uniqueSegments.some((segment) => !segment || segment.includes(":"))) {
-    throw new RangeError(
-      "Settings key segments must be non-empty and colon-free.",
-    );
-  }
-
-  await ensureTable();
-  const client = getDbExec();
-  const table = settingsTable();
-  const placeholders = uniqueSegments.map(() => "?").join(", ");
-  const { rows } = await client.execute({
-    sql: `SELECT key, value FROM ${table}
-      WHERE ${SETTINGS_KEY_SEGMENT} IN (${placeholders})`,
-    args: uniqueSegments,
-  });
-  const cache = requestSettingsCache();
-  return rows.map((row) => {
-    const key = String(row.key);
-    const raw = String(row.value);
-    if (cache && !cache.has(key)) cache.set(key, raw);
-    return { key, value: JSON.parse(raw) as Record<string, unknown> };
-  });
-}
-
-export async function getAllSettings(): Promise<
-  Record<string, Record<string, unknown>>
-> {
-  const raw = await loadAllSettingsRaw();
-  const result: Record<string, Record<string, unknown>> = {};
-  for (const [key, value] of raw) result[key] = JSON.parse(value);
-  return result;
-}
-
-async function loadAllSettingsRaw(): Promise<Map<string, string>> {
-  const ctx = getRequestContext();
-  const cached =
-    ctx && typeof ctx === "object"
-      ? _requestAllSettingsCache.get(ctx)
-      : undefined;
-  if (cached) return cached;
-
-  const load = (async () => {
-    await ensureTable();
-    const client = getDbExec();
-    const table = settingsTable();
-    const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
-    const raw = new Map<string, string>();
-    for (const row of rows) raw.set(row.key as string, row.value as string);
-    const perKey = requestSettingsCache();
-    if (perKey) {
-      for (const [key, value] of raw) {
-        if (!perKey.has(key)) perKey.set(key, value);
-      }
-    }
-    return raw;
-  })();
-
-  if (ctx && typeof ctx === "object") {
-    _requestAllSettingsCache.set(
-      ctx,
-      load.catch((err) => {
-        _requestAllSettingsCache.delete(ctx);
-        throw err;
-      }),
-    );
-  }
-  return load;
 }

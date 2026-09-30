@@ -10,7 +10,7 @@ const railState = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue({ startUrl: "about:blank" }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: (props: Record<string, unknown>) => {
     railState.sidebarProps.push(props);
     return (
@@ -25,7 +25,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
-vi.mock("@agent-native/core/client/chat-first", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat-first", () => ({
   ChatFirstAppPane: ({ app }: { app: { name: string } | null }) => (
     <div data-app-pane>{app?.name}</div>
   ),

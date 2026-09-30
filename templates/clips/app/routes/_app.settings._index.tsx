@@ -1,10 +1,9 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { CLIPS_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
@@ -47,6 +46,23 @@ export default function SettingsIndexRoute() {
     [t],
   );
   const agentSettingsTabs = useAgentSettingsTabs();
+  const whatsNewMarkdown = useMemo(
+    () =>
+      changelog
+        .split(
+          "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+        )
+        .join(t("settings.changelogCommentSignup"))
+        .split(
+          "The empty comments state now explains how screen recordings help AI agents.",
+        )
+        .join(t("settings.changelogCommentsEmptyState"))
+        .split(
+          'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
+        )
+        .join(t("settings.changelogShareLink")),
+    [t],
+  );
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
@@ -60,30 +76,7 @@ export default function SettingsIndexRoute() {
       appAreas={redesigned.appAreas}
       notifications={redesigned.notifications}
       notificationsSearchEntries={redesigned.notificationsSearchEntries}
-      whatsNewMarkdown={changelog}
-      whatsNew={
-        <div className="mx-auto w-full max-w-3xl">
-          <ChangelogSettingsCard
-            markdown={changelog
-              .split(
-                "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
-              )
-              .join(t("settings.changelogCommentSignup"))
-              .split(
-                "The empty comments state now explains how screen recordings help AI agents.",
-              )
-              .join(t("settings.changelogCommentsEmptyState"))
-              .split(
-                'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
-              )
-              .join(t("settings.changelogShareLink"))}
-            title={t("settings.whatsNew")}
-            closeLabel={t("common.cancel")}
-            emptyText={t("settings.changelogEmpty")}
-            viewAllLabel={t("settings.viewAllUpdates")}
-          />
-        </div>
-      }
+      whatsNewMarkdown={whatsNewMarkdown}
     />
   );
 }

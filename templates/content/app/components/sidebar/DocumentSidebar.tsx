@@ -1,6 +1,4 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   setClientAppState,
   useActionMutation,
@@ -8,12 +6,14 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,

@@ -76,6 +76,20 @@ Contextual agent UI is not a reason to expose every option at once. Start with
 the domain task's primary action, reveal review or configuration only when the
 current state needs it, and let the sidebar carry conversational depth.
 
+AgentKit context launchers use a shared Core capability contract. Design and
+Slides consume `get-agentkit-capabilities` through
+`useAgentKitCapabilities`: Core filters provider APIs by the current app's
+exposed tool catalog and the same scoped connection grants or credential
+resolver used by provider requests. Figma context readiness is checked against
+its real Design processor. The shared hook also includes MCP servers only when
+they are connected and expose tools visible to the current request. Keep source
+retrieval (`add-context`) distinct from integration invocation intent
+(`invoke-integration`), and revalidate an invocation when it is read for
+submission. Keep only provider-specific pickers in app adapters; never
+duplicate readiness checks, infer agent-tool readiness from messaging
+connector status, or expose credential values. Keep a route to Integrations
+settings available when a connection is missing.
+
 ## Visual Direction And Workspace Variety
 
 Shared workspace behavior should be consistent without forcing every app into

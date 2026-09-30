@@ -228,7 +228,7 @@ Produktspezifische Komponenten anhand der genauen Renderer-ID registrieren und d
 zur Aktion:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -370,10 +370,8 @@ Alle Connectors werden aus `@agent-native/core/client/agent-chat` (und dem Root)
 kann einen POST-Endpunkt verfügbar machen, der SSE- oder NDJSON-Laufzeitereignisse zurückgibt:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

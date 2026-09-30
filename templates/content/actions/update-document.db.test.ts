@@ -579,6 +579,69 @@ describe("update-document compare-and-swap", () => {
     ]);
   });
 
+  it("accepts an editor generation resent from a rebased base as the same delivery", async () => {
+    const base = "First passage\nSecond passage";
+    const id = await createDocument({ content: base });
+    const baseRevision = documentRevisionToken(0, base);
+    const editorSessionId = nextId("rebased-session");
+    const save = (args: {
+      content: string;
+      baseRevision: string;
+      authoredBaseContent: string;
+      editorEditGeneration: number;
+    }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id,
+            ...args,
+            authoredBaseRevision: args.baseRevision,
+            authoredCandidateContent: args.content,
+            editorSessionId,
+            browserSaveAttemptId: nextId("rebased-attempt"),
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    const first = "First passage edited\nSecond passage";
+    await save({
+      content: first,
+      baseRevision,
+      authoredBaseContent: base,
+      editorEditGeneration: 1,
+    });
+    const afterFirst = await documentRow(id);
+    const second = "First passage edited\nSecond passage edited";
+    // The page's draft journal replays generation 2 from the base it
+    // recorded before generation 1 landed...
+    const replayed = await save({
+      content: second,
+      baseRevision,
+      authoredBaseContent: base,
+      editorEditGeneration: 2,
+    });
+    // ...and the editor sends it rebased onto generation 1.
+    const rebased = await save({
+      content: second,
+      baseRevision: documentRevisionToken(
+        afterFirst.bodyRevision,
+        afterFirst.content,
+      ),
+      authoredBaseContent: afterFirst.content,
+      editorEditGeneration: 2,
+    });
+
+    expect(replayed.bodyIntentOutcome).toEqual({ status: "applied" });
+    expect(rebased.bodyIntentOutcome).toEqual(replayed.bodyIntentOutcome);
+    expect((await documentRow(id)).content).toBe(second);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, id)),
+    ).toHaveLength(2);
+  });
+
   it("replays a displaced editor generation through a new transport attempt", async () => {
     const base = "Shared passage\nOther passage";
     const id = await createDocument({ content: base });
@@ -1519,6 +1582,44 @@ describe("update-document compare-and-swap", () => {
       "racing writer body",
       "requested body",
     ]);
+  });
+
+  it("does not revert a concurrent title when an unguarded body save repeats its original title", async () => {
+    const documentId = await createDocument({
+      title: "Initial title",
+      content: "initial body",
+    });
+    const initial = await documentRow(documentId);
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const racingUpdatedAt = new Date(
+      new Date(initial.updatedAt).getTime() + 1_000,
+    ).toISOString();
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (callback: any, config?: any) => {
+        await db
+          .update(schema.documents)
+          .set({ title: "Concurrent title", updatedAt: racingUpdatedAt })
+          .where(eq(schema.documents.id, documentId));
+        return originalTransaction(callback, config);
+      });
+    try {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          title: "Initial title",
+          content: "requested body",
+        }),
+      );
+    } finally {
+      transaction.mockRestore();
+    }
+
+    expect(await documentRow(documentId)).toMatchObject({
+      title: "Concurrent title",
+      content: "requested body",
+    });
   });
 
   it("CAS-rejects a body that only becomes stale before the row lock", async () => {

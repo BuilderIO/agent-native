@@ -3,12 +3,12 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,
 } from "@agent-native/dispatch/components";
+import { extensionIdFromPathname } from "@agent-native/toolkit/app/extensions";
 import { useRef } from "react";
 import { useLocation } from "react-router";
 

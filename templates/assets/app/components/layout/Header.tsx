@@ -1,10 +1,10 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { useLocation } from "react-router";
 
 const pageTitleKeys: Record<string, string> = {

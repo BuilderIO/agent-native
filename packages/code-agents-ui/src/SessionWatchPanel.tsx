@@ -1,5 +1,5 @@
 import { mergeCodeAgentTranscriptEvents } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import {
   IconEye,
   IconLoader2,

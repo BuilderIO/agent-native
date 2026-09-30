@@ -385,7 +385,7 @@ describe("syncInboxAccount — full sync", () => {
     expect(mocks.gmailListThreads).toHaveBeenCalledWith(
       "tok",
       expect.objectContaining({ pageToken: "page2", maxResults: 24 }),
-      "incremental",
+      "interactive",
     );
     expect(mocks.markThreadsOutOfInboxBeforeSync).toHaveBeenCalledWith(
       OWNER,
@@ -740,15 +740,16 @@ describe("syncInboxAccount — full sync", () => {
         changed: true,
         backfillPending: true,
       });
+      expect(mocks.gmailGetProfile).toHaveBeenCalledWith("tok", "interactive");
       expect(mocks.gmailListLabels).not.toHaveBeenCalled();
       expect(mocks.gmailListThreads).toHaveBeenNthCalledWith(
         1,
         "tok",
         expect.objectContaining({ maxResults: 50, q: "in:inbox" }),
-        "incremental",
+        "interactive",
       );
       expect(mocks.gmailBatchGetThreads.mock.calls[0][1]).toHaveLength(50);
-      expect(mocks.gmailBatchGetThreads.mock.calls[0][4]).toBe("incremental");
+      expect(mocks.gmailBatchGetThreads.mock.calls[0][4]).toBe("interactive");
 
       const firstRead = await listInboxAction.run(
         { limit: 50, offset: 0 } as any,
@@ -773,7 +774,7 @@ describe("syncInboxAccount — full sync", () => {
         2,
         "tok",
         expect.objectContaining({ maxResults: 24, pageToken: "50" }),
-        "incremental",
+        "interactive",
       );
 
       const afterEager = await listInboxAction.run(
@@ -794,7 +795,7 @@ describe("syncInboxAccount — full sync", () => {
       expect(mocks.gmailListThreads).toHaveBeenNthCalledWith(
         3,
         "tok",
-        expect.objectContaining({ maxResults: 45, pageToken: "74" }),
+        expect.objectContaining({ maxResults: 49, pageToken: "74" }),
         "backfill",
       );
 
@@ -807,7 +808,7 @@ describe("syncInboxAccount — full sync", () => {
       expect(mocks.gmailListThreads).toHaveBeenNthCalledWith(
         4,
         "tok",
-        expect.objectContaining({ maxResults: 45, pageToken: "119" }),
+        expect.objectContaining({ maxResults: 49, pageToken: "123" }),
         "backfill",
       );
       const afterBackfill = await listInboxAction.run(
@@ -887,8 +888,8 @@ describe("syncInboxAccount — incremental sync", () => {
       backfillPending: true,
     });
     expect(mocks.gmailListThreads.mock.calls.map((call) => call[1])).toEqual([
-      expect.objectContaining({ pageToken: "page-1", maxResults: 45 }),
-      expect.objectContaining({ pageToken: "page-2", maxResults: 45 }),
+      expect.objectContaining({ pageToken: "page-1", maxResults: 49 }),
+      expect.objectContaining({ pageToken: "page-2", maxResults: 49 }),
     ]);
     expect(
       mocks.gmailBatchGetThreads.mock.calls.map((call) => call[4]),
@@ -1115,7 +1116,7 @@ describe("syncInboxAccount — incremental sync", () => {
     expect(mocks.gmailListThreads).toHaveBeenCalledWith(
       "tok",
       expect.objectContaining({ maxResults: 50, pageToken: undefined }),
-      "incremental",
+      "interactive",
     );
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,

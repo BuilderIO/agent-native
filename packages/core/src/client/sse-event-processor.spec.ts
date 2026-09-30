@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../app-config/run-lifecycle-invariants.js";
-import { subscribeChatFirstOpenApp } from "./chat-first.js";
+import { subscribeChatFirstOpenApp } from "./chat-first-state.js";
 import {
   AgentAutoContinueSignal,
   admitSSEEvent,

@@ -102,7 +102,7 @@ export function ImportDeckButton({
                 )}
               >
                 <IconUpload />
-                <span>
+                <span className="slides-home-import-label">
                   {t(
                     busy ? "editorToolbar.importing" : "home.importMenu.import",
                   )}

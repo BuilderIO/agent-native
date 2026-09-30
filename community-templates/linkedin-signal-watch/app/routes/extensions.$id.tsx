@@ -1,4 +1,4 @@
-import { ExtensionViewerPage } from "@agent-native/core/client/extensions";
+import { ExtensionViewerPage } from "@agent-native/toolkit/app/extensions";
 
 import { APP_TITLE } from "@/lib/app-config";
 

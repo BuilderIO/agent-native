@@ -1,10 +1,9 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsAppArea,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustments,
   IconColumns3,
@@ -102,11 +101,7 @@ export default function SettingsRoute() {
       extraTabs={agentSettingsTabs}
       appAreas={appAreas}
       mcpAbout={t("settings.mcpAbout")}
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }

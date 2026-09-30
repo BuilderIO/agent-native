@@ -1,5 +1,5 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import { useEffect, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

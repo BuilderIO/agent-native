@@ -10,6 +10,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchAction = vi.hoisted(() => vi.fn());
+const orgState = vi.hoisted(() => ({
+  data: undefined as { orgId: string | null } | undefined,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => orgState,
+}));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string, params: unknown, options: object) =>
@@ -62,6 +69,7 @@ describe("useOrganizationState", () => {
       async (_name: string, params?: { organizationId?: string }) =>
         organizationState(params?.organizationId ?? "active"),
     );
+    orgState.data = { orgId: "active" };
     latest = null;
     container = document.createElement("div");
     root = createRoot(container);
@@ -90,14 +98,13 @@ describe("useOrganizationState", () => {
     }
   }
 
-  it("serves folders and spaces for the active org from the one active-org request", async () => {
+  it("serves folders and spaces for the active org from one org-scoped request", async () => {
     await renderShell();
 
     expect(fetchAction).toHaveBeenCalledTimes(1);
-    expect(fetchAction).toHaveBeenCalledWith(
-      "list-organization-state",
-      undefined,
-    );
+    expect(fetchAction).toHaveBeenCalledWith("list-organization-state", {
+      organizationId: "active",
+    });
     expect(latest).toEqual({
       folderIds: ["active-folder"],
       spaceIds: ["active-space"],
@@ -114,5 +121,41 @@ describe("useOrganizationState", () => {
       folderIds: ["other-folder"],
       spaceIds: ["other-space"],
     });
+  });
+
+  it("never serves the previous org's state after an org switch", async () => {
+    await renderShell();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchAction.mockImplementation(
+      async (_name: string, params?: { organizationId?: string }) => {
+        await gate;
+        return organizationState(params?.organizationId ?? "unscoped");
+      },
+    );
+
+    orgState.data = { orgId: "next" };
+    await renderShell();
+    expect(latest).toEqual({ folderIds: [], spaceIds: [] });
+
+    release();
+    await renderShell();
+    expect(latest).toEqual({
+      folderIds: ["next-folder"],
+      spaceIds: ["next-space"],
+    });
+  });
+
+  it("serves nothing once there is no active org", async () => {
+    await renderShell();
+    fetchAction.mockClear();
+
+    orgState.data = { orgId: null };
+    await renderShell();
+
+    expect(fetchAction).not.toHaveBeenCalled();
+    expect(latest).toEqual({ folderIds: [], spaceIds: [] });
   });
 });

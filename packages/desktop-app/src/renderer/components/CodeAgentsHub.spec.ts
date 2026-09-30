@@ -322,7 +322,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'import { FeedbackButton } from "@agent-native/core/client/ui";',
+      'import { FeedbackButton } from "@agent-native/toolkit/app/feedback";',
     );
     expect(hubSource).toContain("desktop-chat-first-rail-feedback");
     expect(hubSource).toContain(

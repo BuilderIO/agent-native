@@ -632,6 +632,8 @@ const messages = {
       ruleBackfillMatches: "近期有 {{count}} 封邮件匹配",
       ruleBackfillNoMatches: "近期没有邮件符合此规则。",
       ruleBackfillFailed: "无法将此规则应用于近期邮件。",
+      ruleBackfillRunFailed: "无法完成将规则应用于近期邮件的操作。",
+      backfillStatusLoadFailed: "无法加载规则的近期状态。",
       ruleBackfillPartialFailure: "有 {{count}} 封邮件未能更新。",
       ruleBackfillUndoing: "正在恢复近期邮件…",
       ruleBackfillUndoComplete: "已恢复 {{count}} 封邮件",

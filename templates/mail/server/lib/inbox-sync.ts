@@ -46,9 +46,10 @@ const DEFAULT_BUDGET_MS = 6_000;
 const CLAIM_TTL_MS = 90_000;
 const LABELS_TTL_MS = 5 * 60 * 1000;
 const EAGER_PAGE_SIZE = 50;
-// 74 thread reads cost 2,960 units; profile and two list calls bring eager sync to 2,981.
+// Use interactive quota for the 74-thread eager slice so its first backfill page still fits.
 const EAGER_COMPLETION_SIZE = 24;
-const BACKFILL_PAGE_SIZE = 45;
+// 49 reads and one threads.list call use 1,970 of the 2,000-unit backfill budget.
+const BACKFILL_PAGE_SIZE = 49;
 const RECONCILE_PAGE_SIZE = 500;
 const RECONCILE_HYDRATE_SIZE = 45;
 const RECONCILE_MAX_PASSES = 2;
@@ -292,7 +293,7 @@ async function hydrateAndApply(
   accountEmail: string,
   connected: Set<string>,
   claimId: string,
-  lane: "incremental" | "backfill",
+  lane: "interactive" | "incremental" | "backfill",
   onChanged?: () => void,
 ): Promise<void> {
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
@@ -349,10 +350,14 @@ async function runFullSyncStep(
   connectedAccountEmails?: readonly string[],
   onChanged?: () => void,
 ): Promise<SyncStepResult> {
+  const initialSync = row.historyId == null;
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
   if (fullSyncHistoryId == null) {
-    const profile = await gmailGetProfile(accessToken, "incremental");
+    const profile = await gmailGetProfile(
+      accessToken,
+      initialSync ? "interactive" : "incremental",
+    );
     fullSyncHistoryId = String(profile.historyId);
     fullSyncStartedAt = Date.now();
     await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -368,7 +373,7 @@ async function runFullSyncStep(
     connectedAccountEmails,
   );
   const completingEagerSlice = row.historyId == null && pageToken != null;
-  const initialSync = row.historyId == null;
+  const lane = initialSync ? "interactive" : "backfill";
   const page = await gmailListThreads(
     accessToken,
     {
@@ -380,11 +385,10 @@ async function runFullSyncStep(
         : BACKFILL_PAGE_SIZE,
       pageToken,
     },
-    initialSync ? "incremental" : "backfill",
+    lane,
   );
   const ids: string[] = (page.threads ?? []).map((thread: any) => thread.id);
   if (ids.length > 0) {
-    const lane = initialSync ? "incremental" : "backfill";
     await hydrateAndApply(
       accessToken,
       ids,

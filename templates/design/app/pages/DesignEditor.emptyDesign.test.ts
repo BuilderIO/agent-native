@@ -8,6 +8,20 @@ const source = readFileSync(
 );
 
 describe("empty design", () => {
+  it("shares composer context with signed-in editor chats, not capability-only sessions", () => {
+    const surfaceStart = source.indexOf("<AgentChatSurface");
+    const surfaceEnd = source.indexOf('mode="panel"', surfaceStart);
+    expect(surfaceStart).toBeGreaterThan(-1);
+    expect(surfaceEnd).toBeGreaterThan(surfaceStart);
+    expect(source.slice(surfaceStart, surfaceEnd)).toMatch(
+      /composerContextProvider=\{\s*isSignedIn \? DesignComposerContextProvider : undefined\s*\}/,
+    );
+    expect(source).toContain(") : canApplyPendingVisualEditsWithAgent ? (");
+    expect(source).toContain(
+      "canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost())",
+    );
+  });
+
   it("renders the board instead of an empty state", () => {
     expect(source).toContain(') : viewMode === "overview" || activeFile ? (');
     expect(source).not.toContain("designEditor.noFiles");

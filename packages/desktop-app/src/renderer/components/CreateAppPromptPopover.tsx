@@ -1,4 +1,4 @@
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   Popover,
   PopoverContent,
