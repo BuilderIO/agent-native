@@ -7319,6 +7319,21 @@ it(
             height: 0,
             computedHeight: "10px",
           });
+          const renderedPixel = await page
+            .locator("#css-sized-pattern-polygon")
+            .evaluate(async (element) => {
+              const image = new Image();
+              const svg = new XMLSerializer().serializeToString(element);
+              image.src = `data:image/svg+xml;base64,${btoa(svg)}`;
+              await image.decode();
+              const canvas = document.createElement("canvas");
+              canvas.width = canvas.height = 80;
+              const context = canvas.getContext("2d");
+              if (!context) throw new Error("2d canvas context is unavailable");
+              context.drawImage(image, 0, 0);
+              return Array.from(context.getImageData(40, 40, 1, 1).data);
+            });
+          expect(renderedPixel).toEqual([0, 0, 0, 0]);
         }
         if (id === "rectangle") {
           const hasAuthoredFill = await page
