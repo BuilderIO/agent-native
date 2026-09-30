@@ -420,6 +420,12 @@ export default defineAction({
         z.array(z.string()).optional(),
       )
       .describe("Shortcut for routes when only paths/URLs are needed."),
+    preserveExistingFramePositions: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set when route x/y values come from an automatic grid so existing screens stay in place.",
+      ),
     defaultWidth: z
       .number()
       .positive()
@@ -461,6 +467,7 @@ export default defineAction({
       connectionId,
       routes,
       paths,
+      preserveExistingFramePositions,
       defaultWidth,
       defaultHeight,
       startX,
@@ -1127,12 +1134,16 @@ export default defineAction({
         width,
         height,
       });
-      const frameX = existingFrame?.x ?? input.x ?? layoutCursorX;
+      const frameX = preserveExistingFramePositions
+        ? (existingFrame?.x ?? input.x ?? layoutCursorX)
+        : (input.x ?? existingFrame?.x ?? layoutCursorX);
       const fallbackPlacement: CanvasFramePlacement = {
         fileId,
         filename,
         x: frameX,
-        y: existingFrame?.y ?? input.y ?? layoutStartY,
+        y: preserveExistingFramePositions
+          ? (existingFrame?.y ?? input.y ?? layoutStartY)
+          : (input.y ?? existingFrame?.y ?? layoutStartY),
         width,
         height,
         z: input.z ?? existingFrame?.z ?? placementIndex,
@@ -1147,8 +1158,12 @@ export default defineAction({
         fallback: fallbackPlacement,
         existedAtStart: Boolean(existingFrame),
         owns: {
-          x: input.x !== undefined && !existingFrame,
-          y: input.y !== undefined && !existingFrame,
+          x:
+            input.x !== undefined &&
+            (!preserveExistingFramePositions || !existingFrame),
+          y:
+            input.y !== undefined &&
+            (!preserveExistingFramePositions || !existingFrame),
           width: input.width !== undefined || defaultWidth !== undefined,
           height: input.height !== undefined || defaultHeight !== undefined,
           z: input.z !== undefined,

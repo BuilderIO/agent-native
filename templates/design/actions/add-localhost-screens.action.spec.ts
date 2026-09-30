@@ -411,6 +411,7 @@ describe("add-localhost-screens refresh behavior", () => {
       routes: [
         { path: "/settings", width: 1280, height: 900, x: 2800, y: -20 },
       ],
+      preserveExistingFramePositions: true,
     });
 
     expect(result.placedFrames[0]?.frame).toMatchObject({

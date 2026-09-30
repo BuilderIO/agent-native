@@ -309,6 +309,9 @@ describe("open-visual-edit", () => {
     });
 
     const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0]).toMatchObject({
+      preserveExistingFramePositions: true,
+    });
     expect(routes).toEqual([
       expect.objectContaining({
         path: "/tasks",

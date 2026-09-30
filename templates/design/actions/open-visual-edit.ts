@@ -723,6 +723,7 @@ export default defineAction({
                 })
               : args.routes,
           paths: viewports ? undefined : args.paths,
+          preserveExistingFramePositions: Boolean(viewports),
           defaultWidth: args.defaultWidth,
           defaultHeight: args.defaultHeight,
           startX: args.startX,
