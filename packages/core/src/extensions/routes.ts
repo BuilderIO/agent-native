@@ -25,7 +25,7 @@ import {
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 import { ExtensionContentEditError } from "./content-patch.js";
-import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
+import { buildExtensionHtml, buildExtensionIframeCsp } from "./html-shell.js";
 import {
   getLocalExtension,
   isLocalExtensionRow,
@@ -227,7 +227,11 @@ async function dispatch(
         },
       );
       setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-      setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
+      setResponseHeader(
+        event,
+        "Content-Security-Policy",
+        buildExtensionIframeCsp(),
+      );
       setResponseHeader(event, "X-Content-Type-Options", "nosniff");
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
       return html;
@@ -260,7 +264,11 @@ async function dispatch(
     // Security headers per render. `frame-ancestors` in the CSP must be set as
     // an HTTP header to be enforced; meta-CSP can't set it per spec.
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      buildExtensionIframeCsp(),
+    );
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
     return html;
