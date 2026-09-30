@@ -1059,6 +1059,7 @@ import {
   writePendingEditSessionMarker,
 } from "./design-editor/pending-edit-session-marker";
 import {
+  activeRuntimeReloadFrameId,
   applyInteractionStateStyleCommit,
   buildPendingVisualStyleRevertPatches,
   deriveStatePreviewTarget,
@@ -1068,6 +1069,7 @@ import {
   isVisualEditHandoffAcknowledged,
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
+  pendingLiveEditFrameTargets,
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveLayerNameUndoRevertValue,
@@ -1076,6 +1078,7 @@ import {
   projectRelativeSourcePath,
   relativeOperationsForStyles,
   reactSourceAnchorForPendingEdit,
+  shouldFinalizePendingLiveEditReload,
   type PendingLiveLayerNameEdit,
   type PendingLiveLayerStateEdit,
   type PendingLiveNonStyleEdit,
@@ -1091,7 +1094,14 @@ import {
   shouldPreferRuntimeLayerProjection,
   shouldUseRuntimeLayerProjection,
   shouldBlockPendingVisualStyleNavigation,
+  shouldClearPendingLiveEditsAfterReload,
+  shouldClearReloadedVisualEditHandoff,
+  shouldSuppressReloadedVisualEditHandoff,
+  shouldPublishVisualEditHandoff,
   shouldShowPendingVisualStyleApply,
+  updateReloadedVisualEditHandoff,
+  updateVisualEditHandoffPublication,
+  type VisualEditHandoffPublicationState,
 } from "./design-editor/pending-edits";
 import { usePendingLiveEditUnloadGuard } from "./design-editor/pending-live-edit-unload-guard";
 import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
@@ -1805,6 +1815,8 @@ function DesignEditor() {
   ] = useState<number | null>(null);
   const pendingVisualStyleEditsRef = useRef<PendingVisualStyleEdit[]>([]);
   const pendingLiveNonStyleEditsRef = useRef<PendingLiveNonStyleEdit[]>([]);
+  const pendingLiveEditReloadedTargetsRef = useRef<Set<string>>(new Set());
+  const liveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const pendingVisualEditPublicationRevisionRef = useRef(0);
   const pendingVisualEditPublisherIdRef = useRef(crypto.randomUUID());
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
@@ -1812,11 +1824,17 @@ function DesignEditor() {
   );
   const pendingVisualEditClearRequestedRef = useRef<string | null>(null);
   const pendingVisualEditHadPendingRef = useRef<string | null>(null);
+  const pendingVisualEditHandoffPublicationRef =
+    useRef<VisualEditHandoffPublicationState | null>(null);
+  const pendingVisualEditReloadedHandoffRef =
+    useRef<VisualEditHandoffPublicationState | null>(null);
   useEffect(() => {
     pendingVisualEditPublicationRevisionRef.current = 0;
     pendingVisualEditPublisherIdRef.current = crypto.randomUUID();
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
+    pendingVisualEditHandoffPublicationRef.current = null;
+    pendingVisualEditReloadedHandoffRef.current = null;
     setPendingVisualEditPublicationFailed(false);
     setPendingVisualEditRecoveryVisible(false);
   }, [id]);
@@ -2036,48 +2054,117 @@ function DesignEditor() {
   );
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  const clearPendingLiveEditState = useCallback(() => {
-    if (
-      id &&
-      (pendingVisualStyleEditsRef.current.length > 0 ||
-        pendingLiveNonStyleEditsRef.current.length > 0)
-    ) {
-      pendingVisualEditClearRequestedRef.current = id;
-    }
-    stagedSourceHandoffRef.current = "idle";
-    setApplyingViaHost(false);
-    if (pendingEditSessionDesignIdRef.current === id) {
-      clearPendingEditSessionRecovery();
-    }
-    if (stagedHandoffStartTimerRef.current !== undefined) {
-      window.clearTimeout(stagedHandoffStartTimerRef.current);
-      stagedHandoffStartTimerRef.current = undefined;
-    }
-    cancelPendingStructureVerification();
-    pendingVisualStyleUndoStackRef.current = [];
-    pendingVisualStyleRedoStackRef.current = [];
-    pendingLiveNonStyleUndoStackRef.current = [];
-    pendingLiveNonStyleRedoStackRef.current = [];
-    historyOrderRef.current = historyOrderRef.current.filter(
-      (kind) => kind !== "pending-style" && kind !== "pending-live",
-    );
-    redoOrderRef.current = redoOrderRef.current.filter(
-      (kind) => kind !== "pending-style" && kind !== "pending-live",
-    );
-    pendingStructureRedoReplayRef.current = undefined;
-    if (pendingStructureRedoReplayTimerRef.current !== undefined) {
-      window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
-      pendingStructureRedoReplayTimerRef.current = undefined;
-    }
-    pendingVisualStyleEditsRef.current = [];
-    pendingLiveNonStyleEditsRef.current = [];
-    setPendingVisualStyleEdits([]);
-    setPendingLiveNonStyleEdits([]);
-  }, [cancelPendingStructureVerification, clearPendingEditSessionRecovery, id]);
+  const clearPendingLiveEditState = useCallback(
+    (options: { preserveDurableHandoff?: boolean } = {}) => {
+      pendingLiveEditReloadedTargetsRef.current.clear();
+      if (
+        id &&
+        (pendingVisualStyleEditsRef.current.length > 0 ||
+          pendingLiveNonStyleEditsRef.current.length > 0)
+      ) {
+        if (
+          options.preserveDurableHandoff &&
+          pendingVisualEditHandoffPublicationRef.current?.designId === id
+        ) {
+          pendingVisualEditReloadedHandoffRef.current = {
+            ...pendingVisualEditHandoffPublicationRef.current,
+          };
+          pendingVisualEditClearRequestedRef.current = null;
+          pendingVisualEditHadPendingRef.current = null;
+        } else {
+          pendingVisualEditClearRequestedRef.current = id;
+        }
+      }
+      stagedSourceHandoffRef.current = "idle";
+      setApplyingViaHost(false);
+      if (pendingEditSessionDesignIdRef.current === id) {
+        clearPendingEditSessionRecovery();
+      }
+      if (stagedHandoffStartTimerRef.current !== undefined) {
+        window.clearTimeout(stagedHandoffStartTimerRef.current);
+        stagedHandoffStartTimerRef.current = undefined;
+      }
+      cancelPendingStructureVerification();
+      pendingVisualStyleUndoStackRef.current = [];
+      pendingVisualStyleRedoStackRef.current = [];
+      pendingLiveNonStyleUndoStackRef.current = [];
+      pendingLiveNonStyleRedoStackRef.current = [];
+      historyOrderRef.current = historyOrderRef.current.filter(
+        (kind) => kind !== "pending-style" && kind !== "pending-live",
+      );
+      redoOrderRef.current = redoOrderRef.current.filter(
+        (kind) => kind !== "pending-style" && kind !== "pending-live",
+      );
+      pendingStructureRedoReplayRef.current = undefined;
+      if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+        window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+        pendingStructureRedoReplayTimerRef.current = undefined;
+      }
+      pendingVisualStyleEditsRef.current = [];
+      pendingLiveNonStyleEditsRef.current = [];
+      setPendingVisualStyleEdits([]);
+      setPendingLiveNonStyleEdits([]);
+    },
+    [cancelPendingStructureVerification, clearPendingEditSessionRecovery, id],
+  );
   const clearPendingLiveEditStateRef = useRef(clearPendingLiveEditState);
   useEffect(() => {
     clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
   }, [clearPendingLiveEditState]);
+  const clearReloadedPendingLiveEdits = useCallback(() => {
+    const pendingTargets = pendingLiveEditFrameTargets(
+      pendingVisualStyleEditsRef.current,
+      pendingLiveNonStyleEditsRef.current,
+    );
+    const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
+    const handoff = pendingVisualEditHandoffPublicationRef.current;
+    if (
+      !shouldFinalizePendingLiveEditReload({
+        pendingTargets,
+        reloadedTargets,
+        handoff,
+        designId: id,
+      })
+    ) {
+      return;
+    }
+    clearPendingLiveEditStateRef.current({
+      preserveDurableHandoff:
+        handoff !== null &&
+        handoff.designId === id &&
+        handoff.serverRevision !== null,
+    });
+  }, [id]);
+  const handleLiveScreenRuntimeReload = useCallback(
+    (screenId: string, frameId: string) => {
+      const pendingTargets = pendingLiveEditFrameTargets(
+        pendingVisualStyleEditsRef.current,
+        pendingLiveNonStyleEditsRef.current,
+      );
+      // HMR only resets URL-backed previews; it must not discard static edits.
+      if (
+        !pendingTargets.has(screenId) ||
+        Array.from(pendingTargets.keys()).some(
+          (pendingScreenId) => !liveScreenIdsRef.current.has(pendingScreenId),
+        )
+      ) {
+        return;
+      }
+      const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
+      reloadedTargets.add(`${screenId}\0${frameId}`);
+      if (
+        shouldClearPendingLiveEditsAfterReload(
+          pendingTargets,
+          reloadedTargets,
+          screenId,
+          frameId,
+        )
+      ) {
+        clearReloadedPendingLiveEdits();
+      }
+    },
+    [clearReloadedPendingLiveEdits, id],
+  );
   useEffect(() => {
     if (!pendingVisualStyleRevertRequest) return;
     const timeout = window.setTimeout(() => {
@@ -3097,10 +3184,12 @@ function DesignEditor() {
   );
   useEffect(() => {
     pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
+    pendingLiveEditReloadedTargetsRef.current.clear();
     syncUndoRedoState();
   }, [pendingVisualStyleEdits, syncUndoRedoState]);
   useEffect(() => {
     pendingLiveNonStyleEditsRef.current = pendingLiveNonStyleEdits;
+    pendingLiveEditReloadedTargetsRef.current.clear();
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
@@ -4053,6 +4142,7 @@ function DesignEditor() {
     }
   }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
   const canEditDesignRef = useRef(canEditDesign);
+  const canPersistDesignSourceRef = useRef(canEditDesign && isSignedIn);
   const rawServerFilesByIdRef = useRef(new Map<string, DesignFile>());
   const historyFilesRef = useRef<DesignFile[]>([]);
   const pendingLocalFileContentsRef = useRef<
@@ -4128,7 +4218,8 @@ function DesignEditor() {
 
   useLayoutEffect(() => {
     canEditDesignRef.current = canEditDesign;
-  }, [canEditDesign]);
+    canPersistDesignSourceRef.current = canEditDesign && isSignedIn;
+  }, [canEditDesign, isSignedIn]);
 
   useEffect(() => {
     if (!id || !hasPendingGeneration) return;
@@ -4566,6 +4657,7 @@ function DesignEditor() {
       runPublishCanonicalContent(
         {
           canEditDesignRef,
+          canPersistDesignSourceRef,
           pendingLocalFileContentsRef,
           cancelIdentityMigration,
           queueFileContentSave,
@@ -5456,9 +5548,42 @@ function DesignEditor() {
   );
   const remoteVisualEditPending =
     canEditDesign &&
+    !shouldSuppressReloadedVisualEditHandoff({
+      marker: pendingVisualEditReloadedHandoffRef.current,
+      designId: id,
+      status: visualEditPendingQuery.data?.status,
+      revision: visualEditPendingQuery.data?.revision,
+    }) &&
     visualEditPendingQuery.data?.status === "ready" &&
     visualEditPendingQuery.data.pendingEditCount > 0 &&
     Boolean(visualEditPendingQuery.data.prompt);
+  useEffect(() => {
+    const marker = pendingVisualEditReloadedHandoffRef.current;
+    if (
+      !shouldClearReloadedVisualEditHandoff({
+        marker,
+        designId: id,
+        status: visualEditPendingQuery.data?.status,
+        revision: visualEditPendingQuery.data?.revision,
+      })
+    ) {
+      return;
+    }
+    pendingVisualEditReloadedHandoffRef.current = null;
+    if (
+      marker &&
+      pendingVisualEditHandoffPublicationRef.current?.publicationRevision ===
+        marker.publicationRevision &&
+      pendingVisualEditHandoffPublicationRef.current.serverRevision ===
+        marker.serverRevision
+    ) {
+      pendingVisualEditHandoffPublicationRef.current = null;
+    }
+  }, [
+    id,
+    visualEditPendingQuery.data?.revision,
+    visualEditPendingQuery.data?.status,
+  ]);
   const exportCanvasFrameGeometryById = useMemo(
     () =>
       getOverviewScreenExportGeometryById({
@@ -6199,6 +6324,14 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const handleActiveScreenRuntimeReload = useCallback(() => {
+    if (activeFile) {
+      handleLiveScreenRuntimeReload(
+        activeFile.id,
+        activeRuntimeReloadFrameId(activeBreakpointWidthStateRef.current),
+      );
+    }
+  }, [activeFile?.id, handleLiveScreenRuntimeReload]);
   const activeRuntimeLayerReadinessScreenIdRef = useRef<string | null>(
     activeFile?.id ?? null,
   );
@@ -7045,6 +7178,7 @@ function DesignEditor() {
     serverFiles,
     publishCanonicalContent,
     canEditDesign,
+    isSignedIn,
     activeFileId,
     viewMode,
     isSynced,
@@ -8884,6 +9018,7 @@ function DesignEditor() {
       ),
     [designSourceType, overviewScreens],
   );
+  liveScreenIdsRef.current = liveScreenIds;
   canEditLiveScreenIdsRef.current = canEditLiveScreens
     ? new Set([
         ...liveScreenIds,
@@ -18946,9 +19081,12 @@ function DesignEditor() {
       return;
     }
     if (
-      pendingVisualEditCount === 0 &&
-      pendingVisualEditClearRequestedRef.current !== id &&
-      pendingVisualEditHadPendingRef.current !== id
+      !shouldPublishVisualEditHandoff({
+        designId: id,
+        pendingEditCount: pendingVisualEditCount,
+        clearRequestedDesignId: pendingVisualEditClearRequestedRef.current,
+        hadPendingDesignId: pendingVisualEditHadPendingRef.current,
+      })
     ) {
       return;
     }
@@ -18973,6 +19111,13 @@ function DesignEditor() {
             revision,
             pending: null,
           };
+    if (pending.pending) {
+      pendingVisualEditHandoffPublicationRef.current =
+        updateVisualEditHandoffPublication(
+          pendingVisualEditHandoffPublicationRef.current,
+          { status: "queued", designId: id, publicationRevision: revision },
+        );
+    }
     if (pendingVisualEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
@@ -18989,6 +19134,45 @@ function DesignEditor() {
         pending,
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
+        onHandoffPublicationStatusChange: (
+          status,
+          publicationRevision,
+          serverRevision,
+        ) => {
+          if (status === "ready") {
+            if (typeof serverRevision !== "number") return;
+            const event = {
+              status,
+              designId: id,
+              publicationRevision,
+              serverRevision,
+            };
+            pendingVisualEditHandoffPublicationRef.current =
+              updateVisualEditHandoffPublication(
+                pendingVisualEditHandoffPublicationRef.current,
+                event,
+              );
+            pendingVisualEditReloadedHandoffRef.current =
+              updateReloadedVisualEditHandoff(
+                pendingVisualEditReloadedHandoffRef.current,
+                event,
+              );
+            clearReloadedPendingLiveEdits();
+            return;
+          }
+          const event = { status, designId: id, publicationRevision };
+          pendingVisualEditHandoffPublicationRef.current =
+            updateVisualEditHandoffPublication(
+              pendingVisualEditHandoffPublicationRef.current,
+              event,
+            );
+          pendingVisualEditReloadedHandoffRef.current =
+            updateReloadedVisualEditHandoff(
+              pendingVisualEditReloadedHandoffRef.current,
+              event,
+            );
+          if (status === "local-ready") clearReloadedPendingLiveEdits();
+        },
         setPendingVisualEditPublicationFailed,
         showHandoffErrorToast: (error) => {
           const errorCode = (error as { errorCode?: unknown } | undefined)
@@ -19020,6 +19204,7 @@ function DesignEditor() {
     activeOverviewScreen?.id,
     canEditLiveScreen,
     canEditDesign,
+    clearReloadedPendingLiveEdits,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
@@ -24245,6 +24430,7 @@ function DesignEditor() {
           }
           onBootStart={renderOptions?.onBootStart}
           onBootReady={renderOptions?.onBootReady}
+          onRuntimeReload={renderOptions?.onRuntimeReload}
           onExternalContentSnapshot={
             screenSnapshotOnly
               ? undefined
@@ -24587,6 +24773,7 @@ function DesignEditor() {
         {
           onBootStart: frame.onBootStart,
           onBootReady: frame.onBootReady,
+          onRuntimeReload: frame.onRuntimeReload,
         },
       ),
     [renderEditableScreenContent],
@@ -27270,6 +27457,7 @@ function DesignEditor() {
                         onScreenSelectionChange={
                           handleOverviewScreenSelectionChange
                         }
+                        onScreenRuntimeReload={handleLiveScreenRuntimeReload}
                         geometryById={displayedCanvasFrameGeometryById}
                         geometryOverridesById={optimisticFrameGeometryById}
                         onGeometryChange={queueFrameGeometrySave}
@@ -27689,6 +27877,7 @@ function DesignEditor() {
                             ? undefined
                             : handleLiveRoutePathChange
                         }
+                        onRuntimeReload={handleActiveScreenRuntimeReload}
                         publicVisualEdit={
                           !activeScreenSnapshotOnly && publicVisualEdit
                         }
