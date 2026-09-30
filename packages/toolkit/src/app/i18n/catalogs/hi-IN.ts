@@ -376,6 +376,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "अपने-आप",
   "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
+  "composer.chatgptManageUsage": "उपयोग प्रबंधित करें",
+  "composer.chatgptPlanUsing": "ChatGPT योजना का उपयोग हो रहा है",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
@@ -574,6 +576,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "चैट लोड हो रही है...",
   "empty.prompt": "मैं आपकी कैसे मदद कर सकता हूँ?",
   "error.afterDuration": "{{duration}} के बाद {{headline}}",
+  "error.chatgptPlanUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI इस ChatGPT योजना की उपयोग सीमा जाँच नहीं सका। अपना ChatGPT उपयोग देखें या कोई दूसरा मॉडल आज़माएँ।",
   "error.failed": "एजेंट को एक त्रुटि मिली",
   "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
@@ -2666,10 +2672,27 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "रद्द करें",
   "settingsModel.change": "बदलें",
   "settingsModel.chatgptConnected": "कनेक्टेड",
-  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptDescription":
+    "अपने ChatGPT प्लान के ज़रिए योग्य OpenAI मॉडल इस्तेमाल करें।",
   "settingsModel.chatgptPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
-  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.chatgptTitle": "ChatGPT प्लान ऐक्सेस",
+  "settingsModel.chatgptAddAccount": "एक और खाता जोड़ें",
+  "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
+  "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
+  "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptManageAccess": "ChatGPT में एक्सेस प्रबंधित करें",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "यहाँ से साइन आउट किया गया, लेकिन OpenAI ने रिमोट रद्द करने की पुष्टि नहीं की।",
+  "settingsModel.chatgptLocalOnly":
+    "इस ओपन-सोर्स साइन-इन फ़्लो के लिए लोकल या सेल्फ़-होस्टेड ऐप ज़रूरी है। होस्टेड या पेड ऐप्स के लिए OpenAI पार्टनर ऐक्सेस चाहिए।",
+  "settingsModel.chatgptNoDirectUse":
+    "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
+  "settingsModel.chatgptPartnerInterest": "पार्टनर ऐक्सेस का अनुरोध करें",
+  "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
+  "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
+  "settingsModel.chatgptUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
   "settingsModel.checkAgain": "फिर से जाँचें",
   "settingsModel.checkedJustNow": "अभी जाँचा गया।",
   "settingsModel.checkedOn": "{{date}} को जाँचा गया।",

@@ -5,7 +5,6 @@ import {
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
-import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
 import type { LabDefinition } from "@agent-native/core/labs/registry";
 import {
   buildSettingsEntryRoute,
@@ -428,12 +427,6 @@ function SettingsTabsPageContent({
       templateTabs,
     ],
   );
-  const visibleLabs = useMemo(() => {
-    if (labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)) {
-      return labs;
-    }
-    return [CHATGPT_SUBSCRIPTION_LAB, ...labs];
-  }, [labs]);
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -459,20 +452,16 @@ function SettingsTabsPageContent({
       });
     }
     next.push(...inlineTabs);
-    if (visibleLabs.length > 0) {
+    if (labs.length > 0) {
       next.push({
         id: "labs",
         label: labsLabel,
         icon: IconFlask,
         keywords: "experimental unstable beta bugs feedback",
         content: (
-          <LabsSettings
-            labs={visibleLabs}
-            title={labsLabel}
-            intro={labsIntro}
-          />
+          <LabsSettings labs={labs} title={labsLabel} intro={labsIntro} />
         ),
-        searchEntries: visibleLabs.map((lab) => ({
+        searchEntries: labs.map((lab) => ({
           id: `lab:${lab.key}`,
           label: lab.displayName ?? lab.key,
           keywords: `${lab.key} ${lab.keywords ?? ""}`,
@@ -512,7 +501,7 @@ function SettingsTabsPageContent({
     account,
     accountLabel,
     extraTabs,
-    visibleLabs,
+    labs,
     labsIntro,
     labsLabel,
     general,

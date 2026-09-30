@@ -377,6 +377,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Carregando chat...",
   "empty.prompt": "Como posso ajudar?",
   "error.afterDuration": "{{headline}} após {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "O limite de uso do seu plano do ChatGPT foi atingido.",
+  "error.chatgptPlanUsageUnavailable":
+    "A OpenAI não conseguiu verificar o limite de uso deste plano do ChatGPT. Confira seu uso do ChatGPT ou tente outro modelo.",
   "error.failed": "O agente encontrou um erro",
   "error.render": "Não foi possível exibir este conteúdo.",
   "error.stopped": "O agente parou antes de concluir",
@@ -973,6 +977,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Créditos grátis para Claude, OpenAI e Gemini",
   "composer.chatGptSubscription": "Assinatura do ChatGPT",
+  "composer.chatgptManageUsage": "Gerenciar uso",
+  "composer.chatgptPlanUsing": "Usando o plano do ChatGPT",
   "composer.closePreview": "Fechar visualização",
   "composer.configureProviderKeys":
     "Configurar Anthropic, OpenAI ou outro provedor",
@@ -2868,10 +2874,26 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Alterar",
   "settingsModel.chatgptConnected": "Conectado",
   "settingsModel.chatgptDescription":
-    "Use o mecanismo Codex com seu plano do ChatGPT.",
+    "Use modelos elegíveis da OpenAI pelo seu plano do ChatGPT.",
   "settingsModel.chatgptPopupBlocked":
     "Permita pop-ups para este site e tente de novo.",
-  "settingsModel.chatgptTitle": "Assinatura do ChatGPT",
+  "settingsModel.chatgptTitle": "Acesso ao plano do ChatGPT",
+  "settingsModel.chatgptAddAccount": "Adicionar outra conta",
+  "settingsModel.chatgptConnecting": "Conectando…",
+  "settingsModel.chatgptContinue": "Continuar com o ChatGPT",
+  "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptManageAccess": "Gerenciar acesso no ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Você saiu daqui, mas a OpenAI não confirmou a revogação remota.",
+  "settingsModel.chatgptLocalOnly":
+    "Este fluxo de login de código aberto exige um app local ou auto-hospedado. Apps hospedados ou pagos precisam de acesso de parceiro da OpenAI.",
+  "settingsModel.chatgptNoDirectUse":
+    "Reconecte e permita o acesso direto aos modelos para usar esta conta do ChatGPT.",
+  "settingsModel.chatgptPartnerInterest": "Solicitar acesso de parceiro",
+  "settingsModel.chatgptReconnect": "Reconectar",
+  "settingsModel.chatgptSelectAccount": "Conta do ChatGPT",
+  "settingsModel.chatgptUsageLimit":
+    "O limite de uso do seu plano do ChatGPT foi atingido.",
   "settingsModel.checkAgain": "Verificar de novo",
   "settingsModel.checkedJustNow": "Verificada agora mesmo.",
   "settingsModel.checkedOn": "Verificada em {{date}}.",

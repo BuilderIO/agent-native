@@ -5,12 +5,27 @@ import { disconnectChatGPTSubscription } from "../../server/chatgpt-subscription
 
 export default defineAction({
   description:
-    "Disconnect the current user's ChatGPT subscription from the experimental Codex engine.",
-  schema: z.object({}),
+    "Sign out of one of the current user's saved ChatGPT registrations. Remote refresh-token revocation is attempted, local tokens are cleared, and the registration remains available for later sign-in.",
+  schema: z.object({
+    accountId: z
+      .string()
+      .optional()
+      .describe(
+        "Saved ChatGPT registration ID. Omit to disconnect the active registration.",
+      ),
+  }),
   run: async (_args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });
-    await disconnectChatGPTSubscription(email);
-    return { connected: false };
+    try {
+      return await disconnectChatGPTSubscription(email, _args.accountId);
+    } catch (error) {
+      fail(
+        error instanceof Error
+          ? error.message
+          : "Unable to disconnect ChatGPT.",
+        { statusCode: 400 },
+      );
+    }
   },
 });

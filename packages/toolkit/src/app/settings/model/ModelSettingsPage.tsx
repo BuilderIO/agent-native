@@ -1,5 +1,4 @@
 import type { ProviderKeyPolicyStatus } from "@agent-native/core/agent/actions/manage-provider-key-policy";
-import { CHATGPT_SUBSCRIPTION_LAB_KEY } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   setAgentEngineDefaultModel,
   type AgentEngineKeyScope,
@@ -15,7 +14,6 @@ import {
 } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { useOrg } from "@agent-native/core/client/org";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -373,7 +371,6 @@ function PersonalProvidersGroup({
   onRemove: (row: ProviderKeyRow) => void;
 }) {
   const t = useT();
-  const chatgptLab = useLabState(CHATGPT_SUBSCRIPTION_LAB_KEY);
   const restricted = listing.personalKeysRestricted;
   const personalGrant = builder.grants?.personal;
   // Owners and admins connect Builder.io for the organization (open question
@@ -383,11 +380,7 @@ function PersonalProvidersGroup({
     (listing.hasOrganization
       ? !listing.canManageOrg && (!!personalGrant || !restricted)
       : true);
-  const showChatgpt = chatgptLab.enabled;
-  const hasRows = showBuilder || rows.length > 0 || showChatgpt;
-
-  // The no-provider empty state already says what a restricted member can do.
-  if (!hasRows && (!restricted || hideBuilder)) return null;
+  const hasProviderRows = showBuilder || rows.length > 0;
   return (
     <div>
       <SettingsGroup
@@ -416,12 +409,12 @@ function PersonalProvidersGroup({
             onRemove={() => onRemove(row)}
           />
         ))}
-        {showChatgpt ? <ChatGPTSubscriptionRow /> : null}
-        {!hasRows ? (
+        <ChatGPTSubscriptionRow />
+        {!hasProviderRows && restricted ? (
           <SettingsEmpty icon={IconLock} title={t(`${K}restricted`)} />
         ) : null}
       </SettingsGroup>
-      {restricted && hasRows ? (
+      {restricted && hasProviderRows ? (
         <p className="mt-2 px-1 text-xs leading-5 text-muted-foreground">
           {t(`${K}restricted`)}
         </p>

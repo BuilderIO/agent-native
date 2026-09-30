@@ -1,9 +1,5 @@
 import { AppConfigurationError, getAppConfig } from "../../app-config/index.js";
-import {
-  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_MODELS,
-} from "../chatgpt-subscription-contract.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import {
   createAISDKEngine,
   PROVIDER_CAPABILITIES,
@@ -117,12 +113,11 @@ function builtinEngineEntries(): AgentEngineEntry[] {
     })),
     {
       name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-      label: "ChatGPT subscription",
-      description:
-        "Experimental Codex access through a user's ChatGPT subscription. Enable the matching lab first.",
+      label: "ChatGPT plan access",
+      description: "Use eligible OpenAI models through a user's ChatGPT plan.",
       capabilities: PROVIDER_CAPABILITIES.openai,
-      defaultModel: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-      supportedModels: CHATGPT_SUBSCRIPTION_MODELS,
+      defaultModel: "",
+      supportedModels: [],
       acceptsCustomModels: false,
       requiredEnvVars: [],
       create: (config: Record<string, unknown>) =>

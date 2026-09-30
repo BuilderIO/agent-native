@@ -382,6 +382,8 @@ const messages = {
   "composer.auto": "Auto",
   "composer.builderModelCredits": "Free credits for Claude, OpenAI & Gemini",
   "composer.chatGptSubscription": "ChatGPT subscription",
+  "composer.chatgptManageUsage": "Manage usage",
+  "composer.chatgptPlanUsing": "Using ChatGPT plan",
   "composer.closePreview": "Close preview",
   "composer.configureProviderKeys":
     "Configure Anthropic, OpenAI, or another provider",
@@ -582,6 +584,10 @@ const messages = {
   "empty.loadingChat": "Loading chat...",
   "empty.prompt": "How can I help you?",
   "error.afterDuration": "{{headline}} after {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "Your ChatGPT plan usage limit has been reached.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
   "error.failed": "The agent hit an error",
   "error.render": "This content couldn’t be displayed.",
   "error.stopped": "The agent stopped before finishing",
@@ -2729,10 +2735,26 @@ const messages = {
   "settingsModel.change": "Change",
   "settingsModel.chatgptConnected": "Connected",
   "settingsModel.chatgptDescription":
-    "Use the Codex engine with your ChatGPT plan.",
+    "Use eligible OpenAI models through your ChatGPT plan.",
   "settingsModel.chatgptPopupBlocked":
     "Allow pop-ups for this site, then try again.",
-  "settingsModel.chatgptTitle": "ChatGPT subscription",
+  "settingsModel.chatgptTitle": "ChatGPT plan access",
+  "settingsModel.chatgptAddAccount": "Add another account",
+  "settingsModel.chatgptConnecting": "Connecting…",
+  "settingsModel.chatgptContinue": "Continue with ChatGPT",
+  "settingsModel.chatgptDisconnect": "Disconnect",
+  "settingsModel.chatgptManageAccess": "Manage access in ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Signed out here, but OpenAI did not confirm remote revocation.",
+  "settingsModel.chatgptLocalOnly":
+    "This open-source sign-in flow requires a local or self-hosted app. Hosted or paid apps need OpenAI partner access.",
+  "settingsModel.chatgptNoDirectUse":
+    "Reconnect and allow direct model access to use this ChatGPT account.",
+  "settingsModel.chatgptPartnerInterest": "Request partner access",
+  "settingsModel.chatgptReconnect": "Reconnect",
+  "settingsModel.chatgptSelectAccount": "ChatGPT account",
+  "settingsModel.chatgptUsageLimit":
+    "Your ChatGPT plan usage limit has been reached.",
   "settingsModel.checkAgain": "Check again",
   "settingsModel.checkedJustNow": "Checked just now.",
   "settingsModel.checkedOn": "Checked {{date}}.",

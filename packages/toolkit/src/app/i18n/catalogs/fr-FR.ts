@@ -383,6 +383,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Chargement du chat...",
   "empty.prompt": "Comment puis-je vous aider ?",
   "error.afterDuration": "{{headline}} après {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "La limite d’utilisation de votre forfait ChatGPT a été atteinte.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI n’a pas pu vérifier la limite d’utilisation de ce forfait ChatGPT. Vérifiez votre utilisation de ChatGPT ou essayez un autre modèle.",
   "error.failed": "L’agent a rencontré une erreur",
   "error.render": "Impossible d’afficher ce contenu.",
   "error.stopped": "L’agent s’est arrêté avant d’avoir terminé",
@@ -989,6 +993,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Crédits gratuits pour Claude, OpenAI et Gemini",
   "composer.chatGptSubscription": "Abonnement à ChatGPT",
+  "composer.chatgptManageUsage": "Gérer l’utilisation",
+  "composer.chatgptPlanUsing": "Forfait ChatGPT utilisé",
   "composer.closePreview": "Fermer l'aperçu",
   "composer.configureProviderKeys":
     "Configurer Anthropic, OpenAI ou un autre fournisseur",
@@ -2905,10 +2911,26 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Modifier",
   "settingsModel.chatgptConnected": "Connecté",
   "settingsModel.chatgptDescription":
-    "Utilisez le moteur Codex avec votre abonnement ChatGPT.",
+    "Utilisez des modèles OpenAI éligibles avec votre forfait ChatGPT.",
   "settingsModel.chatgptPopupBlocked":
     "Autorisez les fenêtres pop-up pour ce site, puis réessayez.",
-  "settingsModel.chatgptTitle": "Abonnement ChatGPT",
+  "settingsModel.chatgptTitle": "Accès au forfait ChatGPT",
+  "settingsModel.chatgptAddAccount": "Ajouter un autre compte",
+  "settingsModel.chatgptConnecting": "Connexion…",
+  "settingsModel.chatgptContinue": "Continuer avec ChatGPT",
+  "settingsModel.chatgptDisconnect": "Déconnecter",
+  "settingsModel.chatgptManageAccess": "Gérer l’accès dans ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Déconnecté ici, mais OpenAI n’a pas confirmé la révocation à distance.",
+  "settingsModel.chatgptLocalOnly":
+    "Ce flux de connexion open source nécessite une application locale ou auto-hébergée. Les applications hébergées ou payantes nécessitent un accès partenaire OpenAI.",
+  "settingsModel.chatgptNoDirectUse":
+    "Reconnectez-vous et autorisez l’accès direct aux modèles pour utiliser ce compte ChatGPT.",
+  "settingsModel.chatgptPartnerInterest": "Demander un accès partenaire",
+  "settingsModel.chatgptReconnect": "Reconnecter",
+  "settingsModel.chatgptSelectAccount": "Compte ChatGPT",
+  "settingsModel.chatgptUsageLimit":
+    "La limite d’utilisation de votre forfait ChatGPT a été atteinte.",
   "settingsModel.checkAgain": "Vérifier à nouveau",
   "settingsModel.checkedJustNow": "Vérifiée à l’instant.",
   "settingsModel.checkedOn": "Vérifiée le {{date}}.",

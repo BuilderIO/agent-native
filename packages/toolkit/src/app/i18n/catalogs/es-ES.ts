@@ -383,6 +383,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Cargando chat...",
   "empty.prompt": "¿En qué puedo ayudarte?",
   "error.afterDuration": "{{headline}} después de {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "Se ha alcanzado el límite de uso de tu plan de ChatGPT.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI no ha podido comprobar el límite de uso de este plan de ChatGPT. Comprueba tu uso de ChatGPT o prueba otro modelo.",
   "error.failed": "El agente ha encontrado un error",
   "error.render": "No se ha podido mostrar este contenido.",
   "error.stopped": "El agente se detuvo antes de terminar",
@@ -982,6 +986,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Créditos gratuitos para Claude, OpenAI y Gemini",
   "composer.chatGptSubscription": "Suscripción a ChatGPT",
+  "composer.chatgptManageUsage": "Gestionar el uso",
+  "composer.chatgptPlanUsing": "Usando el plan de ChatGPT",
   "composer.closePreview": "Cerrar vista previa",
   "composer.configureProviderKeys":
     "Configurar Anthropic, OpenAI u otro proveedor",
@@ -2876,10 +2882,26 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Cambiar",
   "settingsModel.chatgptConnected": "Conectado",
   "settingsModel.chatgptDescription":
-    "Usa el motor Codex con tu plan de ChatGPT.",
+    "Usa modelos de OpenAI aptos con tu plan de ChatGPT.",
   "settingsModel.chatgptPopupBlocked":
     "Permite las ventanas emergentes para este sitio y vuelve a intentarlo.",
-  "settingsModel.chatgptTitle": "Suscripción a ChatGPT",
+  "settingsModel.chatgptTitle": "Acceso al plan de ChatGPT",
+  "settingsModel.chatgptAddAccount": "Añadir otra cuenta",
+  "settingsModel.chatgptConnecting": "Conectando…",
+  "settingsModel.chatgptContinue": "Continuar con ChatGPT",
+  "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptManageAccess": "Gestionar el acceso en ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Se ha cerrado la sesión aquí, pero OpenAI no confirmó la revocación remota.",
+  "settingsModel.chatgptLocalOnly":
+    "Este flujo de inicio de sesión de código abierto requiere una app local o autoalojada. Las apps alojadas o de pago necesitan acceso de socio de OpenAI.",
+  "settingsModel.chatgptNoDirectUse":
+    "Vuelve a conectar y permite el acceso directo a modelos para usar esta cuenta de ChatGPT.",
+  "settingsModel.chatgptPartnerInterest": "Solicitar acceso de socio",
+  "settingsModel.chatgptReconnect": "Volver a conectar",
+  "settingsModel.chatgptSelectAccount": "Cuenta de ChatGPT",
+  "settingsModel.chatgptUsageLimit":
+    "Se ha alcanzado el límite de uso de tu plan de ChatGPT.",
   "settingsModel.checkAgain": "Volver a comprobar",
   "settingsModel.checkedJustNow": "Comprobada hace un momento.",
   "settingsModel.checkedOn": "Comprobada el {{date}}.",

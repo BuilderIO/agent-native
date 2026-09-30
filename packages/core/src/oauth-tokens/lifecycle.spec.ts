@@ -694,6 +694,41 @@ describe("OAuth credential lifecycle", () => {
     });
   });
 
+  it("keeps expired credentials retryable after transient refresh failures", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: async () => {
+          throw new Error("temporary provider failure");
+        },
+        shouldMarkReconnectRequiredOnRefreshFailure: () => false,
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "expired" },
+    });
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: async ({ credential: current }) => ({
+          ...current,
+          tokens: {
+            ...current.tokens,
+            access_token: "<RETRIED_ACCESS_TOKEN>",
+          },
+          tokenExpiresAt: Date.now() + 3_600_000,
+        }),
+      }),
+    ).resolves.toMatchObject({
+      accessToken: "<RETRIED_ACCESS_TOKEN>",
+      state: { kind: "connected" },
+    });
+  });
+
   it("attempts remote revocation, deletes local custody, and reports failure honestly", async () => {
     await saveOAuthCredential(identity, credential());
 

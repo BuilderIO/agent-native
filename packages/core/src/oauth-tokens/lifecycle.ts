@@ -489,6 +489,7 @@ export async function resolveOAuthCredentialAccess<
     allowLegacy?: boolean;
     legacyAccountKey?: boolean;
     validateCredential?: (credential: T) => boolean;
+    shouldMarkReconnectRequiredOnRefreshFailure?: (error: unknown) => boolean;
     expirySkewMs?: number;
     leaseMs?: number;
     waitMs?: number;
@@ -669,7 +670,7 @@ export async function resolveOAuthCredentialAccess<
               ? latest.credential.tokens.access_token
               : null,
         };
-      } catch {
+      } catch (error) {
         const stillOwnsLease = await acquireLease(
           identity,
           holder,
@@ -695,6 +696,12 @@ export async function resolveOAuthCredentialAccess<
           };
         }
         if (latest.kind === "expired") {
+          if (
+            options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+            false
+          ) {
+            return { state: latest, accessToken: null };
+          }
           await markReconnectRequired(
             identity,
             latest,
