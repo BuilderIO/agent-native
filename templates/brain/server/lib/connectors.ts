@@ -166,6 +166,9 @@ interface SlackChannelCursor {
   latestTs?: string;
   pageCursor?: string;
   pendingLatestTs?: string;
+  recentPageCursor?: string;
+  recentPendingLatestTs?: string;
+  recentLatestTs?: string;
 }
 
 interface SlackSyncCursor {
@@ -2336,7 +2339,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
   );
   const limit = configuredNumber(config, ["historyLimit", "limit"], 15, {
     min: 1,
-    max: 15,
+    max: 30,
     nestedKey: "slack",
   });
   const maxChannels = configuredNumber(
@@ -2373,7 +2376,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           : undefined,
   );
 
-  const captures = [];
+  const captures: ConnectorSyncResult["captures"] = [];
   const stats: Record<string, unknown> = {
     configuredChannels: channelRefs.length,
     includePublicChannels,
@@ -2517,38 +2520,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       const channelCursor = nextCursor.channels?.[channel.id] ?? {};
       const pendingLatest =
         channelCursor.pendingLatestTs ?? channelCursor.latestTs;
-
-      for (let page = 0; page < pagesPerChannel; page += 1) {
-        const params: Record<
-          string,
-          string | number | boolean | null | undefined
-        > = {
-          channel: channel.id,
-          limit,
-        };
-        if (channelCursor.pageCursor) {
-          params.cursor = channelCursor.pageCursor;
-        } else if (channelCursor.latestTs) {
-          params.oldest = channelCursor.latestTs;
-          params.inclusive = false;
-        } else if (initialOldest) {
-          params.oldest = initialOldest;
-          params.inclusive = false;
-        }
-
-        const data = await slackApi<SlackHistoryResponse>(
-          token,
-          "conversations.history",
-          params,
-        );
-        const messages = (data.messages ?? []).filter(isSlackTextMessage);
-        stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
-
-        const newest = newestSlackTs(messages);
-        if (!channelCursor.pendingLatestTs && newest) {
-          channelCursor.pendingLatestTs = newest;
-        }
-
+      const captureMessages = async (messages: SlackMessage[]) => {
         const fetchedThreadTs = new Set<string>();
         const threadWork: Array<{
           message: SlackMessage;
@@ -2560,9 +2532,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           if (!threadTs || fetchedThreadTs.has(threadTs)) continue;
           fetchedThreadTs.add(threadTs);
           const fetchPermalink = permalinkCalls < permalinkLimit;
-          if (fetchPermalink) {
-            permalinkCalls += 1;
-          }
+          if (fetchPermalink) permalinkCalls += 1;
           threadWork.push({ message, threadTs, fetchPermalink });
         }
 
@@ -2615,9 +2585,92 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           if (batchFailed) throw batchError;
           await renewRunLease(run);
         }
+      };
+
+      if (channelCursor.pageCursor || channelCursor.recentPageCursor) {
+        const recentParams: Record<
+          string,
+          string | number | boolean | null | undefined
+        > = { channel: channel.id, limit };
+        if (channelCursor.recentPageCursor) {
+          recentParams.cursor = channelCursor.recentPageCursor;
+        } else if (channelCursor.recentLatestTs ?? pendingLatest) {
+          recentParams.oldest = channelCursor.recentLatestTs ?? pendingLatest;
+          recentParams.inclusive = false;
+        }
+        const recent = await slackApi<SlackHistoryResponse>(
+          token,
+          "conversations.history",
+          recentParams,
+        );
+        const recentMessages = (recent.messages ?? []).filter(
+          isSlackTextMessage,
+        );
+        stats.messagesSeen = Number(stats.messagesSeen) + recentMessages.length;
+        const recentNewest = newestSlackTs(recent.messages ?? []);
+        if (!channelCursor.recentPendingLatestTs && recentNewest) {
+          channelCursor.recentPendingLatestTs = recentNewest;
+        }
+        await captureMessages(recentMessages);
+        if (recent.has_more) {
+          const nextPage = recent.response_metadata?.next_cursor;
+          if (!nextPage) throw new Error("Slack recent history cursor missing");
+          channelCursor.recentPageCursor = nextPage;
+          stats.recentHistoryIncomplete = true;
+        } else {
+          channelCursor.recentPageCursor = undefined;
+          channelCursor.recentLatestTs =
+            channelCursor.recentPendingLatestTs ?? channelCursor.recentLatestTs;
+          channelCursor.recentPendingLatestTs = undefined;
+        }
+        if (!channelCursor.pageCursor) {
+          if (!channelCursor.recentPageCursor) {
+            channelCursor.latestTs =
+              channelCursor.recentLatestTs ?? channelCursor.latestTs;
+            channelCursor.recentLatestTs = undefined;
+          }
+          nextCursor.channels![channel.id] = channelCursor;
+          continue;
+        }
+        nextCursor.channels![channel.id] = channelCursor;
+      }
+
+      for (let page = 0; page < pagesPerChannel; page += 1) {
+        const params: Record<
+          string,
+          string | number | boolean | null | undefined
+        > = {
+          channel: channel.id,
+          limit,
+        };
+        if (channelCursor.pageCursor) {
+          params.cursor = channelCursor.pageCursor;
+        } else if (channelCursor.latestTs) {
+          params.oldest = channelCursor.latestTs;
+          params.inclusive = false;
+        } else if (initialOldest) {
+          params.oldest = initialOldest;
+          params.inclusive = false;
+        }
+
+        const data = await slackApi<SlackHistoryResponse>(
+          token,
+          "conversations.history",
+          params,
+        );
+        const messages = (data.messages ?? []).filter(isSlackTextMessage);
+        stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
+
+        const newest = newestSlackTs(data.messages ?? []);
+        if (!channelCursor.pendingLatestTs && newest) {
+          channelCursor.pendingLatestTs = newest;
+        }
+
+        await captureMessages(messages);
 
         const nextPage = data.response_metadata?.next_cursor;
-        if (data.has_more && nextPage) {
+        if (data.has_more) {
+          if (!nextPage) throw new Error("Slack history cursor missing");
           channelCursor.pageCursor = nextPage;
           nextCursor.channels![channel.id] = channelCursor;
           if (page + 1 < pagesPerChannel) continue;
@@ -2626,10 +2679,15 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
 
         channelCursor.pageCursor = undefined;
         channelCursor.latestTs =
+          (channelCursor.recentPageCursor
+            ? undefined
+            : channelCursor.recentLatestTs) ??
           channelCursor.pendingLatestTs ??
           pendingLatest ??
           channelCursor.latestTs;
         channelCursor.pendingLatestTs = undefined;
+        if (!channelCursor.recentPageCursor)
+          channelCursor.recentLatestTs = undefined;
         nextCursor.channels![channel.id] = channelCursor;
         break;
       }

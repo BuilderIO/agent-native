@@ -63,7 +63,6 @@ export interface KnowledgeRow {
   topic?: string;
   status: KnowledgeStatus | "published" | "redacted" | "archived";
   confidence?: number;
-  citations?: number;
   evidence?: Array<{
     captureId?: string | null;
     captureTitle?: string | null;
