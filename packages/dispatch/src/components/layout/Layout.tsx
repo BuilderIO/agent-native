@@ -120,15 +120,6 @@ import {
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
-import { Button } from "../ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
-import { Skeleton } from "../ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import {
-  WorkspaceAppChatRail,
-  WorkspaceAppFrame,
-  WorkspaceAppKeepAlive,
-} from "../workspace-app-host";
 import {
   AgentChatSurface,
   ChatFirstAgentsPane,
@@ -142,7 +133,16 @@ import {
   ChatFirstSurfacePanel,
   ChatFirstSurfacePanelToggle,
   ChatFirstSurfaceTabs,
-} from "./deferred-chat-components.js";
+} from "../deferred-chat-components.js";
+import { Button } from "../ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
+import { Skeleton } from "../ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  WorkspaceAppChatRail,
+  WorkspaceAppFrame,
+  WorkspaceAppKeepAlive,
+} from "../workspace-app-host";
 import { Header } from "./Header";
 import {
   HeaderActionsProvider,
