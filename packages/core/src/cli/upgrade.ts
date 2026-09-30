@@ -417,7 +417,7 @@ export function selectMigrationDependencies(
   return [...selected.values()];
 }
 
-function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
+export function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
   return [pkg.dependencies, pkg.devDependencies, pkg.optionalDependencies].some(
     (dependencies) => Boolean(dependencies?.["@agent-native/core"]),
   );

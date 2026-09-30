@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   currentOrgId: vi.fn((): string | null => null),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   registerBuiltinEngines: vi.fn(),
+  dispatchConfig: {
+    adminEmails: [] as string[],
+    workspaceOwnerEmails: [] as string[],
+    defaultOwnerEmails: [] as string[],
+  },
 }));
 
 vi.mock("@agent-native/core/agent/engine", () => ({
@@ -31,6 +36,10 @@ vi.mock("@agent-native/core/db", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => ({ dispatch: mocks.dispatchConfig }),
 }));
 
 vi.mock("@agent-native/core/usage", () => ({
@@ -75,6 +84,9 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.currentOrgId.mockReturnValue(null);
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+  mocks.dispatchConfig.adminEmails = [];
+  mocks.dispatchConfig.workspaceOwnerEmails = [];
+  mocks.dispatchConfig.defaultOwnerEmails = [];
 });
 
 describe("listDispatchUsageMetrics", () => {
@@ -93,6 +105,20 @@ describe("listDispatchUsageMetrics", () => {
     });
     expect(mocks.getUsageSummary).not.toHaveBeenCalled();
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
+  it("allows a configured deployment admin to view workspace metrics", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.dispatchConfig.workspaceOwnerEmails = ["Owner@Example.Test"];
+    mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+
+    const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+
+    expect(metrics.access.viewerEmail).toBe("owner@example.test");
+    expect(metrics.access.role).toBe("member");
   });
 
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {

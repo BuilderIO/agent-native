@@ -19,6 +19,9 @@ describe("app config store", () => {
     process.env = { ...originalEnv };
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
+    delete process.env.DISPATCH_ADMIN_EMAILS;
+    delete process.env.WORKSPACE_OWNER_EMAIL;
+    delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
   });
 
   afterEach(() => {
@@ -72,6 +75,18 @@ describe("app config store", () => {
       bootstrapAdmins: ["Admin@example.com", "owner@example.com"],
       sso: { enabled: true },
       scim: { enabled: true },
+    });
+  });
+
+  it("resolves Dispatch admin emails from their declared environment aliases", () => {
+    process.env.DISPATCH_ADMIN_EMAILS = "admin@example.com,ops@example.com";
+    process.env.WORKSPACE_OWNER_EMAIL = "owner@example.com";
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "default@example.com";
+
+    expect(getAppConfig().dispatch).toEqual({
+      adminEmails: ["admin@example.com", "ops@example.com"],
+      workspaceOwnerEmails: ["owner@example.com"],
+      defaultOwnerEmails: ["default@example.com"],
     });
   });
 
