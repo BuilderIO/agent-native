@@ -295,6 +295,9 @@ describe("RecordingCard behavior", () => {
       isSuccess: true,
       source: "legacy",
       enabled: false,
+      mixed: false,
+      isLoading: false,
+      isError: false,
       legacyValues: {
         useCustomSCKPipeline: false,
         customSCKPipelineLiveUploadEnabled: false,
