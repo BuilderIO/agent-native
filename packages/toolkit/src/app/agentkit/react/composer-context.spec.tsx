@@ -433,7 +433,10 @@ describe("AgentKit composer context submission", () => {
       "Create an automation: Review",
       [],
       [],
-      options,
+      expect.objectContaining({
+        ...options,
+        onLocalSubmit: expect.any(Function),
+      }),
     );
     expect(runtime.startRun).not.toHaveBeenCalled();
     expect(runtime.queueMessage).not.toHaveBeenCalled();

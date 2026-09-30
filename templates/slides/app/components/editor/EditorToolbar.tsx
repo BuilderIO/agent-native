@@ -69,8 +69,10 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
+  getStaleContentConflictSlideId,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
+  useDecks,
   useSaveState,
   type Deck,
   type Slide,
@@ -228,6 +230,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const { resolveContentConflict } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
@@ -257,6 +260,7 @@ export default function EditorToolbar({
   const { saving } = useSaveState();
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
+  const contentConflictSlideId = getStaleContentConflictSlideId(deckId);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -798,6 +802,17 @@ export default function EditorToolbar({
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
+          contentConflict={contentConflictSlideId !== undefined}
+          onResolveContentConflict={
+            contentConflictSlideId === undefined
+              ? undefined
+              : (resolution) =>
+                  resolveContentConflict(
+                    deckId,
+                    contentConflictSlideId,
+                    resolution,
+                  )
+          }
           offline={offline}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={

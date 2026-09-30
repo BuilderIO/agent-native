@@ -42,9 +42,24 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action-ui";
 import { normalizeActionChangeResult } from "@agent-native/core/action-ui";
-import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import {
+  AgentNativeI18nProvider as CoreAgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "@agent-native/core/client/i18n";
 
+import { createToolkitI18nCatalog } from "../../../i18n.js";
 import { RecordChangeWidget } from "./RecordChangeWidget.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+
+function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  return (
+    <CoreAgentNativeI18nProvider
+      {...props}
+      catalog={props.catalog ?? toolkitI18nCatalog}
+    />
+  );
+}
 
 describe("core.record-change", () => {
   let container: HTMLDivElement;

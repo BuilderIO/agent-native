@@ -32,7 +32,80 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "slack",
   "granola",
   "github",
+  "zoom",
 ]);
+
+type CatalogProvider = Omit<
+  WorkspaceConnectionProviderCatalogForAppItem,
+  "id" | "readiness"
+> & {
+  id: string;
+};
+
+// The shared workspace connection catalog has no Zoom provider, so Brain
+// lists it from its own registered secrets. There is no shared connection to
+// grant, which is why the summary is always "not_connected" and the setup link
+// is omitted rather than pointing Dispatch at a provider it does not know.
+const BRAIN_LOCAL_PROVIDERS: readonly Omit<
+  CatalogProvider,
+  "workspaceConnection"
+>[] = [
+  {
+    id: "zoom",
+    label: "Zoom",
+    description:
+      "Cloud-recording meeting transcripts through a Zoom Server-to-Server OAuth app.",
+    credentialKeys: [
+      { key: "ZOOM_ACCOUNT_ID", label: "Zoom Account ID", required: true },
+      { key: "ZOOM_CLIENT_ID", label: "Zoom Client ID", required: true },
+      {
+        key: "ZOOM_CLIENT_SECRET",
+        label: "Zoom Client Secret",
+        required: true,
+      },
+    ],
+    capabilities: ["import", "meetings"],
+    recommendedTemplateUses: ["brain"],
+  },
+];
+
+function brainLocalProvider(
+  provider: (typeof BRAIN_LOCAL_PROVIDERS)[number],
+): CatalogProvider {
+  const workspaceConnection: WorkspaceConnectionProviderAppSummary = {
+    appId: APP_ID,
+    provider: provider.id,
+    grantState: "not_connected",
+    grantAvailability: "not_connected",
+    grantAvailabilityMessage: `${provider.label} has no shared workspace connection; add its keys in Brain Settings > API keys.`,
+    connectionCount: 0,
+    grantedConnectionCount: 0,
+    activeConnectionCount: 0,
+    ungrantedConnectionCount: 0,
+    unhealthyGrantedConnectionCount: 0,
+    explicitGrantCount: 0,
+    credentialRefCount: 0,
+    hasWorkspaceConnection: false,
+    hasGrantedWorkspaceConnection: false,
+    hasActiveWorkspaceConnection: false,
+    lastUsedAt: null,
+    statuses: [],
+    connections: [],
+  };
+  return { ...provider, workspaceConnection };
+}
+
+function providersWithBrainLocal(
+  catalogProviders: readonly WorkspaceConnectionProviderCatalogForAppItem[],
+): CatalogProvider[] {
+  const ids = new Set<string>(catalogProviders.map((provider) => provider.id));
+  return [
+    ...catalogProviders,
+    ...BRAIN_LOCAL_PROVIDERS.filter((provider) => !ids.has(provider.id)).map(
+      brainLocalProvider,
+    ),
+  ];
+}
 
 async function dispatchBaseHref(): Promise<string | undefined> {
   const workspaceDispatch = await findWorkspaceDispatchAgent();
@@ -103,9 +176,7 @@ function providerApiConfigured({
   return providerApi.credentialKeys.every((key) => availableKeys.has(key));
 }
 
-async function credentialHealthForProvider(
-  provider: WorkspaceConnectionProviderCatalogForAppItem,
-): Promise<{
+async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
   status: "available" | "missing" | "not_required" | "unavailable";
   available: boolean;
   requiredKeyCount: number;
@@ -305,8 +376,12 @@ export default defineAction({
     }
 
     const dispatchHref = await dispatchBaseHref();
+    const catalogProviders = workspace.catalog?.providers ?? [];
+    const catalogProviderIds = new Set<string>(
+      catalogProviders.map((provider) => provider.id),
+    );
     const providers = await Promise.all(
-      (workspace.catalog?.providers ?? []).map(async (provider) => {
+      providersWithBrainLocal(catalogProviders).map(async (provider) => {
         const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
         const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
           provider.id,
@@ -338,7 +413,9 @@ export default defineAction({
           configured:
             providerApiIsConfigured ??
             (sourceProviderSupported ? credentialHealth.available : null),
-          setupLink: dispatchIntegrationsHref(provider.id, dispatchHref),
+          setupLink: catalogProviderIds.has(provider.id)
+            ? dispatchIntegrationsHref(provider.id, dispatchHref)
+            : undefined,
           credentialHealth,
           providerHealth: providerHealthForProvider({
             credentialHealth,

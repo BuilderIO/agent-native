@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
 import type {
@@ -431,7 +432,7 @@ describe("AgentKitChat", () => {
     expect(props.onSlashCommand).toBe(onSlashCommand);
 
     const source = readFileSync(
-      new URL("./components.tsx", import.meta.url),
+      join(process.cwd(), "src/app/agentkit/react/components.tsx"),
       "utf8",
     );
     for (const prop of ["slashCommands", "slashSkills", "onSlashCommand"]) {
@@ -472,8 +473,10 @@ describe("AgentKitChat", () => {
     );
     expect(source).toContain("await control.removeQueued(item.id)");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
-    expect(source).toContain("submissionDisabled={command.pending}");
-    expect(source).not.toContain("submitting={command.pending");
+    expect(source).toContain(
+      "submissionDisabled={submissionDisabled || command.pending}",
+    );
+    expect(source).toContain("submitting={command.pending}");
     expect(source).toContain("if (disabled)");
     expect(source).toContain(
       "willQueue={active && queueWhileRunning && canQueue}",

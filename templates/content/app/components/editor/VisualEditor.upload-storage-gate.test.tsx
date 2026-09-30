@@ -40,7 +40,7 @@ vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => uploadStatus.current,
 }));
 
-vi.mock("@agent-native/toolkit/app/setup-connections", async () => {
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
   const { createElement } = await import("react");
   return {
     FileStorageSetupPopover: ({

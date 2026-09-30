@@ -5,8 +5,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-29
 
+### Improved
+
+- Clean up Dispatch chat chrome and keep homepage prompts in chat
+
 ### Fixed
 
+- New workspaces can open Dispatch pages without a server rendering error.
 - Apps and app launchers only show apps installed in this workspace
 
 ## 2026-09-28

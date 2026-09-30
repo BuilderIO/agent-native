@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
+import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import { ForbiddenError } from "../sharing/access.js";
 import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
 import {
@@ -242,11 +243,11 @@ interface ThreadPromptRow {
   thread_data?: unknown;
 }
 
-function numberField(row: Record<string, unknown>, key: string): number {
+export function numberField(row: Record<string, unknown>, key: string): number {
   return Number(row[key] ?? 0) || 0;
 }
 
-function stringField(row: Record<string, unknown>, key: string): string {
+export function stringField(row: Record<string, unknown>, key: string): string {
   return String(row[key] ?? "");
 }
 
@@ -373,7 +374,7 @@ export async function canViewWorkspaceUsage(
   return role === "owner" || role === "admin";
 }
 
-async function resolveScope(
+export async function resolveScope(
   input: UsageMetricsAccessInput,
   scope: UsageMetricsScope,
   requestedUserEmail?: string | null,
@@ -894,7 +895,12 @@ function parseJson(value: unknown): Record<string, unknown> | null {
   }
 }
 
+/** Message text without the hidden `<context>` block apps append to prompts. */
 function promptText(value: unknown): string {
+  return splitAgentChatContextFromMessage(rawMessageText(value)).message;
+}
+
+function rawMessageText(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (!Array.isArray(value)) return "";
   return value
@@ -1038,6 +1044,74 @@ function promptForTurn(
   return low > 0
     ? (index.timestampedPrompts[low - 1]?.prompt ?? null)
     : index.soleUntimestampedPrompt;
+}
+
+/** Each run's own prompt and the agent's reply to it, keyed by run id. */
+export async function loadRunExchanges(
+  rows: Array<Record<string, unknown>>,
+): Promise<Map<string, { prompt: string | null; reply: string | null }>> {
+  const exchanges = new Map<
+    string,
+    { prompt: string | null; reply: string | null }
+  >();
+  const threadRefs = [
+    ...new Map(
+      rows
+        .map((row) => ({
+          id: nullableStringField(row, "thread_id"),
+          ownerEmail: nullableStringField(row, "owner_email"),
+        }))
+        .filter((ref): ref is { id: string; ownerEmail: string } =>
+          Boolean(ref.id && ref.ownerEmail),
+        )
+        .map((ref) => [JSON.stringify([ref.id, ref.ownerEmail]), ref] as const),
+    ).values(),
+  ];
+  if (threadRefs.length === 0) return exchanges;
+  let threadRows: ThreadPromptRow[] = [];
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT id, thread_data FROM chat_threads WHERE ${threadRefs.map(() => "(id = ? AND LOWER(owner_email) = LOWER(?))").join(" OR ")}`,
+      args: threadRefs.flatMap((ref) => [ref.id, ref.ownerEmail]),
+    });
+    threadRows = result.rows as ThreadPromptRow[];
+  } catch {
+    return exchanges;
+  }
+  const threads = new Map(
+    threadRows.map((row) => [String(row.id), row.thread_data]),
+  );
+  for (const row of rows) {
+    const runId = nullableStringField(row, "run_id");
+    const threadId = nullableStringField(row, "thread_id");
+    const threadData = threadId ? threads.get(threadId) : undefined;
+    if (!runId || threadData === undefined) continue;
+    const taskId = nullableStringField(row, "task_id");
+    const index = indexThreadPrompts(threadData);
+    const prompt = index
+      ? promptForTurn(index, taskId, numberField(row, "created_at"))
+      : null;
+    exchanges.set(runId, {
+      prompt: prompt?.prompt ?? null,
+      reply: taskId ? replyForTurn(threadData, taskId) : null,
+    });
+  }
+  return exchanges;
+}
+
+function replyForTurn(threadData: unknown, taskId: string): string | null {
+  const messages = parseJson(threadData)?.messages;
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messageRecord(messages[i]);
+    if (message?.role !== "assistant" || messageTurnId(message) !== taskId) {
+      continue;
+    }
+    const text = promptText(message.content);
+    if (text)
+      return text.length > 1200 ? `${text.slice(0, 1199).trimEnd()}…` : text;
+  }
+  return null;
 }
 
 async function hydrateRecentPrompts(

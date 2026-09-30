@@ -35,6 +35,8 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^8.1.0",
     "@react-router/fs-routes": "^8.1.0",
+    "@sentry/browser": "^11.1.0",
+    "@sentry/node": "^11.1.0",
     "@tabler/icons-react": "^3.40.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.99.2",
@@ -53,6 +55,7 @@
     "tailwindcss": "^4.1.18",
     "unified": "^11.0.5",
     "vgpu": "0.3.1",
+    "yjs": "catalog:",
     "zod": "^4.3.6"
   },
   "devDependencies": {

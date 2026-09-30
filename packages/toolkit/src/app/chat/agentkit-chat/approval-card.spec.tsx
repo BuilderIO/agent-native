@@ -6,13 +6,13 @@ import type {
   AgentThreadSnapshot,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
-import { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";
-import { AgentKitProvider } from "@agent-native/toolkit/app/agentkit/react/context";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentKitChat } from "../../agentkit/react/components.js";
+import { AgentKitProvider } from "../../agentkit/react/context.js";
 import { CoreAgentKitApproval } from "./approval-card.js";
 import { CoreAgentKitRoot } from "./root.js";
 

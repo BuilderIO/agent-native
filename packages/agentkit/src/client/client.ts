@@ -119,6 +119,8 @@ export interface SendMessageInput {
   attachments?: FilePart[];
   options?: AgentRunOptions;
   metadata?: Record<string, unknown>;
+  /** Host snapshot for queued submits that follow a run through async preparation. */
+  queuedWhileRunActive?: boolean;
   /** Host-only acknowledgement after the recoverable message enters local state; never sent to the transport. */
   onLocalSubmit?: () => void;
 }
@@ -1121,7 +1123,18 @@ export class AgentKitClient implements AgentKitController {
     // was already streaming, so adopting it blindly would open a second reader
     // on one stream.
     const key = this.runKey(input.threadId, result.runId);
-    if (this.consumers.has(key)) return;
+    const existingConsumer = this.consumers.get(key);
+    if (existingConsumer) {
+      void (async () => {
+        await Promise.allSettled([existingConsumer]);
+        if (!this.disposed) {
+          await this.resubscribeRun(input.threadId, result.runId);
+        }
+      })().catch(() => {
+        // The consumer records the typed stream error in the client snapshot.
+      });
+      return;
+    }
     this.markRunStarted(input.threadId, result.runId);
     this.trackConsumer(
       input.threadId,
@@ -1333,6 +1346,10 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
+    const threadAtSubmit = this.getThread(input.threadId);
+    const runWasActive =
+      input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
+    const runIdsBeforeWrite = new Set(Object.keys(threadAtSubmit.runs));
     const requestContext = this.createRequestContext(context);
     await this.requireCapability("messageQueue", requestContext);
     if (input.attachments?.length) {
@@ -1344,9 +1361,6 @@ export class AgentKitClient implements AgentKitController {
     }
     return this.enqueueQueueMutation(input.threadId, async () => {
       this.assertActive();
-      const threadBeforeWrite = this.getThread(input.threadId);
-      const runWasActive = hasActiveAgentRuns(threadBeforeWrite);
-      const runIdsBeforeWrite = new Set(Object.keys(threadBeforeWrite.runs));
       const result = await this.invokeRequest(requestContext, (context) =>
         queueMessage(
           {

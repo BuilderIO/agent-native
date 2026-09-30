@@ -10,11 +10,11 @@ const mcpMocks = vi.hoisted(() => ({
   useMcpServers: vi.fn(),
 }));
 
-vi.mock("../CommandMenu.js", () => ({
+vi.mock("../shared/index.js", () => ({
   openAgentSettings: vi.fn(),
 }));
 
-vi.mock("../i18n.js", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { name?: string }) => {
     if (key === "mcpIntegrations.connectSuggestion") {
       return `Connect ${options?.name ?? "integration"}`;
@@ -27,11 +27,11 @@ vi.mock("../i18n.js", () => ({
   },
 }));
 
-vi.mock("./McpIntegrationDialog.js", () => ({
-  McpIntegrationDialog: () => null,
+vi.mock("./McpIntegrationDialogDeferred.js", () => ({
+  McpIntegrationDialogDeferred: () => null,
 }));
 
-vi.mock("./use-mcp-servers.js", () => mcpMocks);
+vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 
 import {
   DEFAULT_MCP_INTEGRATIONS,
@@ -60,9 +60,42 @@ const integration = {
 describe("McpConnectionSuggestion render", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let localStorageDescriptor: PropertyDescriptor | undefined;
+
+  function createMemoryStorage(): Storage {
+    const values = new Map<string, string>();
+    return {
+      get length() {
+        return values.size;
+      },
+      clear() {
+        values.clear();
+      },
+      getItem(key) {
+        return values.get(key) ?? null;
+      },
+      key(index) {
+        return [...values.keys()][index] ?? null;
+      },
+      removeItem(key) {
+        values.delete(key);
+      },
+      setItem(key, value) {
+        values.set(String(key), String(value));
+      },
+    };
+  }
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
     window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -79,6 +112,11 @@ describe("McpConnectionSuggestion render", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    if (localStorageDescriptor) {
+      Object.defineProperty(window, "localStorage", localStorageDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "localStorage");
+    }
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });

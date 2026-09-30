@@ -3438,7 +3438,10 @@ export function AgentKitComposer({
       onLocalSubmit,
     };
     if (payload.intent === "queued") {
-      await control.queueMessage(message);
+      await control.queueMessage({
+        ...message,
+        queuedWhileRunActive: activeAtSubmit,
+      });
     } else {
       await control.sendMessage(message);
     }
@@ -3448,27 +3451,29 @@ export function AgentKitComposer({
       onDisabledClick?.();
       return false;
     }
+    if (submissionDisabled) return false;
     if (editingMessage) return true;
     return !onBeforeSubmit || (await onBeforeSubmit());
   };
-  const steerQueued: AgentKitQueueRenderProps["onSteer"] = !disabled
-    ? (item) =>
-        void command
-          .execute(async () => {
-            if (!(await prepareHostSubmit())) return;
-            if (onSubmitOverride) {
-              await submitMessage(item.text, [], [], {
-                intent: "immediate",
-                attachments: item.attachments,
-              });
-              await control.removeQueued(item.id);
-            } else {
-              await control.steerQueued(item.id);
-            }
-          })
-          .catch(() => undefined)
-          .finally(focusComposer)
-    : undefined;
+  const steerQueued: AgentKitQueueRenderProps["onSteer"] =
+    !disabled && !submissionDisabled
+      ? (item) =>
+          void command
+            .execute(async () => {
+              if (!(await prepareHostSubmit())) return;
+              if (onSubmitOverride) {
+                await submitMessage(item.text, [], [], {
+                  intent: "immediate",
+                  attachments: item.attachments,
+                });
+                await control.removeQueued(item.id);
+              } else {
+                await control.steerQueued(item.id);
+              }
+            })
+            .catch(() => undefined)
+            .finally(focusComposer)
+      : undefined;
   const supportsQueueReordering =
     controller.supportsQueuedMessageReordering?.() ?? false;
   const moveQueuedToTop = useAgentKitMutation(
@@ -3610,14 +3615,14 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
-        submissionDisabled={submissionDisabled}
+        submissionDisabled={submissionDisabled || command.pending}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
         imageModelMenu={imageModelMenu}
         autoFocus={autoFocus}
         composerRef={composerRef}
-        submissionDisabled={command.pending}
+        submitting={command.pending}
         willQueue={active && queueWhileRunning && canQueue}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}

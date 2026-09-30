@@ -49,7 +49,10 @@ const { createComment, notifyError, reconcile } = vi.hoisted(() => ({
   notifyError: vi.fn(),
   reconcile: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
   useChatModels: () => ({
     configuredModels: [],
@@ -62,7 +65,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   }),
   sendToAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
