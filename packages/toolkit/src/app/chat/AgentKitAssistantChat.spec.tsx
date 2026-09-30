@@ -34,6 +34,7 @@ const chatMocks = vi.hoisted(() => ({
     activities: {} as Record<string, unknown>,
     queuedMessages: [] as any[],
   },
+  history: null as any,
   rootProps: null as any,
   chatProps: null as any,
   composerProps: null as any,
@@ -678,6 +679,7 @@ beforeEach(() => {
     activities: {},
     queuedMessages: [],
   };
+  chatMocks.history = null;
   chatMocks.readThread = () => chatMocks.thread;
   chatMocks.rootProps = null;
   chatMocks.chatProps = null;
@@ -745,6 +747,23 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("shows Thinking in the transcript while a submitted user message is pending", async () => {
+    chatMocks.history = { isSubmissionInFlight: true };
+    chatMocks.thread.messages = [
+      {
+        id: "user-pending",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox" }],
+        metadata: {},
+      },
+    ];
+    await mount(baseProps());
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "agentChat.status.thinking",
+    );
+  });
+
   it("gives JS callers a migration error for the removed createAdapter prop", async () => {
     const errors: Error[] = [];
     container = document.createElement("div");

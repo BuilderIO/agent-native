@@ -9,6 +9,10 @@ time from the command menu (Cmd+K → "What's new").
 
 - Related pages can be loaded past the first 25 results
 
+### Fixed
+
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
 ## 2026-09-28
 
 ### Added

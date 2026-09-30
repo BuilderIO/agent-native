@@ -1072,11 +1072,13 @@ describe("controlled composer context", () => {
     ).toBe("Keep my draft");
     expect(container.querySelector('[role="status"]')).toBeNull();
     expect(container.textContent).not.toContain("checkingProvider");
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[data-agent-composer-slot="send-button"]',
-      )?.disabled,
-    ).toBe(true);
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    expect(sendButton?.disabled).toBe(true);
+    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
+    expect(sendButton?.getAttribute("aria-label")).not.toBe("common.loading");
+    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
   });
 
   it("lets a host queue submissions while provider status is unresolved", async () => {
