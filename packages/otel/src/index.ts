@@ -45,22 +45,21 @@ function envValue(key: string): string | undefined {
 
 // A signal exports when an OTLP endpoint applies to it: its own
 // OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT or the shared base endpoint. An
-// exporter this package cannot build fails startup instead of quietly shipping
-// the signal to the collector over OTLP.
+// exporter this package cannot build fails startup, endpoint or not, instead of
+// being ignored or quietly shipping the signal to the collector over OTLP.
 function signalEnabled(signal: Signal): boolean {
   const exporterKey = `OTEL_${signal}_EXPORTER`;
   const exporter = envValue(exporterKey)?.toLowerCase() ?? "otlp";
   if (exporter === "none") return false;
-  const endpoint =
-    envValue(`OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`) ??
-    envValue("OTEL_EXPORTER_OTLP_ENDPOINT");
-  if (!endpoint) return false;
   if (exporter !== "otlp") {
     throw new Error(
       `${exporterKey}="${exporter}" is not supported by @agent-native/otel. Set it to "otlp" or "none".`,
     );
   }
-  return true;
+  return Boolean(
+    envValue(`OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`) ??
+    envValue("OTEL_EXPORTER_OTLP_ENDPOINT"),
+  );
 }
 
 // Cumulative counters restart with every process, so each process must be its

@@ -126,6 +126,15 @@ describe("startAgentNativeOtel", () => {
     expect(registerObservabilityProvider).not.toHaveBeenCalled();
   });
 
+  it("rejects an unsupported exporter even without an endpoint", () => {
+    vi.stubEnv("OTEL_TRACES_EXPORTER", "console");
+
+    expect(() => startAgentNativeOtel()).toThrow(
+      'OTEL_TRACES_EXPORTER="console" is not supported',
+    );
+    expect(registerObservabilityProvider).not.toHaveBeenCalled();
+  });
+
   it("applies OTEL_TRACES_SAMPLER to the tracer provider", () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ENDPOINT);
     vi.stubEnv("OTEL_TRACES_SAMPLER", "always_off");

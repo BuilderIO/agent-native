@@ -121,6 +121,8 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "NITRO_PRESET",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
   "OTEL_METRICS_EXPORTER",
   "OTEL_RESOURCE_ATTRIBUTES",
   "OTEL_SERVICE_NAME",
@@ -197,6 +199,8 @@ const PUBLIC_KEY_EXACT = new Set([
   // OTEL_EXPORTER_OTLP_HEADERS carries the site's relay token, so it stays a
   // Netlify secret.
   "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
   "OTEL_METRICS_EXPORTER",
   "OTEL_RESOURCE_ATTRIBUTES",
   "OTEL_SERVICE_NAME",
@@ -512,7 +516,11 @@ function buildTemplateEnvPlan(
     entries.push([key, normalized.value] as const);
   }
 
-  if (values.get("OTEL_EXPORTER_OTLP_ENDPOINT")) {
+  if (
+    values.get("OTEL_EXPORTER_OTLP_ENDPOINT") ||
+    values.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") ||
+    values.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+  ) {
     const identity = hostedTelemetryIdentityEnv(
       site.sourceTemplate,
       context,

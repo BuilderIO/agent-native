@@ -42,6 +42,8 @@ describe("isAllowedHostedTemplateEnvKey", () => {
     for (const key of [
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       "OTEL_EXPORTER_OTLP_HEADERS",
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
       "OTEL_SERVICE_NAME",
       "OTEL_RESOURCE_ATTRIBUTES",
       "OTEL_METRICS_EXPORTER",
