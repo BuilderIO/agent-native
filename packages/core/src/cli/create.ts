@@ -32,6 +32,7 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const DRIZZLE_DEPENDENCY_VERSION = "^0.45.3";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
@@ -2175,6 +2176,7 @@ function postProcessStandalone(
       }
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
+      pkg.dependencies["drizzle-orm"] ??= DRIZZLE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
       hasNodePty = [

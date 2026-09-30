@@ -307,6 +307,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.["@electric-sql/pglite"]).toBeDefined();
+    expect(pkg.dependencies?.["drizzle-orm"]).toBeDefined();
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
@@ -391,6 +392,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
       _getCoreDependencyVersion(),
     );
     expect(pkg.dependencies?.postgres).toBeDefined();
+    expect(pkg.dependencies?.["drizzle-orm"]).toBeDefined();
     expect(deps.react).toBeUndefined();
     expect(deps["react-dom"]).toBeUndefined();
     expect(deps["react-router"]).toBeUndefined();
@@ -1279,6 +1281,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const rootPkg = readPkg(wsDir);
     const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
     expect(rootPkg.dependencies?.postgres).toBeDefined();
+    expect(rootPkg.dependencies?.["drizzle-orm"]).toBeDefined();
     expect(appPkg.dependencies?.postgres).toBeDefined();
   });
 
