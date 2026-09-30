@@ -16,14 +16,7 @@ import {
 } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
 // Not exported from @agent-native/core/db; the source module computes the same
 // pool options from the environment as the built one the app loads.
