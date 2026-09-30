@@ -42,6 +42,7 @@ function makeArgs(
     setMode: vi.fn(),
     setPinMode: vi.fn(),
     setSelectedElement: vi.fn(),
+    rememberOverviewScreenSelection: vi.fn(),
     overviewInteractScreenId,
     setOverviewInteractScreenId: vi.fn(),
     t: (key: string) => key,
@@ -74,6 +75,18 @@ describe("runModeChange Interact navigation", () => {
     expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
       targetFile.id,
     );
+    expect(args.rememberOverviewScreenSelection).toHaveBeenCalledWith(
+      targetFile.id,
+    );
+  });
+
+  it("does not change the restored overview selection when pending edits block Interact", () => {
+    const args = makeArgs();
+    args.hasPendingVisualEdits = true;
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(args.rememberOverviewScreenSelection).not.toHaveBeenCalled();
   });
 
   it("allows a signed-out visual-edit viewer to interact without visible pending edits", () => {
@@ -108,6 +121,9 @@ describe("runModeChange Interact navigation", () => {
 
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
     expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
+      targetFile.id,
+    );
+    expect(args.rememberOverviewScreenSelection).toHaveBeenCalledWith(
       targetFile.id,
     );
   });
