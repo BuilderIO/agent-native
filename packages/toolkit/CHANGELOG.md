@@ -1,5 +1,13 @@
 # @agent-native/toolkit
 
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+
 ## 0.198.4
 
 ### Patch Changes
@@ -982,11 +990,5 @@
 ### Patch Changes
 
 - 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
-
-## 0.8.0
-
-### Minor Changes
-
-- 8453025: Publish ejection units for every Toolkit entry point so apps can take ownership of individual presentation features while preserving protected runtime contracts.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

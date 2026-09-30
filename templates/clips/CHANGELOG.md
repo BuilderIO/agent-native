@@ -17,6 +17,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
 - Chat stays ready for your next draft while a message is being sent.
 - Clips Desktop shows a brief confirmation after copying a share link
 - Chat composers no longer show temporary status rows.

@@ -20,6 +20,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
 - Duplicated rows and restored document versions keep collaborators' uploaded icons.
 - Text typed just before leaving a page and coming back is no longer lost or reported as a failed save
 - Inline prompts no longer show temporary status rows.

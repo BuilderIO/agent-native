@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling
 - Slides remembers your home library tab, so returning users can open straight to Recent.
 
 ## 2026-09-29
@@ -20,6 +21,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
 - Chat stays ready for your next draft while a message is being sent.
 - Slides reports when saved history cannot load and lets you retry
 - Choosing the latest slide version preserves other pending slide edits.

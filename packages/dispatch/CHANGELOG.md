@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.40.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.198.5
+
 ## 0.40.5
 
 ### Patch Changes
@@ -1079,18 +1087,5 @@
 - Updated dependencies [9e21e1b]
 - Updated dependencies [9e21e1b]
   - @agent-native/toolkit@0.16.0
-
-## 0.26.0
-
-### Minor Changes
-
-- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
-
-### Patch Changes
-
-- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
-- Updated dependencies [73c4a97]
-- Updated dependencies [73c4a97]
-  - @agent-native/toolkit@0.15.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

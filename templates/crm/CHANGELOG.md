@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
 - Chat stays ready for your next draft while a message is being sent.
 - Sent chat prompts clear immediately, while reply progress appears in the conversation.
 

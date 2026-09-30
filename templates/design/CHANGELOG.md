@@ -36,6 +36,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
 - Chat stays ready for your next draft while a message is being sent.
 - Avoid signed-out source-write errors during visual editing
 - Blur and shadow values typed in Effects now save when you press Enter or close the popover with Escape
