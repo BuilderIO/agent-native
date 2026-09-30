@@ -277,6 +277,13 @@ describe("editing safety bridge", () => {
             "*",
           );
         });
+        await page.waitForFunction(() =>
+          (window as any).__bridgeMessages.some(
+            (message: any) =>
+              message.type === "embedded-canvas-pan" &&
+              message.phase === "cancel",
+          ),
+        );
         await page.mouse.up();
         await page.evaluate(() => {
           (window as any).__appPointerDowns = 0;
