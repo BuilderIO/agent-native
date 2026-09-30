@@ -3338,11 +3338,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     await mount(baseProps());
 
-    await act(async () => {
-      await chatMocks.resumeProps.onMessageResume({
-        message: "Continue after connecting the integration.",
-      });
+    const resume = chatMocks.resumeProps.onMessageResume({
+      message: "Continue after connecting the integration.",
     });
+    expect(resume).toBeInstanceOf(Promise);
+    await act(async () => resume);
     expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",

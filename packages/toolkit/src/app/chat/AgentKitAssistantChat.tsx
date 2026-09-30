@@ -2793,9 +2793,9 @@ const AgentKitAssistantChatBody = forwardRef<
               message: request.message,
             });
           }}
-          onMessageResume={(request) => {
-            resumeIntegrationPrompt(request.message);
-          }}
+          onMessageResume={(request) =>
+            resumeIntegrationPrompt(request.message)
+          }
         />
       )}
       <RunStuckBanner

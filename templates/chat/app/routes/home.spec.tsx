@@ -36,6 +36,7 @@ const routeState = vi.hoisted(() => ({
   rootProps: null as Record<string, unknown> | null,
   chatProps: null as Record<string, unknown> | null,
   connectionRequestProps: null as Record<string, unknown> | null,
+  resumeProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
   sendMessage: vi.fn(),
 }));
@@ -81,7 +82,10 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/connections", () => ({
     routeState.connectionRequestProps = props;
     return null;
   },
-  McpAgentKitConnectionResume: () => null,
+  McpAgentKitConnectionResume: (props: Record<string, unknown>) => {
+    routeState.resumeProps = props;
+    return null;
+  },
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/questions", () => ({
   GuidedQuestionFlow: () => null,
@@ -190,6 +194,7 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.rootProps = null;
     routeState.chatProps = null;
     routeState.connectionRequestProps = null;
+    routeState.resumeProps = null;
     routeState.resolveConnectionRequest.mockReset();
     routeState.sendMessage.mockReset();
     createTransport.mockClear();
@@ -302,6 +307,27 @@ describe("ChatRoute AgentKit surface", () => {
       appId: "chat",
       source,
     });
+  });
+
+  it("keeps failed connection resolution retryable", async () => {
+    routeState.threadId = "thread-one";
+    const error = new Error("Connection request could not be resolved.");
+    routeState.resolveConnectionRequest.mockRejectedValueOnce(error);
+    await act(async () => root.render(<ChatRoute />));
+
+    const resumeProps = routeState.resumeProps as {
+      onResume: (
+        target: { threadId: string; runId: string; requestId: string },
+        request: { message: string },
+      ) => Promise<void>;
+    };
+    await expect(
+      resumeProps.onResume(
+        { threadId: "thread-one", runId: "run-one", requestId: "req-one" },
+        { message: "Continue after connecting." },
+      ),
+    ).rejects.toBe(error);
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
   });
 
   it("keeps the empty chat state to its heading", () => {
