@@ -53,6 +53,7 @@ export function resolveNewDeckReferenceSelection(args: {
 }
 
 export function resolveRetryReferenceDeckSelection(args: {
+  automaticReferenceDeckRemovedFromComposer: boolean;
   carriedDeckMissing: boolean;
   hasComposerContext: boolean;
   hasExplicitComposerDeckReference: boolean;
@@ -66,6 +67,7 @@ export function resolveRetryReferenceDeckSelection(args: {
   referenceDeckIdSource?: ReferenceDeckIdSource;
 } {
   const {
+    automaticReferenceDeckRemovedFromComposer,
     carriedDeckMissing,
     hasComposerContext,
     hasExplicitComposerDeckReference,
@@ -80,7 +82,7 @@ export function resolveRetryReferenceDeckSelection(args: {
       ? null
       : retryReferenceDeckIdSource === "automatic"
         ? (promptReferenceDeckId ??
-          (!reusingRetryInputs
+          (!reusingRetryInputs || automaticReferenceDeckRemovedFromComposer
             ? null
             : (carriedImportedReferenceDeckId ??
               retryReferenceDeckId ??

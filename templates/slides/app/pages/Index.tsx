@@ -1562,9 +1562,19 @@ export default function Index({ active = true }: { active?: boolean }) {
       const automaticReferenceDeckId =
         retryReferenceSelection?.automaticReferenceDeckId ??
         composerContext.automaticReferenceDeckId;
+      const automaticReferenceDeckRemovedFromComposer =
+        Boolean(automaticReferenceDeckId) &&
+        options?.slidesContext !== undefined &&
+        !options.slidesContext.references.some(
+          (reference) =>
+            reference.source === "slides" &&
+            reference.id === automaticReferenceDeckId,
+        );
       const replaceAutomaticDeckContext =
         Boolean(automaticReferenceDeckId) &&
-        (!reusingRetryInputs || Boolean(promptReferenceDeckId));
+        (!reusingRetryInputs ||
+          Boolean(promptReferenceDeckId) ||
+          automaticReferenceDeckRemovedFromComposer);
       const generationComposerContext =
         retryComposerContext && replaceAutomaticDeckContext
           ? {
@@ -1592,6 +1602,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       const { referenceDeckId, referenceDeckIdSource } =
         resolveRetryReferenceDeckSelection({
           carriedDeckMissing,
+          automaticReferenceDeckRemovedFromComposer,
           hasComposerContext: Boolean(generationComposerContext),
           hasExplicitComposerDeckReference,
           carriedImportedReferenceDeckId: carriedImportedReference?.deckId,

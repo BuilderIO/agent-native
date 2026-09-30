@@ -95,9 +95,8 @@ describe("new deck generation flow", () => {
       "options?.contextItems ?? retryReferenceSelection.contextItems",
     );
     expect(promptSubmit).toContain("resolveRetryReferenceDeckSelection({");
-    expect(promptSubmit).toContain(
-      "(!reusingRetryInputs || Boolean(promptReferenceDeckId))",
-    );
+    expect(promptSubmit).toContain("automaticReferenceDeckRemovedFromComposer");
+    expect(promptSubmit).toContain("Boolean(promptReferenceDeckId)");
     expect(promptSubmit).toContain("!reusingRetryInputs");
     expect(promptSubmit).toContain(
       "designSystemId: generationComposerContext.designSystemId",

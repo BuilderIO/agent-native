@@ -92,6 +92,7 @@ describe("resolveRetryReferenceDeckSelection", () => {
   it("clears an automatic deck when an edited retry has no composer context or link", () => {
     expect(
       resolveRetryReferenceDeckSelection({
+        automaticReferenceDeckRemovedFromComposer: false,
         carriedDeckMissing: false,
         hasComposerContext: false,
         hasExplicitComposerDeckReference: false,
@@ -109,6 +110,7 @@ describe("resolveRetryReferenceDeckSelection", () => {
   it("marks a deck linked in an edited automatic retry as prompt-derived", () => {
     expect(
       resolveRetryReferenceDeckSelection({
+        automaticReferenceDeckRemovedFromComposer: false,
         carriedDeckMissing: false,
         hasComposerContext: false,
         hasExplicitComposerDeckReference: false,
@@ -126,6 +128,7 @@ describe("resolveRetryReferenceDeckSelection", () => {
   it("preserves an explicit deck selection when the prompt links another deck", () => {
     expect(
       resolveRetryReferenceDeckSelection({
+        automaticReferenceDeckRemovedFromComposer: false,
         carriedDeckMissing: false,
         hasComposerContext: false,
         hasExplicitComposerDeckReference: false,
@@ -137,6 +140,42 @@ describe("resolveRetryReferenceDeckSelection", () => {
     ).toEqual({
       referenceDeckId: "selected-deck",
       referenceDeckIdSource: "selection",
+    });
+  });
+
+  it("clears an automatic deck removed from an unchanged retry composer", () => {
+    expect(
+      resolveRetryReferenceDeckSelection({
+        automaticReferenceDeckRemovedFromComposer: true,
+        carriedDeckMissing: false,
+        hasComposerContext: true,
+        hasExplicitComposerDeckReference: false,
+        promptReferenceDeckId: null,
+        reusingRetryInputs: true,
+        retryReferenceDeckId: "previous-automatic-deck",
+        retryReferenceDeckIdSource: "automatic",
+      }),
+    ).toEqual({
+      referenceDeckId: null,
+      referenceDeckIdSource: "automatic",
+    });
+  });
+
+  it("keeps an automatic deck when its composer selection is unchanged", () => {
+    expect(
+      resolveRetryReferenceDeckSelection({
+        automaticReferenceDeckRemovedFromComposer: false,
+        carriedDeckMissing: false,
+        hasComposerContext: true,
+        hasExplicitComposerDeckReference: false,
+        promptReferenceDeckId: null,
+        reusingRetryInputs: true,
+        retryReferenceDeckId: "previous-automatic-deck",
+        retryReferenceDeckIdSource: "automatic",
+      }),
+    ).toEqual({
+      referenceDeckId: "previous-automatic-deck",
+      referenceDeckIdSource: "automatic",
     });
   });
 });
