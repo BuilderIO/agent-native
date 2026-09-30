@@ -1861,6 +1861,33 @@ export function startInPlaceTextSession(
                   : range.intersectsNode(row),
               )
             : [];
+          const selectedUnmarkedRows = range
+            ? Array.from(el.children).filter(
+                (child): child is HTMLElement =>
+                  child instanceof HTMLElement &&
+                  /^(DIV|LI|P)$/.test(child.tagName) &&
+                  !isBulletRow(child) &&
+                  (range.collapsed
+                    ? child.contains(range.startContainer)
+                    : range.intersectsNode(child)),
+              )
+            : [];
+          if (
+            kind === "bullet" &&
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0
+          ) {
+            const marker = rows[0].firstElementChild;
+            if (marker && isBulletMarker(marker)) {
+              for (const row of selectedUnmarkedRows) {
+                const copy = marker.cloneNode(true) as HTMLElement;
+                stripCopiedIdentity(copy);
+                row.prepend(copy);
+              }
+              return true;
+            }
+          }
           if (
             kind === "bullet" &&
             selectedRows.length !== 0 &&

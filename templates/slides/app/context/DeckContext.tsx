@@ -975,16 +975,17 @@ function drainPendingDeckOps(
             "details" in err && err.details && typeof err.details === "object"
               ? (err.details as Record<string, unknown>)
               : undefined;
-          const conflictedSlideIds = new Set(
+          const attemptedContentSlideIds = new Set(
             ops.flatMap((op) =>
               op.op === "patch-slide" && typeof op.fields.content === "string"
                 ? [op.slideId]
                 : [],
             ),
           );
-          if (typeof details?.slideId === "string") {
-            conflictedSlideIds.add(details.slideId);
-          }
+          const conflictedSlideIds =
+            typeof details?.slideId === "string"
+              ? new Set([details.slideId])
+              : attemptedContentSlideIds;
           const previousConflicts = staleContentConflicts.get(deckId);
           const conflicts =
             previousConflicts === null
@@ -994,34 +995,60 @@ function drainPendingDeckOps(
             deckId,
             conflicts && conflicts.size > 0 ? conflicts : null,
           );
-          const isConflictedContent = (op: GranularOp) =>
-            op.op === "patch-slide" &&
-            typeof op.fields.content === "string" &&
-            (conflicts === null || conflicts.has(op.slideId));
-          const retryableOps = ops.filter((op) => !isConflictedContent(op));
-          const retryablePending = pending.filter(
-            (op) => !isConflictedContent(op),
-          );
+          const removeConflictedContent = (op: GranularOp): GranularOp[] => {
+            if (
+              op.op !== "patch-slide" ||
+              typeof op.fields.content !== "string" ||
+              (conflicts !== null && !conflicts.has(op.slideId))
+            ) {
+              return [op];
+            }
+            const retryableOp = { ...op, fields: { ...op.fields } };
+            delete retryableOp.fields.content;
+            delete retryableOp.baseContentHash;
+            return Object.keys(retryableOp.fields).length > 0
+              ? [retryableOp]
+              : [];
+          };
+          const retryableOps = ops.flatMap(removeConflictedContent);
+          const retryablePending = pending.flatMap(removeConflictedContent);
           const retryable = [...retryableOps, ...retryablePending];
           if (retryable.length > 0) pendingOpsQueue.set(deckId, retryable);
           else pendingOpsQueue.delete(deckId);
 
-          const keepSafeHandlers = (entries: PendingPersistedResultHandler[]) =>
+          const keepSafeHandlers = (
+            entries: PendingPersistedResultHandler[],
+            retryableLayoutFitSlideIds: ReadonlySet<string>,
+          ) =>
             entries.flatMap(({ handler, slideWriteSequences }) => {
               const safeSequences = new Map(
                 [...slideWriteSequences].filter(
-                  ([slideId]) => conflicts !== null && !conflicts.has(slideId),
+                  ([slideId]) =>
+                    (conflicts !== null && !conflicts.has(slideId)) ||
+                    retryableLayoutFitSlideIds.has(slideId),
                 ),
               );
               return safeSequences.size > 0
                 ? [{ handler, slideWriteSequences: safeSequences }]
                 : [];
             });
+          const retryableLayoutFitSlideIds = new Set(
+            retryableOps.flatMap(layoutFitSlideIdsForOp),
+          );
+          const retryablePendingLayoutFitSlideIds = new Set(
+            retryablePending.flatMap(layoutFitSlideIdsForOp),
+          );
           const handlers = [
             ...(retryableOps.length > 0
-              ? keepSafeHandlers(persistedResultHandlers)
+              ? keepSafeHandlers(
+                  persistedResultHandlers,
+                  retryableLayoutFitSlideIds,
+                )
               : []),
-            ...keepSafeHandlers(pendingHandlers),
+            ...keepSafeHandlers(
+              pendingHandlers,
+              retryablePendingLayoutFitSlideIds,
+            ),
           ];
           if (handlers.length > 0) {
             pendingPersistedResultHandlers.set(deckId, handlers);
