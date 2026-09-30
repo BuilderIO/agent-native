@@ -1353,7 +1353,7 @@ function drainPendingDeckOps(
               : attemptedContentSlideIds;
           const previousConflicts = staleContentConflicts.get(deckId);
           const retrySlides = staleContentRetrySlides.get(deckId) ?? new Set();
-          const remoteDeck = await fetchDeckFromAPI(deckId);
+          const remoteDeck = latest;
           if (!isCurrentGeneration()) return;
           const latestPending = pendingOpsQueue.has(deckId)
             ? (pendingOpsQueue.get(deckId) ?? [])

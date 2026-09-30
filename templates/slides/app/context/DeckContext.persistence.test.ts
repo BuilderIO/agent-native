@@ -306,7 +306,11 @@ function setupFetch(options?: {
         firstPutSignal = init?.signal ?? undefined;
         return new Promise<Response>((resolve, reject) => {
           resolveDeferredPut = () => {
-            if (body.deck && typeof body.deck === "object") {
+            if (
+              accessibleDeck?.id === deckId &&
+              body.deck &&
+              typeof body.deck === "object"
+            ) {
               accessibleDeck = body.deck as Deck;
             }
             resolve(
@@ -338,7 +342,11 @@ function setupFetch(options?: {
         typeof options?.putResponse === "function"
           ? options.putResponse(body)
           : (options?.putResponse ?? { ok: true });
-      if (body.deck && typeof body.deck === "object") {
+      if (
+        accessibleDeck?.id === deckId &&
+        body.deck &&
+        typeof body.deck === "object"
+      ) {
         accessibleDeck = body.deck as Deck;
       }
       return Promise.resolve(
@@ -402,13 +410,16 @@ function setupFetch(options?: {
     }
 
     if (href.includes("/_agent-native/actions/get-deck")) {
+      const deckId =
+        new URL(href, "http://localhost").searchParams.get("id") ?? "";
+      if (accessibleDeck?.id !== deckId) {
+        return Promise.resolve(new Response("", { status: 404 }));
+      }
       if (getDeckFailuresRemaining > 0) {
         getDeckFailuresRemaining -= 1;
         return Promise.reject(new Error("get-deck unavailable"));
       }
       if (accessibleDeck) {
-        const deckId =
-          new URL(href, "http://localhost").searchParams.get("id") ?? "";
         const attempts = (getDeckAttempts.get(deckId) ?? 0) + 1;
         getDeckAttempts.set(deckId, attempts);
         if (
@@ -445,6 +456,13 @@ function setupFetch(options?: {
       const deckId = testString(body.deckId ?? "");
       const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
       patchAttempts.set(deckId, attempts);
+      if (accessibleDeck?.id !== deckId) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "Deck not found" }), {
+            status: 404,
+          }),
+        );
+      }
       if (
         options?.deferredPatch &&
         accessibleDeck?.id === deckId &&
@@ -2560,14 +2578,12 @@ describe("DeckContext deck creation persistence", () => {
 
   it("retains a stale draft when remote content cannot be verified", async () => {
     window.history.pushState({}, "", "/deck/inline-stale-read-failure-deck");
-    const { setAccessibleDeck, failNextGetDeck, getPatchAttempts } = setupFetch(
-      {
-        staleContentFailures: {
-          deckId: "inline-stale-read-failure-deck",
-          count: 1,
-        },
-      },
-    );
+    const {
+      setAccessibleDeck,
+      failNextGetDeck,
+      getPatchAttempts,
+      resolveDeferredPatch,
+    } = setupFetch({ deferredPatch: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -2585,7 +2601,6 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
-    failNextGetDeck(2);
     act(() => {
       result.current.updateSlide(
         initial.id,
@@ -2594,6 +2609,9 @@ describe("DeckContext deck creation persistence", () => {
         { preserveLocalState: true, persistence: "immediate" },
       );
     });
+    await waitFor(() => expect(getPatchAttempts(initial.id)).toBe(1));
+    failNextGetDeck(2);
+    resolveDeferredPatch(409, "slide_content_stale");
     await act(async () => {
       await expect(result.current.flushDeckSave(initial.id)).rejects.toThrow(
         "Failed to save deck",
@@ -2602,6 +2620,7 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(getPatchAttempts(initial.id)).toBe(1);
     expect(getStaleContentDraft(initial.id, "slide-1")).toBe("Draft to keep");
+    expect(getStaleContentConflictSlideId(initial.id)).toBe("slide-1");
     expect(hasFailedDeckSave(initial.id)).toBe(true);
     expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
   });
@@ -2682,6 +2701,7 @@ describe("DeckContext deck creation persistence", () => {
       setAccessibleDeck,
       resolveDeferredPatch,
       getPatchAttempts,
+      getAccessibleDeck,
     } = setupFetch({ deferredPatch: true, staleContentConflicts: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -2761,6 +2781,7 @@ describe("DeckContext deck creation persistence", () => {
       );
     });
     await waitFor(() => expect(getPatchAttempts(initial.id)).toBe(3));
+    const latestServerRevision = getAccessibleDeck()?.updatedAt;
 
     const retryablePatch = fetchMock.mock.calls
       .filter(([url]) =>
@@ -2800,7 +2821,7 @@ describe("DeckContext deck creation persistence", () => {
       )
       .at(-1);
     expect(actionCallBody(rebasedPatch?.[1])).toMatchObject({
-      clientWrite: { expectedUpdatedAt: remoteRevision },
+      clientWrite: { expectedUpdatedAt: latestServerRevision },
       operations: [
         {
           op: "patch-slide",
