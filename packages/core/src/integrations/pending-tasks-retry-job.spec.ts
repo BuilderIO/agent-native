@@ -22,6 +22,7 @@ vi.mock("../server/core-routes-plugin.js", () => ({
 vi.mock("./pending-tasks-store.js", () => ({
   ensurePendingTasksTable: ensurePendingTasksTableMock,
   MAX_PENDING_TASK_ATTEMPTS: 3,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS: 24 * 60 * 60 * 1000,
 }));
 
 vi.mock("./integration-durable-dispatch.js", () => ({

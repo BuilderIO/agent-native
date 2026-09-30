@@ -12,6 +12,7 @@ import {
 import {
   ensurePendingTasksTable,
   MAX_PENDING_TASK_ATTEMPTS,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
 } from "./pending-tasks-store.js";
 
 const RETRY_INTERVAL_MS = 60_000;
@@ -19,9 +20,6 @@ const PENDING_STUCK_AFTER_MS = 90_000;
 const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
 const DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS = 16 * 60 * 1000;
-// Recovery re-runs the whole agent turn. A day later the reply would no longer
-// answer the message, so older rows are left exactly as they are.
-const MAX_RECOVERABLE_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SWEEP_LIMIT = 100;
 
 let job: IntervalJobHandle | null = null;
@@ -126,7 +124,7 @@ export async function retryStuckPendingTasks(
   const processingCutoff = now - getProcessingStuckAfterMs();
   const durableProcessingCutoff =
     now - DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS;
-  const recoverableSince = now - MAX_RECOVERABLE_TASK_AGE_MS;
+  const recoverableSince = now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS;
 
   let stuckRows: StuckTaskRow[];
   try {

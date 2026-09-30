@@ -88,11 +88,16 @@ describe("integration pending task store", () => {
     expect((updateCall?.[0] as { sql: string }).sql).toContain(
       "last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)",
     );
+    const recoverableSince = (updateCall?.[0] as { args: unknown[] }).args[4];
     expect((updateCall?.[0] as { args: unknown[] }).args).toEqual([
       "processing",
       expect.any(Number),
       "background-acknowledged",
       "task-1",
+      expect.any(Number),
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
     ]);
   });
 
@@ -174,7 +179,7 @@ describe("integration pending task store", () => {
           ),
       );
     expect(select?.sql).toContain("ORDER BY created_at ASC, id ASC");
-    expect(select?.args).toEqual(["slack", "thread-1"]);
+    expect(select?.args).toEqual(["slack", "thread-1", expect.any(Number)]);
   });
 
   it("only treats duplicate-key errors as duplicate webhook deliveries", async () => {

@@ -10,8 +10,9 @@ import {
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-// Real PGlite behind getDbExec, so the sweep's selection and guarded updates
-// run their genuine SQL. Only the processor dispatch is stubbed.
+// Real PGlite behind getDbExec, so the sweep's selection, the claim and the
+// thread's next-task lookup run their genuine SQL. Only the processor dispatch
+// is stubbed.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
@@ -23,7 +24,7 @@ vi.mock("../db/client.js", async (importOriginal) => ({
         return { rows: [], rowsAffected: 0 };
       }
       const args = (input.args ?? []) as unknown[];
-      if (/^\s*(SELECT|WITH)\b/i.test(input.sql)) {
+      if (/^\s*(SELECT|WITH)\b|\bRETURNING\b/i.test(input.sql)) {
         const rows = await pglite.prepare(input.sql).all(...args);
         return { rows, rowsAffected: 0 };
       }
@@ -48,7 +49,11 @@ vi.mock("./integration-campaigns-store.js", () => ({
 }));
 
 const { retryStuckPendingTasks } = await import("./pending-tasks-retry-job.js");
-const { ensurePendingTasksTable } = await import("./pending-tasks-store.js");
+const {
+  claimPendingTask,
+  ensurePendingTasksTable,
+  getNextPendingTaskForThread,
+} = await import("./pending-tasks-store.js");
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -100,7 +105,7 @@ async function readRow(id: string) {
   };
 }
 
-describe("pending task recovery age bound", () => {
+describe("pending task age bound", () => {
   beforeAll(async () => {
     pglite = await createTestPglite();
     await ensurePendingTasksTable();
@@ -213,6 +218,110 @@ describe("pending task recovery age bound", () => {
       status: "pending",
       attempts: 3,
       updatedAt: now - 10 * MINUTE,
+    });
+  });
+
+  it("runs a new message behind an expired row in its thread and leaves that row alone", async () => {
+    const thread = "T1:team:C1:1.0";
+    const now = await seed([
+      {
+        id: "stale-retried",
+        thread,
+        status: "pending",
+        attempts: 2,
+        createdAgo: 50 * DAY,
+        updatedAgo: 2 * MINUTE,
+      },
+      {
+        id: "new-message",
+        thread,
+        status: "pending",
+        attempts: 0,
+        createdAgo: MINUTE,
+        updatedAgo: MINUTE,
+      },
+    ]);
+
+    expect(await claimPendingTask("stale-retried")).toBeNull();
+    expect(await claimPendingTask("new-message")).toMatchObject({
+      id: "new-message",
+      status: "processing",
+    });
+    expect(await getNextPendingTaskForThread("slack", thread)).toBeNull();
+    expect(await readRow("stale-retried")).toEqual({
+      status: "pending",
+      attempts: 2,
+      updatedAt: now - 2 * MINUTE,
+    });
+  });
+
+  it("keeps thread order among rows from the last day", async () => {
+    const thread = "T1:team:C1:1.0";
+    await seed([
+      {
+        id: "earlier",
+        thread,
+        status: "pending",
+        attempts: 0,
+        createdAgo: DAY - MINUTE,
+        updatedAgo: DAY - MINUTE,
+      },
+      {
+        id: "later",
+        thread,
+        status: "pending",
+        attempts: 0,
+        createdAgo: MINUTE,
+        updatedAgo: MINUTE,
+      },
+    ]);
+
+    expect(await claimPendingTask("later")).toBeNull();
+    expect(await getNextPendingTaskForThread("slack", thread)).toMatchObject({
+      id: "earlier",
+    });
+    expect(await claimPendingTask("earlier")).toMatchObject({ id: "earlier" });
+  });
+
+  it("still holds the thread for an old processing row with recent activity", async () => {
+    await seed([
+      {
+        id: "active-old",
+        thread: "T1:team:C1:1.0",
+        status: "processing",
+        attempts: 1,
+        createdAgo: DAY + 10 * MINUTE,
+        updatedAgo: 10 * MINUTE,
+      },
+      {
+        id: "behind-active",
+        thread: "T1:team:C1:1.0",
+        status: "pending",
+        attempts: 0,
+        createdAgo: MINUTE,
+        updatedAgo: MINUTE,
+      },
+      {
+        id: "abandoned-old",
+        thread: "T1:team:C2:1.0",
+        status: "processing",
+        attempts: 1,
+        createdAgo: 3 * DAY,
+        updatedAgo: 2 * DAY,
+      },
+      {
+        id: "behind-abandoned",
+        thread: "T1:team:C2:1.0",
+        status: "pending",
+        attempts: 0,
+        createdAgo: MINUTE,
+        updatedAgo: MINUTE,
+      },
+    ]);
+
+    expect(await claimPendingTask("behind-active")).toBeNull();
+    expect(await claimPendingTask("behind-abandoned")).toMatchObject({
+      id: "behind-abandoned",
     });
   });
 });
