@@ -81,7 +81,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 5
+          LANES: 2
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -191,7 +191,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
@@ -252,7 +255,10 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
