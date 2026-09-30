@@ -3452,10 +3452,14 @@ describe("Vite SSR stubs", () => {
     const stubs = await import(
       `data:text/javascript,${encodeURIComponent(code)}`
     );
+    expect(typeof stubs.PluginKey).toBe("function");
     expect(() => new stubs.PluginKey("ssr")).not.toThrow();
     const called = stubs.default("ssr");
     expect(typeof called).toBe("function");
     expect(() => called.chain("ssr")).not.toThrow();
+    expect(typeof called.then).toBe("function");
+    expect(typeof called.then(() => undefined)).toBe("function");
+    expect(await called).toBe("");
     expect(() => new called.PluginKey("ssr")).not.toThrow();
     expect(code).toContain("export const Doc = stub;");
     expect(code).toContain("export const Map = stub;");

@@ -2764,11 +2764,18 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     load(id) {
       if (id !== STUB_ID) return null;
       return (
-        "function makeStub() { return new Proxy(makeStub, handler); } " +
+        "function makeStub() { return new Proxy(makeStub, resultHandler); } " +
         "const handler = { get(_, p) { " +
         "if (p === Symbol.toPrimitive) return () => ''; " +
         "if (p === 'then') return undefined; " +
         "return new Proxy(makeStub, handler); " +
+        "} };" +
+        "const resultHandler = { get(_, p) { " +
+        "if (p === Symbol.toPrimitive) return () => ''; " +
+        "if (p === 'then') return (resolve) => { " +
+        "if (typeof resolve === 'function') resolve(''); " +
+        "return new Proxy(makeStub, resultHandler); }; " +
+        "return new Proxy(makeStub, resultHandler); " +
         "} };" +
         "const stub = new Proxy(makeStub, handler);" +
         "export default stub;" +
