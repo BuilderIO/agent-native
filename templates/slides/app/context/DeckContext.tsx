@@ -668,7 +668,8 @@ async function callDeckWriteAction<TResult>(
       !("code" in error && error.code === "client_build_mismatch") &&
       !("errorCode" in error && error.errorCode === "slide_content_stale")
     ) {
-      await fetchDeckFromAPI(deckId);
+      const latest = await fetchDeckFromAPI(deckId);
+      if (latest) rememberDeckServerRevision(deckId, latest);
     }
     throw error;
   }
@@ -978,6 +979,7 @@ function drainPendingDeckOps(
         "errorCode" in err &&
         err.errorCode === "slide_content_stale"
       ) {
+        let canRetryPendingOps = true;
         if (pending[0]?.op === "full-replace") {
           pendingOpsQueue.set(deckId, pending);
           if (pendingHandlers.length > 0) {
@@ -995,6 +997,9 @@ function drainPendingDeckOps(
           }
           failedSaveDecks.delete(deckId);
         } else {
+          const latest = await fetchDeckFromAPI(deckId);
+          canRetryPendingOps = latest !== null;
+          if (latest) rememberDeckServerRevision(deckId, latest);
           const details =
             "details" in err && err.details && typeof err.details === "object"
               ? (err.details as Record<string, unknown>)
@@ -1079,15 +1084,24 @@ function drainPendingDeckOps(
           } else {
             pendingPersistedResultHandlers.delete(deckId);
           }
-          failedSaveDecks.delete(deckId);
+          if (latest || retryable.length === 0) {
+            failedSaveDecks.delete(deckId);
+          } else {
+            failedSaveDecks.add(deckId);
+          }
         }
         deckSaveRetryAttempts.delete(deckId);
+        if (failedSaveDecks.has(deckId) && !canRetryPendingOps) {
+          deckSaveRetryAttempts.set(deckId, MAX_DECK_SAVE_RETRIES + 1);
+        }
         if (pendingOpsQueue.has(deckId)) {
-          if (!pendingSaves.has(deckId)) {
+          if (!pendingSaves.has(deckId) && canRetryPendingOps) {
             immediateFlushRequests.set(
               deckId,
               immediateFlushRequests.get(deckId) ?? false,
             );
+          } else if (!canRetryPendingOps) {
+            immediateFlushRequests.delete(deckId);
           }
         } else {
           immediateFlushRequests.delete(deckId);
@@ -1158,7 +1172,10 @@ function drainPendingDeckOps(
   return next;
 }
 
-async function flushDeckSave(deckId: string): Promise<void> {
+async function flushDeckSave(
+  deckId: string,
+  options?: { allowStaleContentConflicts?: boolean },
+): Promise<void> {
   while (true) {
     const active = inFlightSaveChains.get(deckId);
     if (active) {
@@ -1170,11 +1187,19 @@ async function flushDeckSave(deckId: string): Promise<void> {
       await keepaliveSave;
       continue;
     }
+    if (failedSaveDecks.has(deckId)) {
+      throw new Error(
+        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
+      );
+    }
     if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       continue;
     }
-    if (failedSaveDecks.has(deckId) || staleContentConflicts.has(deckId)) {
+    if (
+      staleContentConflicts.has(deckId) &&
+      !options?.allowStaleContentConflicts
+    ) {
       throw new Error(
         `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
       );
@@ -1189,6 +1214,7 @@ function enqueueDeckOp(
   options?: {
     persistence?: "debounced" | "immediate";
     coalesceContent?: boolean;
+    resolvingContentConflict?: boolean;
     onSaveSuccess?: (ops: GranularOp[]) => void;
     onPersisted?: PersistedResultHandler;
     layoutFitSlideIds?: readonly string[];
@@ -1216,10 +1242,11 @@ function enqueueDeckOp(
   if (
     op.op === "patch-slide" &&
     typeof op.fields.content === "string" &&
-    hasStaleContentConflict(deckId, op.slideId)
+    hasStaleContentConflict(deckId, op.slideId) &&
+    !options?.resolvingContentConflict
   ) {
     notifySaveListeners();
-    return;
+    return op;
   }
 
   if (op.op === "full-replace") {
@@ -1272,6 +1299,39 @@ function enqueueDeckOp(
     pendingSaves.set(deckId, timer);
     notifySaveListeners();
   }
+  return op;
+}
+
+function discardPendingDeckOp(
+  deckId: string,
+  op: GranularOp,
+  handler: PersistedResultHandler,
+) {
+  const queue = pendingOpsQueue.get(deckId);
+  if (queue) {
+    const remaining = queue.filter((queued) => queued !== op);
+    if (remaining.length === 0) pendingOpsQueue.delete(deckId);
+    else if (remaining.length !== queue.length)
+      pendingOpsQueue.set(deckId, remaining);
+  }
+
+  const handlers = pendingPersistedResultHandlers.get(deckId);
+  if (handlers) {
+    const remaining = handlers.filter((entry) => entry.handler !== handler);
+    if (remaining.length === 0) pendingPersistedResultHandlers.delete(deckId);
+    else if (remaining.length !== handlers.length)
+      pendingPersistedResultHandlers.set(deckId, remaining);
+  }
+
+  if (
+    !pendingOpsQueue.has(deckId) &&
+    !inFlightSaveChains.has(deckId) &&
+    !pendingSaves.has(deckId)
+  ) {
+    failedSaveDecks.delete(deckId);
+    deckSaveRetryAttempts.delete(deckId);
+  }
+  notifySaveListeners();
 }
 
 function settleQueuedContentDraft(
@@ -4251,7 +4311,7 @@ export function DeckProvider({
       if (!currentDeck || !localSlide) {
         throw new Error("The local slide draft is unavailable");
       }
-      if (!clearStaleContentConflict(deckId, slideId)) {
+      if (!hasStaleContentConflict(deckId, slideId)) {
         throw new Error("The slide conflict has already been resolved");
       }
 
@@ -4283,7 +4343,11 @@ export function DeckProvider({
         resolution === "draft" &&
         localSlide.content !== latestSlide.content
       ) {
-        enqueueDeckOp(
+        let persisted = false;
+        const onPersisted: PersistedResultHandler = () => {
+          persisted = true;
+        };
+        const op = enqueueDeckOp(
           deckId,
           {
             op: "patch-slide",
@@ -4291,15 +4355,28 @@ export function DeckProvider({
             fields: { content: localSlide.content },
             baseContentHash: hashSlideContent(latestSlide.content),
           },
-          { persistence: "immediate" },
+          {
+            persistence: "immediate",
+            resolvingContentConflict: true,
+            onPersisted,
+          },
         );
-        await drainPendingDeckOps(deckId);
-        if (
-          failedSaveDecks.has(deckId) ||
-          hasStaleContentConflict(deckId, slideId)
-        ) {
-          throw new Error("The slide draft could not be saved");
+        try {
+          await flushDeckSave(deckId, { allowStaleContentConflicts: true });
+          if (!persisted) {
+            throw new Error("The slide draft could not be saved");
+          }
+        } catch (error) {
+          discardPendingDeckOp(deckId, op, onPersisted);
+          throw error;
         }
+      }
+
+      if (!clearStaleContentConflict(deckId, slideId)) {
+        throw new Error("The slide conflict has already been resolved");
+      }
+      if (resolution === "latest" && pendingOpsQueue.has(deckId)) {
+        void drainPendingDeckOps(deckId);
       }
     },
     [setDecksLocal],
