@@ -185,8 +185,7 @@ export default {
   },
   agentChat: {
     setup: {
-      checkingProvider: "AI 연결을 확인하는 중…",
-      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
   },

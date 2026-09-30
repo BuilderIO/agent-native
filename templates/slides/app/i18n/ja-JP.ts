@@ -1064,7 +1064,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
   },
 };

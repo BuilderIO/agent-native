@@ -1084,7 +1084,8 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
   },
 };

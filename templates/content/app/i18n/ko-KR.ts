@@ -1187,7 +1187,9 @@ const history = {
 
 const overrides = {
   close: "닫기",
-  setup: { checkingProvider: "AI 연결을 확인하는 중…" },
+  setup: {
+    providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
+  },
   onboarding: {
     fileStorage: {
       title: "파일 업로드를 위해 저장소 연결",

@@ -1069,7 +1069,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
   },
 };

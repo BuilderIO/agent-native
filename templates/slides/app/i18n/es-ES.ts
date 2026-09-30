@@ -1089,7 +1089,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+      providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
   },
 };

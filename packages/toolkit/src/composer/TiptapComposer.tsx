@@ -1,4 +1,3 @@
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
   IconArrowUp,
@@ -1280,13 +1279,6 @@ const PICKER_HELP_BUTTON_CLASS =
   "flex size-3 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground";
 const PICKER_HELP_ICON_CLASS = "size-2";
 
-export function shouldShowModelSelectorSkeleton(
-  isLoading: boolean,
-  engineCount: number,
-): boolean {
-  return isLoading && engineCount === 0;
-}
-
 /**
  * With nothing connected, every family is a dead "needs API key" row, so the
  * picker shows only the connect CTAs. Never hide the list unless a CTA is
@@ -1733,11 +1725,6 @@ function ModelSelector({
   );
 
   const visibleProviderGroups = modelProviderGroups;
-  const showModelListSkeleton = shouldShowModelSelectorSkeleton(
-    modelListLoading,
-    engines.length,
-  );
-
   // Keep setup actions visible, but do not show unusable model rows until one
   // provider or local agent is ready.
   const builderFlow = adapters.builder!.useConnectFlow!({
@@ -2268,12 +2255,9 @@ function ModelSelector({
                           ))}
                         </div>
                       )}
-                    {hasConfiguredProvider && showModelListSkeleton && (
-                      <ModelSelectorSkeleton />
-                    )}
                     {hasConfiguredProvider &&
                       isCodexAgent &&
-                      !showModelListSkeleton &&
+                      !modelListLoading &&
                       !onlyConnectPathAvailable &&
                       modelProviderGroups.length === 0 && (
                         <button
@@ -2502,31 +2486,6 @@ function ModelSelector({
         </Popover>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function ModelSelectorSkeleton() {
-  const t = useComposerRuntimeAdapters().translate!;
-  return (
-    <div
-      className="space-y-1 px-2 py-2"
-      role="status"
-      aria-label={t("agentChat.composer.loadingModels", {
-        defaultValue: "Loading models",
-      })}
-    >
-      <span className="sr-only">
-        {t("agentChat.composer.loadingModelsProgress", {
-          defaultValue: "Loading models…",
-        })}
-      </span>
-      {["w-24", "w-32", "w-20", "w-28"].map((width, index) => (
-        <div key={index} className="flex items-center gap-1.5 px-1 py-1.5">
-          <Skeleton className="size-3 rounded-sm" />
-          <Skeleton className={`h-3 ${width}`} />
-        </div>
-      ))}
-    </div>
   );
 }
 

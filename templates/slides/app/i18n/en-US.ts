@@ -1058,7 +1058,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "Couldn't check AI connection.",
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
   },
 };

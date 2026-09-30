@@ -273,6 +273,8 @@ export interface AssistantChatProps {
   showModelSelector?: boolean;
   /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
+  /** Block sending while keeping the composer editable. */
+  composerSubmissionDisabled?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */

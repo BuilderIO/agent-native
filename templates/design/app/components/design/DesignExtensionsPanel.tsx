@@ -1741,27 +1741,21 @@ function CreateExtensionPopover({
               layout="sidebar"
               onConnected={onProviderConnected}
             />
-          ) : (
+          ) : providerStatus === "unavailable" ? (
             <div
               className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
               role="status"
             >
-              <span>
-                {providerStatus === "unknown"
-                  ? t("agentChat.setup.checkingProvider")
-                  : t("agentChat.setup.providerStatusUnavailable")}
-              </span>
-              {providerStatus === "unavailable" ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={onRetryProvider}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+              <button
+                type="button"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={onRetryProvider}
+              >
+                {t("agentChat.common.retry")}
+              </button>
             </div>
-          )}
+          ) : null}
           <form onSubmit={handleSubmit} className="space-y-3">
             <p className="px-0.5 text-sm font-semibold text-foreground">
               {t("designEditor.extensionsPromptTitle")}
@@ -1771,7 +1765,7 @@ function CreateExtensionPopover({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t("designEditor.extensionsPlaceholder")}
-              disabled={!providerReady}
+              disabled={!providerReady && providerStatus !== "unknown"}
               className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
             />
             <div className="flex justify-end gap-2">

@@ -133,8 +133,41 @@ vi.mock("@agent-native/core/client/notifications", () => ({
   NotificationsBell: () => null,
 }));
 vi.mock("@agent-native/core/client/progress", () => ({ RunsTray: () => null }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentToggleButton: () => null,
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/client/agent-chat")
+    >();
+  return {
+    ...actual,
+    sendToAgentChat: vi.fn(),
+    AgentToggleButton: () => null,
+    BuilderSetupCard: ({
+      bouncePulse = 0,
+      onConnected,
+    }: {
+      bouncePulse?: number;
+      onConnected?: () => void;
+    }) => (
+      <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
+        <h3>Connect AI</h3>
+        <button type="button" onClick={onConnected}>
+          Connect Builder.io
+        </button>
+        <a href="/settings/keys">Custom keys</a>
+      </div>
+    ),
+    useAgentEngineConfigured: () => agentEngine,
+    useChatModels: () => ({
+      selectedEngine: "builder",
+      selectedModel: "gpt-5.6-terra",
+      availableModels: [],
+      isLoading: false,
+    }),
+    fetchAgentEngineConfiguredState,
+  };
+});
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,
@@ -160,6 +193,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   requestAgentChatThreadOpen: vi.fn(),
   formatAgentChatContextItemsForPrompt: () => "",
   normalizeAgentComposerReference: vi.fn(),
+  BuilderSetupContent: () => null,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
@@ -246,6 +280,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
     systemFlag.query(enabled),
     { designSystems: [], refetch: refetchSystems }
   ),
+  BuilderSetupContent: () => null,
 }));
 vi.mock("@/hooks/use-workspace-defaults", () => ({
   useWorkspaceDefaults: (enabled = true) => {
@@ -1065,9 +1100,7 @@ describe("Slides prompt-led home", () => {
     agentEngine.state = "unknown";
     agentEngine.missing = false;
     renderHome();
-    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
-      "common.loading",
-    );
+    expect(screen.queryByRole("status")).toBeNull();
     expect(
       (
         screen.getByRole("textbox", {

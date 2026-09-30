@@ -1022,7 +1022,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      providerStatusUnavailable: "无法检查 AI 连接。",
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },
   },
 };

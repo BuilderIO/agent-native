@@ -1186,7 +1186,9 @@ const history = {
 
 const overrides = {
   close: "إغلاق",
-  setup: { checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…" },
+  setup: {
+    providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
+  },
   onboarding: {
     fileStorage: {
       title: "اختر تخزين الملفات",

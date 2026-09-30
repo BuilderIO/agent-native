@@ -683,6 +683,8 @@ const messages = {
         "Keine aktuellen Nachrichten passen zu dieser Regel.",
       ruleBackfillFailed:
         "Diese Regel konnte nicht auf aktuelle E-Mails angewendet werden.",
+      ruleBackfillRunFailed:
+        "Die Anwendung der Regeln auf aktuelle E-Mails konnte nicht abgeschlossen werden.",
       backfillStatusLoadFailed:
         "Der aktuelle Regelstatus konnte nicht geladen werden.",
       ruleBackfillPartialFailure:
