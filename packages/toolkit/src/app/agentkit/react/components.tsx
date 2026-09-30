@@ -3610,14 +3610,13 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
-        submissionDisabled={submissionDisabled}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
         imageModelMenu={imageModelMenu}
         autoFocus={autoFocus}
         composerRef={composerRef}
-        submissionDisabled={command.pending}
+        submissionDisabled={submissionDisabled || command.pending}
         willQueue={active && queueWhileRunning && canQueue}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
