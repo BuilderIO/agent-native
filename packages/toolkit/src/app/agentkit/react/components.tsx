@@ -902,28 +902,29 @@ function firstWorkEvents(events: AgentEvent[]): AgentEvent[] {
 
 function messageHasVisibleAssistantOutput(
   message: AgentMessage,
+  messageRenderer: AgentKitSlots["message"],
   dataRenderer: AgentKitSlots["data"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
-  return (
-    message.role === "assistant" &&
-    message.parts.some((part) => {
-      if (part.type === "reasoning") return false;
-      if (part.type === "text") return part.text.trim().length > 0;
-      if (part.type === "data") {
-        return Boolean(dataRenderer || messagePartRenderers?.data);
-      }
-      if (part.type.startsWith("x-")) {
-        return Boolean(messagePartRenderers?.[part.type]);
-      }
-      return true;
-    })
-  );
+  if (message.role !== "assistant") return false;
+  if (messageRenderer) return true;
+  return message.parts.some((part) => {
+    if (part.type === "reasoning") return false;
+    if (part.type === "text") return part.text.trim().length > 0;
+    if (part.type === "data") {
+      return Boolean(dataRenderer || messagePartRenderers?.data);
+    }
+    if (part.type.startsWith("x-")) {
+      return Boolean(messagePartRenderers?.[part.type]);
+    }
+    return true;
+  });
 }
 
 function messageEventHasVisibleAssistantOutput(
   event: AgentEvent,
   assistantMessageIds: ReadonlySet<string>,
+  messageRenderer: AgentKitSlots["message"],
   dataRenderer: AgentKitSlots["data"],
   messagePartRenderers: AgentKitRegistry["messageParts"],
 ): boolean {
@@ -937,6 +938,7 @@ function messageEventHasVisibleAssistantOutput(
   }
   return messageHasVisibleAssistantOutput(
     event.message,
+    messageRenderer,
     dataRenderer,
     messagePartRenderers,
   );
@@ -1157,9 +1159,15 @@ export function AgentActivityGroup({
       bucketGroups.push([activity]);
     }
   }
-  const hasExpandableActivity = ACTIVITY_BUCKET_ORDER.some(
-    (bucket) => bucket !== "thinking" && displayGroups.get(bucket)!.length > 0,
-  );
+  const visibleReasoningGroups = displayGroups
+    .get("thinking")!
+    .filter((activities) => reasoningMap.has(activities[0]!.id));
+  const hasExpandableActivity =
+    visibleReasoningGroups.length > 0 ||
+    ACTIVITY_BUCKET_ORDER.some(
+      (bucket) =>
+        bucket !== "thinking" && displayGroups.get(bucket)!.length > 0,
+    );
   const activityBucketLabels = {
     thinking: "Thinking",
     research: "Research",
@@ -1217,10 +1225,74 @@ export function AgentActivityGroup({
         >
           <div className="agentkit-activities-list">
             {ACTIVITY_BUCKET_ORDER.map((bucket) => {
-              if (bucket === "thinking") return null;
-              const groups = displayGroups.get(bucket)!;
+              const groups =
+                bucket === "thinking"
+                  ? visibleReasoningGroups
+                  : displayGroups.get(bucket)!;
               if (groups.length === 0) return null;
-              return (
+              const content = (
+                <div className="agentkit-activity-bucket-items">
+                  {groups.map((activities) => {
+                    const activity = activities[0] as AgentActivity;
+                    const reasoningMessage = reasoningMap.get(activity.id);
+                    if (reasoningMessage) {
+                      return (
+                        <AgentReasoningParts
+                          key={activity.id}
+                          message={reasoningMessage}
+                          threadId={threadId}
+                          active={
+                            activelyWorking &&
+                            currentActivity?.id === activity.id
+                          }
+                        />
+                      );
+                    }
+                    if (activities.length > 1) {
+                      return (
+                        <RepeatedActivityCluster
+                          key={`cluster:${activity.id}`}
+                          activities={activities}
+                          threadId={threadId}
+                        />
+                      );
+                    }
+                    const sourceTool = toolMap.get(activity.id);
+                    const ToolRenderer = sourceTool
+                      ? (registry.tools?.[sourceTool.name] ?? slots.tool)
+                      : undefined;
+                    if (sourceTool && ToolRenderer) {
+                      return (
+                        <ToolRenderer
+                          key={sourceTool.id}
+                          value={sourceTool}
+                          threadId={threadId}
+                        />
+                      );
+                    }
+                    const Renderer =
+                      registry.activities?.[activity.kind] ??
+                      slots.activity ??
+                      AgentActivityItem;
+                    return (
+                      <Renderer
+                        key={activity.id}
+                        value={activity}
+                        threadId={threadId}
+                      />
+                    );
+                  })}
+                </div>
+              );
+              return bucket === "thinking" ? (
+                <div
+                  key={bucket}
+                  className="agentkit-activity-bucket"
+                  data-activity-bucket="reasoning-content"
+                >
+                  {content}
+                </div>
+              ) : (
                 <section
                   key={bucket}
                   className="agentkit-activity-bucket"
@@ -1230,58 +1302,7 @@ export function AgentActivityGroup({
                   <h3 className="agentkit-activity-bucket-title">
                     {activityBucketLabels[bucket]}
                   </h3>
-                  <div className="agentkit-activity-bucket-items">
-                    {groups.map((activities) => {
-                      const activity = activities[0] as AgentActivity;
-                      const reasoningMessage = reasoningMap.get(activity.id);
-                      if (reasoningMessage) {
-                        return (
-                          <AgentReasoningParts
-                            key={activity.id}
-                            message={reasoningMessage}
-                            threadId={threadId}
-                            active={
-                              activelyWorking &&
-                              currentActivity?.id === activity.id
-                            }
-                          />
-                        );
-                      }
-                      if (activities.length > 1) {
-                        return (
-                          <RepeatedActivityCluster
-                            key={`cluster:${activity.id}`}
-                            activities={activities}
-                            threadId={threadId}
-                          />
-                        );
-                      }
-                      const sourceTool = toolMap.get(activity.id);
-                      const ToolRenderer = sourceTool
-                        ? (registry.tools?.[sourceTool.name] ?? slots.tool)
-                        : undefined;
-                      if (sourceTool && ToolRenderer) {
-                        return (
-                          <ToolRenderer
-                            key={sourceTool.id}
-                            value={sourceTool}
-                            threadId={threadId}
-                          />
-                        );
-                      }
-                      const Renderer =
-                        registry.activities?.[activity.kind] ??
-                        slots.activity ??
-                        AgentActivityItem;
-                      return (
-                        <Renderer
-                          key={activity.id}
-                          value={activity}
-                          threadId={threadId}
-                        />
-                      );
-                    })}
-                  </div>
+                  {content}
                 </section>
               );
             })}
@@ -1372,19 +1393,41 @@ function AgentReasoningParts({
   threadId: string;
   active: boolean;
 }) {
-  return message.parts.map((part, index) =>
-    part.type === "reasoning" &&
-    part.visibility !== "hidden" &&
-    part.text.trim() ? (
-      <AgentMessagePartView
-        key={index}
-        value={part}
-        threadId={threadId}
-        active={active}
-        resetKey={`${threadId}:${message.id}:${index}`}
-      />
-    ) : null,
-  );
+  const { registry, slots } = useAgentKit();
+  return message.parts.map((part, index) => {
+    if (
+      part.type !== "reasoning" ||
+      part.visibility === "hidden" ||
+      !part.text.trim()
+    ) {
+      return null;
+    }
+    const resetKey = `${threadId}:${message.id}:${index}`;
+    const ReasoningRenderer =
+      registry.messageParts?.reasoning ?? slots.reasoning;
+    if (ReasoningRenderer) {
+      return (
+        <ReasoningRenderer
+          key={index}
+          value={part}
+          threadId={threadId}
+          active={active}
+          resetKey={resetKey}
+        />
+      );
+    }
+    return (
+      <div key={index} className="agentkit-reasoning-content">
+        <p>
+          <AgentStreamingText
+            text={part.text}
+            active={active}
+            resetKey={resetKey}
+          />
+        </p>
+      </div>
+    );
+  });
 }
 
 type ActivityBucket = "thinking" | "research" | "actions" | "other";
@@ -4143,6 +4186,7 @@ export function AgentKitChat({
     return result;
   }, [thread.events]);
   const dataRenderer = slots.data;
+  const messageRenderer = slots.message;
   const messagePartRenderers = registry.messageParts;
   const messageBoundarySequences = useMemo(() => {
     const firstVisibleSequence = new Map<string, number>();
@@ -4157,6 +4201,7 @@ export function AgentKitChat({
         !messageEventHasVisibleAssistantOutput(
           event,
           assistantMessageIds,
+          messageRenderer,
           dataRenderer,
           messagePartRenderers,
         )
@@ -4182,7 +4227,13 @@ export function AgentKitChat({
       result.set(messageId, lastTextDeltaSequence.get(messageId) ?? sequence);
     }
     return result;
-  }, [dataRenderer, messagePartRenderers, thread.events, thread.messages]);
+  }, [
+    dataRenderer,
+    messagePartRenderers,
+    messageRenderer,
+    thread.events,
+    thread.messages,
+  ]);
   const lastAssistantMessagesByRun = useMemo(() => {
     const result = new Map<RunId, { id: string; sequence: number }>();
     for (const message of thread.messages) {
@@ -4231,8 +4282,9 @@ export function AgentKitChat({
           messageRunIds.get(message.id) === runId &&
           messageHasVisibleAssistantOutput(
             message,
-            slots.data,
-            registry.messageParts,
+            messageRenderer,
+            dataRenderer,
+            messagePartRenderers,
           ),
       ),
   );

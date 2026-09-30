@@ -1337,10 +1337,26 @@ describe("AgentChat lifecycle", () => {
       tree.container.querySelector("[data-rendered-data]")?.textContent,
     ).toBe("Registered data");
     expectActivityBeforeOutput();
+
+    await render({
+      slots: {
+        message: () => <span data-rendered-data>Message renderer output</span>,
+      },
+    });
+    expect(
+      tree.container.querySelector("[data-rendered-data]")?.textContent,
+    ).toBe("Message renderer output");
+    expectActivityBeforeOutput();
+
+    await render();
+    expect(
+      tree.container.querySelector("[data-agentkit-current-activity]")
+        ?.textContent,
+    ).toBe("Thinking");
     await tree.unmount();
   });
 
-  it("keeps thoughts in active history and omits them after completion", async () => {
+  it("preserves visible reasoning without a Thinking history row", async () => {
     const threadId = "thread-reasoning-work";
     const runId = "run-reasoning-work";
     const base = (sequence: number, seconds: number = sequence) => ({
@@ -1419,8 +1435,20 @@ describe("AgentChat lifecycle", () => {
     ).toHaveLength(1);
     expect(tree.container.querySelectorAll("article")).toHaveLength(0);
     expect(
-      work.querySelectorAll('[data-activity-bucket="thinking"] [data-thought]'),
-    ).toHaveLength(0);
+      work.querySelectorAll(
+        '[data-activity-bucket="reasoning-content"] [data-thought]',
+      ),
+    ).toHaveLength(2);
+    expect(
+      work.querySelector(
+        '[data-activity-bucket="reasoning-content"] [data-thought]',
+      )?.textContent,
+    ).toContain("First thought");
+    expect(
+      work.querySelector(
+        '[data-activity-bucket="reasoning-content"] [data-thought][data-thought$="assistant-2:0"]',
+      )?.textContent,
+    ).toContain("Second thought");
     expect(tree.container.textContent).not.toContain("Hidden thought");
     expect(
       work.querySelector("[data-agentkit-current-activity]")?.textContent,
@@ -1464,9 +1492,18 @@ describe("AgentChat lifecycle", () => {
     expect(
       work.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
+    expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
+    expect(
+      work.querySelectorAll(
+        '[data-activity-bucket="reasoning-content"] [data-thought]',
+      ),
+    ).toHaveLength(2);
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(true);
-    expect(work.querySelectorAll("[data-thought]")).toHaveLength(0);
+    expect(work.querySelectorAll("[data-thought]")).toHaveLength(2);
+    expect(work.textContent).toContain("First thought");
+    expect(work.textContent).toContain("Second thought");
+    expect(work.textContent).not.toContain("Hidden thought");
     expect(work.querySelector('[data-activity-bucket="thinking"]')).toBeNull();
     await act(async () => work.querySelector("summary")!.click());
     expect(work.open).toBe(false);
@@ -1735,8 +1772,13 @@ describe("AgentChat lifecycle", () => {
       const work = tree.container.querySelector<HTMLDetailsElement>(
         ".agentkit-activities",
       );
-      expect(work).toBeNull();
-      expect(tree.container.textContent).toContain("Worked for 18s");
+      expect(work).not.toBeNull();
+      expect(work?.open).toBe(false);
+      expect(work?.querySelector("summary")?.textContent).toBe(
+        "Worked for 18s",
+      );
+      expect(work?.textContent).toContain("Reviewing the request");
+      expect(work?.textContent).not.toContain("Thinking");
       expect(tree.container.querySelector(".agentkit-reasoning")).toBeNull();
       expect(tree.container.querySelector("article")).toBeNull();
     },
@@ -1786,9 +1828,9 @@ describe("AgentChat lifecycle", () => {
     )!;
     expect(work.open).toBe(false);
     expect(work.querySelector("summary")?.textContent).toBe("Worked");
-    expect(work.querySelector(".agentkit-reasoning")?.textContent).toContain(
-      "Earlier thought",
-    );
+    expect(work.textContent).toContain("Earlier thought");
+    expect(work.textContent).not.toContain("Thinking");
+    expect(work.querySelector(".agentkit-reasoning")).toBeNull();
     expect(tree.container.textContent).not.toContain("Not public");
     expect(tree.container.querySelector("[data-supplement]")).not.toBeNull();
     expect(tree.container.querySelector("article")).toBeNull();
@@ -1815,7 +1857,11 @@ describe("AgentChat lifecycle", () => {
           role: "assistant" as const,
           status: "complete" as const,
           parts: [
-            { type: "reasoning" as const, text: "Private reasoning text" },
+            {
+              type: "reasoning" as const,
+              text: "Private reasoning text",
+              visibility: "hidden" as const,
+            },
           ],
         },
       ],
