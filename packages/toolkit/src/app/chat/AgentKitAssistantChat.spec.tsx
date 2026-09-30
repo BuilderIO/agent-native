@@ -234,6 +234,18 @@ vi.mock("../agentkit/react/root.js", async () => {
   return {
     AgentKitRoot: (props: any) => {
       chatMocks.rootProps = props;
+      if (chatMocks.useRealRoot) {
+        return React.createElement(actual.AgentKitRoot, {
+          ...props,
+          ...(chatMocks.realComposerController
+            ? {
+                controller: chatMocks.realComposerController,
+                transport: undefined,
+                endpoint: undefined,
+              }
+            : {}),
+        });
+      }
       if (chatMocks.realComposerController) {
         return React.createElement(AgentKitProvider, {
           ...props,
@@ -884,6 +896,8 @@ describe("AgentKitAssistantChat host behavior", () => {
           composerLayoutVariant,
           showModelSelector: false,
         });
+        const openThread = vi.spyOn(client, "openThread");
+        chatMocks.useRealRoot = true;
         await mount(props);
         container.style.width =
           composerLayoutVariant === "compact" ? "320px" : "960px";
@@ -914,6 +928,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         await flush();
 
         expect(chatMocks.rootProps.load).toBe("manual");
+        expect(openThread).not.toHaveBeenCalled();
         expect(
           container
             .querySelector<HTMLElement>("[contenteditable]")
