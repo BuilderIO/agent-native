@@ -82,6 +82,8 @@ describe("settings page registry", () => {
       "channels",
       "mcp",
       "creative-context",
+      "labs",
+      "whats-new",
       "integrations",
       "api-keys",
       "model",
@@ -98,8 +100,6 @@ describe("settings page registry", () => {
       "apps",
       "infra",
       "audit",
-      "labs",
-      "whats-new",
     ]);
     expect(new Set(ids)).toEqual(new Set(Object.values(SETTINGS_PAGE_IDS)));
   });
