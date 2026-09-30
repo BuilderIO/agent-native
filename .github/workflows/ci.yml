@@ -36,7 +36,7 @@ jobs:
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
-      query_budget_apps: ${{ steps.scope.outputs.query_budget_apps }}
+      query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       changeset: ${{ steps.scope.outputs.changeset }}
@@ -618,11 +618,14 @@ jobs:
         run: pnpm --filter @agent-native/docs build
 
   neon-query-budget:
-    name: Cold-request query budget
+    name: Cold-request query budget ${{ matrix.shard }}
     needs: change-scope
     if: needs.change-scope.outputs.neon_query_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.change-scope.outputs.query_budget_matrix) }}
     env:
       AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
       AUTH_DISABLED: "true"
@@ -639,10 +642,11 @@ jobs:
           restore-dist-cache: "true"
 
       # change-scope owns the app list: every template when shared code
-      # changed, otherwise only the templates this change touched.
+      # changed, otherwise only the templates this change touched, split
+      # across the matrix shards.
       - name: Build and measure the affected first-party templates
         env:
-          QUERY_BUDGET_APPS: ${{ needs.change-scope.outputs.query_budget_apps }}
+          QUERY_BUDGET_APPS: ${{ toJSON(matrix.apps) }}
         run: |
           set -euo pipefail
           mapfile -t apps < <(jq -r '.[]' <<< "$QUERY_BUDGET_APPS")
