@@ -3036,6 +3036,7 @@ export interface AgentKitComposerProps extends Omit<
     | "extraActionButton"
     | "onSubmit"
     | "onBeforeSubmit"
+    | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
     | "planModeDisabled"
@@ -3120,6 +3121,7 @@ export function AgentKitComposer({
   extraActionButton,
   onSubmit: onSubmitOverride,
   onBeforeSubmit,
+  onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
   planModeDisabled,
@@ -3177,6 +3179,14 @@ export function AgentKitComposer({
   );
   const submissionBlocked = Boolean(submissionDisabled) || command.pending;
   const [submissionPending, setSubmissionPending] = useState(false);
+  const [preflightPending, setPreflightPending] = useState(false);
+  const handleSubmissionPendingChange = useCallback(
+    (pending: boolean) => {
+      setSubmissionPending(pending);
+      onSubmissionPendingChange?.(pending);
+    },
+    [onSubmissionPendingChange],
+  );
   const suggestionSubmitBlocked = submissionBlocked || submissionPending;
   const localComposerRef = useRef<TiptapComposerHandle>(null);
   const composerRef = hostComposerRef ?? localComposerRef;
@@ -3664,8 +3674,10 @@ export function AgentKitComposer({
         initialTextKey={composerInitialTextKey}
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
+        sendButtonDisabled={preflightPending}
         onBeforeSubmit={onBeforeSubmit}
-        onSubmissionPendingChange={setSubmissionPending}
+        onPreflightPendingChange={setPreflightPending}
+        onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately
         onAttachmentError={reportAttachmentError}

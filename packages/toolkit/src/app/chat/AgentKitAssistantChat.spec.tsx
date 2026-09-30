@@ -779,6 +779,21 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("keeps the pending announcement when the transcript has no visible user message", async () => {
+    chatMocks.history = { isSubmissionInFlight: true };
+    chatMocks.thread.messages = [
+      {
+        id: "assistant-last",
+        role: "assistant",
+        parts: [{ type: "text", text: "Earlier response" }],
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.composerProps.announcePendingSubmission).toBe(true);
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
   it("gives JS callers a migration error for the removed createAdapter prop", async () => {
     const errors: Error[] = [];
     container = document.createElement("div");
@@ -983,6 +998,28 @@ describe("AgentKitAssistantChat host behavior", () => {
       ).toEqual([suggestion]);
     },
   );
+
+  it("disables host suggestions while async submission is pending", async () => {
+    const suggestion = seedFollowup();
+    await mount(baseProps());
+    const chips = () =>
+      [...container.querySelectorAll("button")].filter(
+        (button) => button.textContent === suggestion.label,
+      );
+    expect(chips().length).toBeGreaterThan(0);
+    expect(chips().some((button) => button.disabled)).toBe(false);
+
+    await act(async () => {
+      chatMocks.composerProps.onSubmissionPendingChange(true);
+    });
+
+    expect(chips().every((button) => button.disabled)).toBe(true);
+
+    await act(async () => {
+      chatMocks.composerProps.onSubmissionPendingChange(false);
+    });
+    expect(chips().every((button) => !button.disabled)).toBe(true);
+  });
 
   it.each([undefined, "context-chips", "after-composer", "hidden"] as const)(
     "preserves initial starters with the real composer (placement: %s)",

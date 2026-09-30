@@ -333,6 +333,7 @@ describe("AgentKit composer context submission", () => {
       ];
       let pending: void | Promise<void>;
       await act(async () => {
+        capture.props!.onSubmissionPendingChange?.(true);
         pending = capture.props!.onSubmit("Review", [], references, {
           contextItems: source,
           composerModeContext: "Use scheduling tools for this request.",
@@ -353,6 +354,7 @@ describe("AgentKit composer context submission", () => {
       await act(async () => {
         release();
         await pending;
+        capture.props!.onSubmissionPendingChange?.(false);
       });
       expect(container.querySelector('[role="status"]')).toBeNull();
       const input =

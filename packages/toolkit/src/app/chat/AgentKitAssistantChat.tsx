@@ -502,6 +502,9 @@ interface AgentKitSurfaceContextValue {
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   isSubmissionInFlight: boolean;
+  composerSubmissionPending: boolean;
+  onComposerSubmissionPendingChange: (pending: boolean) => void;
+  isThinkingVisibleInTranscript: boolean;
   contextItems: AgentChatContextItem[];
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
@@ -1140,6 +1143,8 @@ const AgentKitAssistantChatBody = forwardRef<
   const isRestoring =
     history?.isRestoring === true || props.threadRestore.status === "loading";
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
+  const [composerSubmissionPending, setComposerSubmissionPending] =
+    useState(false);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -1286,6 +1291,11 @@ const AgentKitAssistantChatBody = forwardRef<
     [thread.messages],
   );
   const isRunning = hasActiveAgentRuns(thread);
+  const lastMessage = thread.messages.at(-1);
+  const isThinkingVisibleInTranscript =
+    (isRunning || isSubmissionInFlight) &&
+    lastMessage?.role === "user" &&
+    lastMessage.metadata?.hideUserMessage !== true;
   const isThreadRunning = useCallback(
     () => hasActiveAgentRuns(controller.getThread(threadId)),
     [controller, threadId],
@@ -2577,13 +2587,14 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const submitSuggestion = useCallback(
     (suggestion: AgentSuggestionInput) => {
+      if (composerSubmissionPending) return;
       const handler = suggestionSubmitRef.current;
       if (!handler || handler.threadId !== threadId) return;
       void handler.submit(suggestion).catch((error) => {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
       });
     },
-    [props.tabId, threadId],
+    [composerSubmissionPending, props.tabId, threadId],
   );
   const retryDeferredSubmission = useCallback(async () => {
     if (!deferredProviderSubmissionFailureId) return;
@@ -2763,6 +2774,9 @@ const AgentKitAssistantChatBody = forwardRef<
     setupBouncePulse,
     bounceSetupCard,
     isSubmissionInFlight,
+    composerSubmissionPending,
+    onComposerSubmissionPendingChange: setComposerSubmissionPending,
+    isThinkingVisibleInTranscript,
     contextItems,
     voiceTranscriptMessages,
     selectionLength,
@@ -2925,7 +2939,8 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
                     disabled={
                       !surface.canChat ||
                       surface.props.composerDisabled ||
-                      surface.props.composerSubmissionDisabled
+                      surface.props.composerSubmissionDisabled ||
+                      surface.composerSubmissionPending
                     }
                     onClick={() => surface.submitSuggestion(suggestion)}
                     className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -3023,11 +3038,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
-  const lastMessage = thread.messages.at(-1);
-  const showThinking =
-    (surface.isRunning || surface.isSubmissionInFlight) &&
-    lastMessage?.role === "user" &&
-    lastMessage.metadata?.hideUserMessage !== true;
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -3048,7 +3058,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           !surface.canChat ||
           surface.props.composerDisabled ||
           surface.props.composerSubmissionDisabled ||
-          surface.isSubmissionInFlight
+          surface.isSubmissionInFlight ||
+          surface.composerSubmissionPending
         }
         onSelect={surface.submitSuggestion}
         className="agentkit-host-suggestions"
@@ -3204,7 +3215,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
-      {showThinking ? (
+      {surface.isThinkingVisibleInTranscript ? (
         <div
           role="status"
           aria-live="polite"
@@ -3353,6 +3364,9 @@ function AgentKitComposerSurface({
   isRunning,
   isRestoring,
   isSubmissionInFlight,
+  composerSubmissionPending,
+  onComposerSubmissionPendingChange,
+  isThinkingVisibleInTranscript,
   hasRenderedMessages,
   threadRestore,
   suggestions,
@@ -3388,6 +3402,9 @@ function AgentKitComposerSurface({
   isRunning: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
+  composerSubmissionPending: boolean;
+  onComposerSubmissionPendingChange: (pending: boolean) => void;
+  isThinkingVisibleInTranscript: boolean;
   hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
@@ -3633,7 +3650,8 @@ function AgentKitComposerSurface({
             !canChat ||
             props.composerDisabled ||
             props.composerSubmissionDisabled ||
-            isSubmissionInFlight
+            isSubmissionInFlight ||
+            composerSubmissionPending
           }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
@@ -3707,7 +3725,8 @@ function AgentKitComposerSurface({
           requireAgentEngine={false}
           onTextChange={onTextChange}
           onBeforeSubmit={onBeforeSubmit}
-          announcePendingSubmission={!isSubmissionInFlight}
+          announcePendingSubmission={!isThinkingVisibleInTranscript}
+          onSubmissionPendingChange={onComposerSubmissionPendingChange}
           contextItems={visibleContextItems}
           contextMenuItems={composerContext?.menuItems}
           onRemoveContextItem={(key) => {
@@ -3851,7 +3870,8 @@ function AgentKitComposerSurface({
             !canChat ||
             props.composerDisabled ||
             props.composerSubmissionDisabled ||
-            isSubmissionInFlight
+            isSubmissionInFlight ||
+            composerSubmissionPending
           }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"

@@ -160,6 +160,7 @@ describe("AgentKitChat interactions", () => {
       expect(container.querySelector('[role="status"]')?.textContent).toBe(
         "Thinking",
       );
+      expect(send.disabled).toBe(true);
       expect(send.getAttribute("aria-busy")).toBeNull();
       expect(send.querySelector(".animate-spin")).toBeNull();
 
@@ -169,6 +170,7 @@ describe("AgentKitChat interactions", () => {
       });
 
       expect(editor.textContent).toBe("Check this message");
+      expect(send.disabled).toBe(false);
       expect(container.querySelector('[role="status"]')).toBeNull();
     } finally {
       preflight.resolve(false);

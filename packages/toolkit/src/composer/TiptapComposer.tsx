@@ -888,6 +888,8 @@ export interface TiptapComposerProps {
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
+  /** Disable only the send control while async submission preflight runs. */
+  sendButtonDisabled?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -916,6 +918,7 @@ export interface TiptapComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onPreflightPendingChange?: (pending: boolean) => void;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -2548,6 +2551,7 @@ export function TiptapComposer({
   disabled = false,
   contextControlsDisabled = false,
   submissionDisabled = false,
+  sendButtonDisabled = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -2559,6 +2563,7 @@ export function TiptapComposer({
   initialTextKey,
   onSubmit,
   onBeforeSubmit,
+  onPreflightPendingChange,
   onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   clearOnSubmit = true,
@@ -4331,6 +4336,7 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
+        onPreflightPendingChange?.(true);
         onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit();
@@ -4353,6 +4359,7 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
+          onPreflightPendingChange?.(false);
           onSubmissionPendingChange?.(false);
         }
       }
@@ -5397,7 +5404,7 @@ export function TiptapComposer({
                   <button
                     type="button"
                     onClick={() => void submitComposer("immediate")}
-                    disabled={!canSend}
+                    disabled={!canSend || sendButtonDisabled}
                     aria-label={
                       submitting ? t("common.loading") : sendButtonTooltip
                     }
