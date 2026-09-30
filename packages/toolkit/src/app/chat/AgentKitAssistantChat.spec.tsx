@@ -762,6 +762,8 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
   });
 
   it("gives JS callers a migration error for the removed createAdapter prop", async () => {
@@ -855,12 +857,11 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.useRealChat = true;
       const client = await useRealComposer(startRun);
       try {
-        await mount(
-          baseProps({
-            composerLayoutVariant,
-            showModelSelector: false,
-          }),
-        );
+        const props = baseProps({
+          composerLayoutVariant,
+          showModelSelector: false,
+        });
+        await mount(props);
         container.style.width =
           composerLayoutVariant === "compact" ? "320px" : "960px";
         const composer = chatMocks.composerProps.composerRef.current;
@@ -884,6 +885,12 @@ describe("AgentKitAssistantChat host behavior", () => {
         expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
 
+        chatMocks.history = { isSubmissionInFlight: true };
+        await act(async () =>
+          root.render(<AgentKitAssistantChat {...props} />),
+        );
+        expect(editor.getAttribute("contenteditable")).toBe("true");
+        expect(send.disabled).toBe(true);
         await act(async () => composer.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));
 
