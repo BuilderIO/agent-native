@@ -9607,14 +9607,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var geometry = graphic as SVGGeometryElement;
     if (typeof geometry.getTotalLength !== "function") return false;
-    try {
-      return (
-        geometry.getTotalLength() === 0 &&
-        (style.strokeLinecap === "round" || style.strokeLinecap === "square")
-      );
-    } catch (_error) {
-      return false;
-    }
+    return (
+      geometry.getTotalLength() === 0 &&
+      (style.strokeLinecap === "round" || style.strokeLinecap === "square")
+    );
   }
 
   function cornerRadiusHasVisiblePaint(el) {

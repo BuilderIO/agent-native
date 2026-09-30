@@ -7761,11 +7761,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var geometry = graphic;
       if (typeof geometry.getTotalLength !== "function") return false;
-      try {
-        return geometry.getTotalLength() === 0 && (style.strokeLinecap === "round" || style.strokeLinecap === "square");
-      } catch (_error) {
-        return false;
-      }
+      return geometry.getTotalLength() === 0 && (style.strokeLinecap === "round" || style.strokeLinecap === "square");
     }
     function cornerRadiusHasVisiblePaint(el) {
       if (!cornerRadiusNodeAndAncestorsAllowPaint(el, null)) return false;
