@@ -1,5 +1,118 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+describe("createGetDb pooled transaction scoping", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.doUnmock("drizzle-orm/neon-serverless");
+    vi.doUnmock("@neondatabase/serverless");
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("keeps raw queries, access checks, nested scopes, and timeouts in Neon transactions", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://db.neon.tech/agent-native");
+    const execute = vi.fn(async (query: any) => {
+      const compiled = query.toQuery();
+      if (compiled.sql.startsWith("SET LOCAL statement_timeout")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (compiled.sql.includes('"transaction_scope_access_docs"')) {
+        return {
+          rows: [
+            ["doc-1", "Document", "owner@example.com", "org-1", "private"],
+          ],
+          rowCount: 1,
+        };
+      }
+      if (compiled.sql.includes("pg_sleep")) return new Promise(() => {});
+      return { rows: [{ id: 42 }], rowCount: 1 };
+    });
+    const makeTransaction = () => ({
+      execute,
+      transaction: async (run: (transaction: any) => unknown) =>
+        run(makeTransaction()),
+    });
+    const db = {
+      transaction: (run: (transaction: any) => unknown) =>
+        run(makeTransaction()),
+    };
+    vi.doMock("drizzle-orm/neon-serverless", () => ({ drizzle: () => db }));
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool: class {
+        connect = vi.fn();
+        query = vi.fn();
+        end = vi.fn(async () => {});
+        on = vi.fn();
+      },
+    }));
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const { getDbExec, getScopedDbExec } = await import("./client.js");
+    const database = await createGetDb({})();
+    const { assertAccess } = await import("../sharing/access.js");
+    const { registerShareableResource } =
+      await import("../sharing/registry.js");
+    const { createSharesTable } = await import("../sharing/schema.js");
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { ownableColumns, table, text } = await import("./schema.js");
+    const resourceTable = table("transaction_scope_access_docs", {
+      id: text("id").primaryKey(),
+      title: text("title").notNull(),
+      ...ownableColumns(),
+    });
+    registerShareableResource({
+      type: "transaction-scope-access-doc",
+      resourceTable,
+      sharesTable: createSharesTable("transaction_scope_access_shares"),
+      displayName: "Document",
+      getDb: () => {
+        throw new Error("Access check used the global database");
+      },
+    });
+
+    const result = await database.transaction(async (tx: any) => {
+      const parentScope = getScopedDbExec();
+      expect(parentScope).toBeDefined();
+      const queryResult = await getDbExec().execute({
+        sql: "SELECT ?::int AS id",
+        args: [42],
+      });
+      const access = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "org-1" },
+        () => assertAccess("transaction-scope-access-doc", "doc-1", "owner"),
+      );
+      await expect(
+        tx.transaction(async () => {
+          expect(getScopedDbExec()).not.toBe(parentScope);
+          await getDbExec().execute("SELECT 1");
+          throw new Error("rollback savepoint");
+        }),
+      ).rejects.toThrow("rollback savepoint");
+      expect(getScopedDbExec()).toBe(parentScope);
+      return { queryResult, access };
+    });
+
+    expect(result.queryResult).toEqual({ rows: [{ id: 42 }], rowsAffected: 1 });
+    expect(result.access.role).toBe("owner");
+    await expect(
+      database.transaction(() =>
+        getDbExec().execute({
+          sql: "SELECT pg_sleep(?)",
+          args: [1],
+          timeoutMs: 25,
+        }),
+      ),
+    ).rejects.toThrow("DB query timed out after 25ms");
+    expect(
+      execute.mock.calls.some(([query]) =>
+        query.toQuery().sql.startsWith("SET LOCAL statement_timeout = "),
+      ),
+    ).toBe(true);
+  });
+});
+
 const TIMEOUT_MS = 20;
 
 function makeMockPool(

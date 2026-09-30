@@ -1,8 +1,12 @@
+import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
+  annotateMissingTable,
+  dbExecQueryBudget,
   getActivePgliteTransactionClient,
   getRuntimeDatabaseUrl,
+  hasExplicitDbTimeout,
   isPgliteUrl,
   isConnectionError,
   getPgliteClient,
@@ -15,10 +19,14 @@ import {
   retryOnConnectionError,
   dbOpTimeoutMs,
   sharedDbPool,
+  toPostgresParams,
+  withDbExec,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
+import type { DbExec, DbExecStatement } from "./client.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
@@ -46,6 +54,102 @@ function getNeonServerlessDrizzle() {
     }));
   }
   return _neonServerlessDrizzle;
+}
+
+function drizzleTransactionExec(transaction: any): DbExec {
+  const exec: DbExec = {
+    async execute(statement: DbExecStatement) {
+      const query =
+        typeof statement === "string"
+          ? { sql: statement, args: [] }
+          : statement;
+      const postgresSql = toPostgresParams(query.sql);
+      const args = (query.args ?? []).map((arg) => arg ?? null);
+      const prepared = sql.raw(postgresSql);
+      // Preserve bound values when Drizzle compiles this raw SQL again.
+      prepared.toQuery = () => ({ sql: postgresSql, params: args });
+
+      const { timeoutMs } = dbExecQueryBudget(statement);
+      const startedAt = Date.now();
+      const remainingMs = () =>
+        Math.max(1, timeoutMs - (Date.now() - startedAt));
+      let result: any;
+      try {
+        result = await withDbTimeout(
+          "query",
+          async () => {
+            if (hasExplicitDbTimeout(statement)) {
+              const statementTimeoutSql = `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(remainingMs())}`;
+              const statementTimeout = sql.raw(statementTimeoutSql);
+              statementTimeout.toQuery = () => ({
+                sql: statementTimeoutSql,
+                params: [],
+              });
+              await transaction.execute(statementTimeout);
+            }
+            return transaction.execute(prepared);
+          },
+          timeoutMs,
+          undefined,
+          { sql: query.sql },
+        );
+      } catch (err) {
+        throw annotateMissingTable(err, statement);
+      }
+
+      const rows = Array.isArray(result) ? result : result?.rows;
+      if (!Array.isArray(rows)) {
+        throw new Error("Drizzle transaction query returned no row array");
+      }
+      return {
+        rows,
+        rowsAffected:
+          result.rowCount ?? result.count ?? result.affectedRows ?? rows.length,
+      };
+    },
+  };
+
+  exec.atomicBatch = async (statements) => {
+    const results = [];
+    for (const statement of statements)
+      results.push(await exec.execute(statement));
+    return results;
+  };
+
+  if (typeof transaction.transaction === "function") {
+    exec.transaction = (run) =>
+      transaction.transaction((nested: any) => {
+        const nestedExec = drizzleTransactionExec(nested);
+        return withDbExec(nestedExec, () => run(nestedExec));
+      });
+  }
+
+  return exec;
+}
+
+function scopeDbExecToDrizzleTransactions<T extends object>(db: T): T {
+  return new Proxy(db, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (prop === "transaction" && typeof value === "function") {
+        return (run: unknown, ...args: unknown[]) => {
+          if (typeof run !== "function") {
+            return value.apply(target, [run, ...args]);
+          }
+          return value.apply(target, [
+            (transaction: any) =>
+              withDbExec(drizzleTransactionExec(transaction), () =>
+                (run as (transaction: any) => unknown)(
+                  scopeDbExecToDrizzleTransactions(transaction),
+                ),
+              ),
+            ...args,
+          ]);
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 /**
@@ -326,7 +430,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         );
         guardNeonPool(rawPool, url);
         const pool = buildResilientNeonPool(rawPool);
-        _db = drizzle(pool, { schema });
+        _db = scopeDbExecToDrizzleTransactions(drizzle(pool, { schema }));
         return _db;
       });
     } else {
@@ -335,7 +439,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         const client = sharedDbPool("postgres-js", url, () =>
           postgres(url, pgPoolOptions(url)),
         );
-        _db = drizzle(buildResilientPostgresJsClient(client), { schema });
+        _db = scopeDbExecToDrizzleTransactions(
+          drizzle(buildResilientPostgresJsClient(client), { schema }),
+        );
         return _db;
       });
     }
