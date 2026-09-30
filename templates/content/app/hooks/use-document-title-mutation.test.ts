@@ -1,3 +1,4 @@
+import { serializeIconValue } from "@agent-native/core/icons";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -204,6 +205,56 @@ describe("title changes and database query membership", () => {
     expect(client.getQueryState(otherContextKey)?.isInvalidated).toBe(false);
     client.clear();
   });
+
+  it.each([
+    "👍🏽",
+    {
+      version: 1,
+      kind: "library",
+      library: "tabler",
+      name: "book",
+      color: "blue",
+    },
+    { version: 1, kind: "image", assetId: "qa-image", authority: "content" },
+    null,
+  ] as const)(
+    "keeps Recent icons current when choosing %s and rolls back a rejected save",
+    async (icon) => {
+      const client = new QueryClient();
+      useQueryClient.mockReturnValue(client);
+      const recentKey = ["action", "get-content-recent", { scopeKey: "user" }];
+      const entries = [
+        { target: { documentId: "row-1" }, title: "Page", icon: "📘" },
+        { target: { documentId: "other-page" }, title: "Other", icon: "⭐" },
+      ];
+      client.setQueryData(recentKey, { entries });
+      useUpdateDocument();
+      const mutation = useActionMutation.mock.calls.find(
+        ([name]) => name === "update-document",
+      )![1];
+      const variables = { id: "row-1", icon };
+      const storedIcon =
+        typeof icon === "string" ? icon : serializeIconValue(icon);
+      const context = await mutation.onMutate(variables);
+      expect(client.getQueryData<any>(recentKey).entries).toEqual([
+        { ...entries[0], icon: storedIcon },
+        entries[1],
+      ]);
+      mutation.onError(new Error("Save rejected"), variables, context);
+      expect(client.getQueryData<any>(recentKey).entries).toEqual(entries);
+
+      const retryContext = await mutation.onMutate(variables);
+      mutation.onSuccess(
+        { id: "row-1", title: "Page", icon, softDeletedDatabaseIds: [] },
+        variables,
+        retryContext,
+      );
+      expect(client.getQueryData<any>(recentKey).entries[0].icon).toBe(
+        storedIcon,
+      );
+      client.clear();
+    },
+  );
 
   it("restores hidden Pinned from click-time sidebar state and rolls back a failed save", async () => {
     const client = new QueryClient();

@@ -4,6 +4,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { serializeIconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItemsPageResponse,
   ContentDatabaseNavigationPageResponse,
@@ -513,12 +514,24 @@ export function patchDocumentCaches(
   queryClient.setQueriesData<{ entries: ContentRecentResult[] }>(
     { queryKey: ["action", "get-content-recent"] },
     (current) => {
-      if (!current || patch.title === undefined) return current;
+      if (!current || (patch.title === undefined && patch.icon === undefined))
+        return current;
       let changed = false;
       const entries = current.entries.map((entry) => {
         if (entry.target.documentId !== documentId) return entry;
         changed = true;
-        return { ...entry, title: patch.title! };
+        return {
+          ...entry,
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.icon !== undefined
+            ? {
+                icon:
+                  typeof patch.icon === "string"
+                    ? patch.icon
+                    : serializeIconValue(patch.icon),
+              }
+            : {}),
+        };
       });
       return changed ? { ...current, entries } : current;
     },
@@ -1077,6 +1090,9 @@ export function useUpdateDocument() {
         const personalViewFilter = {
           queryKey: ["action", "get-content-database-personal-view"],
         } as const;
+        const recentFilter = {
+          queryKey: ["action", "get-content-recent"],
+        } as const;
         const sidebarStateEntry = currentContentSidebarState(
           queryClient,
           currentDocumentSpaceId(queryClient, variables.id),
@@ -1090,6 +1106,7 @@ export function useUpdateDocument() {
           queryClient.cancelQueries(databasePageFilter),
           queryClient.cancelQueries(contentSpacesFilter),
           queryClient.cancelQueries(personalViewFilter),
+          queryClient.cancelQueries(recentFilter),
         ]);
 
         const previous: Array<[readonly unknown[], unknown]> = [
@@ -1106,6 +1123,7 @@ export function useUpdateDocument() {
           ),
           ...queryClient.getQueriesData(contentSpacesFilter),
           ...queryClient.getQueriesData(personalViewFilter),
+          ...queryClient.getQueriesData(recentFilter),
           ...(sidebarStateKey
             ? [
                 [
