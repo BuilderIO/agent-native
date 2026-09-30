@@ -854,13 +854,23 @@ export function shouldClearPendingLiveEditsAfterReload(
   reloadingScreenId: string,
   reloadingFrameId: string,
 ): boolean {
+  if (!pendingTargets.get(reloadingScreenId)?.has(reloadingFrameId)) {
+    return false;
+  }
+  const completedTargets = new Set(reloadedTargets);
+  completedTargets.add(`${reloadingScreenId}\0${reloadingFrameId}`);
+  return haveAllPendingLiveEditFramesReloaded(pendingTargets, completedTargets);
+}
+
+export function haveAllPendingLiveEditFramesReloaded(
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
+  reloadedTargets: ReadonlySet<string>,
+): boolean {
   return (
     pendingTargets.size > 0 &&
     Array.from(pendingTargets).every(([screenId, frameIds]) =>
-      Array.from(frameIds).every(
-        (frameId) =>
-          (screenId === reloadingScreenId && frameId === reloadingFrameId) ||
-          reloadedTargets.has(`${screenId}\0${frameId}`),
+      Array.from(frameIds).every((frameId) =>
+        reloadedTargets.has(`${screenId}\0${frameId}`),
       ),
     )
   );
@@ -892,6 +902,29 @@ export interface VisualEditHandoffPublicationState {
   designId: string;
   publicationRevision: number;
   serverRevision: number | null;
+}
+
+export function isVisualEditHandoffPublicationUnconfirmed(
+  state: VisualEditHandoffPublicationState | null,
+  designId: string | null | undefined,
+): boolean {
+  return Boolean(
+    designId && state?.designId === designId && state.serverRevision === null,
+  );
+}
+
+export function shouldFinalizePendingLiveEditReload(args: {
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>;
+  reloadedTargets: ReadonlySet<string>;
+  handoff: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+}): boolean {
+  return (
+    haveAllPendingLiveEditFramesReloaded(
+      args.pendingTargets,
+      args.reloadedTargets,
+    ) && !isVisualEditHandoffPublicationUnconfirmed(args.handoff, args.designId)
+  );
 }
 
 type VisualEditHandoffPublicationEvent =
@@ -938,7 +971,7 @@ export function updateVisualEditHandoffPublication(
   if (event.status === "ready") {
     return { ...current, serverRevision: event.serverRevision };
   }
-  return null;
+  return current;
 }
 
 export function updateReloadedVisualEditHandoff(

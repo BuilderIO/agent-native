@@ -5,6 +5,7 @@ import {
   pendingLiveEditFrameTargets,
   shouldClearReloadedVisualEditHandoff,
   shouldClearPendingLiveEditsAfterReload,
+  shouldFinalizePendingLiveEditReload,
   shouldPublishVisualEditHandoff,
   shouldSuppressReloadedVisualEditHandoff,
   updateReloadedVisualEditHandoff,
@@ -185,6 +186,55 @@ describe("pending live edits after runtime reload", () => {
         revision: 5,
       }),
     ).toBe(false);
+  });
+
+  it("keeps local edits through a reload until the durable handoff is confirmed", () => {
+    const targets = pendingLiveEditFrameTargets([styleEdit("library")], []);
+    const reloaded = new Set(["library\0primary"]);
+    const queued = updateVisualEditHandoffPublication(null, {
+      status: "queued",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+
+    expect(
+      shouldFinalizePendingLiveEditReload({
+        pendingTargets: targets,
+        reloadedTargets: reloaded,
+        handoff: queued,
+        designId: "design-1",
+      }),
+    ).toBe(false);
+
+    const afterFailure = updateVisualEditHandoffPublication(queued, {
+      status: "failed",
+      designId: "design-1",
+      publicationRevision: 4,
+    });
+    expect(afterFailure).toEqual(queued);
+    expect(
+      shouldFinalizePendingLiveEditReload({
+        pendingTargets: targets,
+        reloadedTargets: reloaded,
+        handoff: afterFailure,
+        designId: "design-1",
+      }),
+    ).toBe(false);
+
+    const afterConfirmation = updateVisualEditHandoffPublication(afterFailure, {
+      status: "ready",
+      designId: "design-1",
+      publicationRevision: 4,
+      serverRevision: 5,
+    });
+    expect(
+      shouldFinalizePendingLiveEditReload({
+        pendingTargets: targets,
+        reloadedTargets: reloaded,
+        handoff: afterConfirmation,
+        designId: "design-1",
+      }),
+    ).toBe(true);
   });
 
   it("does not queue an empty handoff after a retained reload", () => {

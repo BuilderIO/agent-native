@@ -1076,6 +1076,7 @@ import {
   projectRelativeSourcePath,
   relativeOperationsForStyles,
   reactSourceAnchorForPendingEdit,
+  shouldFinalizePendingLiveEditReload,
   type PendingLiveLayerNameEdit,
   type PendingLiveLayerStateEdit,
   type PendingLiveNonStyleEdit,
@@ -2108,6 +2109,30 @@ function DesignEditor() {
   useEffect(() => {
     clearPendingLiveEditStateRef.current = clearPendingLiveEditState;
   }, [clearPendingLiveEditState]);
+  const clearReloadedPendingLiveEdits = useCallback(() => {
+    const pendingTargets = pendingLiveEditFrameTargets(
+      pendingVisualStyleEditsRef.current,
+      pendingLiveNonStyleEditsRef.current,
+    );
+    const reloadedTargets = pendingLiveEditReloadedTargetsRef.current;
+    const handoff = pendingVisualEditDurableHandoffPublishedRef.current;
+    if (
+      !shouldFinalizePendingLiveEditReload({
+        pendingTargets,
+        reloadedTargets,
+        handoff,
+        designId: id,
+      })
+    ) {
+      return;
+    }
+    clearPendingLiveEditStateRef.current({
+      preserveDurableHandoff:
+        handoff !== null &&
+        handoff.designId === id &&
+        handoff.serverRevision !== null,
+    });
+  }, [id]);
   const handleLiveScreenRuntimeReload = useCallback(
     (screenId: string, frameId: string) => {
       const pendingTargets = pendingLiveEditFrameTargets(
@@ -2133,14 +2158,10 @@ function DesignEditor() {
           frameId,
         )
       ) {
-        clearPendingLiveEditStateRef.current({
-          preserveDurableHandoff:
-            pendingVisualEditDurableHandoffPublishedRef.current?.designId ===
-            id,
-        });
+        clearReloadedPendingLiveEdits();
       }
     },
-    [id],
+    [clearReloadedPendingLiveEdits, id],
   );
   useEffect(() => {
     if (!pendingVisualStyleRevertRequest) return;
@@ -19138,6 +19159,9 @@ function DesignEditor() {
               pendingVisualEditReloadedHandoffRef.current,
               event,
             );
+          if (status === "ready" && typeof serverRevision === "number") {
+            clearReloadedPendingLiveEdits();
+          }
         },
         setPendingVisualEditPublicationFailed,
         showHandoffErrorToast: (error) => {
@@ -19170,6 +19194,7 @@ function DesignEditor() {
     activeOverviewScreen?.id,
     canEditLiveScreen,
     canEditDesign,
+    clearReloadedPendingLiveEdits,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
