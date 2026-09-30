@@ -3668,12 +3668,12 @@ function AgentKitComposerSurface({
           disabled={
             (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||
-            isRestoring ||
-            isSubmissionInFlight
+            isRestoring
           }
           submissionDisabled={
             (!canChat && !providerSubmissionPending) ||
-            props.composerSubmissionDisabled === true
+            props.composerSubmissionDisabled === true ||
+            isSubmissionInFlight
           }
           onDisabledClick={
             props.composerDisabled || !setupMissing

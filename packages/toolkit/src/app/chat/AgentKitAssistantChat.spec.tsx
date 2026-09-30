@@ -759,6 +759,8 @@ describe("AgentKitAssistantChat host behavior", () => {
     ];
     await mount(baseProps());
 
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "agentChat.status.thinking",
     );
@@ -846,6 +848,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.readThread = () => client.getThread(chatMocks.threadId);
     return client;
   }
+
+  it("keeps the real editor editable while a submission is in flight", async () => {
+    chatMocks.useRealChat = true;
+    chatMocks.history = { isSubmissionInFlight: true };
+    await useRealComposer();
+    await mount(baseProps({ showModelSelector: false }));
+
+    const editor = container.querySelector<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    expect(editor).not.toBeNull();
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+
+    await act(async () =>
+      chatMocks.composerProps.composerRef.current.setText("Keep this draft"),
+    );
+    expect(editor?.textContent).toBe("Keep this draft");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
+  });
 
   it.each(["default", "compact"] as const)(
     "clears the real %s composer before startRun resolves and preserves the next draft",
