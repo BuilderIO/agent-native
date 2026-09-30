@@ -207,6 +207,20 @@ describe("open-visual-edit", () => {
     expect(result.previewToken).toBe("stored-preview-token");
   });
 
+  it("puts the bridge start command in the message, which MCP callers see instead of the full result", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173/",
+      bridgeUrl: "http://127.0.0.1:7331",
+      rootPath: "/tmp/app",
+      navigate: false,
+    });
+
+    expect(result.message).toBe(
+      'Design design_1 uses connection localhost_canonical. Start its bridge with `AGENT_NATIVE_BRIDGE_TOKEN=stored-write-token npx @agent-native/core@latest design connect --url http://localhost:5173 --root "/tmp/app" --daemon`, then open the design.',
+    );
+  });
+
   it("passes an explicit connection id through for follow-up visual-edit calls", async () => {
     await action.run({
       designId: "design_1",

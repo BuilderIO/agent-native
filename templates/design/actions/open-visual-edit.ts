@@ -696,8 +696,14 @@ export default defineAction({
       const embedStartUrl = isLoopbackUrl(devServerUrl)
         ? await createCallerHandoff(urlPath, ownerEmail, designId)
         : undefined;
+      const startBridgeCommand = connection.bridgeToken
+        ? `AGENT_NATIVE_BRIDGE_TOKEN=${connection.bridgeToken} npx @agent-native/core@latest design connect --url ${devServerUrl} --root "${connection.rootPath ?? "."}" --daemon`
+        : null;
 
       const result = {
+        message: startBridgeCommand
+          ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${startBridgeCommand}\`, then open the design.`
+          : `Design ${designId} uses connection ${connection.id}.`,
         designId,
         connectionId: connection.id,
         createdDesign,
