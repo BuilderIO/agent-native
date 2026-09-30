@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getLabForLegacyFlag } from "../../labs/registry.js";
+import { getUserLabStates } from "../../labs/store.js";
 import { captureError } from "../../server/capture-error.js";
 import { listFeatureFlags } from "../registry.js";
 import {
@@ -56,6 +58,21 @@ export default defineAction({
         }
       }),
     );
+    const migratedKeys = definitions
+      .map(({ key }) => key)
+      .filter((key) => getLabForLegacyFlag(key));
+    if (migratedKeys.length === 0 || !scope.userEmail) return values;
+    const labStates = await getUserLabStates(scope.userEmail, scope);
+    for (const key of migratedKeys) {
+      const lab = getLabForLegacyFlag(key);
+      if (!lab) continue;
+      const state = labStates[lab.key];
+      if (!state) throw new Error(`Missing migrated lab state: ${lab.key}`);
+      values[key] =
+        state.source === "choice"
+          ? state.enabled
+          : (state.legacyValues?.[key] ?? false);
+    }
     return values;
   },
 });

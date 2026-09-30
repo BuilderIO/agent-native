@@ -252,6 +252,7 @@
     "./labs/registry": "./dist/labs/registry.js",
     "./labs/server": "./dist/labs/server.js",
     "./labs/actions/get-labs": "./dist/labs/actions/get-labs.js",
+    "./labs/actions/get-lab-states": "./dist/labs/actions/get-lab-states.js",
     "./labs/actions/set-lab": "./dist/labs/actions/set-lab.js",
     "./experiments": "./dist/experiments/index.js",
     "./experiments/registry": "./dist/experiments/registry.js",

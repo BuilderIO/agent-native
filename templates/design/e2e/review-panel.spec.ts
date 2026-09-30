@@ -3,8 +3,8 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { DESIGN_REVIEW_PANEL } from "../shared/design-flags";
-import { enableFeatureFlag, gotoEditor } from "./helpers";
+import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
+import { enableLab, gotoEditor } from "./helpers";
 
 const AUTH_DIR = process.env.E2E_AUTH_DIR
   ? path.resolve(process.env.E2E_AUTH_DIR)
@@ -14,20 +14,17 @@ test("clicking a review finding opens its details", async ({ page }) => {
   const { designId } = JSON.parse(
     await readFile(path.join(AUTH_DIR, "seed.json"), "utf8"),
   ) as { designId: string };
-  const disableReviewPanel = await enableFeatureFlag(
-    page,
-    DESIGN_REVIEW_PANEL.key,
-  );
+  const restoreReviewPanel = await enableLab(page, DESIGN_REVIEW_TOOLS_LAB.key);
 
   try {
     await gotoEditor(page, designId);
-    const reviewToggle = page.getByRole("button", {
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    const reviewHeading = page.getByRole("heading", {
       name: "Review",
       exact: true,
     });
-    await reviewToggle.scrollIntoViewIfNeeded();
-    await expect(reviewToggle).toBeVisible();
-    await reviewToggle.click();
+    await reviewHeading.scrollIntoViewIfNeeded();
+    await expect(reviewHeading).toBeVisible();
 
     await expect(page.getByTestId("review-panel")).toBeVisible();
     const auditResponse = page.waitForResponse(
@@ -56,6 +53,6 @@ test("clicking a review finding opens its details", async ({ page }) => {
     ).toBeVisible();
     await expect(finding).toHaveAttribute("aria-expanded", "true");
   } finally {
-    await disableReviewPanel();
+    await restoreReviewPanel();
   }
 });
