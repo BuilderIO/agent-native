@@ -2262,10 +2262,12 @@ export default function Index({ active = true }: { active?: boolean }) {
               <DeckSearchInput
                 value={deckSearch}
                 onChange={setDeckSearch}
-                className="min-w-0 flex-1"
+                className="slides-home-mobile-search min-w-0 flex-1"
               />
             ) : null}
-            <ImportDeckButton controller={deckImport} />
+            <div className="slides-home-mobile-import">
+              <ImportDeckButton controller={deckImport} />
+            </div>
           </div>
         ) : null
       }

@@ -49,10 +49,12 @@
 
 @container (max-width: 25rem) {
   .slides-home-toolbar {
-    height: 7rem;
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .slides-home-toolbar:has(.slides-home-search) {
+    height: 7rem;
     grid-template-rows: 3.5rem 3.5rem;
-    row-gap: 0;
   }
 
   .slides-home-search {
@@ -72,13 +74,13 @@
   flex-wrap: wrap;
 }
 
-.slides-home-mobile-toolbar > :first-child {
+.slides-home-mobile-toolbar > .slides-home-mobile-search {
   min-width: 150px;
   max-width: 30rem;
   flex: 1 1 150px;
 }
 
-.slides-home-mobile-toolbar > :last-child {
+.slides-home-mobile-toolbar > .slides-home-mobile-import {
   flex-shrink: 0;
   margin-inline-start: auto;
 }
